@@ -59,9 +59,22 @@ namespace ArSandbox
                 { app.SetPlacement(target.anchorId, target.origin.InverseTransformPoint(hit.point)); return; }
         }
 
+        private void LateUpdate()
+        {
+            if (app == null) return;
+            // The desktop camera remains a valid viewpoint while the PC Operator
+            // browser has focus. XR instead requires active headset tracking/focus.
+            if (view != null && view.isActiveAndEnabled)
+                app.SetViewerPose(view.transform.position, view.transform.forward);
+            else app.ClearViewerPose();
+        }
+
         private void ReleaseLook() { looking = false; Cursor.lockState = CursorLockMode.None; Cursor.visible = true; }
-        private void OnDisable() { ReleaseLook(); }
-        private void OnApplicationFocus(bool focused) { if (!focused) ReleaseLook(); }
+        private void OnDisable() { ReleaseLook(); if (app != null) app.ClearViewerPose(); }
+        private void OnApplicationFocus(bool focused)
+        {
+            if (!focused) ReleaseLook();
+        }
 
         private void OnGUI()
         {

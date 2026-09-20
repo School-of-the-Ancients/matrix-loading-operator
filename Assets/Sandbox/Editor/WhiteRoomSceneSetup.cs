@@ -30,6 +30,7 @@ namespace ArSandbox
             app.prefabs = assets; app.simulatedRoom = false;
             app.placementMaterial = Material("placement", new Color(.05f,.8f,.45f));
             var bridge = app.gameObject.AddComponent<PcBridge>(); bridge.app = app;
+            var voice = app.gameObject.AddComponent<SandboxVoiceInput>(); voice.app = app; voice.bridge = bridge;
             var room = app.gameObject.AddComponent<WhiteRoomAdapter>(); room.app = app;
             room.floorOrigin = new GameObject("White room coordinate origin").transform;
             // The floor and save origin remain fixed when the viewer moves or tracking recentres.
@@ -112,7 +113,9 @@ namespace ArSandbox
                 Part(root, "Stand", new Vector3(0,.52f,0), new Vector3(.36f,.8f,.36f), Material("stone", new Color(.64f,.65f,.66f)));
                 Part(root, "Top", new Vector3(0,.96f,0), new Vector3(.65f,.08f,.65f), metal);
             }
-            return Save(root, id, name, 1);
+            var entry = Save(root, id, name, 1);
+            if (id == "chair") entry.description = "Seat faces local -Z; backrest is on local +Z.";
+            return entry;
         }
         private static void Legs(GameObject root, float x, float z, float height, Material material)
         {

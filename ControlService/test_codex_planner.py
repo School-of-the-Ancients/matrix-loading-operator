@@ -35,10 +35,27 @@ RECEIPT = {"transport": "codex-cli", "completedTurn": True,
            "toolCallCount": 0}
 
 
-def inference(commands=None):
-    return {"proposal": {"commands": copy.deepcopy(commands or [{"op": "duplicate", "objectId": "chair-1"}]),
-                         "summary": "Duplicate the selected chair beside it."},
-            "receipt": copy.deepcopy(RECEIPT)}
+def inference(commands=None, summary="Duplicate the selected chair beside it.", assumptions=None):
+    result = {"proposal": {"commands": copy.deepcopy(commands if commands is not None else
+                                                    [{"op": "duplicate", "objectId": "chair-1"}]),
+                           "summary": summary}, "receipt": copy.deepcopy(RECEIPT)}
+    if assumptions is not None:
+        result["proposal"]["assumptions"] = copy.deepcopy(assumptions)
+    return result
+
+
+def composite_proposal():
+    """An arbitrary model-output fixture, never a runtime phrase or layout recipe."""
+    commands = []
+    for asset_id, x, z, scale in (("block", -1, -1, .3), ("block", 1, -1, .3),
+                                  ("block", 0, 1, .3), ("chair", 2, 0, 1)):
+        pose = copy.deepcopy(POSE)
+        pose["position"] = {"x": x, "y": 0, "z": z}
+        pose["rotation"] = {"x": 0, "y": 0, "z": 0}
+        pose["scale"] = dict.fromkeys("xyz", scale)
+        commands.append({"op": "spawn", "assetId": asset_id, "anchorId": "white-floor", "transform": pose})
+    return inference(commands, "Arrange three markers in a triangle with a seat beside them.",
+                     ["Use the existing floor coordinate frame.", "Keep existing scene objects unchanged."])
 
 
 def config_fixture(directory):
@@ -153,6 +170,77 @@ class CodexPlannerTests(unittest.TestCase):
         self.assertEqual(result["commands"], [{"op": "load_scene", "name": "Demo"}])
         self.assertTrue(result["requiresApply"])
         self.assertEqual(result["inference"], RECEIPT)
+
+    def test_arbitrary_composite_model_output_is_validated_without_offline_recipe(self):
+        self.plan_codex.return_value = composite_proposal()
+        prompt = "Arrange three markers as a triangle and place a seat beside them."
+        result = self.codex_plan(prompt)
+        self.assertEqual(result["commands"], self.plan_codex.return_value["proposal"]["commands"])
+        self.assertEqual(result["assumptions"], self.plan_codex.return_value["proposal"]["assumptions"])
+        self.assertEqual(result["status"], "ready")
+        self.assertTrue(result["requiresApply"])
+        self.assertEqual(result["inference"], RECEIPT)
+        self.assertEqual(self.plan_codex.call_args.args[2], prompt)
+        self.assertEqual(self.snapshot, SNAPSHOT)
+
+    def test_codex_clarification_preserves_explanation_and_receipt_without_apply(self):
+        summary = "Should the seat face the markers or face away from them?"
+        self.plan_codex.return_value = inference([], summary, ["The existing chair remains unchanged."])
+        result = self.codex_plan("Make the layout face the right way")
+        self.assertEqual(result["status"], "needs_clarification")
+        self.assertEqual(result["commands"], [])
+        self.assertEqual(result["summary"], summary)
+        self.assertFalse(result["requiresApply"])
+        self.assertEqual(result["inference"], RECEIPT)
+        self.assertNotIn("planId", result)
+        self.assertEqual(self.snapshot, SNAPSHOT)
+
+    def test_adapter_does_not_trust_model_status_identifiers_or_extra_fields(self):
+        for field in ("status", "requiresApply", "planId", "localBounds", "toolCalls"):
+            with self.subTest(field=field):
+                output = composite_proposal()
+                output["proposal"][field] = "untrusted model value"
+                self.plan_codex.return_value = output
+                with self.assertRaises(PlannerError):
+                    self.codex_plan()
+
+    def test_valid_prefab_bounds_reach_model_without_mutating_snapshot(self):
+        bounds = {"center": {"x": 0, "y": .5, "z": 0}, "size": {"x": 1, "y": 1, "z": 1}}
+        self.snapshot["assets"][1]["localBounds"] = copy.deepcopy(bounds)
+        before = copy.deepcopy(self.snapshot)
+        self.codex_plan()
+        context = self.plan_codex.call_args.args[3]
+        self.assertEqual(context["assets"][1]["localBounds"], bounds)
+        self.assertEqual(self.snapshot, before)
+        context["assets"][1]["localBounds"]["size"]["x"] = 9
+        self.assertEqual(self.snapshot, before)
+
+    def test_missing_null_and_unity_empty_geometry_remain_unknown(self):
+        placeholder = {"center": dict.fromkeys("xyz", 0), "size": dict.fromkeys("xyz", 0)}
+        for supplied, value in ((False, None), (True, None), (True, placeholder)):
+            with self.subTest(supplied=supplied, value=value):
+                self.snapshot = copy.deepcopy(SNAPSHOT)
+                if supplied:
+                    self.snapshot["assets"][1]["localBounds"] = value
+                self.codex_plan()
+                self.assertNotIn("localBounds", self.plan_codex.call_args.args[3]["assets"][1])
+
+    def test_malformed_prefab_geometry_is_rejected_before_model_call(self):
+        good = {"center": dict.fromkeys("xyz", 0), "size": dict.fromkeys("xyz", 1)}
+        invalid = [[], "bounds", {}, {**good, "untrusted": "metadata"}, {"center": good["center"]}]
+        for key, axis, value in (("center", "x", float("nan")), ("center", "z", float("inf")),
+                                 ("center", "y", False), ("size", "x", 0), ("size", "y", -1),
+                                 ("size", "z", "1"), ("size", "x", True)):
+            malformed = copy.deepcopy(good)
+            malformed[key][axis] = value
+            invalid.append(malformed)
+        for bounds in invalid:
+            with self.subTest(bounds=bounds):
+                self.snapshot["assets"][1]["localBounds"] = bounds
+                self.plan_codex.reset_mock()
+                with self.assertRaises(PlannerError):
+                    self.codex_plan()
+                self.plan_codex.assert_not_called()
 
 
 class CodexPlannerHttpTests(unittest.TestCase):
@@ -291,6 +379,41 @@ class CodexPlannerHttpTests(unittest.TestCase):
         self.assertEqual(code, 422, response)
         self.assertEqual(len(self.state.pending), 0)
         self.assertEqual(len(self.state.proposals), 0)
+
+    def test_http_clarification_is_visible_without_plan_id_or_queued_commands(self):
+        summary = "Which existing object should the new arrangement surround?"
+        self.plan_codex.return_value = inference([], summary, [])
+        code, response = self.request("/api/plan", {"text": "Arrange it around that", "mode": "codex-cli"})
+        self.assertEqual(code, 200, response)
+        self.assertEqual(response["status"], "needs_clarification")
+        self.assertEqual(response["summary"], summary)
+        self.assertEqual(response["assumptions"], [])
+        self.assertEqual(response["commands"], [])
+        self.assertFalse(response["requiresApply"])
+        self.assertEqual(response["inference"], RECEIPT)
+        self.assertNotIn("planId", response)
+        self.assertEqual(len(self.state.pending), 0)
+        self.assertEqual(len(self.state.proposals), 0)
+        self.assertEqual(self.exchange(), (200, {"commands": []}))
+
+    def test_http_arbitrary_composite_waits_for_apply_and_preserves_scene(self):
+        output = composite_proposal()
+        self.plan_codex.return_value = output
+        before = copy.deepcopy(self.state.latest)
+        code, response = self.request("/api/plan", {"text": "Arrange three markers and a seat", "mode": "codex-cli"})
+        self.assertEqual(code, 200, response)
+        self.assertEqual(response["status"], "ready")
+        self.assertEqual(response["assumptions"], output["proposal"]["assumptions"])
+        self.assertTrue(response["requiresApply"])
+        self.assertEqual(len(self.state.pending), 0)
+        self.assertEqual(self.state.latest, before)
+        code, queued = self.request("/api/apply_plan", {"planId": response["planId"]})
+        self.assertEqual(code, 200, queued)
+        self.assertEqual([{key: value for key, value in item.items() if key != "requestId"}
+                          for item in queued["commands"]], output["proposal"]["commands"])
+        self.assertEqual(len({item["requestId"] for item in queued["commands"]}), 4)
+        self.assertEqual(self.state.latest, before)
+        self.plan_codex.assert_called_once()
 
 
 if __name__ == "__main__":

@@ -2,7 +2,7 @@
 
 This report concerns the fully virtual Matrix Operator. Earlier prototype reports concern separate MRUK/simulation paths.
 
-The [Quest Pro continuation session](Quest-Pro-Session.md) records **21 actual-device command/persistence checks** after manual launch and USB-forwarding recovery. The wearer confirms restored objects and selection. Live Codex subsequently completed one acknowledged spawn, but the next resize proposal returned HTTP 409; that partial run safely restored its original scene. Build/player, wearer and model evidence remain separate below.
+The [Quest Pro continuation session](Quest-Pro-Session.md) records **21 actual-device command/persistence checks** and now **61 successful live Codex AI loop checks**. The wearer confirms seeing the AI changes and their scene restored. The earlier 27/1 attempt remains recorded separately; build/player, wearer and model evidence remain distinct below.
 
 | Evidence | Result | Boundary |
 | --- | --- | --- |
@@ -15,10 +15,11 @@ The [Quest Pro continuation session](Quest-Pro-Session.md) records **21 actual-d
 | Desktop build | Produced `Builds/WhiteRoomDesktop/MatrixOperator.exe` | Desktop control visuals and physical input are not covered by headless integration tests |
 | Quest build | Produced ARM64 `Builds/WhiteRoomQuest/MatrixOperator.apk` | Metadata checked; subsequently installed successfully on the actual Quest Pro |
 | Quest runtime command/persistence loop | **21 passed, 0 failed** | Actual authorized Quest Pro app; same-ID edits and exact save/clear/restore; all 17 original objects restored afterward |
-| Headset visuals / Touch Pro / tracking | White room, restored objects and selection work, **wearer-reported** | Full button/stick, floor-height, tracking/recenter and comfort checklist remains pending |
-| Live Codex CLI + actual Quest | **27 passed, 1 failed** | Spawn reviewed/applied/acknowledged; resize proposal HTTP 409; original three objects restored |
+| Headset visuals / Touch Pro / tracking | White room, selection, visible AI changes and restored scene, **wearer-reported** | Full button/stick, floor-height, tracking/recenter and comfort checklist remains pending |
+| Live Codex CLI + actual Quest | **61 passed, 0 failed** | Five real turns; reviewed spawn, same-ID resize, save, clear, exact restore; original table and selection restored |
+| Earlier live Codex attempt | **27 passed, 1 failed**, retained | Spawn acknowledged; resize proposal HTTP 409; original three objects restored |
 | Unity Hub source exports | **103 Quest + 90 Desktop files SHA-256 verified** | Complete Assets/Packages/ProjectSettings copies; not opened or rebuilt at Desktop destinations |
-| Full live AI loop / MRUK hardware / voice | **Unfinished / untested / unimplemented** | Partial live spawn does not establish these outcomes |
+| MRUK hardware / voice | **Untested / unimplemented** | Virtual-room AI success does not establish physical-room behavior |
 
 ## Real application loop
 
@@ -41,7 +42,9 @@ Reports: `white-room-desktop-core-results.json`, `white-room-quest-core-results.
 
 ## Live Codex and Desktop export evidence
 
-The user selected subscription access; native `codex.exe login status` reported ChatGPT sign-in. `Start-CodexControlService.ps1` starts that mode while leaving credentials under Codex management. [codex-headset-loop-results.json](codex-headset-loop-results.json) records one completed model proposal with zero tool calls, explicit review/Apply and actual headset spawn acknowledgement. A subsequent resize proposal returned HTTP 409. The recovery scene's new chair had yaw 45 rather than the requested yaw 0, supporting stale-context rejection. The HTTP error body was not captured and the rotation's source is unknown, so the exact cause is unconfirmed. All three original objects were restored. No full live AI save/clear/restore success is claimed.
+The user selected subscription access; native `codex.exe login status` reported ChatGPT sign-in. `Start-CodexControlService.ps1` starts that mode while leaving credentials under Codex management. [codex-headset-loop-success.json](codex-headset-loop-success.json) records **61/0** at 21:29:28.530–21:30:15.351 UTC: five real Codex turns, each with zero tool calls, reviewed spawn/same-ID resize/save/clear/restore and actual Quest acknowledgements. Exact IDs, assets, anchors and transforms survived restore; the original table and selection were restored afterward. The wearer separately confirmed seeing the changes and their scene restored. No C# or PC source change, build or unit-test rerun occurred for this result; the existing 136 tests remain separate evidence.
+
+The [earlier 27/1 report](codex-headset-loop-results.json) is preserved: spawn succeeded, resize proposal returned HTTP 409, and all three original objects were recovered. Changed chair yaw supported stale-context rejection, but the HTTP body and rotation source were unavailable. The successful retry supersedes the incomplete-loop status without rewriting that earlier result.
 
 [unity-hub-export.json](unity-hub-export.json) verifies Unity 6000.6.0f1 source copies at Desktop → Game Design → **Matrix White Room Quest** and **Matrix White Room Desktop**. Each has its generated scene, metadata and README; no caches, credentials, Meta Core/MRUK packages or source-machine path references were copied. The full **Matrix Loading Operator** Desktop checkout and copied local builds/saves are covered by the separate [repository export report](desktop-repository-export.json) and [Desktop guide](../Docs/Desktop-Unity-Hub.md). These source exports add no compile/build evidence.
 

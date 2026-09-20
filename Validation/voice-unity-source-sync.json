@@ -1,0 +1,77 @@
+{
+  "scope": "Authored scripts only; existing user scenes, prefabs and settings preserved",
+  "files": [
+    {
+      "project": "Matrix White Room Quest",
+      "path": "Assets/Sandbox/Editor/SandboxCoreChecks.cs",
+      "sha256": "0c3d7bcaec91d57bcd4ed517cec7dddc68927ab2e3d561d57b3014334c55c2b5",
+      "verified": true
+    },
+    {
+      "project": "Matrix White Room Quest",
+      "path": "Assets/Sandbox/Editor/WhiteRoomSceneSetup.cs",
+      "sha256": "1cd679a99a8dc1c724a032da979dd19e7ca92da0c4164101e00338b5b6553467",
+      "verified": true
+    },
+    {
+      "project": "Matrix White Room Quest",
+      "path": "Assets/Sandbox/Runtime/PcBridge.cs",
+      "sha256": "d52295d9e8a6e24b23f772888c7a7b80da265df2f14d8c32980aa2b2d267d82b",
+      "verified": true
+    },
+    {
+      "project": "Matrix White Room Quest",
+      "path": "Assets/Sandbox/Runtime/WhiteRoomXrControls.cs",
+      "sha256": "6ed19cbab1a4929630a1e2840e7cc7b98d19e0b95cff653f1c9625ebc5d1b44c",
+      "verified": true
+    },
+    {
+      "project": "Matrix White Room Quest",
+      "path": "Assets/Sandbox/Runtime/SandboxVoiceInput.cs",
+      "sha256": "adb9abbf71db420de54950fc6c79d816748d0aa663a869459308626f3514de17",
+      "verified": true
+    },
+    {
+      "project": "Matrix White Room Quest",
+      "path": "Assets/Sandbox/Runtime/SandboxVoiceInput.cs.meta",
+      "sha256": "5e389396403fdf48110a299a6ea82ed6eca3ed26bbf74938440bc95332cfa45d",
+      "verified": true
+    },
+    {
+      "project": "Matrix White Room Desktop",
+      "path": "Assets/Sandbox/Editor/SandboxCoreChecks.cs",
+      "sha256": "0c3d7bcaec91d57bcd4ed517cec7dddc68927ab2e3d561d57b3014334c55c2b5",
+      "verified": true
+    },
+    {
+      "project": "Matrix White Room Desktop",
+      "path": "Assets/Sandbox/Editor/WhiteRoomSceneSetup.cs",
+      "sha256": "1cd679a99a8dc1c724a032da979dd19e7ca92da0c4164101e00338b5b6553467",
+      "verified": true
+    },
+    {
+      "project": "Matrix White Room Desktop",
+      "path": "Assets/Sandbox/Runtime/PcBridge.cs",
+      "sha256": "d52295d9e8a6e24b23f772888c7a7b80da265df2f14d8c32980aa2b2d267d82b",
+      "verified": true
+    },
+    {
+      "project": "Matrix White Room Desktop",
+      "path": "Assets/Sandbox/Runtime/WhiteRoomXrControls.cs",
+      "sha256": "6ed19cbab1a4929630a1e2840e7cc7b98d19e0b95cff653f1c9625ebc5d1b44c",
+      "verified": true
+    },
+    {
+      "project": "Matrix White Room Desktop",
+      "path": "Assets/Sandbox/Runtime/SandboxVoiceInput.cs",
+      "sha256": "adb9abbf71db420de54950fc6c79d816748d0aa663a869459308626f3514de17",
+      "verified": true
+    },
+    {
+      "project": "Matrix White Room Desktop",
+      "path": "Assets/Sandbox/Runtime/SandboxVoiceInput.cs.meta",
+      "sha256": "5e389396403fdf48110a299a6ea82ed6eca3ed26bbf74938440bc95332cfa45d",
+      "verified": true
+    }
+  ]
+}

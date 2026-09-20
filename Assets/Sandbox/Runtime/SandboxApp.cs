@@ -24,6 +24,10 @@ namespace ArSandbox
         private Transform objectRoot;
         private GameObject marker;
         private Material markerMaterial;
+        private bool hasViewerPose;
+        private Vector3 viewerPosition, viewerForward;
+        private double viewerPoseTime;
+        private const double ViewerPoseLifetime = 1.0;
 
         private void Start()
         {
@@ -46,6 +50,7 @@ namespace ArSandbox
             objectRoot = replacementRoot;
             targets = (RoomTarget[])roomTargets.Clone();
             World = replacement;
+            ClearViewerPose();
             SelectedObjectId = null;
             SelectedAnchorId = null;
             Placement = Vector3.zero;
@@ -60,6 +65,7 @@ namespace ArSandbox
             // Room adapters call this before removing anchors, after guarding against unsaved objects.
             World?.Dispose();
             World = null;
+            ClearViewerPose();
             if (objectRoot != null) DestroyOwned(objectRoot.gameObject);
             objectRoot = null;
             if (marker != null) DestroyOwned(marker);
@@ -101,6 +107,76 @@ namespace ArSandbox
         }
 
         public void CycleAsset() { if (prefabs != null && prefabs.Length > 0) assetIndex = (assetIndex + 1) % prefabs.Length; }
+
+        public void SetViewerPose(Vector3 worldPosition, Vector3 worldForward)
+        {
+            if (World == null || RoomReloading || !isActiveAndEnabled || !Finite(worldPosition) || !Finite(worldForward))
+            { ClearViewerPose(); return; }
+            if (!TryHorizontalDirection(worldForward, out Vector3 direction)) { ClearViewerPose(); return; }
+            viewerPosition = worldPosition;
+            viewerForward = direction;
+            viewerPoseTime = Time.realtimeSinceStartupAsDouble;
+            hasViewerPose = true;
+        }
+
+        public void ClearViewerPose()
+        {
+            hasViewerPose = false;
+            viewerPosition = viewerForward = Vector3.zero;
+            viewerPoseTime = 0;
+        }
+
+        public ViewerData CaptureViewer()
+        {
+            double age = Time.realtimeSinceStartupAsDouble - viewerPoseTime;
+            if (!hasViewerPose || World == null || RoomReloading || !isActiveAndEnabled || age < 0 || age >= ViewerPoseLifetime)
+                return null;
+            var frames = new List<ViewerFrame>();
+            foreach (RoomTarget target in targets)
+            {
+                Transform origin = target.origin;
+                if (origin == null || !origin.gameObject.activeInHierarchy) continue;
+                Matrix4x4 matrix = origin.localToWorldMatrix;
+                float determinant = matrix.determinant;
+                if (float.IsNaN(determinant) || float.IsInfinity(determinant) || Mathf.Abs(determinant) < .00000001f) continue;
+                Vector3 right = origin.TransformVector(Vector3.right).normalized;
+                Vector3 up = origin.TransformVector(Vector3.up).normalized;
+                Vector3 ahead = origin.TransformVector(Vector3.forward).normalized;
+                // This identifies horizontal placement frames, not semantic floor
+                // labels. Table frames can also qualify; the planner sees their IDs.
+                if (!Finite(right) || !Finite(up) || !Finite(ahead) || right.sqrMagnitude < .99f || ahead.sqrMagnitude < .99f ||
+                    Vector3.Dot(up, Vector3.up) < .999f ||
+                    Mathf.Abs(right.y) > .01f || Mathf.Abs(ahead.y) > .01f) continue;
+                Vector3 position = origin.InverseTransformPoint(viewerPosition);
+                Vector3 direction = origin.InverseTransformVector(viewerForward);
+                direction.y = 0f;
+                if (!Finite(position) || Mathf.Abs(position.x) > 10000 || Mathf.Abs(position.y) > 10000 || Mathf.Abs(position.z) > 10000 ||
+                    !TryHorizontalDirection(direction, out Vector3 normalized)) continue;
+                frames.Add(new ViewerFrame { anchorId = target.anchorId, position = Vec(position), forward = Vec(normalized) });
+            }
+            frames.Sort((a, b) => string.CompareOrdinal(a.anchorId, b.anchorId));
+            return frames.Count == 0 ? null : new ViewerData { frames = frames };
+        }
+
+        private static bool Finite(Vector3 value)
+        {
+            return !float.IsNaN(value.x) && !float.IsInfinity(value.x) && !float.IsNaN(value.y) &&
+                !float.IsInfinity(value.y) && !float.IsNaN(value.z) && !float.IsInfinity(value.z);
+        }
+
+        private static bool TryHorizontalDirection(Vector3 value, out Vector3 direction)
+        {
+            direction = Vector3.zero;
+            if (!Finite(value)) return false;
+            float maximum = Mathf.Max(Mathf.Abs(value.x), Mathf.Abs(value.y), Mathf.Abs(value.z));
+            if (maximum <= 0) return false;
+            // Normalize safely even for finite components whose squared magnitude overflows.
+            Vector3 unit = (value / maximum).normalized;
+            unit.y = 0;
+            if (unit.sqrMagnitude < .0001f) return false; // Near-vertical gaze has no stable horizontal heading.
+            direction = unit.normalized;
+            return true;
+        }
 
         public void SpawnSelected()
         {
@@ -173,6 +249,8 @@ namespace ArSandbox
             if (marker != null) DestroyOwned(marker);
             if (markerMaterial != null) DestroyOwned(markerMaterial);
         }
+
+        private void OnDisable() { ClearViewerPose(); }
 
         private static void DestroyOwned(UnityEngine.Object value)
         {

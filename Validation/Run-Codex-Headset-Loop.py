@@ -123,7 +123,8 @@ class CodexHeadsetHarness(base.Harness):
         step = {"prompt": prompt, "inference": receipt, "reviewed": False, "applied": False}
         self.report["inferenceSteps"].append(step)
         after = self.request("/api/state")
-        self.check(after.get("online") and after.get("pendingCount") == 0 and after.get("snapshot") == before,
+        scene_context = lambda value: {key: item for key, item in value.items() if key != "viewer"}
+        self.check(after.get("online") and after.get("pendingCount") == 0 and scene_context(after.get("snapshot", {})) == scene_context(before),
                    expected_op + ": model proposal did not change the scene or selection")
         try:
             commands = validate_commands(proposal.get("commands"), before, self.request("/api/scenes").get("scenes", []))

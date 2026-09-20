@@ -117,4 +117,6 @@ InitTestScene*.unity*
 /Assets/\#Meta/
 /Assets/\#Meta.meta
 /.desktop-fixture/
+/.speech-venv/
+/.speech-models/
 /Validation/desktop-fixture-core-results.json

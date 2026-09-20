@@ -1,0 +1,27 @@
+{
+  "builtArtifacts": [
+    {
+      "target": "Quest",
+      "path": "Builds/WhiteRoomQuest/MatrixOperator.apk",
+      "bytes": 53838926,
+      "sha256": "5CFBD0F64763392F9F4EC120CF8AC0358A20E84B19302DD59761021E42C1ADED",
+      "unityVersion": "6000.6.0f1",
+      "coreChecksPassed": 169,
+      "coreChecksFailed": 0,
+      "compiledUtc": "2026-09-20T21:47:57.8210276Z"
+    },
+    {
+      "target": "Desktop",
+      "path": "Builds/WhiteRoomDesktop/MatrixOperator.exe",
+      "bytes": 667136,
+      "sha256": "718444F6A718FA668DA96EB0A58445B009673310E6129152A63DBF7A92B8DE00",
+      "unityVersion": "6000.6.0f1",
+      "coreChecksPassed": 169,
+      "coreChecksFailed": 0,
+      "compiledUtc": "2026-09-20T21:50:01.5668332Z"
+    }
+  ],
+  "questInstalled": true,
+  "questCompositionHardwareTest": "Passed 93 checks; see composition-headset-results.json. Wearer visual confirmation recorded separately.",
+  "desktopLiveCompositionReport": "composition-desktop-results.json"
+}

@@ -21,7 +21,9 @@ namespace ArSandbox
         private Text hud;
         private GameObject hudObject;
         private PcBridge bridge;
+        private SandboxVoiceInput voice;
         private bool floorReady, armed, leftArmed, triggerHeld, primaryHeld, secondaryHeld, deleteHeld;
+        private bool voiceArmed, voiceTriggerHeld, applyHeld, undoHeld;
         private bool moveLatched, editLatched;
         private float nextOriginCheck, nextHudUpdate;
         private string trackingStatus = "Waiting for OpenXR tracking.";
@@ -35,6 +37,10 @@ namespace ArSandbox
                 return;
             }
             bridge = app.GetComponent<PcBridge>();
+            voice = app.GetComponent<SandboxVoiceInput>();
+            // Existing Unity Hub scenes can acquire voice without rewriting user scene assets.
+            if (voice == null) voice = app.gameObject.AddComponent<SandboxVoiceInput>();
+            voice.app = app; voice.bridge = bridge;
             pointer = new GameObject("Right controller pointer").AddComponent<LineRenderer>();
             pointer.transform.SetParent(trackingOrigin, false);
             pointer.positionCount = 2;
@@ -76,6 +82,9 @@ namespace ArSandbox
             var secondary = Pressed(right, "secondaryButton");
             var leftTracked = Tracked(left);
             var leftPrimary = Pressed(left, "primaryButton");
+            var voiceTrigger = Pressed(left, "triggerPressed");
+            var apply = Pressed(left, "secondaryButton");
+            var undo = Pressed(left, "gripPressed");
             var leftAxis = Axis(left, "thumbstick");
             if (!leftTracked || !ready) { leftArmed = false; moveLatched = true; }
             else if (!leftArmed && !leftPrimary && leftAxis.sqrMagnitude < .04f) leftArmed = true;
@@ -142,6 +151,26 @@ namespace ArSandbox
                     }
                 }
             }
+            bool voiceReady = ready && leftTracked;
+            if (voice != null)
+            {
+                voice.SetInputReady(voiceReady && bridge != null && bridge.IsConnected);
+                if (!voiceReady) voiceArmed = false;
+                else if (!voiceArmed) voiceArmed = !voiceTrigger && !apply && !undo;
+                else
+                {
+                    // Release after tracking resumes or a permission prompt before recording.
+                    if (voiceTrigger && !voiceTriggerHeld) voice.BeginRecording();
+                    if (!voiceTrigger && voiceTriggerHeld) voice.FinishRecording();
+                    if (apply && !applyHeld && !voiceTrigger) voice.ApplyProposal();
+                    if (undo && !undoHeld && !voiceTrigger && !apply && !voice.IsBusy)
+                    {
+                        if (voice.HasProposal) voice.Cancel("Proposal cancelled by undo. Hold left trigger to ask again.");
+                        app.Execute(new SandboxCommand { op = "undo" });
+                    }
+                }
+            }
+            voiceTriggerHeld = voiceTrigger; applyHeld = apply; undoHeld = undo;
             triggerHeld = trigger; primaryHeld = primary; secondaryHeld = secondary; deleteHeld = remove;
             if (Time.unscaledTime >= nextHudUpdate)
             {
@@ -149,8 +178,20 @@ namespace ArSandbox
                 hud.text = "MATRIX OPERATOR · VIRTUAL WHITE ROOM\n" + trackingStatus + "  Asset: " + app.SelectedAssetName +
                     "\nTrigger: select object / floor   A: add   B: next asset   X: delete selected" +
                     "\nStick gestures: move 10 cm / turn 15° / resize 1.2×. Return to neutral to repeat." +
-                    "\n" + app.Status + "\n" + (bridge != null ? bridge.ConnectionStatus : "PC bridge unavailable.");
+                    "\nSelected object: " + SelectionLabel() +
+                    "\n" + app.Status + "\n" + (bridge != null ? bridge.ConnectionStatus : "PC bridge unavailable.") +
+                    (voice != null ? "\nLeft trigger: hold to talk   Y: apply reviewed AI proposal   Left grip: undo" + "\n" + voice.HudText : "");
             }
+        }
+
+        private void LateUpdate()
+        {
+            if (app == null) return;
+            // Viewer context depends on tracked head pose, never on controller availability.
+            if (floorReady && Application.isFocused && headCamera != null && headCamera.isActiveAndEnabled &&
+                Tracked(InputSystem.GetDevice<XRHMD>()))
+                app.SetViewerPose(headCamera.transform.position, headCamera.transform.forward);
+            else app.ClearViewerPose();
         }
 
         private RoomTarget FindFloor()
@@ -158,6 +199,15 @@ namespace ArSandbox
             foreach (var target in app.Targets)
                 if (target.anchorId == "white-floor" && target.origin != null && target.origin.gameObject.activeInHierarchy) return target;
             return null;
+        }
+
+        private string SelectionLabel()
+        {
+            string id = app.SelectedObjectId;
+            if (string.IsNullOrEmpty(id) || app.World == null || !app.World.TryGetObject(id, out var selected)) return "none";
+            string label = selected.name;
+            if (label.Length > 36) label = label.Substring(0, 36);
+            return label + " [" + (id.Length > 8 ? id.Substring(0, 8) : id) + "] — say ‘this’ after selecting.";
         }
 
         private static bool Tracked(TrackedDevice device)
@@ -176,7 +226,7 @@ namespace ArSandbox
             hudObject.transform.localScale = Vector3.one * .00065f;
             var canvas = hudObject.GetComponent<Canvas>();
             canvas.renderMode = RenderMode.WorldSpace; canvas.worldCamera = headCamera;
-            ((RectTransform)canvas.transform).sizeDelta = new Vector2(1080, 270);
+            ((RectTransform)canvas.transform).sizeDelta = new Vector2(1080, 460);
             var background = new GameObject("Background", typeof(Image));
             background.transform.SetParent(canvas.transform, false);
             Stretch((RectTransform)background.transform);
@@ -188,7 +238,7 @@ namespace ArSandbox
             Stretch(rect); rect.offsetMin = new Vector2(20, 10); rect.offsetMax = new Vector2(-20, -10);
             hud = label.GetComponent<Text>();
             hud.font = Resources.GetBuiltinResource<Font>("LegacyRuntime.ttf");
-            hud.fontSize = 25; hud.color = Color.white; hud.alignment = TextAnchor.MiddleCenter;
+            hud.fontSize = 22; hud.color = Color.white; hud.alignment = TextAnchor.MiddleCenter;
             hud.supportRichText = false; hud.raycastTarget = false;
         }
         private static void Stretch(RectTransform rect)
@@ -196,7 +246,14 @@ namespace ArSandbox
             rect.anchorMin = Vector2.zero; rect.anchorMax = Vector2.one;
             rect.offsetMin = Vector2.zero; rect.offsetMax = Vector2.zero;
         }
-        private void OnDisable() { armed = leftArmed = false; moveLatched = editLatched = true; if (pointer != null) pointer.enabled = false; }
+        private void OnDisable()
+        {
+            armed = leftArmed = voiceArmed = false; moveLatched = editLatched = true;
+            if (pointer != null) pointer.enabled = false;
+            if (app != null) app.ClearViewerPose();
+            if (voice != null) voice.SetInputReady(false);
+        }
+        private void OnApplicationFocus(bool focused) { if (!focused && app != null) app.ClearViewerPose(); }
         private void OnDestroy()
         {
             if (pointer != null) Destroy(pointer.gameObject);

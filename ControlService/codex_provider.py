@@ -5,10 +5,12 @@ the proposal. This module never reads login stores or executes scene commands.
 """
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
+from datetime import datetime, timezone
 import json
 import os
 from pathlib import Path
+import re
 import shutil
 import subprocess
 import tempfile
@@ -21,6 +23,9 @@ MAX_ERROR = 64 * 1024
 MAX_FINAL = 256 * 1024
 TIMEOUT_SECONDS = 90
 AUTH_TIMEOUT_SECONDS = 10
+MAX_MODEL_CACHE = 4 * 1024 * 1024
+REASONING_EFFORTS = ("none", "minimal", "low", "medium", "high", "xhigh", "max", "ultra")
+MODEL_ID = re.compile(r"[A-Za-z0-9][A-Za-z0-9._:-]{0,159}\Z")
 DISABLED_FEATURES = ("shell_tool", "unified_exec", "apps", "plugins", "multi_agent", "hooks", "shell_snapshot")
 
 
@@ -35,6 +40,7 @@ class CodexConfig:
     executable: str
     model: str | None = None
     provider: str = "Codex CLI (ChatGPT login)"
+    reasoning_effort: str | None = None
 
     @classmethod
     def from_environment(cls, environ=None):
@@ -44,7 +50,8 @@ class CodexConfig:
         executable = env.get("SANDBOX_CODEX_EXE", "").strip() or shutil.which("codex.exe", path=env.get("PATH"))
         if not executable:
             raise CodexProviderError("Set SANDBOX_CODEX_EXE to the installed native codex.exe", 503)
-        return cls(executable, env.get("SANDBOX_CODEX_MODEL", "").strip() or None)
+        return cls(executable, env.get("SANDBOX_CODEX_MODEL", "").strip() or None,
+                   reasoning_effort=env.get("SANDBOX_CODEX_REASONING", "").strip() or None)
 
     def validate(self):
         try:
@@ -58,8 +65,84 @@ class CodexConfig:
             if self.model is not None and (not isinstance(self.model, str) or not self.model.strip()
                                           or len(self.model) > 160 or any(ord(c) < 32 for c in self.model)):
                 raise ValueError()
+            if self.reasoning_effort is not None and self.reasoning_effort not in REASONING_EFFORTS:
+                raise ValueError()
         except (OSError, ValueError, TypeError):
             raise CodexProviderError("Invalid Codex executable or model configuration", 503) from None
+
+
+def codex_options(environ=None):
+    """Read only public model metadata from the CLI cache; never inspect auth/config.
+
+    The cache is a local availability hint, not a guarantee that a remote request
+    will succeed. Missing metadata keeps the existing service default usable.
+    """
+    result = {"source": "local-codex-cache", "fetchedAt": None, "models": []}
+    env = os.environ if environ is None else environ
+    try:
+        folder = Path(env.get("CODEX_HOME") or Path.home() / ".codex")
+        with (folder / "models_cache.json").open("rb") as stream:
+            raw = stream.read(MAX_MODEL_CACHE + 1)
+        if len(raw) > MAX_MODEL_CACHE:
+            raise ValueError()
+        value = _decode(raw)
+        if not isinstance(value, dict) or not isinstance(value.get("models"), list) or len(value["models"]) > 100:
+            raise ValueError()
+        fetched = value.get("fetched_at")
+        if isinstance(fetched, str) and len(fetched) <= 64:
+            timestamp = datetime.fromisoformat(fetched.replace("Z", "+00:00"))
+            if timestamp.tzinfo is None:
+                raise ValueError()
+            result["fetchedAt"] = fetched
+            if (datetime.now(timezone.utc) - timestamp).total_seconds() > 86400:
+                result["warning"] = "The local Codex model list is over a day old; availability may have changed."
+        seen = set()
+        for model in value["models"]:
+            if not isinstance(model, dict) or model.get("visibility") != "list":
+                continue
+            identifier = model.get("slug")
+            name = model.get("display_name")
+            levels = model.get("supported_reasoning_levels")
+            if (not isinstance(identifier, str) or MODEL_ID.fullmatch(identifier) is None or identifier in seen
+                    or not isinstance(name, str) or not name.strip() or len(name) > 160
+                    or any(ord(c) < 32 for c in name) or not isinstance(levels, list)):
+                continue
+            efforts = [item["effort"] for item in levels if isinstance(item, dict)
+                       and item.get("effort") in REASONING_EFFORTS]
+            efforts = list(dict.fromkeys(efforts))
+            default = model.get("default_reasoning_level")
+            result["models"].append({"id": identifier, "displayName": name,
+                                      "reasoningEfforts": efforts,
+                                      "defaultReasoningEffort": default if default in efforts else None})
+            seen.add(identifier)
+        if not result["models"]:
+            result["warning"] = "No selectable models in the local Codex cache. The service default is still available."
+    except (OSError, ValueError, TypeError, UnicodeError, RecursionError, RuntimeError):
+        result = {"source": "local-codex-cache", "fetchedAt": None, "models": [],
+                  "warning": "Codex model metadata is unavailable. The service default is still available."}
+    return result
+
+
+def select_codex_config(config, selection, *, options=None):
+    """Apply a request's model/effort only after checking local model metadata."""
+    if selection is None:
+        return config
+    if (not isinstance(selection, dict) or set(selection) - {"model", "reasoningEffort"}
+            or any(value is not None and (not isinstance(value, str) or not value)
+                   for value in selection.values())):
+        raise CodexProviderError("Invalid Codex model and reasoning selection", 400)
+    model, effort = selection.get("model"), selection.get("reasoningEffort")
+    if model is None and effort is None:
+        return config
+    catalog = codex_options() if options is None else options
+    selected = next((item for item in catalog["models"] if item["id"] == (model or config.model)), None)
+    if selected is None:
+        raise CodexProviderError("Choose a model listed by the local Codex CLI before setting reasoning", 422)
+    if effort is not None and effort not in selected["reasoningEfforts"]:
+        raise CodexProviderError("This reasoning level is not supported by the selected Codex model", 422)
+    # An explicit model with default effort uses that model's own default, not
+    # an effort inherited from a different environment-configured model.
+    return replace(config, model=model or config.model, reasoning_effort=effort)
 
 
 def _object(properties):
@@ -81,7 +164,9 @@ def _schema():
     ):
         variants.append(_object({"op": {"type": "string", "enum": [op]}, **fields}))
     return _object({"commands": {"type": "array", "items": {"anyOf": variants}, "maxItems": 20},
-                    "summary": {"type": "string", "maxLength": 800}})
+                    "summary": {"type": "string", "maxLength": 800},
+                    "assumptions": {"type": "array", "maxItems": 8,
+                                    "items": {"type": "string", "minLength": 1, "maxLength": 200}}})
 
 
 def _decode(raw):
@@ -234,7 +319,7 @@ def _parse_result(raw, final):
         proposal = _decode(final.decode("utf-8"))
         if completed != 1 or not isinstance(last_message, str) or _decode(last_message) != proposal:
             raise ValueError()
-        if not isinstance(proposal, dict) or set(proposal) != {"commands", "summary"}:
+        if not isinstance(proposal, dict) or set(proposal) not in ({"commands", "summary"}, {"commands", "summary", "assumptions"}):
             raise ValueError()
         if not isinstance(proposal["commands"], list) or len(proposal["commands"]) > 20:
             raise ValueError()
@@ -242,6 +327,12 @@ def _parse_result(raw, final):
             raise ValueError()
         summary = proposal["summary"]
         if not isinstance(summary, str) or not summary or len(summary) > 800 or any(ord(c) < 32 for c in summary):
+            raise ValueError()
+        assumptions = proposal.get("assumptions", [])
+        if not isinstance(assumptions, list) or len(assumptions) > 8:
+            raise ValueError()
+        if any(not isinstance(item, str) or not item.strip() or len(item) > 200
+               or any(ord(c) < 32 for c in item) for item in assumptions):
             raise ValueError()
         receipt = {"transport": "codex-cli", "completedTurn": True, "usage": usage, "toolCallCount": 0}
         if actual_model is not None:
@@ -280,10 +371,17 @@ def plan_codex(config, system_prompt, prompt, snapshot, saved):
                 args.extend(["--disable", feature])
             if config.model is not None:
                 args.extend(["--model", config.model])
+            if config.reasoning_effort is not None:
+                args.extend(["--config", "model_reasoning_effort=" + json.dumps(config.reasoning_effort)])
             args.append("-")
             raw, _ = _run_bounded(args, cwd=folder, env=env, data=data, final_path=final_path)
             with final_path.open("rb") as stream:
                 final = stream.read(MAX_FINAL + 1)
-            return _parse_result(raw, final)
+            result = _parse_result(raw, final)
+            if config.model is not None:
+                result["receipt"]["requestedModel"] = config.model
+            if config.reasoning_effort is not None:
+                result["receipt"]["requestedReasoningEffort"] = config.reasoning_effort
+            return result
     except (OSError, ValueError, TypeError, UnicodeError, RecursionError):
         raise CodexProviderError("Codex planning failed to produce a readable proposal") from None

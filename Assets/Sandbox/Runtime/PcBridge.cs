@@ -16,6 +16,7 @@ namespace ArSandbox
         public SandboxApp app;
         public string ConnectionStatus { get; private set; } = "PC service not connected.";
         public bool IsConnected { get; private set; }
+        public string ClientId => clientId;
         public LessonGuideData CurrentGuide { get; private set; }
         public Settings settings = new Settings();
         private readonly string clientId = Guid.NewGuid().ToString("N");
@@ -47,6 +48,8 @@ namespace ArSandbox
                 if (app.World == null || app.RoomReloading) { IsConnected = false; yield return pause; continue; }
                 var snapshot = app.World.Capture();
                 snapshot.selection = new SelectionData { anchorId = app.SelectedAnchorId, objectId = app.SelectedObjectId, position = SandboxApp.Vec(app.Placement) };
+                // Explicit empty frames avoid JsonUtility's inline-null class/list defaults.
+                snapshot.viewer = app.CaptureViewer() ?? new ViewerData();
                 var body = JsonUtility.ToJson(new Exchange { clientId = clientId, snapshot = snapshot, results = new List<CommandResult>(pendingResults) });
                 using (var request = new UnityWebRequest(settings.url.TrimEnd('/') + "/api/exchange", "POST"))
                 {

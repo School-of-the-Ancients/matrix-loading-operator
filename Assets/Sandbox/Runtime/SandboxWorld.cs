@@ -30,6 +30,8 @@ namespace ArSandbox
         private readonly Transform objectRoot;
         private readonly Dictionary<string, PrefabEntry> assets =
             new Dictionary<string, PrefabEntry>(StringComparer.Ordinal);
+        private readonly Dictionary<string, BoundsData> assetBounds =
+            new Dictionary<string, BoundsData>(StringComparer.Ordinal);
         private readonly Dictionary<string, RoomTarget> targets =
             new Dictionary<string, RoomTarget>(StringComparer.Ordinal);
         private Dictionary<string, Instance> instances =
@@ -54,6 +56,7 @@ namespace ArSandbox
             this.roomId = roomId;
             this.objectRoot = objectRoot;
 
+            var boundsByPrefab = new Dictionary<GameObject, BoundsData>();
             foreach (PrefabEntry asset in assets)
             {
                 if (asset == null)
@@ -64,15 +67,24 @@ namespace ArSandbox
                 if (!InRange(asset.spawnScale, MinimumScale, MaximumScale))
                     throw new ArgumentException("Asset '" + asset.assetId + "' spawnScale must be finite and between " +
                         MinimumScale + " and " + MaximumScale + ".", nameof(assets));
+                if (asset.description != null && asset.description.Length > 500)
+                    throw new ArgumentException("Asset '" + asset.assetId + "' description must be at most 500 characters.", nameof(assets));
                 if (this.assets.ContainsKey(asset.assetId))
                     throw new ArgumentException("Duplicate assetId '" + asset.assetId + "'.", nameof(assets));
                 this.assets.Add(asset.assetId, new PrefabEntry
                 {
                     assetId = asset.assetId,
                     displayName = asset.displayName ?? asset.assetId,
+                    description = asset.description ?? "",
                     spawnScale = asset.spawnScale,
                     prefab = asset.prefab
                 });
+                if (!boundsByPrefab.TryGetValue(asset.prefab, out BoundsData localBounds))
+                {
+                    localBounds = MeasureStaticBounds(asset.prefab);
+                    boundsByPrefab.Add(asset.prefab, localBounds);
+                }
+                assetBounds.Add(asset.assetId, localBounds);
             }
 
             foreach (RoomTarget target in targets)
@@ -178,7 +190,8 @@ namespace ArSandbox
 
             var assetInfos = new List<AssetInfo>(assets.Count);
             foreach (PrefabEntry asset in assets.Values)
-                assetInfos.Add(new AssetInfo { assetId = asset.assetId, displayName = asset.displayName, spawnScale = asset.spawnScale });
+                assetInfos.Add(new AssetInfo { assetId = asset.assetId, displayName = asset.displayName,
+                    description = asset.description, spawnScale = asset.spawnScale, localBounds = Clone(assetBounds[asset.assetId]) });
             assetInfos.Sort((a, b) => string.CompareOrdinal(a.assetId, b.assetId));
 
             var anchorInfos = new List<AnchorInfo>(targets.Count);
@@ -560,6 +573,57 @@ namespace ArSandbox
             return !float.IsNaN(value) && !float.IsInfinity(value) && value >= minimum && value <= maximum;
         }
 
+        private static BoundsData MeasureStaticBounds(GameObject prefab)
+        {
+            // Read mesh metadata once when registering a room, never instantiate a
+            // prefab or traverse hierarchies during the bridge's frequent Capture.
+            bool found = false;
+            Bounds combined = default;
+            Transform root = prefab.transform;
+            foreach (Renderer renderer in prefab.GetComponentsInChildren<Renderer>(true))
+            {
+                if (!renderer.enabled) continue;
+                Transform current = renderer.transform;
+                Matrix4x4 toRoot = Matrix4x4.identity;
+                bool visible = true;
+                while (current != root)
+                {
+                    if (!current.gameObject.activeSelf) { visible = false; break; }
+                    toRoot = Matrix4x4.TRS(current.localPosition, current.localRotation, current.localScale) * toRoot;
+                    current = current.parent;
+                }
+                if (!visible) continue;
+                // Spawn overwrites the root pose and activates the root. Its current
+                // parent, pose, scale and active state therefore do not enter bounds.
+                MeshFilter filter = renderer.GetComponent<MeshFilter>();
+                if (!(renderer is MeshRenderer) || filter == null || filter.sharedMesh == null)
+                    return null; // Do not advertise partial bounds for animated/procedural geometry.
+                Bounds mesh = filter.sharedMesh.bounds;
+                if (!Finite(mesh.center) || !Finite(mesh.size) || mesh.size.x < 0 || mesh.size.y < 0 || mesh.size.z < 0)
+                    return null;
+                for (int x = -1; x <= 1; x += 2)
+                    for (int y = -1; y <= 1; y += 2)
+                        for (int z = -1; z <= 1; z += 2)
+                        {
+                            Vector3 point = toRoot.MultiplyPoint3x4(mesh.center + Vector3.Scale(mesh.extents, new Vector3(x, y, z)));
+                            if (!Finite(point)) return null;
+                            if (found) combined.Encapsulate(point);
+                            else { combined = new Bounds(point, Vector3.zero); found = true; }
+                        }
+            }
+            if (!found || !Finite(combined.center) || !Finite(combined.size) ||
+                combined.size.x <= 0 || combined.size.y <= 0 || combined.size.z <= 0)
+                return null;
+            return new BoundsData { center = new Float3(combined.center.x, combined.center.y, combined.center.z),
+                size = new Float3(combined.size.x, combined.size.y, combined.size.z) };
+        }
+
+        private static bool Finite(Vector3 value)
+        {
+            return InRange(value.x, -float.MaxValue, float.MaxValue) &&
+                InRange(value.y, -float.MaxValue, float.MaxValue) && InRange(value.z, -float.MaxValue, float.MaxValue);
+        }
+
         private static Vector3 ToVector3(Float3 value)
         {
             return new Vector3(value.x, value.y, value.z);
@@ -568,6 +632,11 @@ namespace ArSandbox
         private static Float3 Clone(Float3 value)
         {
             return new Float3(value.x, value.y, value.z);
+        }
+
+        private static BoundsData Clone(BoundsData value)
+        {
+            return value == null ? null : new BoundsData { center = Clone(value.center), size = Clone(value.size) };
         }
 
         private static TransformData Clone(TransformData value)
