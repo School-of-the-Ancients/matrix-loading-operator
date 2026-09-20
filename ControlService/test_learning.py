@@ -1,12 +1,17 @@
 """Operator adapter checks against a contract fake; no headset or live core required."""
 import copy
 import json
+import os
 from pathlib import Path
 import tempfile
+import threading
 import unittest
+from unittest.mock import patch
+import urllib.error
+import urllib.request
 
 from learning import LearningBridge, LearningError
-from server import APIError, LEASE_SECONDS, State
+from server import APIError, LEASE_SECONDS, Server, State
 
 
 POSE = {"position": {"x": 0.1, "y": 0, "z": -0.1},
@@ -376,6 +381,28 @@ class LearningAdapterTests(unittest.TestCase):
         self.assertNotIn("lesson", response)
         self.assertEqual(len(self.core.calls), 1)
 
+    def test_failed_plain_restore_does_not_require_learning_to_resume_editing(self):
+        self.core.unavailable = True
+        self.state.save("plain")
+        queued = self.state.load("plain", "plain-rejected")
+        self.ack(queued, ok=False)
+        self.assertIsNone(self.bridge.restore)
+        self.assertEqual(self.state.save("after-failure"), {"name": "after-failure", "saved": True})
+        self.assertEqual(self.state.queue([{"op": "clear"}])["commands"][0]["op"], "clear")
+        self.assertEqual(self.core.calls, [])
+
+    def test_expired_plain_restore_does_not_block_a_fresh_runtime(self):
+        self.core.unavailable = True
+        self.state.save("plain")
+        self.state.load("plain", "plain-expired")
+        self.now[0] += LEASE_SECONDS + 1
+        response = self.state.exchange({"clientId": "fresh-runtime", "snapshot": self.snap, "results": []})
+        self.assertIsNone(self.bridge.restore)
+        self.assertNotIn("lesson", response)
+        self.assertEqual(self.state.save("after-reconnect"), {"name": "after-reconnect", "saved": True})
+        self.assertEqual(self.state.queue([{"op": "clear"}])["commands"][0]["op"], "clear")
+        self.assertEqual(self.core.calls, [])
+
     def test_missing_core_save_preserves_existing_file_and_latest_runtime(self):
         self.save_lesson()
         path = Path(self.temp.name, "lesson.json")
@@ -429,6 +456,105 @@ class LearningAdapterTests(unittest.TestCase):
                 self.assert_rejected(lambda: self.state.load("bad", "load-bad"), 409)
                 self.assertEqual(len(self.state.pending), 0)
                 self.assertEqual(self.core.restore_count, 0)
+
+
+class DefaultLearningBridgeHttpTests(unittest.TestCase):
+    """Exercise the CLI's default bridge wiring through actual HTTP routes."""
+
+    def setUp(self):
+        self.temp = tempfile.TemporaryDirectory()
+        with patch.dict(os.environ, {"SOTA_CORE_URL": "http://127.0.0.1:8787"}):
+            self.bridge = LearningBridge()
+        self.core_patch = patch.object(self.bridge.client, "call", side_effect=LearningError(503, "Learning core unavailable"))
+        self.core_call = self.core_patch.start()
+        self.state = State(self.temp.name, learning=self.bridge)
+        self.server = Server(("127.0.0.1", 0), self.state)
+        self.thread = threading.Thread(target=self.server.serve_forever, daemon=True)
+        self.thread.start()
+        self.base = f"http://127.0.0.1:{self.server.server_port}"
+        self.http = urllib.request.build_opener(urllib.request.ProxyHandler({}))
+        self.snap = {
+            "scene": {"schemaVersion": 1, "roomId": "white-room-v1", "objects": [
+                {"objectId": "chair-one", "assetId": "chair", "anchorId": "white-floor", "transform": copy.deepcopy(POSE)}]},
+            "assets": [{"assetId": "chair", "displayName": "Chair", "spawnScale": 1}],
+            "anchors": [{"anchorId": "white-floor", "displayName": "White room floor"}],
+            "selection": {"anchorId": "white-floor", "objectId": "chair-one", "position": {"x": 0, "y": 0, "z": 2}},
+        }
+
+    def tearDown(self):
+        self.server.shutdown()
+        self.server.server_close()
+        self.thread.join(timeout=5)
+        self.core_patch.stop()
+        self.temp.cleanup()
+
+    def request(self, path, body=None):
+        data = None if body is None else json.dumps(body).encode("utf-8")
+        request = urllib.request.Request(self.base + path, data=data, headers={"Content-Type": "application/json"})
+        try:
+            response = self.http.open(request, timeout=3)
+        except urllib.error.HTTPError as error:
+            response = error
+        with response:
+            raw = response.read()
+            if response.headers.get_content_type() == "application/json":
+                return response.status, json.loads(raw)
+            return response.status, raw
+
+    def exchange(self, snapshot=None, results=None):
+        return self.request("/api/exchange", {"clientId": "white-runtime", "snapshot": snapshot or self.snap, "results": results or []})
+
+    def ack(self, response, snapshot=None):
+        return self.exchange(snapshot, [{"requestId": c["requestId"], "ok": True, "error": "", "objectId": ""}
+                                        for c in response["commands"]])
+
+    def test_default_bridge_white_room_save_restore_is_independent_of_unavailable_core(self):
+        self.assertEqual(self.request("/api/health"), (200, {"ok": True}))
+        self.assertEqual(self.exchange(), (200, {"commands": []}))
+        self.assertIsNone(self.request("/api/learning")[1]["session"])
+        self.core_call.assert_not_called()
+        self.assertEqual(self.request("/api/lessons")[0], 503)
+        self.assertEqual(self.core_call.call_count, 1)
+        code, selected = self.request("/api/command", {"op": "select", "objectId": "chair-one"})
+        self.assertEqual(code, 200)
+        self.assertEqual(self.ack(selected), (200, {"commands": []}))
+        self.assertEqual(self.request("/api/save", {"name": "white"}), (200, {"name": "white", "saved": True}))
+        saved = json.loads(Path(self.temp.name, "white.json").read_text(encoding="utf-8"))
+        self.assertEqual(saved, self.snap)
+        self.assertNotIn("learningCheckpoint", saved)
+        code, cleared = self.request("/api/command", {"op": "clear"})
+        self.assertEqual(code, 200)
+        empty = copy.deepcopy(self.snap)
+        empty["scene"]["objects"] = []
+        empty["selection"]["objectId"] = ""
+        self.assertEqual(self.ack(cleared, empty), (200, {"commands": []}))
+        code, loaded = self.request("/api/load", {"name": "white", "requestId": "plain-http-load"})
+        self.assertEqual(code, 200)
+        self.assertEqual(loaded["commands"][0]["scene"], saved["scene"])
+        self.assertEqual(self.request("/api/load", {"name": "white", "requestId": "plain-http-load"}), (200, loaded))
+        self.assertEqual(len(self.state.pending), 1)
+        self.assertEqual(self.ack(loaded), (200, {"commands": []}))
+        self.assertEqual(self.request("/api/state")[1]["snapshot"], self.snap)
+        self.assertIsNone(self.bridge.restore)
+        self.assertEqual(self.core_call.call_count, 1)
+        self.assertEqual(self.request("/api/save", {"name": "after-restore"})[0], 200)
+
+    def test_white_home_and_optional_learning_page_remain_separate(self):
+        code, home = self.request("/")
+        self.assertEqual(code, 200)
+        self.assertIn(b"<title>Matrix Operator</title>", home)
+        self.assertNotIn(b'src="/learning-ui.js"', home)
+        self.assertNotIn(b'id="learningPanel"', home)
+        self.assertIn(b'href="/learning"', home)
+        code, learning = self.request("/learning")
+        self.assertEqual(code, 200)
+        self.assertEqual(learning, Path(__file__).with_name("learning.html").read_bytes())
+        self.assertIn(b'id="learningPanel"', learning)
+        self.assertIn(b'src="/learning-ui.js"', learning)
+        code, javascript = self.request("/learning-ui.js")
+        self.assertEqual(code, 200)
+        self.assertEqual(javascript, Path(__file__).with_name("learning-ui.js").read_bytes())
+        self.core_call.assert_not_called()
 
 
 if __name__ == "__main__":

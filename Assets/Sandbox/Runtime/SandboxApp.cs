@@ -17,6 +17,7 @@ namespace ArSandbox
         public Vector3 Placement { get; private set; }
         public string SelectedAssetId => prefabs != null && prefabs.Length > 0 ? prefabs[assetIndex].assetId : "";
         public string SelectedAssetName => prefabs != null && prefabs.Length > 0 ? prefabs[assetIndex].displayName : "None";
+        public float SelectedAssetScale => prefabs != null && prefabs.Length > 0 ? prefabs[assetIndex].spawnScale : 0.2f;
         public IReadOnlyList<RoomTarget> Targets => targets;
         private RoomTarget[] targets = Array.Empty<RoomTarget>();
         private int assetIndex;
@@ -105,7 +106,7 @@ namespace ArSandbox
         {
             if (World == null || string.IsNullOrEmpty(SelectedAnchorId)) { Status = "Select an available room surface first."; return; }
             Execute(new SandboxCommand { op = "spawn", assetId = SelectedAssetId, anchorId = SelectedAnchorId,
-                transform = Pose(Placement, Vector3.zero, Vector3.one * 0.2f) });
+                transform = Pose(Placement, Vector3.zero, Vector3.one * SelectedAssetScale) });
         }
 
         public CommandResult Execute(SandboxCommand command)
@@ -115,9 +116,11 @@ namespace ArSandbox
             var result = World.Execute(command);
             if (result.ok)
             {
-                if (command.op == "spawn" || command.op == "set_transform") SelectedObjectId = result.objectId;
+                if (command.op == "spawn" || command.op == "set_transform" || command.op == "select" || command.op == "duplicate")
+                    SelectedObjectId = result.objectId;
                 if (command.op == "clear" || (command.op == "delete" && command.objectId == SelectedObjectId)) SelectedObjectId = null;
-                if (command.op == "load" && !World.TryGetObject(SelectedObjectId, out _)) SelectedObjectId = null;
+                if ((command.op == "load" || command.op == "undo" || command.op == "redo") &&
+                    !World.TryGetObject(SelectedObjectId, out _)) SelectedObjectId = null;
             }
             Status = result.ok ? command.op + " complete" : result.error;
             return result;
@@ -126,8 +129,7 @@ namespace ArSandbox
         public void SelectObject(string id)
         {
             if (string.IsNullOrEmpty(id)) { SelectedObjectId = null; return; }
-            if (World == null || !World.TryGetObject(id, out _)) { Status = "The selected object is unavailable."; return; }
-            SelectedObjectId = id;
+            Execute(new SandboxCommand { op = "select", objectId = id });
         }
 
         public void EditSelected(Vector3 delta, float yaw, float sizeFactor)

@@ -16,7 +16,7 @@ At the Operator root:
 
 This builds an isolated desktop simulation containing authored sandbox code and Unity Input System, without the Meta packages. It runs the core and guide checks. It never builds a Quest APK and does not establish native import or headset compatibility. The full project and its open Editor are left alone.
 
-In separate terminals, run `npm.cmd run dev:operator` in `sota-v2` and `./Start-ControlService.ps1` in the Operator. Keep both terminals open, then run `Builds/Desktop/AR-Sandbox.exe`. Stop each service with Ctrl+C in its own terminal. The core listens on `127.0.0.1:8787`; the PC panel is [localhost:8765](http://127.0.0.1:8765/). An alternate core port can be selected with `$env:SOTA_CORE_URL='http://127.0.0.1:PORT'` in the PC service environment. The bridge permits local HTTP endpoints only. Existing service-token protection still applies. For Quest, use the built device application instead of the desktop player and set up USB forwarding as described in the MRUK runbook.
+In separate terminals, run `npm.cmd run dev:operator` in `sota-v2` and `./Start-ControlService.ps1` in the Operator. Keep both terminals open, then run `Builds/Desktop/AR-Sandbox.exe`. Stop each service with Ctrl+C in its own terminal. The core listens on `127.0.0.1:8787`; the optional learning panel is [localhost:8765/learning](http://127.0.0.1:8765/learning). An alternate core port can be selected with `$env:SOTA_CORE_URL='http://127.0.0.1:PORT'` in the PC service environment. The bridge permits local HTTP endpoints only. Existing service-token protection still applies. For Quest, use the built device application instead of the desktop player and set up USB forwarding as described in the MRUK runbook.
 
 ## Try the complete activity
 

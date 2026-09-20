@@ -29,7 +29,8 @@ MAX_PENDING = 64
 MAX_BATCH = 20
 LEASE_SECONDS = 15
 NAME = re.compile(r"[A-Za-z0-9][A-Za-z0-9 _-]{0,63}\Z")
-OPS = {"spawn", "set_transform", "delete", "clear", "load", "get_scene", "list_assets", "list_targets"}
+OPS = {"spawn", "set_transform", "select", "duplicate", "delete", "undo", "redo", "clear", "load",
+       "get_scene", "list_assets", "list_targets"}
 
 
 class APIError(Exception):
@@ -97,7 +98,12 @@ def catalog(value, key, limit):
         identifier = text(item.get(key), key)
         require(identifier not in ids, f"Duplicate {key}")
         ids.add(identifier)
-        result.append({key: identifier, "displayName": text(item.get("displayName"), "displayName")})
+        entry = {key: identifier, "displayName": text(item.get("displayName"), "displayName")}
+        if key == "assetId" and "spawnScale" in item:
+            scale = item["spawnScale"]
+            require(type(scale) in (int, float) and 0.01 <= scale <= 20 and math.isfinite(scale), "Invalid spawnScale")
+            entry["spawnScale"] = scale
+        result.append(entry)
     return result
 
 
@@ -124,7 +130,8 @@ def command(value):
     require(isinstance(op, str) and op in OPS, "Unknown command op")
     allowed = {"op", "requestId"}
     required = {"spawn": {"assetId", "anchorId", "transform"}, "set_transform": {"objectId", "transform"},
-                "delete": {"objectId"}, "load": {"scene"}}.get(op, set())
+                "select": {"objectId"}, "duplicate": {"objectId"}, "delete": {"objectId"},
+                "load": {"scene"}}.get(op, set())
     allowed |= required
     if op == "spawn":
         allowed |= {"anchorId", "transform"}
@@ -301,9 +308,12 @@ class State:
                 require("learningCheckpoint" not in document, "Learning adapter is required to restore this scene", 503)
             response = self.queue([{"op": "load", "scene": saved["scene"]}])
             if self.learning:
-                self.learning.restore = {"commandId": response["commands"][0]["requestId"],
-                                         "checkpointId": checkpoint_id, "requestId": request_id,
-                                         "scene": copy.deepcopy(saved["scene"])}
+                # Scene-only loads with no active lesson need no checkpoint barrier.
+                # In particular, a rejected load must not lock ordinary editing behind learning recovery.
+                if checkpoint_id is not None or self.learning.session is not None:
+                    self.learning.restore = {"commandId": response["commands"][0]["requestId"],
+                                             "checkpointId": checkpoint_id, "requestId": request_id,
+                                             "scene": copy.deepcopy(saved["scene"])}
                 self.learning.restore_receipts[request_id] = {"name": name, "response": copy.deepcopy(response)}
                 if len(self.learning.restore_receipts) > 128:
                     del self.learning.restore_receipts[next(iter(self.learning.restore_receipts))]
@@ -422,8 +432,9 @@ class Handler(BaseHTTPRequestHandler):
         try:
             self.validate_host()
             path = urllib.parse.urlsplit(self.path).path
-            if path == "/" and loopback(self.client_address[0]):
-                self.send_data(200, Path(__file__).with_name("index.html").read_bytes(), "text/html; charset=utf-8")
+            if path in ("/", "/learning") and loopback(self.client_address[0]):
+                page = "index.html" if path == "/" else "learning.html"
+                self.send_data(200, Path(__file__).with_name(page).read_bytes(), "text/html; charset=utf-8")
                 return
             if path == "/learning-ui.js" and loopback(self.client_address[0]):
                 self.send_data(200, Path(__file__).with_name("learning-ui.js").read_bytes(), "text/javascript; charset=utf-8")

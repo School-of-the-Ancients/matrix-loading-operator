@@ -1,16 +1,27 @@
 # Matrix Loading Operator
 
-The operator layer of School of the Ancients VR: “Operator, load the Renaissance with Leonardo da Vinci.” The long-term concept is a scene that responds with “Greetings scholar, what shall we invent today?”
+The current prototype is a **fully virtual white room**: summon bundled props, select and edit them, duplicate, undo/redo, then save, clear and restore the arrangement through a PC Operator panel. Quest Pro is the hardware target; Quest 3 is optional.
 
-The first implemented step is an **AR Sandbox** with bundled props, runtime scene editing, and PC-side language commands and persistence. Historical characters and downloadable worlds are outside this prototype.
+Start here: **[White-room build, controls and demo](Docs/White-Room.md)** · **[Validation evidence](Validation/White-Room-Validation.md)** · **[Progress and continuation](Docs/Progress-Log.md)**.
 
-Quest Pro with manually configured room data is the primary target. Quest 3 is optional. The project uses bundled block, orb, and column prefabs; there is no downloadable catalog or dependency on VaM.
+The catalog contains chairs, tables, walls, pedestals, blocks, orbs and columns. Furniture starts at life size. The next milestone is sequential: validate this virtual room on Quest Pro, connect a real PC-side AI provider, then use manually configured MRUK room targets with the same editing and persistence system. Education/mentor systems, voice and downloaded catalogs are deferred. No VaM integration is required.
 
-**Working and tested:** the Windows simulation completes room load → text-command spawn → resize/move/rotate the same object → PC save → clear → exact restore in one running Unity application. **Not yet hardware-tested:** real MRUK room loading, passthrough, Quest controllers, and tracking. No headset was connected. The APK build is blocked by Malwarebytes quarantining Meta's generated `AIBlocks.dll`; [current evidence and resume details](Docs/Security-Block.md).
+Build with `./Build-WhiteRoom.ps1 -Target Desktop` or `-Target Quest`. This creates a separate Unity-only project for each target under `.white-room-fixture/`; virtual mode uses standard Unity OpenXR and needs no MRUK room data or Meta Core. It preserves the original MR project and makes no antivirus changes. Run `./Start-ControlService.ps1`, launch `Builds/WhiteRoomDesktop/MatrixOperator.exe`, then open <http://127.0.0.1:8765/>. For an authorized USB-connected Quest, `./Install-WhiteRoom.ps1` installs and launches the white-room APK.
+
+The previously tested natural-language demonstration uses an explicitly labeled offline parser. An optional configured AI adapter is available and mock-tested; live model access is not assumed. Hardware behavior remains unverified. See the [current Quest Pro session](Validation/Quest-Pro-Session.md) and [installed Meta Building Blocks review](Docs/Meta-Building-Blocks-Review.md) for the next-stage evidence and reuse decisions.
+
+![Unity-rendered gallery of the seven bundled white-room props](Validation/white-room-preview.png)
+
+The gallery is an arranged Editor preview; the app starts with an empty room.
+
+<details>
+<summary>Earlier physical-room / MRUK prototype documentation</summary>
+
+The following sections document the separate AR/MRUK path. Its Windows simulation previously passed the spawn/edit/save/restore loop. Its Meta Core APK build encountered an antivirus quarantine, described in [the historical security report](Docs/Security-Block.md). That evidence is specific to the original MR build, not the virtual white-room build above.
 
 ## Connected learning layer
 
-The next layer is **Observation and Scale**, an authored, cited activity backed by the canonical `sota-v2` lesson runtime. Predict a block's change, revise it through the existing language proposal flow, record actual runtime evidence, explain it and reflect. PC saves link the room to a durable lesson checkpoint; restoring it preserves later original progress. Unity shows the current guide, and the PC panel collects responses and exposes sources. Completion records participation rather than a mastery grade.
+The separately preserved **Observation and Scale** prototype is an authored, cited activity backed by the `sota-v2` lesson runtime. Its optional PC panel is at <http://127.0.0.1:8765/learning>; the root page stays focused on the white-room Operator. Predict a block's change, revise it through the existing language proposal flow, record actual runtime evidence, explain it and reflect. PC saves can link the room to a durable lesson checkpoint; restoring it preserves later original progress. Completion records participation rather than a mastery grade.
 
 Use sibling checkouts of this branch and `sota-v2`'s `codex/operator-learning-sessions` branch. With Node.js 24+, Python 3.10+ and Unity installed, run `./Build-DesktopFixture.ps1`. Start `npm run dev:operator` in the v2 checkout and `./Start-ControlService.ps1` here, then run `Builds/Desktop/AR-Sandbox.exe`. The isolated fixture builds the explicit Windows simulation without importing Meta packages; native Quest validation remains separate. See the [activity runbook](Docs/Learning-Sessions.md), [organization/research review](Docs/Organization-Review.md), and [learning-layer validation](Validation/Learning-Validation.md).
 
@@ -83,3 +94,5 @@ The provider receives the request, available props, current objects, room target
 Reproduce PC tests with `python -m unittest discover -s ControlService -v`. Reproduce the actual player loop with `python Validation/Run-Prototype-Loop.py`; it uses a temporary service/save folder and terminates only its own test player. [Exact runtime evidence](Validation/prototype-loop-results.json), [core evidence](Validation/core-results.json), and the [durable progress log](Docs/Progress-Log.md) record what passed and how to resume. The [validation report](Validation/Prototype-Validation.md) separates source, simulation, build, and hardware results.
 
 Published validation reports describe the original local runs and have workstation paths redacted. Raw logs remain local. See [handoff status](Docs/Publication.md) before resuming native validation.
+
+</details>

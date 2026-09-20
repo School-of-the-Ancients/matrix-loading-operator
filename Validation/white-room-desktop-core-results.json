@@ -1,0 +1,655 @@
+{
+  "startedUtc": "2026-09-20T20:22:10.479015Z",
+  "completedUtc": "2026-09-20T20:22:10.5483439Z",
+  "unityVersion": "6000.6.0f1",
+  "projectPath": "<repository>/.white-room-fixture/Desktop",
+  "passed": 129,
+  "failed": 0,
+  "checks": [
+    {
+      "name": "spawn assigns distinct GUID object IDs",
+      "passed": true,
+      "detail": ""
+    },
+    {
+      "name": "spawned instances are active",
+      "passed": true,
+      "detail": ""
+    },
+    {
+      "name": "get_scene acknowledges request ID",
+      "passed": true,
+      "detail": ""
+    },
+    {
+      "name": "list_assets succeeds",
+      "passed": true,
+      "detail": ""
+    },
+    {
+      "name": "list_targets succeeds",
+      "passed": true,
+      "detail": ""
+    },
+    {
+      "name": "registered assets and targets are listed",
+      "passed": true,
+      "detail": ""
+    },
+    {
+      "name": "set_transform targets stable ID",
+      "passed": true,
+      "detail": ""
+    },
+    {
+      "name": "set_transform preserves omitted anchor",
+      "passed": true,
+      "detail": ""
+    },
+    {
+      "name": "other object is unchanged by targeted edit",
+      "passed": true,
+      "detail": ""
+    },
+    {
+      "name": "set_transform can target another registered anchor",
+      "passed": true,
+      "detail": ""
+    },
+    {
+      "name": "spawn rejects caller supplied objectId",
+      "passed": true,
+      "detail": ""
+    },
+    {
+      "name": "unknown command is rejected",
+      "passed": true,
+      "detail": ""
+    },
+    {
+      "name": "unknown object ID is rejected",
+      "passed": true,
+      "detail": ""
+    },
+    {
+      "name": "path-shaped asset ID is rejected",
+      "passed": true,
+      "detail": ""
+    },
+    {
+      "name": "oversized ID is rejected",
+      "passed": true,
+      "detail": ""
+    },
+    {
+      "name": "null command is rejected",
+      "passed": true,
+      "detail": ""
+    },
+    {
+      "name": "delete removes only specified ID",
+      "passed": true,
+      "detail": ""
+    },
+    {
+      "name": "EditMode deletion destroys the instance immediately",
+      "passed": true,
+      "detail": ""
+    },
+    {
+      "name": "clear removes all owned objects",
+      "passed": true,
+      "detail": ""
+    },
+    {
+      "name": "DTO isolation setup succeeds",
+      "passed": true,
+      "detail": ""
+    },
+    {
+      "name": "accepted spawn command DTO is cloned",
+      "passed": true,
+      "detail": ""
+    },
+    {
+      "name": "returned snapshot is detached from world state",
+      "passed": true,
+      "detail": ""
+    },
+    {
+      "name": "set_transform isolation setup succeeds",
+      "passed": true,
+      "detail": ""
+    },
+    {
+      "name": "accepted transform DTO is cloned",
+      "passed": true,
+      "detail": ""
+    },
+    {
+      "name": "load preserves scene when room ID changes",
+      "passed": true,
+      "detail": ""
+    },
+    {
+      "name": "load rejects unsupported schema",
+      "passed": true,
+      "detail": ""
+    },
+    {
+      "name": "load rejects duplicate IDs before replacing objects",
+      "passed": true,
+      "detail": ""
+    },
+    {
+      "name": "load rejects unknown asset after valid first entry",
+      "passed": true,
+      "detail": ""
+    },
+    {
+      "name": "load rejects unknown anchor after valid first entry",
+      "passed": true,
+      "detail": ""
+    },
+    {
+      "name": "load rejects missing anchor ID",
+      "passed": true,
+      "detail": ""
+    },
+    {
+      "name": "load rejects nonfinite data after valid first entry",
+      "passed": true,
+      "detail": ""
+    },
+    {
+      "name": "load rejects incomplete transforms",
+      "passed": true,
+      "detail": ""
+    },
+    {
+      "name": "load rejects null object entries",
+      "passed": true,
+      "detail": ""
+    },
+    {
+      "name": "load rejects a missing object array",
+      "passed": true,
+      "detail": ""
+    },
+    {
+      "name": "load rejects a missing scene document",
+      "passed": true,
+      "detail": ""
+    },
+    {
+      "name": "JSON scene round-trip loads successfully",
+      "passed": true,
+      "detail": ""
+    },
+    {
+      "name": "successful load preserves stable object IDs",
+      "passed": true,
+      "detail": ""
+    },
+    {
+      "name": "successful load replaces old Unity instances",
+      "passed": true,
+      "detail": ""
+    },
+    {
+      "name": "loaded transforms use the selected anchor",
+      "passed": true,
+      "detail": ""
+    },
+    {
+      "name": "loaded scale and rotation are applied",
+      "passed": true,
+      "detail": ""
+    },
+    {
+      "name": "accepted load document is cloned",
+      "passed": true,
+      "detail": ""
+    },
+    {
+      "name": "valid empty scene intentionally clears objects",
+      "passed": true,
+      "detail": ""
+    },
+    {
+      "name": "set_transform rejects NaN position",
+      "passed": true,
+      "detail": ""
+    },
+    {
+      "name": "set_transform rejects infinite rotation",
+      "passed": true,
+      "detail": ""
+    },
+    {
+      "name": "set_transform rejects out-of-range position",
+      "passed": true,
+      "detail": ""
+    },
+    {
+      "name": "set_transform rejects zero scale",
+      "passed": true,
+      "detail": ""
+    },
+    {
+      "name": "set_transform rejects negative scale",
+      "passed": true,
+      "detail": ""
+    },
+    {
+      "name": "set_transform rejects oversized scale",
+      "passed": true,
+      "detail": ""
+    },
+    {
+      "name": "set_transform rejects missing rotation vector",
+      "passed": true,
+      "detail": ""
+    },
+    {
+      "name": "set_transform rejects missing transform",
+      "passed": true,
+      "detail": ""
+    },
+    {
+      "name": "documented transform limits are inclusive",
+      "passed": true,
+      "detail": ""
+    },
+    {
+      "name": "objects follow translated and rotated room origins",
+      "passed": true,
+      "detail": ""
+    },
+    {
+      "name": "room motion preserves saved anchor-local pose",
+      "passed": true,
+      "detail": ""
+    },
+    {
+      "name": "scene reload uses current anchor pose",
+      "passed": true,
+      "detail": ""
+    },
+    {
+      "name": "inactive anchor blocks spawn",
+      "passed": true,
+      "detail": ""
+    },
+    {
+      "name": "inactive anchor blocks move",
+      "passed": true,
+      "detail": ""
+    },
+    {
+      "name": "inactive anchor blocks restore without removing objects",
+      "passed": true,
+      "detail": ""
+    },
+    {
+      "name": "reactivated original anchor permits restore",
+      "passed": true,
+      "detail": ""
+    },
+    {
+      "name": "destroyed anchor blocks spawn",
+      "passed": true,
+      "detail": ""
+    },
+    {
+      "name": "destroyed anchor blocks restore without losing saved data",
+      "passed": true,
+      "detail": ""
+    },
+    {
+      "name": "destroyed anchor does not fall back to world origin",
+      "passed": true,
+      "detail": ""
+    },
+    {
+      "name": "delete can remove state after anchor destruction",
+      "passed": true,
+      "detail": ""
+    },
+    {
+      "name": "capacity accepts the documented maximum",
+      "passed": true,
+      "detail": ""
+    },
+    {
+      "name": "duplicate above capacity preserves existing objects",
+      "passed": true,
+      "detail": ""
+    },
+    {
+      "name": "spawn above capacity preserves existing objects",
+      "passed": true,
+      "detail": ""
+    },
+    {
+      "name": "load above capacity preserves existing objects",
+      "passed": true,
+      "detail": ""
+    },
+    {
+      "name": "dispose destroys owned instances and is idempotent",
+      "passed": true,
+      "detail": ""
+    },
+    {
+      "name": "disposed world rejects commands",
+      "passed": true,
+      "detail": ""
+    },
+    {
+      "name": "app selects newly spawned stable object ID",
+      "passed": true,
+      "detail": ""
+    },
+    {
+      "name": "deleting another object preserves selection",
+      "passed": true,
+      "detail": ""
+    },
+    {
+      "name": "unknown selection preserves the valid selected object",
+      "passed": true,
+      "detail": ""
+    },
+    {
+      "name": "manual edits revise the selected ID without another spawn",
+      "passed": true,
+      "detail": ""
+    },
+    {
+      "name": "restoring a still-selected ID preserves selection",
+      "passed": true,
+      "detail": ""
+    },
+    {
+      "name": "clear removes objects and clears selection",
+      "passed": true,
+      "detail": ""
+    },
+    {
+      "name": "clear then JSON restore succeeds in the same app",
+      "passed": true,
+      "detail": ""
+    },
+    {
+      "name": "restored edited object follows the current room frame",
+      "passed": true,
+      "detail": ""
+    },
+    {
+      "name": "invalid room replacement preserves live objects and selection",
+      "passed": true,
+      "detail": ""
+    },
+    {
+      "name": "deleting the selected object clears selection",
+      "passed": true,
+      "detail": ""
+    },
+    {
+      "name": "invalidated room exposes no stale world or placement",
+      "passed": true,
+      "detail": ""
+    },
+    {
+      "name": "invalidated room rejects commands",
+      "passed": true,
+      "detail": ""
+    },
+    {
+      "name": "fresh room initialization recovers from invalidation",
+      "passed": true,
+      "detail": ""
+    },
+    {
+      "name": "select returns known stable ID without changing scene or history",
+      "passed": true,
+      "detail": ""
+    },
+    {
+      "name": "select rejects unknown object IDs",
+      "passed": true,
+      "detail": ""
+    },
+    {
+      "name": "select rejects transform payload",
+      "passed": true,
+      "detail": ""
+    },
+    {
+      "name": "duplicate rejects overriding the asset",
+      "passed": true,
+      "detail": ""
+    },
+    {
+      "name": "duplicate assigns a distinct stable ID and retains source",
+      "passed": true,
+      "detail": ""
+    },
+    {
+      "name": "duplicate copies asset anchor rotation scale and offsets local X",
+      "passed": true,
+      "detail": ""
+    },
+    {
+      "name": "undo duplicate restores original scene exactly",
+      "passed": true,
+      "detail": ""
+    },
+    {
+      "name": "redo duplicate restores its original new ID and pose",
+      "passed": true,
+      "detail": ""
+    },
+    {
+      "name": "duplicate clamps offset at the scene boundary",
+      "passed": true,
+      "detail": ""
+    },
+    {
+      "name": "undo spawn removes its object",
+      "passed": true,
+      "detail": ""
+    },
+    {
+      "name": "redo spawn restores the same ID",
+      "passed": true,
+      "detail": ""
+    },
+    {
+      "name": "undo transform restores pose and original anchor",
+      "passed": true,
+      "detail": ""
+    },
+    {
+      "name": "redo transform restores exact edited scene",
+      "passed": true,
+      "detail": ""
+    },
+    {
+      "name": "undo delete restores ID asset anchor and pose",
+      "passed": true,
+      "detail": ""
+    },
+    {
+      "name": "redo delete removes the restored ID",
+      "passed": true,
+      "detail": ""
+    },
+    {
+      "name": "undo clear restores all stable IDs and poses",
+      "passed": true,
+      "detail": ""
+    },
+    {
+      "name": "redo clear returns to the empty scene",
+      "passed": true,
+      "detail": ""
+    },
+    {
+      "name": "undo load restores its prior scene",
+      "passed": true,
+      "detail": ""
+    },
+    {
+      "name": "redo load restores IDs with isolated snapshot data",
+      "passed": true,
+      "detail": ""
+    },
+    {
+      "name": "empty undo is rejected without mutation",
+      "passed": true,
+      "detail": ""
+    },
+    {
+      "name": "empty redo is rejected without mutation",
+      "passed": true,
+      "detail": ""
+    },
+    {
+      "name": "failed mutations queries and selection preserve both history stacks",
+      "passed": true,
+      "detail": ""
+    },
+    {
+      "name": "undo rejects object fields",
+      "passed": true,
+      "detail": ""
+    },
+    {
+      "name": "redo rejects scene fields",
+      "passed": true,
+      "detail": ""
+    },
+    {
+      "name": "rejected history command does not consume history",
+      "passed": true,
+      "detail": ""
+    },
+    {
+      "name": "redo remains usable after rejected edits",
+      "passed": true,
+      "detail": ""
+    },
+    {
+      "name": "a new successful mutation invalidates redo",
+      "passed": true,
+      "detail": ""
+    },
+    {
+      "name": "failed history replay preserves scene and both stacks",
+      "passed": true,
+      "detail": ""
+    },
+    {
+      "name": "history replay succeeds when the original anchor recovers",
+      "passed": true,
+      "detail": ""
+    },
+    {
+      "name": "undo history retains at most 32 snapshots",
+      "passed": true,
+      "detail": ""
+    },
+    {
+      "name": "bounded undo stops at the oldest retained snapshot",
+      "passed": true,
+      "detail": ""
+    },
+    {
+      "name": "bounded redo restores the latest scene",
+      "passed": true,
+      "detail": ""
+    },
+    {
+      "name": "disposing a room removes its history",
+      "passed": true,
+      "detail": ""
+    },
+    {
+      "name": "app selects the new duplicate ID",
+      "passed": true,
+      "detail": ""
+    },
+    {
+      "name": "undo clears selection when its object disappears",
+      "passed": true,
+      "detail": ""
+    },
+    {
+      "name": "app select command updates the selected ID",
+      "passed": true,
+      "detail": ""
+    },
+    {
+      "name": "redo preserves selection of an ID still present",
+      "passed": true,
+      "detail": ""
+    },
+    {
+      "name": "undo delete preserves another selected ID",
+      "passed": true,
+      "detail": ""
+    },
+    {
+      "name": "room reinitialization creates empty history and clears selection",
+      "passed": true,
+      "detail": ""
+    },
+    {
+      "name": "existing prefab entries retain a 0.2 default spawn scale",
+      "passed": true,
+      "detail": ""
+    },
+    {
+      "name": "catalog copies authored spawn scale",
+      "passed": true,
+      "detail": ""
+    },
+    {
+      "name": "captured spawn scale cannot mutate registry",
+      "passed": true,
+      "detail": ""
+    },
+    {
+      "name": "catalog rejects nonfinite and out of range spawn scales",
+      "passed": true,
+      "detail": ""
+    },
+    {
+      "name": "app uses authored scale when spawning selected furniture",
+      "passed": true,
+      "detail": ""
+    },
+    {
+      "name": "wire select accepts Unity defaults for omitted fields",
+      "passed": true,
+      "detail": ""
+    },
+    {
+      "name": "wire duplicate accepts omitted fields and returns a new ID",
+      "passed": true,
+      "detail": ""
+    },
+    {
+      "name": "wire undo accepts Unity defaults for omitted fields",
+      "passed": true,
+      "detail": ""
+    },
+    {
+      "name": "wire redo restores the same duplicated ID",
+      "passed": true,
+      "detail": ""
+    }
+  ]
+}
