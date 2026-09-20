@@ -30,6 +30,7 @@ namespace ArSandbox
             app.prefabs = assets; app.simulatedRoom = false;
             app.placementMaterial = Material("placement", new Color(.05f,.8f,.45f));
             var bridge = app.gameObject.AddComponent<PcBridge>(); bridge.app = app;
+            var voice = app.gameObject.AddComponent<SandboxVoiceInput>(); voice.app = app; voice.bridge = bridge;
             var room = app.gameObject.AddComponent<WhiteRoomAdapter>(); room.app = app;
             room.floorOrigin = new GameObject("White room coordinate origin").transform;
             // The floor and save origin remain fixed when the viewer moves or tracking recentres.

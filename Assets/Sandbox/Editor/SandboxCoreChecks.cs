@@ -132,6 +132,7 @@ namespace ArSandbox
             Group("Catalog geometry and JSON compatibility", CheckCatalogBounds);
             Group("Bundled prefab geometry", CheckBundledBounds);
             Group("Live viewer context", CheckViewerContext);
+            Group("Bounded voice audio encoding", CheckVoiceAudio);
             Group("Unity JSON wire command compatibility", CheckWireCommands);
 
             report.completedUtc = DateTime.UtcNow.ToString("O");
@@ -899,6 +900,61 @@ namespace ArSandbox
         private static bool Near(Float3 actual, Vector3 expected)
         {
             return actual != null && Vector3.Distance(new Vector3(actual.x, actual.y, actual.z), expected) < .0001f;
+        }
+
+        private static void CheckVoiceAudio()
+        {
+            var source = new[] { -1f, 0f, 1f, .5f };
+            byte[] mono = SandboxVoiceInput.EncodePcm16Wave(source, 1, 16000, source.Length);
+            using (var reader = new BinaryReader(new MemoryStream(mono)))
+            {
+                Check("voice WAV uses interoperable RIFF WAVE chunk sizes",
+                    new string(reader.ReadChars(4)) == "RIFF" && reader.ReadInt32() == mono.Length - 8 &&
+                    new string(reader.ReadChars(4)) == "WAVE" && new string(reader.ReadChars(4)) == "fmt " && reader.ReadInt32() == 16);
+                Check("voice WAV declares PCM16 mono at 16 kHz",
+                    reader.ReadInt16() == 1 && reader.ReadInt16() == 1 && reader.ReadInt32() == 16000 &&
+                    reader.ReadInt32() == 32000 && reader.ReadInt16() == 2 && reader.ReadInt16() == 16 &&
+                    new string(reader.ReadChars(4)) == "data" && reader.ReadInt32() == source.Length * 2);
+                Check("voice PCM amplitudes retain sign silence and range",
+                    reader.ReadInt16() == -32767 && reader.ReadInt16() == 0 && reader.ReadInt16() == 32767 && reader.ReadInt16() == 16384 &&
+                    reader.BaseStream.Position == reader.BaseStream.Length);
+            }
+            Check("voice encoding does not modify captured samples", source[0] == -1f && source[1] == 0f && source[2] == 1f && source[3] == .5f);
+            byte[] stereo = SandboxVoiceInput.EncodePcm16Wave(new[] { -1f, 1f, .5f, .5f }, 2, 16000, 2);
+            Check("voice stereo downmix averages channel energy without doubling duration",
+                stereo.Length == 48 && BitConverter.ToInt16(stereo, 44) == 0 && BitConverter.ToInt16(stereo, 46) == 16384);
+            byte[] downsampled = SandboxVoiceInput.EncodePcm16Wave(new[] { -1f, -1f, -1f, 0f, 0f, 0f, 1f, 1f, 1f }, 1, 48000, 9);
+            Check("voice 48 kHz capture becomes the correct 16 kHz duration",
+                downsampled.Length == 50 && BitConverter.ToInt16(downsampled, 44) == -32767 &&
+                BitConverter.ToInt16(downsampled, 46) == 0 && BitConverter.ToInt16(downsampled, 48) == 32767);
+            byte[] upsampled = SandboxVoiceInput.EncodePcm16Wave(new[] { -1f, 1f }, 1, 8000, 2);
+            Check("voice lower-rate capture interpolates and bounds its final sample",
+                upsampled.Length == 52 && BitConverter.ToInt16(upsampled, 44) == -32767 && BitConverter.ToInt16(upsampled, 46) == 0 &&
+                BitConverter.ToInt16(upsampled, 48) == 32767 && BitConverter.ToInt16(upsampled, 50) == 32767);
+            byte[] invalid = SandboxVoiceInput.EncodePcm16Wave(new[] { float.NaN, float.PositiveInfinity, float.NegativeInfinity, -2f, 2f }, 1, 16000, 5);
+            Check("voice nonfinite samples become silence and excessive amplitudes are clipped",
+                BitConverter.ToInt16(invalid, 44) == 0 && BitConverter.ToInt16(invalid, 46) == 0 && BitConverter.ToInt16(invalid, 48) == 0 &&
+                BitConverter.ToInt16(invalid, 50) == -32767 && BitConverter.ToInt16(invalid, 52) == 32767);
+            byte[] partial = SandboxVoiceInput.EncodePcm16Wave(new[] { 1f, 0f, -1f }, 1, 16000, 2);
+            Check("voice ignores unrecorded trailing buffer samples", partial.Length == 48 && BitConverter.ToInt16(partial, 46) == 0);
+            int maximumFrames = 16000 * SandboxVoiceInput.MaximumSeconds;
+            Check("voice maximum recording fits the bounded WAV upload", SandboxVoiceInput.EncodePcm16Wave(new float[maximumFrames], 1, 16000, maximumFrames).Length == 480044);
+            Check("voice rejects empty truncated and oversized recordings",
+                RejectsAudio(() => SandboxVoiceInput.EncodePcm16Wave(null, 1, 16000, 1)) &&
+                RejectsAudio(() => SandboxVoiceInput.EncodePcm16Wave(new float[1], 1, 16000, 0)) &&
+                RejectsAudio(() => SandboxVoiceInput.EncodePcm16Wave(new float[1], 2, 16000, 1)) &&
+                RejectsAudio(() => SandboxVoiceInput.EncodePcm16Wave(new float[maximumFrames + 1], 1, 16000, maximumFrames + 1)));
+            Check("voice rejects unsupported channel and sample-rate metadata",
+                RejectsAudio(() => SandboxVoiceInput.EncodePcm16Wave(new float[9], 0, 16000, 1)) &&
+                RejectsAudio(() => SandboxVoiceInput.EncodePcm16Wave(new float[9], 9, 16000, 1)) &&
+                RejectsAudio(() => SandboxVoiceInput.EncodePcm16Wave(new float[1], 1, 7999, 1)) &&
+                RejectsAudio(() => SandboxVoiceInput.EncodePcm16Wave(new float[1], 1, 192001, 1)));
+        }
+
+        private static bool RejectsAudio(Action action)
+        {
+            try { action(); return false; }
+            catch (ArgumentException) { return true; }
         }
 
         private static void CheckWireCommands()

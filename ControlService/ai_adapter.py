@@ -16,7 +16,7 @@ import urllib.error
 import urllib.parse
 import urllib.request
 
-from codex_provider import CodexConfig, CodexProviderError, plan_codex
+from codex_provider import CodexConfig, CodexProviderError, plan_codex, select_codex_config
 
 MAX_BODY = 1024 * 1024
 MAX_BATCH = 20
@@ -336,7 +336,7 @@ undo: {op:'undo'}; redo: {op:'redo'}; clear: {op:'clear'}; get_scene, list_asset
 Undo/redo must be separate single-command proposals. Their resulting scene and history availability are not supplied.
 Maximum 20 commands and 100 scene objects. New spawned or duplicated object IDs are unavailable until applied.
 Duplicate clones the source asset, anchor and transform, offsets local X by 0.3 metres (maximum X=100), and selects the new object.
-For 'it' or 'selected object', use selection.objectId. For a single prop 'here', use selection.anchorId and selection.position exactly.
+For 'it', 'this', 'that', 'this object', or 'selected object', use selection.objectId: it is the stable ID of the controller-selected object captured for this request. Never substitute another object. If no object is selected and the reference cannot be resolved, ask for selection. For a single prop 'here', use selection.anchorId and selection.position exactly.
 For a composition 'here' or an unspecified location, use the selected suitable floor point as the layout's reference point;
 offset each piece from it. If no suitable point is selected, use a uniquely identified floor target's local origin and disclose it.
 Do not build large floor structures on a selected table target. Ask when no suitable floor target exists or several are ambiguous.
@@ -409,7 +409,7 @@ class Planner:
             return {"mode": "unavailable", "provider": "Configuration error", "model": None,
                     "configured": False, "availableModes": ["offline-rules"] if self.allow_offline else [], "error": str(error)}
 
-    def plan(self, text, snapshot, selection=None, saved_scenes=None, mode=None):
+    def plan(self, text, snapshot, selection=None, saved_scenes=None, mode=None, codex=None):
         prompt = _text(text, "request", limit=4000).strip()
         _require(bool(prompt), "Enter a scene request")
         _require(mode in (None, "openai-compatible", "codex-cli", "offline-rules"), "Unknown planner mode")
@@ -431,6 +431,7 @@ class Planner:
             try:
                 config.validate()
                 if isinstance(config, CodexConfig):
+                    config = select_codex_config(config, codex)
                     response = plan_codex(config, SYSTEM_PROMPT, prompt, clean, saved)
                     proposed, inference = response["proposal"], response["receipt"]
                     used_mode = "codex-cli"

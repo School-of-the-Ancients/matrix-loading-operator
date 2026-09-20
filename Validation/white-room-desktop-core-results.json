@@ -1,9 +1,9 @@
 {
-  "startedUtc": "2026-09-20T21:50:00.3703200Z",
-  "completedUtc": "2026-09-20T21:50:01.5668332Z",
+  "startedUtc": "2026-09-20T22:26:58.1664101Z",
+  "completedUtc": "2026-09-20T22:26:59.3773353Z",
   "unityVersion": "6000.6.0f1",
-  "projectPath": "<repository>/.white-room-fixture/Desktop",
-  "passed": 169,
+  "projectPath": "<isolated-white-room-fixture>",
+  "passed": 181,
   "failed": 0,
   "checks": [
     {
@@ -830,6 +830,66 @@
       "name": "unknown viewer is explicit empty frames on the actual bridge JSON wire",
       "passed": true,
       "detail": "Raw null-viewer JSON: {\"scene\":{\"schemaVersion\":1,\"roomId\":\"test-room\",\"objects\":[]},\"assets\":[{\"assetId\":\"cube\",\"displayName\":\"Cube\",\"description\":\"\",\"spawnScale\":0.20000000298023224,\"localBounds\":{\"center\":{\"x\":0.0,\"y\":0.0,\"z\":0.0},\"size\":{\"x\":0.0,\"y\":0.0,\"z\":0.0}}},{\"assetId\":\"sphere\",\"displayName\":\"Sphere\",\"description\":\"\",\"spawnScale\":0.20000000298023224,\"localBounds\":{\"center\":{\"x\":0.0,\"y\":0.0,\"z\":0.0},\"size\":{\"x\":0.0,\"y\":0.0,\"z\":0.0}}}],\"anchors\":[{\"anchorId\":\"floor\",\"displayName\":\"Floor\"},{\"anchorId\":\"table\",\"displayName\":\"Table\"}],\"selection\":{\"anchorId\":\"\",\"objectId\":\"\",\"position\":{\"x\":0.0,\"y\":0.0,\"z\":0.0}},\"viewer\":{\"frames\":[]}}\nActual bridge unknown-viewer JSON: {\"scene\":{\"schemaVersion\":1,\"roomId\":\"test-room\",\"objects\":[]},\"assets\":[{\"assetId\":\"cube\",\"displayName\":\"Cube\",\"description\":\"\",\"spawnScale\":0.20000000298023224,\"localBounds\":{\"center\":{\"x\":0.0,\"y\":0.0,\"z\":0.0},\"size\":{\"x\":0.0,\"y\":0.0,\"z\":0.0}}},{\"assetId\":\"sphere\",\"displayName\":\"Sphere\",\"description\":\"\",\"spawnScale\":0.20000000298023224,\"localBounds\":{\"center\":{\"x\":0.0,\"y\":0.0,\"z\":0.0},\"size\":{\"x\":0.0,\"y\":0.0,\"z\":0.0}}}],\"anchors\":[{\"anchorId\":\"floor\",\"displayName\":\"Floor\"},{\"anchorId\":\"table\",\"displayName\":\"Table\"}],\"selection\":{\"anchorId\":\"\",\"objectId\":\"\",\"position\":{\"x\":0.0,\"y\":0.0,\"z\":0.0}},\"viewer\":{\"frames\":[]}}"
+    },
+    {
+      "name": "voice WAV uses interoperable RIFF WAVE chunk sizes",
+      "passed": true,
+      "detail": ""
+    },
+    {
+      "name": "voice WAV declares PCM16 mono at 16 kHz",
+      "passed": true,
+      "detail": ""
+    },
+    {
+      "name": "voice PCM amplitudes retain sign silence and range",
+      "passed": true,
+      "detail": ""
+    },
+    {
+      "name": "voice encoding does not modify captured samples",
+      "passed": true,
+      "detail": ""
+    },
+    {
+      "name": "voice stereo downmix averages channel energy without doubling duration",
+      "passed": true,
+      "detail": ""
+    },
+    {
+      "name": "voice 48 kHz capture becomes the correct 16 kHz duration",
+      "passed": true,
+      "detail": ""
+    },
+    {
+      "name": "voice lower-rate capture interpolates and bounds its final sample",
+      "passed": true,
+      "detail": ""
+    },
+    {
+      "name": "voice nonfinite samples become silence and excessive amplitudes are clipped",
+      "passed": true,
+      "detail": ""
+    },
+    {
+      "name": "voice ignores unrecorded trailing buffer samples",
+      "passed": true,
+      "detail": ""
+    },
+    {
+      "name": "voice maximum recording fits the bounded WAV upload",
+      "passed": true,
+      "detail": ""
+    },
+    {
+      "name": "voice rejects empty truncated and oversized recordings",
+      "passed": true,
+      "detail": ""
+    },
+    {
+      "name": "voice rejects unsupported channel and sample-rate metadata",
+      "passed": true,
+      "detail": ""
     },
     {
       "name": "wire select accepts Unity defaults for omitted fields",

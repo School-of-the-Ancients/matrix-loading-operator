@@ -57,6 +57,15 @@ class ConfigurationTests(NativeConfigTestCase):
                                                "SANDBOX_CODEX_MODEL": " exact-model ", "OPENAI_MODEL": "wrong-model"})
         self.assertEqual(config.model, "exact-model")
 
+    def test_explicit_reasoning_configuration_is_typed(self):
+        config = CodexConfig.from_environment({"SANDBOX_AI_MODE": "codex-cli", "SANDBOX_CODEX_EXE": self.executable,
+                                               "SANDBOX_CODEX_REASONING": " high "})
+        self.assertEqual(config.reasoning_effort, "high")
+        config.validate()
+        for value in ("unexpected", 123, [], "high\n"):
+            with self.subTest(value=value), self.assertRaises(CodexProviderError):
+                CodexConfig(self.executable, reasoning_effort=value).validate()
+
     def test_rejects_shell_wrappers_relative_paths_nonexecutables_and_bad_models(self):
         with tempfile.TemporaryDirectory() as folder:
             disguised = Path(folder) / "fake.exe"
@@ -235,7 +244,20 @@ class PlanningTests(NativeConfigTestCase):
             result = plan_codex(CodexConfig(self.executable, "chosen-model"), "rules", "select", {}, [])
         args = self.calls[-1][0]
         self.assertEqual(args[args.index("--model") + 1], "chosen-model")
+        self.assertEqual(result["receipt"]["requestedModel"], "chosen-model")
         self.assertNotIn("model", result["receipt"])
+
+    def test_reasoning_override_is_an_argument_and_preserves_transport_constraints(self):
+        with patch.object(provider, "_run_bounded", side_effect=self.fake_cli):
+            result = plan_codex(CodexConfig(self.executable, "chosen-model", reasoning_effort="high"),
+                                "rules", "select", {}, [])
+        args = self.calls[-1][0]
+        self.assertIn(["--config", 'model_reasoning_effort="high"'],
+                      [args[i:i + 2] for i in range(len(args) - 1)])
+        self.assertEqual(result["receipt"]["requestedReasoningEffort"], "high")
+        self.assertNotIn("model", result["receipt"])
+        self.assertIn('approval_policy="never"', args)
+        self.assertIn('web_search="disabled"', args)
 
     def test_api_login_or_no_login_never_runs_inference(self):
         for output in (b"Logged in using an API key", b"Not logged in", b"Logged in using ChatGPT plus unexpected secret"):
@@ -265,6 +287,118 @@ class PlanningTests(NativeConfigTestCase):
                          {"spawn", "set_transform", "select", "duplicate", "delete", "clear", "undo", "redo",
                           "get_scene", "list_assets", "list_targets", "save_scene", "load_scene"})
         self.assertTrue(all(entry["additionalProperties"] is False for entry in variants))
+
+
+class ModelSelectionTests(NativeConfigTestCase):
+    def setUp(self):
+        super().setUp()
+        self.folder = tempfile.TemporaryDirectory()
+        self.addCleanup(self.folder.cleanup)
+        self.cache = Path(self.folder.name) / "models_cache.json"
+        self.environ = {"CODEX_HOME": self.folder.name}
+        self.public_model = {"slug": "model-a", "display_name": "Model A", "visibility": "list",
+                             "default_reasoning_level": "medium", "supported_reasoning_levels": [
+                                 {"effort": "low", "description": "Fast"},
+                                 {"effort": "medium"}, {"effort": "high"}]}
+
+    def write_cache(self, models=None, **metadata):
+        self.cache.write_text(json.dumps({"models": models if models is not None else [self.public_model],
+                                          **metadata}), encoding="utf-8")
+
+    def options(self):
+        return provider.codex_options(self.environ)
+
+    def select(self, selection, config=None):
+        return provider.select_codex_config(config or CodexConfig(self.executable), selection, options=self.options())
+
+    def test_only_visible_public_metadata_is_exposed(self):
+        model = {**self.public_model, "instructions": "private model instructions", "unexpected": "secret"}
+        hidden = {**model, "slug": "hidden-model", "visibility": "hide"}
+        self.write_cache([model, hidden], identity="private account hash", etag="private cache etag")
+        result = self.options()
+        self.assertEqual(result["models"], [{"id": "model-a", "displayName": "Model A",
+                                             "reasoningEfforts": ["low", "medium", "high"],
+                                             "defaultReasoningEffort": "medium"}])
+        self.assertNotIn("private", json.dumps(result))
+        self.assertNotIn("secret", json.dumps(result))
+
+    def test_metadata_is_not_fabricated_when_cache_missing_corrupt_or_oversized(self):
+        self.assertEqual(self.options()["models"], [])
+        for raw in (b"not json", b'{"models":[],"models":[]}', b'{"models":true}',
+                    b'{"models":[],"fetched_at":"not-a-date"}'):
+            self.cache.write_bytes(raw)
+            result = self.options()
+            self.assertEqual(result["models"], [])
+            self.assertIn("unavailable", result["warning"])
+        self.cache.write_bytes(b" " * 100)
+        with patch.object(provider, "MAX_MODEL_CACHE", 99):
+            self.assertEqual(self.options()["models"], [])
+
+    def test_stale_cache_is_honestly_labelled_and_auth_files_are_not_needed(self):
+        self.write_cache(fetched_at="2001-01-01T00:00:00Z")
+        (Path(self.folder.name) / "auth.json").write_text("this is not read", encoding="utf-8")
+        result = self.options()
+        self.assertIn("over a day old", result["warning"])
+        self.assertEqual(len(result["models"]), 1)
+        self.assertNotIn("not read", json.dumps(result))
+
+    def test_unavailable_home_directory_keeps_default_available(self):
+        with patch.object(provider.Path, "home", side_effect=RuntimeError("Could not determine home directory.")):
+            result = provider.codex_options({})
+        self.assertEqual(result["models"], [])
+        self.assertIn("unavailable", result["warning"])
+        self.assertIs(provider.select_codex_config(None, None), None)
+
+    def test_cache_filters_bad_identifiers_names_levels_and_duplicates(self):
+        self.write_cache([self.public_model, self.public_model,
+                          {**self.public_model, "slug": "bad model"},
+                          {**self.public_model, "slug": "bad-name", "display_name": "bad\nname"},
+                          {**self.public_model, "slug": "future", "supported_reasoning_levels": [
+                              {"effort": "future-value"}, {"effort": "max"}, {"effort": "max"}],
+                           "default_reasoning_level": "future-value"}])
+        result = self.options()["models"]
+        self.assertEqual([item["id"] for item in result], ["model-a", "future"])
+        self.assertEqual(result[1]["reasoningEfforts"], ["max"])
+        self.assertIsNone(result[1]["defaultReasoningEffort"])
+
+    def test_default_does_not_require_a_cache_or_change_existing_configuration(self):
+        config = CodexConfig(self.executable, "configured-model", reasoning_effort="high")
+        for selection in (None, {}, {"model": None, "reasoningEffort": None}):
+            self.assertIs(self.select(selection, config), config)
+
+    def test_supported_pair_replaces_only_model_settings(self):
+        self.write_cache()
+        original = CodexConfig(self.executable, "old-model", reasoning_effort="high")
+        selected = self.select({"model": "model-a", "reasoningEffort": "low"}, original)
+        self.assertEqual(selected.model, "model-a")
+        self.assertEqual(selected.reasoning_effort, "low")
+        self.assertEqual(selected.executable, original.executable)
+        self.assertEqual(original.model, "old-model")
+        self.assertIsNone(self.select({"model": "model-a", "reasoningEffort": None}, original).reasoning_effort)
+
+    def test_reasoning_can_use_known_configured_model_but_cannot_guess_default(self):
+        self.write_cache()
+        configured = CodexConfig(self.executable, "model-a")
+        self.assertEqual(self.select({"reasoningEffort": "high"}, configured).reasoning_effort, "high")
+        with self.assertRaises(CodexProviderError) as error:
+            self.select({"reasoningEffort": "high"})
+        self.assertEqual(error.exception.status, 422)
+
+    def test_unknown_model_and_model_specific_efforts_fail_closed(self):
+        self.write_cache()
+        for selection in ({"model": "unknown"}, {"model": "model-a", "reasoningEffort": "ultra"},
+                          {"model": "model-a", "reasoningEffort": "max"}):
+            with self.subTest(selection=selection), self.assertRaises(CodexProviderError) as error:
+                self.select(selection)
+            self.assertEqual(error.exception.status, 422)
+
+    def test_malformed_selection_is_rejected_without_shell_strings(self):
+        self.write_cache()
+        for selection in ([], "model-a", False, {"model": ""}, {"model": True}, {"model": []},
+                          {"model": "model-a", "effort": "high"}, {"reasoningEffort": 12}):
+            with self.subTest(selection=selection), self.assertRaises(CodexProviderError) as error:
+                self.select(selection)
+            self.assertEqual(error.exception.status, 400)
 
 
 class BoundedProcessTests(unittest.TestCase):

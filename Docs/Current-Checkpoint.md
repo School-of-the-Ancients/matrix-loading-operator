@@ -1,5 +1,7 @@
 # Working Quest AI composition checkpoint
 
+Latest extension: **push-to-talk and Codex model/reasoning selectors** are implemented; both players are built and the Quest update is installed. Start with [Voice-And-Codex-Controls.md](Voice-And-Codex-Controls.md) for controls and setup. The real audio-to-AI-to-Windows-player loop passed 24 checks; new headset microphone/controller checks still require separate wearer evidence. The recovery checkpoint below remains intact. The pre-install 40-object layout is also saved as `BeforeVoiceInstall_20260920`.
+
 Checkpoint: **2026-09-20 16:07:37 America/Denver**. The wearer confirmed **“it works”** and requested commit, push and a complete checkpoint.
 
 Git recovery tag: `checkpoint/2026-09-20-160737` on `codex/quest-pro-ai-validation`, tracked by [PR #5](https://github.com/School-of-the-Ancients/matrix-loading-operator/pull/5). This file and the confirmation record are part of that checkpoint commit. Implementation and earlier synchronization were already published through `bc97027`.
@@ -28,4 +30,4 @@ Installed Quest package: `com.matt.matrixoperator.whiteroom`. APK: `Builds/White
 4. Open the Operator page, choose **Codex (ChatGPT subscription)**, enter a request, review its summary/assumptions and Apply. Head motion is allowed; scene edits or selection changes invalidate a pending proposal. Proposals expire after two minutes.
 5. To recover the checkpoint layout, choose `MatrixCheckpoint_20260920_160737` in Saved scenes and restore it. Restoring replaces the runtime scene; save any newer layout first. Scene persistence does not restore live head pose or undo history.
 
-The next unresolved original milestone is native MRUK/passthrough on Quest Pro with manual room surfaces. Its separate Meta project still has the documented generated-assembly security blocker; do not restore quarantined files or change antivirus protections as a workaround. No native MRUK headset success is claimed. Stay with bundled prefabs, live AI editing and PC save/load; catalogs, voice and SOTA lessons remain deferred.
+Native MRUK/passthrough on Quest Pro with manual room surfaces remains an unresolved original milestone after the new voice controls are checked. Its separate Meta project still has the documented generated-assembly security blocker; do not restore quarantined files or change antivirus protections as a workaround. No native MRUK headset success is claimed. Catalogs and SOTA lessons remain deferred.

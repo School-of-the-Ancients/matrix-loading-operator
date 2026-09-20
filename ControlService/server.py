@@ -22,6 +22,8 @@ import uuid
 
 from ai_adapter import Planner, PlannerError, validate_local_bounds, validate_viewer
 from learning import LearningBridge, LearningError, identifier
+from codex_provider import CodexConfig, CodexProviderError, codex_options, select_codex_config
+import speech
 
 MAX_BODY = 1024 * 1024
 MAX_OBJECTS = 100
@@ -202,6 +204,9 @@ class State:
         self.revision = 0
         self.proposals = collections.OrderedDict()
         self.learning = learning
+        self.codex_preferences = None
+        self.voice_jobs = collections.OrderedDict()
+        self.voice_worker = threading.Lock()
 
     def online(self):
         return self.client_id is not None and self.clock() - self.last_seen < LEASE_SECONDS
@@ -265,8 +270,9 @@ class State:
     def status(self):
         with self.lock:
             self.expire()
-            return {"online": self.online(), "snapshot": copy.deepcopy(self.latest),
-                    "pendingCount": len(self.pending), "results": copy.deepcopy(list(self.results))}
+            return {"online": self.online(), "clientId": self.client_id, "snapshot": copy.deepcopy(self.latest),
+                    "pendingCount": len(self.pending), "results": copy.deepcopy(list(self.results)),
+                    "voice": voice_status(self) if self.voice_jobs else None}
 
     def path(self, name):
         require(isinstance(name, str) and NAME.fullmatch(name) is not None,
@@ -362,7 +368,7 @@ class State:
             return self.queue(commands)
 
 
-def plan(state, body):
+def plan(state, body, request_context=None):
     require(isinstance(body, dict), "Expected plan object")
     prompt = text(body.get("text"), "text", limit=4000)
     mode = body.get("mode")
@@ -374,8 +380,13 @@ def plan(state, body):
         current = copy.deepcopy(state.latest)
         client_id, revision = state.client_id, state.revision
         saved_names = state.scenes()["scenes"]
+        if request_context is not None:
+            require((client_id, revision) == request_context[:2], "Scene or selection changed during voice input; speak again", 409)
+            current = copy.deepcopy(request_context[2])
+        codex = copy.deepcopy(body.get("codex", state.codex_preferences))
     try:
-        proposed = Planner().plan(prompt, current, saved_scenes=saved_names, mode=mode)
+        options = {"codex": codex} if codex is not None else {}
+        proposed = Planner().plan(prompt, current, saved_scenes=saved_names, mode=mode, **options)
     except PlannerError as error:
         raise APIError(error.status, str(error)) from None
     values = proposed.get("commands")
@@ -412,6 +423,115 @@ def plan(state, body):
     if "viewer" in current:
         result["viewerAtRequest"] = copy.deepcopy(current["viewer"])
     return result
+
+
+def planner_status(state):
+    with state.lock:
+        preferences = copy.deepcopy(state.codex_preferences)
+    return {**Planner().public_status(), "codexOptions": codex_options(),
+            "codexPreferences": preferences, "speech": speech.public_status()}
+
+
+def planner_preferences(state, body):
+    require(set(body) == {"codex"}, "Expected Codex preferences")
+    try:
+        config = CodexConfig.from_environment()
+        require(config is not None, "Configure Codex before selecting its model or reasoning effort.", 503)
+        config.validate()
+        select_codex_config(config, body["codex"])
+    except CodexProviderError as error:
+        raise APIError(error.status, str(error)) from None
+    with state.lock:
+        state.codex_preferences = copy.deepcopy(body["codex"])
+        return {"codex": copy.deepcopy(state.codex_preferences)}
+
+
+def voice_status(state, job_id=None):
+    with state.lock:
+        if job_id is None:
+            job_id = next(reversed(state.voice_jobs), None)
+        job = state.voice_jobs.get(job_id)
+        require(job is not None, "Voice request not found", 404)
+        if job["public"]["phase"] == "ready" and job["public"].get("planId") not in state.proposals:
+            job["public"].update(phase="finished", requiresApply=False)
+        if job["public"]["phase"] == "ready":
+            proposal = state.proposals[job["public"]["planId"]]
+            if (not state.online() or state.client_id != job["clientId"] or state.revision != job["revision"]
+                    or state.clock() > proposal["expires"]):
+                state.proposals.pop(job["public"]["planId"], None)
+                job["public"].update(phase="error", requiresApply=False, error="Scene or selection changed, or proposal expired. Speak again.")
+        return copy.deepcopy(job["public"])
+
+
+def cancel_voice(state, body):
+    with state.lock:
+        job = state.voice_jobs.get(body.get("jobId"))
+        require(job is not None, "Voice request not found", 404)
+        require(job["clientId"] == body.get("clientId"), "Voice request belongs to another client", 409)
+        job["cancelled"] = True
+        state.proposals.pop(job["public"].get("planId"), None)
+        job["public"].update(phase="error", requiresApply=False, error="Voice request cancelled.")
+        return {"cancelled": True}
+
+
+def start_voice(state, body):
+    client_id = text(body.get("clientId"), "clientId")
+    captured = snapshot(body.get("snapshot"))
+    audio = speech.decode_audio(body.get("audioBase64"))
+    speech.configuration()
+    # Voice must use a real configured planner. It never falls back to offline rules.
+    provider = Planner().public_status()
+    require(provider["configured"] and provider["mode"] == "codex-cli", "Configure Codex on the PC before using voice.", 503)
+    with state.lock:
+        state.expire()
+        require(state.online() and state.client_id == client_id, "Voice client is not connected", 409)
+        require(not state.pending, "Wait for queued commands before speaking", 409)
+        require(scene_revision_data(captured) == scene_revision_data(state.latest),
+                "Scene or selection changed while recording; point and speak again", 409)
+        require(state.voice_worker.acquire(blocking=False), "Speech recognition is still busy; try again shortly", 409)
+        job_id = uuid.uuid4().hex
+        public = {"jobId": job_id, "phase": "transcribing", "transcript": "", "requiresApply": False}
+        job = {"public": public, "clientId": client_id, "revision": state.revision, "cancelled": False}
+        state.voice_jobs[job_id] = job
+        while len(state.voice_jobs) > 4:
+            _, old = state.voice_jobs.popitem(last=False)
+            state.proposals.pop(old["public"].get("planId"), None)
+        context = (client_id, state.revision, captured)
+        preferences = copy.deepcopy(state.codex_preferences)
+
+    def run():
+        try:
+            transcript = speech.transcribe(audio)
+            with state.lock:
+                if job["cancelled"]:
+                    return
+                public.update(phase="planning", transcript=transcript)
+            result = plan(state, {"text": transcript, "mode": "codex-cli", "codex": preferences}, request_context=context)
+            with state.lock:
+                if job["cancelled"]:
+                    state.proposals.pop(result.get("planId"), None)
+                    return
+                public.update(result)
+                public["phase"] = "ready" if result.get("requiresApply") else "needs_clarification"
+        except (APIError, speech.SpeechError, PlannerError) as error:
+            with state.lock:
+                if not job["cancelled"]:
+                    public.update(phase="error", error=str(error), errorStatus=error.status, requiresApply=False)
+        except Exception:
+            with state.lock:
+                if not job["cancelled"]:
+                    public.update(phase="error", error="Voice processing failed. Try again or use text input.", requiresApply=False)
+        finally:
+            state.voice_worker.release()
+
+    try:
+        threading.Thread(target=run, name="sandbox-voice", daemon=True).start()
+    except RuntimeError:
+        with state.lock:
+            state.voice_jobs.pop(job_id, None)
+        state.voice_worker.release()
+        raise APIError(503, "Speech worker could not start. Try again shortly.") from None
+    return {"jobId": job_id, "phase": "transcribing"}
 
 
 class Server(ThreadingHTTPServer):
@@ -478,7 +598,9 @@ class Handler(BaseHTTPRequestHandler):
             elif path == "/api/scenes":
                 data = self.server.state.scenes()
             elif path == "/api/planner":
-                data = Planner().public_status()
+                data = planner_status(self.server.state)
+            elif path.startswith("/api/voice/"):
+                data = voice_status(self.server.state, path.rsplit("/", 1)[1])
             elif path in ("/api/lessons", "/api/learning"):
                 require(self.server.state.learning is not None, "Learning adapter unavailable", 503)
                 if path == "/api/lessons":
@@ -529,6 +651,12 @@ class Handler(BaseHTTPRequestHandler):
                 data = state.load(body.get("name"), body.get("requestId"))
             elif path == "/api/plan":
                 data = plan(state, body)
+            elif path == "/api/planner_preferences":
+                data = planner_preferences(state, body)
+            elif path == "/api/voice":
+                data = start_voice(state, body)
+            elif path == "/api/voice/cancel":
+                data = cancel_voice(state, body)
             elif path == "/api/apply_plan":
                 data = state.apply_plan(body.get("planId"))
             elif path.startswith("/api/learning/"):
@@ -549,7 +677,7 @@ class Handler(BaseHTTPRequestHandler):
             else:
                 raise APIError(404, "Not found")
             self.send_data(200, data)
-        except (APIError, LearningError) as error:
+        except (APIError, LearningError, speech.SpeechError, CodexProviderError) as error:
             self.send_data(error.status, {"error": str(error)})
         except (OSError, ValueError, RecursionError):
             self.send_data(500, {"error": "Service I/O error"})

@@ -16,6 +16,7 @@ namespace ArSandbox
         public SandboxApp app;
         public string ConnectionStatus { get; private set; } = "PC service not connected.";
         public bool IsConnected { get; private set; }
+        public string ClientId => clientId;
         public LessonGuideData CurrentGuide { get; private set; }
         public Settings settings = new Settings();
         private readonly string clientId = Guid.NewGuid().ToString("N");
