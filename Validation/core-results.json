@@ -1,0 +1,410 @@
+{
+    "startedUtc": "2026-09-20T18:10:35.5452180Z",
+    "completedUtc": "2026-09-20T18:10:35.6088098Z",
+    "unityVersion": "6000.6.0f1",
+    "projectPath": "<local-workspace>\\work\\command-fixture",
+    "passed": 80,
+    "failed": 0,
+    "checks": [
+        {
+            "name": "spawn assigns distinct GUID object IDs",
+            "passed": true,
+            "detail": ""
+        },
+        {
+            "name": "spawned instances are active",
+            "passed": true,
+            "detail": ""
+        },
+        {
+            "name": "get_scene acknowledges request ID",
+            "passed": true,
+            "detail": ""
+        },
+        {
+            "name": "list_assets succeeds",
+            "passed": true,
+            "detail": ""
+        },
+        {
+            "name": "list_targets succeeds",
+            "passed": true,
+            "detail": ""
+        },
+        {
+            "name": "registered assets and targets are listed",
+            "passed": true,
+            "detail": ""
+        },
+        {
+            "name": "set_transform targets stable ID",
+            "passed": true,
+            "detail": ""
+        },
+        {
+            "name": "set_transform preserves omitted anchor",
+            "passed": true,
+            "detail": ""
+        },
+        {
+            "name": "other object is unchanged by targeted edit",
+            "passed": true,
+            "detail": ""
+        },
+        {
+            "name": "set_transform can target another registered anchor",
+            "passed": true,
+            "detail": ""
+        },
+        {
+            "name": "spawn rejects caller supplied objectId",
+            "passed": true,
+            "detail": ""
+        },
+        {
+            "name": "unknown command is rejected",
+            "passed": true,
+            "detail": ""
+        },
+        {
+            "name": "unknown object ID is rejected",
+            "passed": true,
+            "detail": ""
+        },
+        {
+            "name": "path-shaped asset ID is rejected",
+            "passed": true,
+            "detail": ""
+        },
+        {
+            "name": "oversized ID is rejected",
+            "passed": true,
+            "detail": ""
+        },
+        {
+            "name": "null command is rejected",
+            "passed": true,
+            "detail": ""
+        },
+        {
+            "name": "delete removes only specified ID",
+            "passed": true,
+            "detail": ""
+        },
+        {
+            "name": "EditMode deletion destroys the instance immediately",
+            "passed": true,
+            "detail": ""
+        },
+        {
+            "name": "clear removes all owned objects",
+            "passed": true,
+            "detail": ""
+        },
+        {
+            "name": "DTO isolation setup succeeds",
+            "passed": true,
+            "detail": ""
+        },
+        {
+            "name": "accepted spawn command DTO is cloned",
+            "passed": true,
+            "detail": ""
+        },
+        {
+            "name": "returned snapshot is detached from world state",
+            "passed": true,
+            "detail": ""
+        },
+        {
+            "name": "set_transform isolation setup succeeds",
+            "passed": true,
+            "detail": ""
+        },
+        {
+            "name": "accepted transform DTO is cloned",
+            "passed": true,
+            "detail": ""
+        },
+        {
+            "name": "load preserves scene when room ID changes",
+            "passed": true,
+            "detail": ""
+        },
+        {
+            "name": "load rejects unsupported schema",
+            "passed": true,
+            "detail": ""
+        },
+        {
+            "name": "load rejects duplicate IDs before replacing objects",
+            "passed": true,
+            "detail": ""
+        },
+        {
+            "name": "load rejects unknown asset after valid first entry",
+            "passed": true,
+            "detail": ""
+        },
+        {
+            "name": "load rejects unknown anchor after valid first entry",
+            "passed": true,
+            "detail": ""
+        },
+        {
+            "name": "load rejects missing anchor ID",
+            "passed": true,
+            "detail": ""
+        },
+        {
+            "name": "load rejects nonfinite data after valid first entry",
+            "passed": true,
+            "detail": ""
+        },
+        {
+            "name": "load rejects incomplete transforms",
+            "passed": true,
+            "detail": ""
+        },
+        {
+            "name": "load rejects null object entries",
+            "passed": true,
+            "detail": ""
+        },
+        {
+            "name": "load rejects a missing object array",
+            "passed": true,
+            "detail": ""
+        },
+        {
+            "name": "load rejects a missing scene document",
+            "passed": true,
+            "detail": ""
+        },
+        {
+            "name": "JSON scene round-trip loads successfully",
+            "passed": true,
+            "detail": ""
+        },
+        {
+            "name": "successful load preserves stable object IDs",
+            "passed": true,
+            "detail": ""
+        },
+        {
+            "name": "successful load replaces old Unity instances",
+            "passed": true,
+            "detail": ""
+        },
+        {
+            "name": "loaded transforms use the selected anchor",
+            "passed": true,
+            "detail": ""
+        },
+        {
+            "name": "loaded scale and rotation are applied",
+            "passed": true,
+            "detail": ""
+        },
+        {
+            "name": "accepted load document is cloned",
+            "passed": true,
+            "detail": ""
+        },
+        {
+            "name": "valid empty scene intentionally clears objects",
+            "passed": true,
+            "detail": ""
+        },
+        {
+            "name": "set_transform rejects NaN position",
+            "passed": true,
+            "detail": ""
+        },
+        {
+            "name": "set_transform rejects infinite rotation",
+            "passed": true,
+            "detail": ""
+        },
+        {
+            "name": "set_transform rejects out-of-range position",
+            "passed": true,
+            "detail": ""
+        },
+        {
+            "name": "set_transform rejects zero scale",
+            "passed": true,
+            "detail": ""
+        },
+        {
+            "name": "set_transform rejects negative scale",
+            "passed": true,
+            "detail": ""
+        },
+        {
+            "name": "set_transform rejects oversized scale",
+            "passed": true,
+            "detail": ""
+        },
+        {
+            "name": "set_transform rejects missing rotation vector",
+            "passed": true,
+            "detail": ""
+        },
+        {
+            "name": "set_transform rejects missing transform",
+            "passed": true,
+            "detail": ""
+        },
+        {
+            "name": "documented transform limits are inclusive",
+            "passed": true,
+            "detail": ""
+        },
+        {
+            "name": "objects follow translated and rotated room origins",
+            "passed": true,
+            "detail": ""
+        },
+        {
+            "name": "room motion preserves saved anchor-local pose",
+            "passed": true,
+            "detail": ""
+        },
+        {
+            "name": "scene reload uses current anchor pose",
+            "passed": true,
+            "detail": ""
+        },
+        {
+            "name": "inactive anchor blocks spawn",
+            "passed": true,
+            "detail": ""
+        },
+        {
+            "name": "inactive anchor blocks move",
+            "passed": true,
+            "detail": ""
+        },
+        {
+            "name": "inactive anchor blocks restore without removing objects",
+            "passed": true,
+            "detail": ""
+        },
+        {
+            "name": "reactivated original anchor permits restore",
+            "passed": true,
+            "detail": ""
+        },
+        {
+            "name": "destroyed anchor blocks spawn",
+            "passed": true,
+            "detail": ""
+        },
+        {
+            "name": "destroyed anchor blocks restore without losing saved data",
+            "passed": true,
+            "detail": ""
+        },
+        {
+            "name": "destroyed anchor does not fall back to world origin",
+            "passed": true,
+            "detail": ""
+        },
+        {
+            "name": "delete can remove state after anchor destruction",
+            "passed": true,
+            "detail": ""
+        },
+        {
+            "name": "capacity accepts the documented maximum",
+            "passed": true,
+            "detail": ""
+        },
+        {
+            "name": "spawn above capacity preserves existing objects",
+            "passed": true,
+            "detail": ""
+        },
+        {
+            "name": "load above capacity preserves existing objects",
+            "passed": true,
+            "detail": ""
+        },
+        {
+            "name": "dispose destroys owned instances and is idempotent",
+            "passed": true,
+            "detail": ""
+        },
+        {
+            "name": "disposed world rejects commands",
+            "passed": true,
+            "detail": ""
+        },
+        {
+            "name": "app selects newly spawned stable object ID",
+            "passed": true,
+            "detail": ""
+        },
+        {
+            "name": "deleting another object preserves selection",
+            "passed": true,
+            "detail": ""
+        },
+        {
+            "name": "unknown selection preserves the valid selected object",
+            "passed": true,
+            "detail": ""
+        },
+        {
+            "name": "manual edits revise the selected ID without another spawn",
+            "passed": true,
+            "detail": ""
+        },
+        {
+            "name": "restoring a still-selected ID preserves selection",
+            "passed": true,
+            "detail": ""
+        },
+        {
+            "name": "clear removes objects and clears selection",
+            "passed": true,
+            "detail": ""
+        },
+        {
+            "name": "clear then JSON restore succeeds in the same app",
+            "passed": true,
+            "detail": ""
+        },
+        {
+            "name": "restored edited object follows the current room frame",
+            "passed": true,
+            "detail": ""
+        },
+        {
+            "name": "invalid room replacement preserves live objects and selection",
+            "passed": true,
+            "detail": ""
+        },
+        {
+            "name": "deleting the selected object clears selection",
+            "passed": true,
+            "detail": ""
+        },
+        {
+            "name": "invalidated room exposes no stale world or placement",
+            "passed": true,
+            "detail": ""
+        },
+        {
+            "name": "invalidated room rejects commands",
+            "passed": true,
+            "detail": ""
+        },
+        {
+            "name": "fresh room initialization recovers from invalidation",
+            "passed": true,
+            "detail": ""
+        }
+    ]
+}

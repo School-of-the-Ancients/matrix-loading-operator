@@ -1,0 +1,49 @@
+# AR Sandbox durable progress log
+
+## 2026-09-20 — Quest Pro prototype continuation
+
+User priority: Quest Pro with manually configured room data; Quest 3 optional. Meta MRUK samples take precedence over further VaM investigation. Bundled prefabs only. Acceptance: load real room → spawn → revise through natural language → PC save → clear → restore in one running app.
+
+Baseline: existing Unity 6000.6.0f1 project, Core/MRUK 205.0.0, three bundled props, stable object IDs, anchor-local transforms, PC HTTP service, desktop fixture. Earlier desktop tests passed; native Android import was blocked by Malwarebytes quarantining generated AIBlocks assemblies. User reports adding Meta Core to allow list. No security settings changed by the agent.
+
+Initial live check: no Unity Editor process and `adb devices -l` lists no headset. Hardware tests therefore pending; recheck after build. No Unity MCP available; use Editor batch entry points and actual-player HTTP tests.
+
+Ownership to prevent conflicts:
+- MRUK agent: QuestRoomAdapter.cs, QuestBuildSetup.cs, Docs/MRUK-QuestPro.md.
+- Runtime agent: SandboxData/World/App, DesktopControls, SandboxCoreChecks, Docs/Runtime-Editing.md.
+- AI agent: new ai_adapter.py, test_ai_adapter.py, Docs/AI-Integration.md.
+- Coordinator: PC bridge/service/UI/persistence, generated assets/settings, build/install, integration tests, this log and final handoff.
+
+Next: verify native compilation, add state-bound natural-language proposals and offline constrained language mode when no provider is configured, test complete loop, compile/build APK, install only if a headset becomes available. Credentials must stay server-side and out of logs/project files.
+
+### Implementation and first build attempt
+
+- MRUK now follows the installed ImmersiveSceneDebugger's explicit `OVRScene.RequestSpaceSetup` then device V1 reload flow. Left grip + Y opens native room setup; Y retries. Stale room targets are invalidated on failure. Pro is primary; high-fidelity/depth are unnecessary.
+- Runtime repairs preserve the selected object when a different one is deleted, reject invalid selections, validate a replacement world before disposing the old one, and expose room invalidation. Core suite expanded to 80 checks (source compiled; Editor run pending).
+- PC service now binds proposals to the current runtime session and scene/selection revision, expires them after two minutes, and rejects stale/replayed proposals. Save/load language intents execute on PC after prior commands are acknowledged.
+- AI credential discovery found no configured compatible provider in checked environment/standard configuration locations. Offline constrained language mode and mock-provider tests are being added; no live model access is claimed.
+- Direct batch build found the main project already open in Unity. It exited before compiling. To preserve the open scene, native validation now uses an isolated source copy at `work/native-validation`; output APK and log target the deliverable project's Builds/Quest and Validation/quest-pro-build.log.
+
+### Completed implementation and final evidence
+
+- MRUK lane finished and froze QuestRoomAdapter/QuestBuildSetup. Source follows Meta's installed debugger setup/reload pattern and official MRUK sample guidance. No further VaM investigation.
+- Runtime lane finished and actual Unity fixture run passed **80 checks**. Windows player rebuilt successfully from `work/command-fixture` into `outputs/AR-Sandbox/Builds/Desktop`.
+- AI lane delivered `ControlService/ai_adapter.py`, 32 tests and Docs/AI-Integration.md. No compatible credentials found. Explicit offline language mode works; configured model mode has real HTTP mock transport tests, with sanitized errors and response validation. No live-provider claim.
+- PC/service lane added session/revision-bound proposals, 120-second expiry, replay rejection, PC save/load language intents, current-mode status, browser Apply flow and runtime acknowledgement messages. 17 real-HTTP service tests passed. Combined final suite: **49 tests**, no failures, ResourceWarning treated as error.
+- `Validation/Run-Prototype-Loop.py` exercised **41 passing checks** against the rebuilt actual Windows player and PC service: room/catalog → text spawn → twice-size → left20cm → rotate45 → second prop → delete it → save → clear → exact restore. Same application process throughout; no runtime exceptions. This is offline language and simulated room only.
+- Browser validation used the actual service/player. Verified explicit desktop/offline labels, proposed spawn, Apply acknowledgement, same-ID resize and visible completion. Fixed Connect planner-status refresh and invalid-config offline fallback. Temporary service/player were stopped after checks.
+- Authored Quest adapter compiled in Editor and Android branches and QuestBuildSetup compiled against installed metadata: all exit0, deprecation warnings only. `Validation/quest-source-check.txt`. This does not replace a native build.
+- Native Android import again quarantined `work/native-validation/Library/Bee/artifacts/1300b0aE.dag/Meta.XR.BuildingBlocks.AIBlocks.dll` at 12:10 local; same SHA256 as earlier Android copy. Malwarebytes report: quarantine successful. `Validation/quest-pro-build.log`. No APK produced; no security changes or repeated native retries after confirmed detection.
+- ADB recheck still lists no headset. No installation, room-capture interaction, passthrough validation or physical persistence test performed.
+
+### Resume instructions for another session
+
+Authoritative project: `outputs/AR-Sandbox`; read README.md, Validation/Prototype-Validation.md, Docs/Security-Block.md and per-lane reports. Latest priority is Quest Pro manual floor/table setup, superseding Quest 3-primary history. Preserve the open Editor and user modifications; do not regenerate scenes in an occupied session without preserving edits.
+
+After the external security detection is resolved, close the main project's Editor and rerun Build-Quest.ps1 (native source copy was only for isolated validation). Fix concrete build errors if any, then install with Install-Quest.ps1 only on an authorized connected headset. Run the same loop on actual Quest Pro room anchors and record hardware evidence separately. If provider credentials are supplied/configured, perform a real model proposal test; never treat the offline parser as model AI. No background automation or native build is pending.
+
+### GitHub publication — same day
+
+The user selected the existing public repository `School-of-the-Ancients/matrix-loading-operator`. The prototype is imported at its root on `codex/ar-sandbox-prototype`; no separate AR-Sandbox repository is created. The original MIT license and Matrix operator concept are preserved. Continue source work in this Git checkout; references above to the unversioned sandbox folder are historical.
+
+Publication omits generated SDK credentials/session IDs, local upload preferences, raw logs, caches, builds and scene saves. Workstation paths in historical reports are redacted. A serialized-reference audit found no missing local assets after the omissions. The imported service/adapter suite passed all 49 tests again. All four PowerShell entry scripts parsed successfully. Build-Desktop.ps1 is a new convenience wrapper around the existing Editor method; native Unity import/build remains subject to the previously recorded external blocker.
