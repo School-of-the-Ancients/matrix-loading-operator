@@ -114,3 +114,5 @@ InitTestScene*.unity*
 /Assets/Resources/OVRPlatformToolSettings.asset*
 /Assets/\#Meta/
 /Assets/\#Meta.meta
+/.desktop-fixture/
+/Validation/desktop-fixture-core-results.json

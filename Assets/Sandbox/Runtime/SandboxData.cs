@@ -79,6 +79,22 @@ namespace ArSandbox
         public Float3 position;
     }
 
+    // Presentation supplied by the PC. Scene edits and learning progress stay separate.
+    [Serializable]
+    public sealed class LessonGuideData
+    {
+        public string sessionId;
+        public int revision;
+        public string title;
+        public string stageLabel;
+        public string body;
+        public string prompt;
+        public string hint;
+        public string status;
+        public int progressIndex;
+        public int progressTotal;
+    }
+
     [Serializable]
     public sealed class SandboxCommand
     {
