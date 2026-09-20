@@ -1,9 +1,9 @@
 {
-  "startedUtc": "2026-09-20T22:27:46.4049640Z",
-  "completedUtc": "2026-09-20T22:27:47.6279213Z",
+  "startedUtc": "2026-09-20T23:02:29.1082326Z",
+  "completedUtc": "2026-09-20T23:02:30.4012942Z",
   "unityVersion": "6000.6.0f1",
   "projectPath": "<isolated-white-room-fixture>",
-  "passed": 181,
+  "passed": 236,
   "failed": 0,
   "checks": [
     {
@@ -829,7 +829,7 @@
     {
       "name": "unknown viewer is explicit empty frames on the actual bridge JSON wire",
       "passed": true,
-      "detail": "Raw null-viewer JSON: {\"scene\":{\"schemaVersion\":1,\"roomId\":\"test-room\",\"objects\":[]},\"assets\":[{\"assetId\":\"cube\",\"displayName\":\"Cube\",\"description\":\"\",\"spawnScale\":0.20000000298023224,\"localBounds\":{\"center\":{\"x\":0.0,\"y\":0.0,\"z\":0.0},\"size\":{\"x\":0.0,\"y\":0.0,\"z\":0.0}}},{\"assetId\":\"sphere\",\"displayName\":\"Sphere\",\"description\":\"\",\"spawnScale\":0.20000000298023224,\"localBounds\":{\"center\":{\"x\":0.0,\"y\":0.0,\"z\":0.0},\"size\":{\"x\":0.0,\"y\":0.0,\"z\":0.0}}}],\"anchors\":[{\"anchorId\":\"floor\",\"displayName\":\"Floor\"},{\"anchorId\":\"table\",\"displayName\":\"Table\"}],\"selection\":{\"anchorId\":\"\",\"objectId\":\"\",\"position\":{\"x\":0.0,\"y\":0.0,\"z\":0.0}},\"viewer\":{\"frames\":[]}}\nActual bridge unknown-viewer JSON: {\"scene\":{\"schemaVersion\":1,\"roomId\":\"test-room\",\"objects\":[]},\"assets\":[{\"assetId\":\"cube\",\"displayName\":\"Cube\",\"description\":\"\",\"spawnScale\":0.20000000298023224,\"localBounds\":{\"center\":{\"x\":0.0,\"y\":0.0,\"z\":0.0},\"size\":{\"x\":0.0,\"y\":0.0,\"z\":0.0}}},{\"assetId\":\"sphere\",\"displayName\":\"Sphere\",\"description\":\"\",\"spawnScale\":0.20000000298023224,\"localBounds\":{\"center\":{\"x\":0.0,\"y\":0.0,\"z\":0.0},\"size\":{\"x\":0.0,\"y\":0.0,\"z\":0.0}}}],\"anchors\":[{\"anchorId\":\"floor\",\"displayName\":\"Floor\"},{\"anchorId\":\"table\",\"displayName\":\"Table\"}],\"selection\":{\"anchorId\":\"\",\"objectId\":\"\",\"position\":{\"x\":0.0,\"y\":0.0,\"z\":0.0}},\"viewer\":{\"frames\":[]}}"
+      "detail": "Raw null-viewer JSON: {\"readOnly\":false,\"scene\":{\"schemaVersion\":1,\"roomId\":\"test-room\",\"objects\":[]},\"assets\":[{\"assetId\":\"cube\",\"displayName\":\"Cube\",\"description\":\"\",\"spawnScale\":0.20000000298023224,\"localBounds\":{\"center\":{\"x\":0.0,\"y\":0.0,\"z\":0.0},\"size\":{\"x\":0.0,\"y\":0.0,\"z\":0.0}}},{\"assetId\":\"sphere\",\"displayName\":\"Sphere\",\"description\":\"\",\"spawnScale\":0.20000000298023224,\"localBounds\":{\"center\":{\"x\":0.0,\"y\":0.0,\"z\":0.0},\"size\":{\"x\":0.0,\"y\":0.0,\"z\":0.0}}}],\"anchors\":[{\"anchorId\":\"floor\",\"displayName\":\"Floor\",\"source\":\"\",\"semanticLabels\":[],\"surface\":{\"kind\":\"\",\"boundary\":[],\"localBounds\":{\"center\":{\"x\":0.0,\"y\":0.0,\"z\":0.0},\"size\":{\"x\":0.0,\"y\":0.0,\"z\":0.0}}},\"roomPose\":{\"position\":{\"x\":0.0,\"y\":0.0,\"z\":0.0},\"rotation\":{\"x\":0.0,\"y\":0.0,\"z\":0.0},\"scale\":{\"x\":0.0,\"y\":0.0,\"z\":0.0}}},{\"anchorId\":\"table\",\"displayName\":\"Table\",\"source\":\"\",\"semanticLabels\":[],\"surface\":{\"kind\":\"\",\"boundary\":[],\"localBounds\":{\"center\":{\"x\":0.0,\"y\":0.0,\"z\":0.0},\"size\":{\"x\":0.0,\"y\":0.0,\"z\":0.0}}},\"roomPose\":{\"position\":{\"x\":0.0,\"y\":0.0,\"z\":0.0},\"rotation\":{\"x\":0.0,\"y\":0.0,\"z\":0.0},\"scale\":{\"x\":0.0,\"y\":0.0,\"z\":0.0}}}],\"selection\":{\"anchorId\":\"\",\"objectId\":\"\",\"position\":{\"x\":0.0,\"y\":0.0,\"z\":0.0}},\"viewer\":{\"frames\":[]},\"pointing\":{\"anchorId\":\"\",\"objectId\":\"\",\"position\":{\"x\":0.0,\"y\":0.0,\"z\":0.0},\"normal\":{\"x\":0.0,\"y\":0.0,\"z\":0.0},\"origin\":{\"x\":0.0,\"y\":0.0,\"z\":0.0},\"direction\":{\"x\":0.0,\"y\":0.0,\"z\":0.0}},\"roomContext\":{\"mode\":\"\",\"state\":\"\",\"message\":\"\",\"alignmentVerified\":false}}\nActual bridge unknown-viewer JSON: {\"readOnly\":false,\"scene\":{\"schemaVersion\":1,\"roomId\":\"test-room\",\"objects\":[]},\"assets\":[{\"assetId\":\"cube\",\"displayName\":\"Cube\",\"description\":\"\",\"spawnScale\":0.20000000298023224,\"localBounds\":{\"center\":{\"x\":0.0,\"y\":0.0,\"z\":0.0},\"size\":{\"x\":0.0,\"y\":0.0,\"z\":0.0}}},{\"assetId\":\"sphere\",\"displayName\":\"Sphere\",\"description\":\"\",\"spawnScale\":0.20000000298023224,\"localBounds\":{\"center\":{\"x\":0.0,\"y\":0.0,\"z\":0.0},\"size\":{\"x\":0.0,\"y\":0.0,\"z\":0.0}}}],\"anchors\":[{\"anchorId\":\"floor\",\"displayName\":\"Floor\",\"source\":\"\",\"semanticLabels\":[],\"surface\":{\"kind\":\"\",\"boundary\":[],\"localBounds\":{\"center\":{\"x\":0.0,\"y\":0.0,\"z\":0.0},\"size\":{\"x\":0.0,\"y\":0.0,\"z\":0.0}}},\"roomPose\":{\"position\":{\"x\":0.0,\"y\":0.0,\"z\":0.0},\"rotation\":{\"x\":0.0,\"y\":0.0,\"z\":0.0},\"scale\":{\"x\":0.0,\"y\":0.0,\"z\":0.0}}},{\"anchorId\":\"table\",\"displayName\":\"Table\",\"source\":\"\",\"semanticLabels\":[],\"surface\":{\"kind\":\"\",\"boundary\":[],\"localBounds\":{\"center\":{\"x\":0.0,\"y\":0.0,\"z\":0.0},\"size\":{\"x\":0.0,\"y\":0.0,\"z\":0.0}}},\"roomPose\":{\"position\":{\"x\":0.0,\"y\":0.0,\"z\":0.0},\"rotation\":{\"x\":0.0,\"y\":0.0,\"z\":0.0},\"scale\":{\"x\":0.0,\"y\":0.0,\"z\":0.0}}}],\"selection\":{\"anchorId\":\"\",\"objectId\":\"\",\"position\":{\"x\":0.0,\"y\":0.0,\"z\":0.0}},\"viewer\":{\"frames\":[]},\"pointing\":{\"anchorId\":\"\",\"objectId\":\"\",\"position\":{\"x\":0.0,\"y\":0.0,\"z\":0.0},\"normal\":{\"x\":0.0,\"y\":0.0,\"z\":0.0},\"origin\":{\"x\":0.0,\"y\":0.0,\"z\":0.0},\"direction\":{\"x\":0.0,\"y\":0.0,\"z\":0.0}},\"roomContext\":{\"mode\":\"\",\"state\":\"\",\"message\":\"\",\"alignmentVerified\":false}}"
     },
     {
       "name": "voice WAV uses interoperable RIFF WAVE chunk sizes",
@@ -908,6 +908,281 @@
     },
     {
       "name": "wire redo restores the same duplicated ID",
+      "passed": true,
+      "detail": ""
+    },
+    {
+      "name": "surface orb places its bottom on the table from a centered prefab pivot",
+      "passed": true,
+      "detail": ""
+    },
+    {
+      "name": "surface validation queries live MRUK corners and center in the target plane",
+      "passed": true,
+      "detail": ""
+    },
+    {
+      "name": "surface resolution does not mutate the caller's clearance transform",
+      "passed": true,
+      "detail": ""
+    },
+    {
+      "name": "surface object uses its stable physical anchor transform",
+      "passed": true,
+      "detail": ""
+    },
+    {
+      "name": "surface resize resolves a new pivot while preserving requested clearance and object ID",
+      "passed": true,
+      "detail": ""
+    },
+    {
+      "name": "physical edit undo restores the prior resolved pose and same object ID",
+      "passed": true,
+      "detail": ""
+    },
+    {
+      "name": "physical edit redo restores resolved placement without applying clearance twice",
+      "passed": true,
+      "detail": ""
+    },
+    {
+      "name": "physical saves contain resolved transforms without placement hints or room metadata",
+      "passed": true,
+      "detail": ""
+    },
+    {
+      "name": "physical restore retains exact local pose after room origin translation and rotation",
+      "passed": true,
+      "detail": ""
+    },
+    {
+      "name": "physical floating edit can omit the placement hint when geometry remains above its support",
+      "passed": true,
+      "detail": ""
+    },
+    {
+      "name": "surface placement accounts for nested geometry and rotated nonuniform scaled bounds",
+      "passed": true,
+      "detail": ""
+    },
+    {
+      "name": "physical rejection fixture starts with a valid existing object",
+      "passed": true,
+      "detail": ""
+    },
+    {
+      "name": "physical footprint rejects a pivot inside the table when bounds cross its edge",
+      "passed": true,
+      "detail": ""
+    },
+    {
+      "name": "surface placement rejects negative clearance",
+      "passed": true,
+      "detail": ""
+    },
+    {
+      "name": "physical placement without a hint rejects geometry below the surface",
+      "passed": true,
+      "detail": ""
+    },
+    {
+      "name": "physical placement rejects unknown prefab bounds",
+      "passed": true,
+      "detail": ""
+    },
+    {
+      "name": "physical placement rejects unrecognized placement modes",
+      "passed": true,
+      "detail": ""
+    },
+    {
+      "name": "read commands reject misplaced surface hints",
+      "passed": true,
+      "detail": ""
+    },
+    {
+      "name": "live MRUK surface rejection preserves existing objects",
+      "passed": true,
+      "detail": ""
+    },
+    {
+      "name": "missing physical anchor rejects the entire restore after a valid first object",
+      "passed": true,
+      "detail": ""
+    },
+    {
+      "name": "physical restore revalidates support penetration without clearing the live scene",
+      "passed": true,
+      "detail": ""
+    },
+    {
+      "name": "unavailable physical support rejects edits before mutation",
+      "passed": true,
+      "detail": ""
+    },
+    {
+      "name": "a physical object can fit near the edge before duplication",
+      "passed": true,
+      "detail": ""
+    },
+    {
+      "name": "physical duplicate validates its offset footprint",
+      "passed": true,
+      "detail": ""
+    },
+    {
+      "name": "concave support rejects an edge crossing even with every corner and center inside",
+      "passed": true,
+      "detail": ""
+    },
+    {
+      "name": "concave support permits a small footprint contained in one continuous region",
+      "passed": true,
+      "detail": ""
+    },
+    {
+      "name": "wall anchors remain context but reject unsupported prop placement",
+      "passed": true,
+      "detail": ""
+    },
+    {
+      "name": "invalid self-intersecting support geometry fails explicitly",
+      "passed": true,
+      "detail": ""
+    },
+    {
+      "name": "physical placement requires a current MRUK geometry validator",
+      "passed": true,
+      "detail": ""
+    },
+    {
+      "name": "legacy white-room targets still allow unknown bounds and unrestricted anchor-local poses",
+      "passed": true,
+      "detail": ""
+    },
+    {
+      "name": "legacy targets cannot pretend to resolve physical surface placement",
+      "passed": true,
+      "detail": ""
+    },
+    {
+      "name": "room registry clones semantic labels geometry and pose from adapter input",
+      "passed": true,
+      "detail": ""
+    },
+    {
+      "name": "anchor snapshots cannot mutate physical registry metadata",
+      "passed": true,
+      "detail": ""
+    },
+    {
+      "name": "room anchor metadata survives actual Unity snapshot serialization",
+      "passed": true,
+      "detail": ""
+    },
+    {
+      "name": "pointer hit lookup returns the same stable object ID for root and descendant",
+      "passed": true,
+      "detail": ""
+    },
+    {
+      "name": "pointer target query returns the active anchor frame without snapshot capture",
+      "passed": true,
+      "detail": ""
+    },
+    {
+      "name": "unowned pointer hit has no scene object ID",
+      "passed": true,
+      "detail": ""
+    },
+    {
+      "name": "unavailable anchor and inactive object are excluded from pointer lookup",
+      "passed": true,
+      "detail": ""
+    },
+    {
+      "name": "AR alignment gate blocks placement before explicit confirmation",
+      "passed": true,
+      "detail": ""
+    },
+    {
+      "name": "room confirmation cannot approve a reload still in progress",
+      "passed": true,
+      "detail": ""
+    },
+    {
+      "name": "room confirmation cannot approve missing room data",
+      "passed": true,
+      "detail": ""
+    },
+    {
+      "name": "explicit room confirmation opens the existing editing gate",
+      "passed": true,
+      "detail": ""
+    },
+    {
+      "name": "confirmed room accepts commands through the existing executor",
+      "passed": true,
+      "detail": ""
+    },
+    {
+      "name": "ready room snapshot remains editable and carries live context",
+      "passed": true,
+      "detail": ""
+    },
+    {
+      "name": "unavailable room retains saveable poses while removing live viewer and pointing context",
+      "passed": true,
+      "detail": ""
+    },
+    {
+      "name": "recovery snapshot explicitly marks read-only on the Unity JSON wire",
+      "passed": true,
+      "detail": ""
+    },
+    {
+      "name": "unavailable room blocks spawn select load and undo while preserving retained poses",
+      "passed": true,
+      "detail": ""
+    },
+    {
+      "name": "destroyed native anchor cannot erase the retained recovery snapshot",
+      "passed": true,
+      "detail": ""
+    },
+    {
+      "name": "unavailable room still permits explicit scene reads",
+      "passed": true,
+      "detail": ""
+    },
+    {
+      "name": "explicit clear releases the nonempty scene guard after anchor loss",
+      "passed": true,
+      "detail": ""
+    },
+    {
+      "name": "active room reload publishes no stale recovery snapshot",
+      "passed": true,
+      "detail": ""
+    },
+    {
+      "name": "empty scene can release old room state for a fresh discovery",
+      "passed": true,
+      "detail": ""
+    },
+    {
+      "name": "pointing context initially resolves the live stable object",
+      "passed": true,
+      "detail": ""
+    },
+    {
+      "name": "deleted object is removed from pointing before the next pointer update",
+      "passed": true,
+      "detail": ""
+    },
+    {
+      "name": "object moved to a different anchor invalidates its old pointing frame",
       "passed": true,
       "detail": ""
     }

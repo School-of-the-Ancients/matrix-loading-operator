@@ -6,9 +6,11 @@ Source implementation handoff, 2026-09-20. The goal is: **place an orb on the re
 
 The source contains the native passthrough scene, MRUK Scene Model V1 loading, labeled outlines, room context, surface placement checks, and the existing voice, Codex selector, editing, undo, and PC persistence integration. The room is loaded from the headset's manually configured Space Setup data; missing data is reported explicitly.
 
-**A successful native AR APK build and the actual Quest Pro acceptance test are still pending at this handoff.** Native import/build attempts encountered access denial on Meta's generated `Meta.XR.BuildingBlocks.AIBlocks.dll`. See the current build log and progress log before resuming. Previous white-room headset results do not establish passthrough or physical alignment success. Do not mark the acceptance checklist below complete from automated checks alone.
+**The native AR APK built successfully; the actual Quest Pro acceptance test is pending.** The build passed 236 Unity core checks and produced the separate ARM64 `Matrix Operator AR` app, with scene, microphone, internet and passthrough declarations verified from the APK. The PC suite passes 266 tests. Earlier imports encountered a Meta AIBlocks quarantine; after the wearer reported restoring that output, an ordinary unchanged-package build succeeded. No protection settings were changed by Codex. Previous white-room results and synthetic room tests do not establish physical alignment. Current evidence is in `Validation/room-ar-validation.json`.
 
 The two device apps are separate so the working white room remains available:
+
+Current headset progress: the AR app is installed and the wearer confirms that passthrough and the labeled floor/wall/table outlines align with reality. The PC voice/edit/save/restore acceptance remains pending while USB debugging authorization is re-established. Alignment confirmation must be applied to the live AR runtime after it connects; a wearer report is not a queued runtime command.
 
 | Mode | Headset app | Android package |
 | --- | --- | --- |

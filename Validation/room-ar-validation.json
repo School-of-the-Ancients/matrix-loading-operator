@@ -23,15 +23,52 @@
     "recoveryEditingAndPlanningDisabled": true
   },
   "androidBuild": {
-    "status": "in progress"
+    "status": "succeeded",
+    "package": "com.matt.arsandbox",
+    "appName": "Matrix Operator AR",
+    "bytes": 63346980,
+    "sha256": "BD83A89FEC5B4E6D966E7F3AF057CD92F0BC3B1A84954107045F6C7686850111",
+    "abi": "arm64-v8a",
+    "minSdk": 32,
+    "targetSdk": 34,
+    "verifiedManifest": [
+      "com.oculus.permission.USE_SCENE",
+      "android.permission.RECORD_AUDIO",
+      "android.permission.INTERNET",
+      "com.oculus.feature.PASSTHROUGH"
+    ]
   },
   "hardware": {
-    "installed": false,
-    "roomLocalized": false,
-    "wearerVerifiedOutlines": false,
+    "installed": true,
+    "roomLocalized": true,
+    "wearerVerifiedOutlines": true,
     "voiceOrbPlacement": false,
     "voiceMovement": false,
-    "tableAlignedSaveRestore": false
+    "tableAlignedSaveRestore": false,
+    "deviceModel": "Quest Pro",
+    "usbForwarding": true,
+    "whiteRoomPackageStillInstalled": true,
+    "nextAction": "Restore authorized USB transport, confirm_room on the live AR runtime, then voice orb placement/movement and save/restore.",
+    "wearerPassthroughAndLabeledOutlinesReported": true,
+    "alignmentEvidence": "Wearer reports labeled table top/edges, floor and walls align with reality.",
+    "localizationEvidence": "Wearer report of the app displaying loaded room outlines; no live PC room snapshot yet.",
+    "pcArConnectionVerified": false,
+    "pendingReason": "ADB still reports unauthorized despite wearer acceptance; persistent existing-key host started and fresh reconnect requested."
   },
-  "note": "Do not infer physical alignment or microphone acceptance from automated/synthetic checks."
+  "note": "Do not infer physical alignment or microphone acceptance from automated/synthetic checks.",
+  "whiteRoomCompatibility": {
+    "installedPreviousBuildConnectedToUpdatedService": true,
+    "observedObjects": 40,
+    "matchesPreArBackup": true,
+    "evidence": "Live service read before AR app switch; later offline snapshot also matched the backup."
+  },
+  "whiteRoomRegression": {
+    "build": "succeeded",
+    "unityChecksPassed": 236,
+    "unityChecksFailed": 0,
+    "apkBytes": 53847545,
+    "apkSha256": "8CC9E39ACF2C9CD1476CEE31DC5D002300798DEE65D4E5CB3E4B183076F6F06C",
+    "installedOnHeadset": false,
+    "note": "Original hardware-tested voice APK remains installed and was archived separately."
+  }
 }
