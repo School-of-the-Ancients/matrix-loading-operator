@@ -1,16 +1,22 @@
 # Quest Pro room AR
 
-Source implementation handoff, 2026-09-20. The goal is: **place an orb on the real table by voice, move it by voice, save, clear, and restore it on the same table**.
+Implementation and headset evidence, 2026-09-20. The acceptance loop is: **place an orb on the real table by voice, move it by voice, save, clear, and restore it on the same table**.
 
 ## Current status
 
 The source contains the native passthrough scene, MRUK Scene Model V1 loading, labeled outlines, room context, surface placement checks, and the existing voice, Codex selector, editing, undo, and PC persistence integration. The room is loaded from the headset's manually configured Space Setup data; missing data is reported explicitly.
 
-**The native AR APK built successfully; the actual Quest Pro acceptance test is pending.** The build passed 236 Unity core checks and produced the separate ARM64 `Matrix Operator AR` app, with scene, microphone, internet and passthrough declarations verified from the APK. The PC suite passes 266 tests. Earlier imports encountered a Meta AIBlocks quarantine; after the wearer reported restoring that output, an ordinary unchanged-package build succeeded. No protection settings were changed by Codex. Previous white-room results and synthetic room tests do not establish physical alignment. Current evidence is in `Validation/room-ar-validation.json`.
+**The native AR app is running on the actual Quest Pro with real voice/Codex editing and PC save/clear/restore.** The wearer confirmed that labeled outlines align with reality, an orb appears on the selected real table, and a voice edit moves that same orb toward its center while staying aligned. The PC verified an exact save, acknowledged clear, and restore of the same room/object/anchor IDs and transforms. The wearer then confirmed that the restored orb returned to the same spot and remained aligned with the real table. This completes the requested same-session acceptance loop. Current evidence is in `Validation/room-ar-validation.json`.
+
+The connected room supplied 28 anchors and seven supported surfaces. Actual Quest microphone requests went through local transcription and the PC's real Codex CLI provider (`gpt-5.6-sol`, `xhigh`), then the existing proposal/Apply/executor path. The successful movement transcript corrected the request to the table center; the model applied that correction rather than a five-centimeter offset. An earlier 20-centimeter move was declined because the measured table had insufficient clearance.
+
+Both the native AR build and white-room Quest regression build passed 236 Unity core checks each; the PC suite passed 266 tests. Three further real Codex checks used synthetic room geometry. The ARM64 AR APK declares scene, microphone, internet and passthrough access. Earlier imports encountered a Meta AIBlocks quarantine; after the wearer reported restoring that output, an ordinary unchanged-package build succeeded. No protection settings were changed by Codex.
+
+The persistence check covers one app session with unchanged manual room setup. App restart/relocalization, recreated anchors and physically induced tracking-loss recovery have not been tested on hardware. Missing-anchor rejection and recovery have automated coverage. The local PC save is `RoomARAcceptance_20260920_171926`; private room geometry and raw device observations are excluded from Git.
 
 The two device apps are separate so the working white room remains available:
 
-Current headset progress: the AR app is installed and the wearer confirms that passthrough and the labeled floor/wall/table outlines align with reality. The PC voice/edit/save/restore acceptance remains pending while USB debugging authorization is re-established. Alignment confirmation must be applied to the live AR runtime after it connects; a wearer report is not a queued runtime command.
+USB debugging and the PC connection were restored after a fresh cable reconnect and headset authorization. The live AR runtime acknowledged alignment confirmation before editing. Both apps remain installed; the original hardware-tested white-room voice APK has been retained.
 
 | Mode | Headset app | Android package |
 | --- | --- | --- |
@@ -82,16 +88,16 @@ If spatial data permission was denied, enable it in the headset's app permission
 
 Walls and other context-only surfaces can be pointed at but do not accept support placement. Physical objects remain part of room data; selecting a real table does not turn it into an editable virtual table.
 
-## Acceptance test to perform on the headset
+## Repeat the acceptance test on the headset
 
 Keep the PC service connected and leave controller edits idle during each AI request. Read the heard text and proposal before pressing Y. A successful transcription is not a successful edit; wait for runtime confirmation.
 
 1. Verify and confirm outlines as above. Point at the real table top and press right trigger.
 2. Say **“Put an orb on my table.”** Review and apply. Verify that the orb rests on the table rather than floating, sinking, or appearing on the floor.
-3. Point at the orb and select it. Say **“Move this 20 centimeters to my right, keeping it on this table.”** Review and apply. Verify that the same orb moves in the intended direction and remains on the table. If there is insufficient room for the requested move, rejection is appropriate; select a position with more space and repeat.
+3. Point at the orb and select it. Say **“Move the orb to the center of this table.”** Review and apply. Verify that the same orb moves and remains on the table. For a later relative-distance check, try a small move with sufficient clearance. Rejection is appropriate when the measured surface cannot support the proposed position.
 4. In **Save and restore**, enter a new name such as `AR Table Orb Test` and click **Save current scene**. Wait until queued edits have finished before saving.
 5. Click **Clear scene** and verify the orb disappears. Choose that save and click **Restore selected scene**. Verify the orb returns at the saved table-relative position, with the same size and orientation.
-6. For a stronger persistence check, save, quit and reopen the AR app without changing Space Setup, reacquire the room, verify outlines again, and restore. Walk around the table and check alignment from more than one viewpoint.
+6. Optional stronger check, not yet hardware-tested: save, quit and reopen the AR app without changing Space Setup, reacquire the room, verify outlines again, and restore. Walk around the table and check alignment from more than one viewpoint.
 
 Record the APK hash, room/table anchor IDs, request transcripts, command results, and the wearer's observation separately. Automated identity/pose comparisons cannot confirm that a virtual orb visually rests on the physical table.
 
@@ -109,4 +115,4 @@ The AI receives available prefab geometry, virtual scene objects, MRUK anchor ID
 
 Speech audio is sent to the local PC speech worker. Codex receives the transcript and structured scene/room context; this implementation does not capture or upload passthrough camera images. PC saves retain scene and room metadata in `ControlService/scenes/`; live headset pose and pointing are omitted. Placement proposals use the existing command executor and history, with prefab footprint checks and actual MRUK surface raycasts.
 
-Meta's [manage and query scene data documentation](https://developers.meta.com/horizon/documentation/unity/unity-mr-utility-kit-manage-scene-data/) describes manual Space Setup, on-device capture, and world locking. Actual alignment and tracking behavior still require the headset checks above.
+Meta's [manage and query scene data documentation](https://developers.meta.com/horizon/documentation/unity/unity-mr-utility-kit-manage-scene-data/) describes manual Space Setup, on-device capture, and world locking. Headset observations and remaining coverage are listed separately above.

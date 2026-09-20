@@ -42,18 +42,74 @@
     "installed": true,
     "roomLocalized": true,
     "wearerVerifiedOutlines": true,
-    "voiceOrbPlacement": false,
-    "voiceMovement": false,
-    "tableAlignedSaveRestore": false,
+    "voiceOrbPlacement": true,
+    "voiceMovement": true,
+    "tableAlignedSaveRestore": true,
     "deviceModel": "Quest Pro",
     "usbForwarding": true,
     "whiteRoomPackageStillInstalled": true,
-    "nextAction": "Restore authorized USB transport, confirm_room on the live AR runtime, then voice orb placement/movement and save/restore.",
     "wearerPassthroughAndLabeledOutlinesReported": true,
     "alignmentEvidence": "Wearer reports labeled table top/edges, floor and walls align with reality.",
-    "localizationEvidence": "Wearer report of the app displaying loaded room outlines; no live PC room snapshot yet.",
-    "pcArConnectionVerified": false,
-    "pendingReason": "ADB still reports unauthorized despite wearer acceptance; persistent existing-key host started and fresh reconnect requested."
+    "localizationEvidence": "Live Quest Pro MRUK snapshot through USB/PC bridge plus wearer alignment report.",
+    "pcArConnectionVerified": true,
+    "liveAnchors": 28,
+    "liveSupportSurfaces": 7,
+    "alignmentConfirmedByExecutor": true,
+    "voicePlacementEvidence": {
+      "transcript": "Put an orb on this table",
+      "providerMode": "codex-cli",
+      "physicalTableAnchor": true,
+      "surfacePlacement": true,
+      "runtimeAcknowledged": true,
+      "orbLocalY": 0.0,
+      "wearerConfirmedPlacementOnRealTable": true
+    },
+    "voiceMovementEvidence": {
+      "transcript": "Move the orb five centimeters to the center of the table or just to the center of the table",
+      "providerMode": "codex-cli",
+      "model": "gpt-5.6-sol",
+      "reasoning": "xhigh",
+      "sameObjectId": true,
+      "sameTableAnchorId": true,
+      "scaleAndRotationPreserved": true,
+      "runtimeAcknowledged": true,
+      "wearerConfirmedMovementAndAlignment": true,
+      "interpretation": "User corrected the spoken request to the table center; model proposed and executed that correction.",
+      "resolvedLocalPosition": {
+        "x": 0.0,
+        "y": 0.0,
+        "z": 0.0
+      }
+    },
+    "pcSaveClearRestore": true,
+    "saveRestoreEvidence": {
+      "saveName": "RoomARAcceptance_20260920_171926",
+      "diskSceneExactMatch": true,
+      "clearAcknowledgedAndEmpty": true,
+      "loadAcknowledged": true,
+      "restoredSceneExactMatch": true,
+      "sameRoomObjectAndAnchorIds": true,
+      "identicalAnchorRelativeTransforms": true,
+      "livePoseExcludedFromSave": true,
+      "scope": "Same app session, unchanged manual room setup",
+      "wearerConfirmedRestoredTableAlignment": true,
+      "wearerReport": "Yes, it returned to the same spot on the real table",
+      "desktopFullCheckoutSaveCopyHashVerified": true
+    },
+    "hardwareNotTested": [
+      "App restart and relocalization before restore",
+      "Recreated or removed physical anchors",
+      "Physically induced tracking-loss recovery"
+    ],
+    "clearanceClarification": {
+      "providerMode": "codex-cli",
+      "requestedDistanceCm": 20,
+      "availableClearanceCmApprox": 2.1,
+      "commandsProduced": 0,
+      "orbUnchanged": true
+    },
+    "acceptanceStatus": "passed",
+    "acceptanceCompletedLocal": "2026-09-20 America/Denver"
   },
   "note": "Do not infer physical alignment or microphone acceptance from automated/synthetic checks.",
   "whiteRoomCompatibility": {
@@ -70,5 +126,6 @@
     "apkSha256": "8CC9E39ACF2C9CD1476CEE31DC5D002300798DEE65D4E5CB3E4B183076F6F06C",
     "installedOnHeadset": false,
     "note": "Original hardware-tested voice APK remains installed and was archived separately."
-  }
+  },
+  "overallStatus": "Ready with limitations: same-session Quest Pro acceptance passed; restart/relocalization and physical anchor-loss recovery not hardware-tested."
 }
