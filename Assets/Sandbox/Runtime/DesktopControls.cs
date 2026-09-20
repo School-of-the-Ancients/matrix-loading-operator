@@ -8,13 +8,20 @@ namespace ArSandbox
         public SandboxApp app;
         public PcBridge bridge;
         private Vector2 scroll;
+        private Vector2 guideScroll;
         private GUIStyle title, wrapped;
+        private GUIStyle guideTitle, guideBody, guidePrompt, guideCaption;
+        private string guideSession;
+        private int guideRevision = -1;
+
+        private Rect GuideRect => new Rect(340f, 12f, Mathf.Max(140f, Mathf.Min(460f, Screen.width - 352f)), Mathf.Min(660f, Screen.height - 24f));
 
         private void Update()
         {
             if (Mouse.current == null || !Mouse.current.leftButton.wasPressedThisFrame || app.World == null) return;
             var point = Mouse.current.position.ReadValue();
             if (point.x < 340) return;
+            if (bridge != null && bridge.CurrentGuide != null && GuideRect.Contains(new Vector2(point.x, Screen.height - point.y))) return;
             var ray = Camera.main.ScreenPointToRay(point);
             if (!Physics.Raycast(ray, out var hit, 100)) return;
             foreach (var item in app.World.Capture().scene.objects)
@@ -63,6 +70,51 @@ namespace ArSandbox
             GUILayout.Space(8);
             GUILayout.Label(bridge.ConnectionStatus, wrapped);
             GUILayout.Label("Open the PC control page for save/load, precise edits, and optional AI plans.", wrapped);
+            GUILayout.EndArea();
+            DrawGuide();
+        }
+
+        private void DrawGuide()
+        {
+            var guide = bridge != null ? bridge.CurrentGuide : null;
+            if (guide == null) return;
+            if (guideTitle == null)
+            {
+                guideTitle = new GUIStyle(GUI.skin.label) { fontSize = 22, fontStyle = FontStyle.Bold, wordWrap = true, richText = false };
+                guideBody = new GUIStyle(GUI.skin.label) { fontSize = 16, wordWrap = true, richText = false };
+                guidePrompt = new GUIStyle(guideBody) { fontStyle = FontStyle.Bold };
+                guideCaption = new GUIStyle(guideBody) { fontSize = 14 };
+            }
+            if (guideSession != guide.sessionId || guideRevision != guide.revision)
+            {
+                guideSession = guide.sessionId;
+                guideRevision = guide.revision;
+                guideScroll = Vector2.zero;
+            }
+            var panel = GuideRect;
+            GUI.Box(panel, "");
+            GUILayout.BeginArea(new Rect(panel.x + 16, panel.y + 12, panel.width - 32, panel.height - 24));
+            guideScroll = GUILayout.BeginScrollView(guideScroll);
+            GUILayout.Label("LEARNING GUIDE", guideCaption);
+            GUILayout.Label(guide.title, guideTitle);
+            GUILayout.Label(guide.stageLabel + (guide.progressTotal > 0 ? "  ·  " + guide.progressIndex + " / " + guide.progressTotal : ""), guideCaption);
+            if (!bridge.IsConnected) GUILayout.Label("PC connection paused — showing the last received guide.", guidePrompt);
+            if (!string.IsNullOrEmpty(guide.status)) GUILayout.Label(guide.status, guideCaption);
+            GUILayout.Space(10);
+            if (!string.IsNullOrEmpty(guide.body)) GUILayout.Label(guide.body, guideBody);
+            if (!string.IsNullOrEmpty(guide.prompt))
+            {
+                GUILayout.Space(10);
+                GUILayout.Label(guide.prompt, guidePrompt);
+            }
+            if (!string.IsNullOrEmpty(guide.hint))
+            {
+                GUILayout.Space(8);
+                GUILayout.Label("Hint: " + guide.hint, guideBody);
+            }
+            GUILayout.Space(12);
+            GUILayout.Label("Read the full lesson, enter your observation, and continue on the PC learning panel.", guideCaption);
+            GUILayout.EndScrollView();
             GUILayout.EndArea();
         }
     }

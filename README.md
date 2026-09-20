@@ -8,6 +8,12 @@ Quest Pro with manually configured room data is the primary target. Quest 3 is o
 
 **Working and tested:** the Windows simulation completes room load → text-command spawn → resize/move/rotate the same object → PC save → clear → exact restore in one running Unity application. **Not yet hardware-tested:** real MRUK room loading, passthrough, Quest controllers, and tracking. No headset was connected. The APK build is blocked by Malwarebytes quarantining Meta's generated `AIBlocks.dll`; [current evidence and resume details](Docs/Security-Block.md).
 
+## Connected learning layer
+
+The next layer is **Observation and Scale**, an authored, cited activity backed by the canonical `sota-v2` lesson runtime. Predict a block's change, revise it through the existing language proposal flow, record actual runtime evidence, explain it and reflect. PC saves link the room to a durable lesson checkpoint; restoring it preserves later original progress. Unity shows the current guide, and the PC panel collects responses and exposes sources. Completion records participation rather than a mastery grade.
+
+Use sibling checkouts of this branch and `sota-v2`'s `codex/operator-learning-sessions` branch. With Node.js 24+, Python 3.10+ and Unity installed, run `./Build-DesktopFixture.ps1`. Start `npm run dev:operator` in the v2 checkout and `./Start-ControlService.ps1` here, then run `Builds/Desktop/AR-Sandbox.exe`. The isolated fixture builds the explicit Windows simulation without importing Meta packages; native Quest validation remains separate. See the [activity runbook](Docs/Learning-Sessions.md), [organization/research review](Docs/Organization-Review.md), and [learning-layer validation](Validation/Learning-Validation.md).
+
 ## Open a fresh clone
 
 Clone this repository and add its root folder in Unity Hub. Install Unity **6000.6.0f1**; native Quest builds also require Android Build Support, SDK/NDK and OpenJDK. Unity resolves the pinned dependencies in `Packages/manifest.json` on import.

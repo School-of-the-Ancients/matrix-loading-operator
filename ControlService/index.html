@@ -3,9 +3,23 @@
 <title>AR Sandbox Control</title>
 <style>
 :root{color-scheme:dark;font:16px system-ui;background:#111820;color:#e6edf4}body{max-width:1040px;margin:auto;padding:32px}h1{margin:0 0 8px}h2{font-size:19px}p{color:#acbdca;line-height:1.5}.grid{display:grid;grid-template-columns:1fr 1fr;gap:18px}section{border:1px solid #334352;border-radius:12px;padding:20px;margin:18px 0}input,select,textarea,button{font:inherit;border:1px solid #526373;border-radius:6px;padding:10px;background:#1e2b36;color:inherit}input,select,textarea{box-sizing:border-box;max-width:100%}textarea{width:100%;min-height:90px}button{cursor:pointer;margin:4px 4px 4px 0}button:hover{background:#294356}button:disabled{opacity:.45;cursor:default}.primary{background:#226754}label{display:block;margin:10px 0 5px}.row{display:flex;flex-wrap:wrap;gap:8px;align-items:center}pre{white-space:pre-wrap;overflow-wrap:anywhere;max-height:350px;overflow:auto;font-size:13px;background:#0c1218;padding:12px;border-radius:6px}#status{font-weight:600}#message{min-height:24px;color:#f1ce7a}@media(max-width:750px){.grid{display:block}body{padding:18px}}
-</style>
+#learningPanel{border-color:#4a8a76;background:linear-gradient(120deg,#142a27,#14202a)}.eyebrow{text-transform:uppercase;font-size:12px;letter-spacing:.12em;color:#85cbb0}.lessonPrompt{color:#f1deac;font-weight:600}#lessonMeter{width:100%;height:8px;margin-top:12px;accent-color:#73c5a4}#lessonBinding{font-size:12px;overflow-wrap:anywhere}#lessonSources{padding-left:22px}#lessonSources li{margin:12px 0;font-size:14px;color:#b4c5ce}a{color:#8fd3c3}#lessonError{color:#f1ce7a}details{margin-top:16px}summary{cursor:pointer}#lessonHistory{max-height:260px;overflow:auto}</style>
 <h1>AR Sandbox</h1><p>Build a room with bundled props. Select a surface or object in the Quest, then describe your next change below.</p>
 <div id="status">Connecting…</div><div id="message" role="status"></div>
+<section id="learningPanel" aria-labelledby="learningHeading">
+<p class="eyebrow">School of the Ancients · authored activity</p><h2 id="learningHeading">Observation and scale</h2>
+<p>Predict, change a block, and explain what the evidence shows. Place a bundled block below, then select it in Objects to begin.</p>
+<div class="row"><button id="lessonConnect">Connect learning core</button><button id="lessonStart" class="primary" disabled>Start with selected block</button></div>
+<p id="learningStatus" role="status">Checking local learning core…</p>
+<article id="lessonActive" hidden><div class="row"><strong id="lessonStage"></strong><span id="lessonProgress"></span></div><progress id="lessonMeter" max="6" value="0" aria-label="Lesson stages"></progress>
+<p id="lessonBody"></p><p id="lessonPrompt" class="lessonPrompt"></p><p id="lessonBinding"></p>
+<pre id="lessonScale" aria-label="Starting and current scale values"></pre>
+<label for="lessonResponse">Your prediction, observation, or reflection</label><textarea id="lessonResponse" maxlength="2000" placeholder="Describe your reasoning in your own words"></textarea>
+<div id="lessonActions" class="row"></div>
+<details><summary>Hint</summary><p id="lessonHint"></p></details><details><summary>Sources and what this records</summary><ul id="lessonSources"></ul><p>Guidance is authored. A completed session records participation, a transform check, and your reasoning; it is not a mastery grade. Responses and snapshots stay in the local learning core and scene saves.</p></details>
+<details><summary>Recorded responses</summary><div id="lessonHistory"></div></details>
+</article><button id="lessonRetry" hidden>Retry the same request</button><p id="lessonError" role="status"></p><button id="restoreRetry" hidden>Retry lesson restore</button><button id="restoreDismiss" hidden>Dismiss unconfirmed restore</button>
+</section>
 <section><label for="token">Service token</label><div class="row"><input id="token" type="password" autocomplete="off" placeholder="Required when configured"><button id="connect">Connect</button></div><p>The token stays in this page's memory. Open this panel on the PC running the service.</p></section>
 <div class="grid">
 <section><h2>Place an object</h2><label for="asset">Asset</label><select id="asset"></select><label for="anchor">Room target</label><select id="anchor"></select><button id="spawn" class="primary">Place above target</button><p>Places a small object 10 cm above the target origin. Use the headset scene controls or a reviewed transform command to adjust placement.</p><p id="selection">No headset placement selected.</p><button id="spawnHere">Place at headset selection</button><h2>Objects</h2><select id="object"></select><button id="delete">Delete selected</button><button id="clear">Clear room objects</button></section>
@@ -34,4 +48,4 @@ for(const id of ['asset','anchor','object','scene'])$(id).onchange=controls;
 document.querySelectorAll('.example').forEach(button=>button.onclick=()=>{$('prompt').value=button.dataset.prompt;});
 async function plannerStatus(){try{const info=await api('/api/planner');$('mode').value=info.availableModes.includes(info.mode)?info.mode:'offline-rules';$('mode').querySelector('[value="openai-compatible"]').disabled=!info.configured;$('plannerStatus').textContent=info.configured?'AI provider configured. You can also choose the offline command vocabulary.':(info.error?info.error+' · ':'')+'No AI provider configured. Offline commands are available; this is a rule-based parser, not a model.';}catch(e){$('plannerStatus').textContent=e.message;}}
 plannerStatus();refresh();setInterval(refresh,1500);
-</script></html>
+</script><script src="/learning-ui.js"></script></html>
