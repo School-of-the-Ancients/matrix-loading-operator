@@ -74,7 +74,7 @@
       "recordAudioPermission": true,
       "systemMicrophoneMute": true,
       "pcVoiceJobCreated": false,
-      "resolution": "Awaiting wearer to unmute and retry; no source fix justified yet"
+      "resolution": "Wearer reports Quick Settings already unmuted; explicit off/on retry pending. Root cause not confirmed."
     }
   },
   "preservation": {
@@ -85,7 +85,9 @@
     "credentialsOnPC": true,
     "preVoiceRetestSave": "BeforeBehaviorVoice_20260920_174538",
     "preVoiceRetestObjects": 2,
-    "unityHubExportsSourceVerified": true
+    "unityHubExportsSourceVerified": true,
+    "localBehaviorCheckpoint": "../checkpoints/RuntimeBehaviors_20260920",
+    "desktopFullCloneAndBuildsSynchronized": true
   },
   "limitations": [
     "Only rotate and bob are implemented; general programs, interaction triggers and physics remain proposed",
