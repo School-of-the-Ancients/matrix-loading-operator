@@ -25,6 +25,9 @@ NAME = re.compile(r"[A-Za-z0-9][A-Za-z0-9 _-]{0,63}\Z")
 SERVICE_OPS = {"save_scene", "load_scene"}
 READ_OPS = {"get_scene", "list_assets", "list_targets"}
 HISTORY_OPS = {"undo", "redo"}
+BEHAVIOR_KINDS = ("rotate", "bob")
+BEHAVIOR_DEFAULTS = {"enabled": True, "paused": False, "axis": "y", "speedDegreesPerSecond": 30,
+                     "amplitudeMeters": .05, "frequencyHz": .5}
 
 
 class PlannerError(Exception):
@@ -109,6 +112,79 @@ def _vector(value, label):
 def _transform(value):
     _require(isinstance(value, dict) and set(value) == {"position", "rotation", "scale"}, "Invalid transform")
     return {key: _vector(value[key], key) for key in ("position", "rotation", "scale")}
+
+
+def validate_behavior(value):
+    """Bounded declarative configuration, never executable code or sampled motion."""
+    _require(isinstance(value, dict) and set(value) <= {"kind", *BEHAVIOR_DEFAULTS}, "Invalid behavior fields")
+    kind = value.get("kind")
+    _require(isinstance(kind, str) and kind in BEHAVIOR_KINDS, "Unknown behavior kind")
+    result = {"kind": kind, **BEHAVIOR_DEFAULTS, **value}
+    for field in ("enabled", "paused"):
+        _require(type(result[field]) is bool, "Invalid behavior " + field)
+    _require(isinstance(result["axis"], str) and result["axis"] in ("x", "y", "z"), "Invalid behavior axis")
+    for field, minimum, maximum in (("speedDegreesPerSecond", -180, 180), ("amplitudeMeters", 0, .25),
+                                     ("frequencyHz", .05, 2)):
+        number = result[field]
+        _require(type(number) in (int, float) and minimum <= number <= maximum and math.isfinite(number),
+                 "Invalid behavior " + field)
+    return result
+
+
+def validate_behaviors(value):
+    if value is None:
+        return []
+    _require(isinstance(value, list) and len(value) <= 2, "At most two behaviors are supported")
+    result = [validate_behavior(item) for item in value]
+    _require(len({item["kind"] for item in result}) == len(result), "Duplicate behavior kind")
+    return sorted(result, key=lambda item: BEHAVIOR_KINDS.index(item["kind"]))
+
+
+def validate_behavior_kinds(value):
+    if value is None:
+        return []
+    _require(isinstance(value, list) and len(value) <= 2
+             and all(isinstance(item, str) and item in BEHAVIOR_KINDS for item in value),
+             "Invalid behavior capabilities")
+    _require(len(set(value)) == len(value), "Duplicate behavior capability")
+    return [kind for kind in BEHAVIOR_KINDS if kind in value]
+
+
+def runtime_skill_catalog(clean):
+    """Describe only skills advertised by the current player, using PC-owned contracts.
+
+    This is provider context, not save data, player-supplied prose, or a new output
+    operation. Both AI transports receive the same derived, validated catalog.
+    """
+    supported = validate_behavior_kinds(clean.get("behaviorKinds"))
+    parameters = {
+        "enabled": {"type": "boolean", "default": True, "meaning": "False suppresses the visual offset while retaining phase."},
+        "paused": {"type": "boolean", "default": False, "meaning": "True freezes the current visual phase; resume preserves it."},
+        "axis": {"type": "enum", "values": ["x", "y", "z"], "default": "y",
+                 "meaning": "Rotate uses the visual local axis. Bob ignores axis and follows support up; use y."},
+        "speedDegreesPerSecond": {"type": "number", "unit": "degrees/second", "minimum": -180, "maximum": 180,
+                                  "default": 30, "usedBy": ["rotate"]},
+        "amplitudeMeters": {"type": "number", "unit": "meters", "minimum": 0, "maximum": .25,
+                            "default": .05, "usedBy": ["bob"]},
+        "frequencyHz": {"type": "number", "unit": "cycles/second", "minimum": .05, "maximum": 2,
+                        "default": .5, "usedBy": ["bob"]}}
+    skills = []
+    for kind in supported:
+        skills.append({"kind": kind, "command": "set_behavior", "target": "existing objectId",
+                       "parameters": copy.deepcopy(parameters), "defaultConfig": validate_behavior({"kind": kind}),
+                       "effect": ("Continuous signed rotation around the placed visual's local axis." if kind == "rotate"
+                                  else "Vertical float from 0 to amplitudeMeters above the base along support up, independent of object scale."),
+                       "replacement": "Replaces only this kind, preserving the other kind and existing phase.",
+                       "remove": {"command": "remove_behavior", "behaviorKind": kind,
+                                  "effect": "Removes this kind and discards its phase; other kinds remain."}})
+    return {"version": 1, "skills": skills, "maximumKindsPerObject": 2,
+            "requiresReviewedApply": True,
+            "removeAll": ({"command": "remove_behavior", "behaviorKind": "all"} if supported else None),
+            "baselineOwnership": {"owner": "existing placement executor", "animationWritesBaseTransform": False,
+                                  "preserves": ["objectId", "anchorId", "base transform"],
+                                  "saved": ["behavior configurations", "base transform"],
+                                  "notSaved": ["animation phase"], "restoreStartsAtBase": True},
+            "unsupported": ["physics", "triggers", "paths", "navigation", "runtime code generation", "swept-volume collision"]}
 
 
 def validate_local_bounds(value):
@@ -312,6 +388,9 @@ def _context(snapshot, selection=None):
         _require(asset_id in assets and anchor_id in anchors, "Scene contains an unavailable asset or room target", 409)
         objects[identifier] = {"objectId": identifier, "assetId": asset_id, "anchorId": anchor_id,
                                "transform": _transform(value.get("transform"))}
+        behaviors = validate_behaviors(value.get("behaviors"))
+        if behaviors:
+            objects[identifier]["behaviors"] = behaviors
     selected = copy.deepcopy(snapshot.get("selection") if selection is None else selection)
     if selected is not None:
         _require(isinstance(selected, dict), "Invalid selection")
@@ -323,6 +402,8 @@ def _context(snapshot, selection=None):
                     "position": _vector(selected.get("position"), "position")}
     clean = {"scene": {"schemaVersion": 1, "roomId": room_id, "objects": list(objects.values())},
              "assets": list(assets.values()), "anchors": list(anchors.values())}
+    if snapshot.get("behaviorKinds") is not None:
+        clean["behaviorKinds"] = validate_behavior_kinds(snapshot["behaviorKinds"])
     if selected is not None:
         clean["selection"] = selected
     viewer = validate_viewer(snapshot.get("viewer"), anchors)
@@ -376,6 +457,10 @@ def validate_commands(commands, snapshot, saved_scenes=None, selection=None):
             allowed |= {"assetId", "anchorId", "transform", "placement"}
         elif op == "set_transform":
             allowed |= {"objectId", "anchorId", "transform", "placement"}
+        elif op == "set_behavior":
+            allowed |= {"objectId", "behavior"}
+        elif op == "remove_behavior":
+            allowed |= {"objectId", "behaviorKind"}
         elif op in {"select", "duplicate", "delete"}:
             allowed.add("objectId")
         else:
@@ -391,11 +476,30 @@ def validate_commands(commands, snapshot, saved_scenes=None, selection=None):
             _validate_surface_placement(value, result, anchors[result["anchorId"]], assets[result["assetId"]], clean)
             object_count += 1
             _require(object_count <= MAX_OBJECTS, "Scene object limit would be exceeded")
-        elif op in {"set_transform", "select", "duplicate", "delete"}:
+        elif op in {"set_transform", "select", "duplicate", "delete", "set_behavior", "remove_behavior"}:
             _require(isinstance(value.get("objectId"), str) and value["objectId"] in objects,
                      "Planner proposed an unknown or already deleted object")
             identifier = value["objectId"]
             result["objectId"] = identifier
+            if op in {"set_behavior", "remove_behavior"}:
+                supported = clean.get("behaviorKinds", [])
+                _require(bool(supported), "Connected player does not support behaviors; update the Quest app", 409)
+                current = objects[identifier].get("behaviors", [])
+                if op == "set_behavior":
+                    behavior = validate_behavior(value.get("behavior"))
+                    _require(behavior["kind"] in supported, "Connected player does not support this behavior", 409)
+                    result["behavior"] = behavior
+                    current = [item for item in current if item["kind"] != behavior["kind"]] + [behavior]
+                else:
+                    kind = value.get("behaviorKind")
+                    _require(isinstance(kind, str) and kind in (*BEHAVIOR_KINDS, "all"), "Unknown behavior kind")
+                    _require(kind == "all" or kind in supported, "Connected player does not support this behavior", 409)
+                    result["behaviorKind"] = kind
+                    current = [] if kind == "all" else [item for item in current if item["kind"] != kind]
+                if current:
+                    objects[identifier]["behaviors"] = validate_behaviors(current)
+                else:
+                    objects[identifier].pop("behaviors", None)
             if op == "delete":
                 del objects[identifier]
                 object_count -= 1
@@ -475,6 +579,33 @@ Allowed runtime commands:
 spawn: {op:'spawn',assetId,anchorId,transform,optional placement:'surface'};
 set_transform: {op:'set_transform',objectId,transform,optional anchorId,optional placement:'surface'};
 select: {op:'select',objectId}; duplicate: {op:'duplicate',objectId}; delete: {op:'delete',objectId};
+set_behavior: {op:'set_behavior',objectId,behavior:{kind,enabled,paused,axis,speedDegreesPerSecond,amplitudeMeters,frequencyHz}};
+remove_behavior: {op:'remove_behavior',objectId,behaviorKind:'rotate'|'bob'|'all'}.
+Behaviors are available ONLY when snapshot.behaviorKinds explicitly lists the requested kind. An absent or empty
+behaviorKinds means an older player: return no commands and explain that the Quest app must be updated. Never
+substitute a one-time transform for a requested ongoing animation or claim an unsupported behavior was applied.
+snapshot.runtimeSkillCatalog is the PC-derived catalog of behavior skills advertised by this connected player.
+Use its skill parameters, units, limits, defaults and lifecycle semantics. An empty skills list provides no behavior
+capability. Its unsupported list is explicit: do not invent physics, triggers, paths, navigation or generated code.
+The only supported behaviors are rotate and bob. They animate a visual offset around the object's saved base
+transform; base position, anchor, object ID and scale remain unchanged. This is not navigation, physics or code.
+Each object can have one rotate plus one bob, listed in scene.objects[].behaviors. set_behavior replaces only its
+own kind, preserving the other kind; remove_behavior removes only the named kind, or all for an explicit request.
+Every behavior config uses: kind rotate|bob; enabled boolean (default true); paused boolean (default false);
+axis x|y|z (default y); speedDegreesPerSecond [-180,180] (default 30); amplitudeMeters [0,0.25] (default 0.05);
+frequencyHz [0.05,2] (default 0.5). Send all fields. For rotate, speed and axis control rotation around the visual's
+local axis. Bob always follows the support anchor's upward normal, from zero up to amplitudeMeters above the base
+pose, measured in real metres regardless of object scale. Use axis='y' for bob; its axis field does not change its
+direction. All fields remain valid on both kinds. Use modest motion:
+'rotate slowly' can use rotate/y/15 degrees per second; 'float gently' can use bob/y/0.03 metres/0.5 Hz.
+To change speed or amplitude, copy that kind's existing config and change only the requested field. To pause
+rotation set paused=true on rotate while preserving bob and the rotate config; resume sets paused=false.
+Pause freezes the current visual phase while the app remains running. Disabling a kind hides its visual offset;
+removing it discards that configuration. Saves preserve settings and base pose, not the current animation phase.
+Only base placement is checked against room surfaces; animation does not perform swept-volume collision checks.
+Do not remove unrelated behavior, change the base transform, or create a replacement object for animation edits.
+Behavior edits use the same reviewed executor and undo/redo as placement edits. They require existing object IDs;
+spawning then animating a newly spawned ID requires a second request after the spawn is acknowledged.
 undo: {op:'undo'}; redo: {op:'redo'}; clear: {op:'clear'}; get_scene, list_assets, list_targets: {op:...}.
 Undo/redo must be separate single-command proposals. Their resulting scene and history availability are not supplied.
 Maximum 20 commands and 100 scene objects. New spawned or duplicated object IDs are unavailable until applied.
@@ -608,6 +739,7 @@ class Planner:
             used_mode, provider = "offline-rules", "Offline command parser (not an AI model)"
         else:
             try:
+                clean["runtimeSkillCatalog"] = runtime_skill_catalog(clean)
                 config.validate()
                 if isinstance(config, CodexConfig):
                     config = select_codex_config(config, codex)

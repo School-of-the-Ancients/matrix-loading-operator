@@ -1,9 +1,9 @@
 {
-  "startedUtc": "2026-09-20T22:54:18.4542326Z",
-  "completedUtc": "2026-09-20T22:54:19.7031650Z",
+  "startedUtc": "2026-09-20T23:35:02.5096557Z",
+  "completedUtc": "2026-09-20T23:35:03.8203407Z",
   "unityVersion": "6000.6.0f1",
   "projectPath": "<isolated-room-ar-fixture>",
-  "passed": 236,
+  "passed": 301,
   "failed": 0,
   "checks": [
     {
@@ -829,7 +829,7 @@
     {
       "name": "unknown viewer is explicit empty frames on the actual bridge JSON wire",
       "passed": true,
-      "detail": "Raw null-viewer JSON: {\"readOnly\":false,\"scene\":{\"schemaVersion\":1,\"roomId\":\"test-room\",\"objects\":[]},\"assets\":[{\"assetId\":\"cube\",\"displayName\":\"Cube\",\"description\":\"\",\"spawnScale\":0.20000000298023224,\"localBounds\":{\"center\":{\"x\":0.0,\"y\":0.0,\"z\":0.0},\"size\":{\"x\":0.0,\"y\":0.0,\"z\":0.0}}},{\"assetId\":\"sphere\",\"displayName\":\"Sphere\",\"description\":\"\",\"spawnScale\":0.20000000298023224,\"localBounds\":{\"center\":{\"x\":0.0,\"y\":0.0,\"z\":0.0},\"size\":{\"x\":0.0,\"y\":0.0,\"z\":0.0}}}],\"anchors\":[{\"anchorId\":\"floor\",\"displayName\":\"Floor\",\"source\":\"\",\"semanticLabels\":[],\"surface\":{\"kind\":\"\",\"boundary\":[],\"localBounds\":{\"center\":{\"x\":0.0,\"y\":0.0,\"z\":0.0},\"size\":{\"x\":0.0,\"y\":0.0,\"z\":0.0}}},\"roomPose\":{\"position\":{\"x\":0.0,\"y\":0.0,\"z\":0.0},\"rotation\":{\"x\":0.0,\"y\":0.0,\"z\":0.0},\"scale\":{\"x\":0.0,\"y\":0.0,\"z\":0.0}}},{\"anchorId\":\"table\",\"displayName\":\"Table\",\"source\":\"\",\"semanticLabels\":[],\"surface\":{\"kind\":\"\",\"boundary\":[],\"localBounds\":{\"center\":{\"x\":0.0,\"y\":0.0,\"z\":0.0},\"size\":{\"x\":0.0,\"y\":0.0,\"z\":0.0}}},\"roomPose\":{\"position\":{\"x\":0.0,\"y\":0.0,\"z\":0.0},\"rotation\":{\"x\":0.0,\"y\":0.0,\"z\":0.0},\"scale\":{\"x\":0.0,\"y\":0.0,\"z\":0.0}}}],\"selection\":{\"anchorId\":\"\",\"objectId\":\"\",\"position\":{\"x\":0.0,\"y\":0.0,\"z\":0.0}},\"viewer\":{\"frames\":[]},\"pointing\":{\"anchorId\":\"\",\"objectId\":\"\",\"position\":{\"x\":0.0,\"y\":0.0,\"z\":0.0},\"normal\":{\"x\":0.0,\"y\":0.0,\"z\":0.0},\"origin\":{\"x\":0.0,\"y\":0.0,\"z\":0.0},\"direction\":{\"x\":0.0,\"y\":0.0,\"z\":0.0}},\"roomContext\":{\"mode\":\"\",\"state\":\"\",\"message\":\"\",\"alignmentVerified\":false}}\nActual bridge unknown-viewer JSON: {\"readOnly\":false,\"scene\":{\"schemaVersion\":1,\"roomId\":\"test-room\",\"objects\":[]},\"assets\":[{\"assetId\":\"cube\",\"displayName\":\"Cube\",\"description\":\"\",\"spawnScale\":0.20000000298023224,\"localBounds\":{\"center\":{\"x\":0.0,\"y\":0.0,\"z\":0.0},\"size\":{\"x\":0.0,\"y\":0.0,\"z\":0.0}}},{\"assetId\":\"sphere\",\"displayName\":\"Sphere\",\"description\":\"\",\"spawnScale\":0.20000000298023224,\"localBounds\":{\"center\":{\"x\":0.0,\"y\":0.0,\"z\":0.0},\"size\":{\"x\":0.0,\"y\":0.0,\"z\":0.0}}}],\"anchors\":[{\"anchorId\":\"floor\",\"displayName\":\"Floor\",\"source\":\"\",\"semanticLabels\":[],\"surface\":{\"kind\":\"\",\"boundary\":[],\"localBounds\":{\"center\":{\"x\":0.0,\"y\":0.0,\"z\":0.0},\"size\":{\"x\":0.0,\"y\":0.0,\"z\":0.0}}},\"roomPose\":{\"position\":{\"x\":0.0,\"y\":0.0,\"z\":0.0},\"rotation\":{\"x\":0.0,\"y\":0.0,\"z\":0.0},\"scale\":{\"x\":0.0,\"y\":0.0,\"z\":0.0}}},{\"anchorId\":\"table\",\"displayName\":\"Table\",\"source\":\"\",\"semanticLabels\":[],\"surface\":{\"kind\":\"\",\"boundary\":[],\"localBounds\":{\"center\":{\"x\":0.0,\"y\":0.0,\"z\":0.0},\"size\":{\"x\":0.0,\"y\":0.0,\"z\":0.0}}},\"roomPose\":{\"position\":{\"x\":0.0,\"y\":0.0,\"z\":0.0},\"rotation\":{\"x\":0.0,\"y\":0.0,\"z\":0.0},\"scale\":{\"x\":0.0,\"y\":0.0,\"z\":0.0}}}],\"selection\":{\"anchorId\":\"\",\"objectId\":\"\",\"position\":{\"x\":0.0,\"y\":0.0,\"z\":0.0}},\"viewer\":{\"frames\":[]},\"pointing\":{\"anchorId\":\"\",\"objectId\":\"\",\"position\":{\"x\":0.0,\"y\":0.0,\"z\":0.0},\"normal\":{\"x\":0.0,\"y\":0.0,\"z\":0.0},\"origin\":{\"x\":0.0,\"y\":0.0,\"z\":0.0},\"direction\":{\"x\":0.0,\"y\":0.0,\"z\":0.0}},\"roomContext\":{\"mode\":\"\",\"state\":\"\",\"message\":\"\",\"alignmentVerified\":false}}"
+      "detail": "Raw null-viewer JSON: {\"behaviorKinds\":[\"rotate\",\"bob\"],\"readOnly\":false,\"scene\":{\"schemaVersion\":1,\"roomId\":\"test-room\",\"objects\":[]},\"assets\":[{\"assetId\":\"cube\",\"displayName\":\"Cube\",\"description\":\"\",\"spawnScale\":0.20000000298023224,\"localBounds\":{\"center\":{\"x\":0.0,\"y\":0.0,\"z\":0.0},\"size\":{\"x\":0.0,\"y\":0.0,\"z\":0.0}}},{\"assetId\":\"sphere\",\"displayName\":\"Sphere\",\"description\":\"\",\"spawnScale\":0.20000000298023224,\"localBounds\":{\"center\":{\"x\":0.0,\"y\":0.0,\"z\":0.0},\"size\":{\"x\":0.0,\"y\":0.0,\"z\":0.0}}}],\"anchors\":[{\"anchorId\":\"floor\",\"displayName\":\"Floor\",\"source\":\"\",\"semanticLabels\":[],\"surface\":{\"kind\":\"\",\"boundary\":[],\"localBounds\":{\"center\":{\"x\":0.0,\"y\":0.0,\"z\":0.0},\"size\":{\"x\":0.0,\"y\":0.0,\"z\":0.0}}},\"roomPose\":{\"position\":{\"x\":0.0,\"y\":0.0,\"z\":0.0},\"rotation\":{\"x\":0.0,\"y\":0.0,\"z\":0.0},\"scale\":{\"x\":0.0,\"y\":0.0,\"z\":0.0}}},{\"anchorId\":\"table\",\"displayName\":\"Table\",\"source\":\"\",\"semanticLabels\":[],\"surface\":{\"kind\":\"\",\"boundary\":[],\"localBounds\":{\"center\":{\"x\":0.0,\"y\":0.0,\"z\":0.0},\"size\":{\"x\":0.0,\"y\":0.0,\"z\":0.0}}},\"roomPose\":{\"position\":{\"x\":0.0,\"y\":0.0,\"z\":0.0},\"rotation\":{\"x\":0.0,\"y\":0.0,\"z\":0.0},\"scale\":{\"x\":0.0,\"y\":0.0,\"z\":0.0}}}],\"selection\":{\"anchorId\":\"\",\"objectId\":\"\",\"position\":{\"x\":0.0,\"y\":0.0,\"z\":0.0}},\"viewer\":{\"frames\":[]},\"pointing\":{\"anchorId\":\"\",\"objectId\":\"\",\"position\":{\"x\":0.0,\"y\":0.0,\"z\":0.0},\"normal\":{\"x\":0.0,\"y\":0.0,\"z\":0.0},\"origin\":{\"x\":0.0,\"y\":0.0,\"z\":0.0},\"direction\":{\"x\":0.0,\"y\":0.0,\"z\":0.0}},\"roomContext\":{\"mode\":\"\",\"state\":\"\",\"message\":\"\",\"alignmentVerified\":false}}\nActual bridge unknown-viewer JSON: {\"behaviorKinds\":[\"rotate\",\"bob\"],\"readOnly\":false,\"scene\":{\"schemaVersion\":1,\"roomId\":\"test-room\",\"objects\":[]},\"assets\":[{\"assetId\":\"cube\",\"displayName\":\"Cube\",\"description\":\"\",\"spawnScale\":0.20000000298023224,\"localBounds\":{\"center\":{\"x\":0.0,\"y\":0.0,\"z\":0.0},\"size\":{\"x\":0.0,\"y\":0.0,\"z\":0.0}}},{\"assetId\":\"sphere\",\"displayName\":\"Sphere\",\"description\":\"\",\"spawnScale\":0.20000000298023224,\"localBounds\":{\"center\":{\"x\":0.0,\"y\":0.0,\"z\":0.0},\"size\":{\"x\":0.0,\"y\":0.0,\"z\":0.0}}}],\"anchors\":[{\"anchorId\":\"floor\",\"displayName\":\"Floor\",\"source\":\"\",\"semanticLabels\":[],\"surface\":{\"kind\":\"\",\"boundary\":[],\"localBounds\":{\"center\":{\"x\":0.0,\"y\":0.0,\"z\":0.0},\"size\":{\"x\":0.0,\"y\":0.0,\"z\":0.0}}},\"roomPose\":{\"position\":{\"x\":0.0,\"y\":0.0,\"z\":0.0},\"rotation\":{\"x\":0.0,\"y\":0.0,\"z\":0.0},\"scale\":{\"x\":0.0,\"y\":0.0,\"z\":0.0}}},{\"anchorId\":\"table\",\"displayName\":\"Table\",\"source\":\"\",\"semanticLabels\":[],\"surface\":{\"kind\":\"\",\"boundary\":[],\"localBounds\":{\"center\":{\"x\":0.0,\"y\":0.0,\"z\":0.0},\"size\":{\"x\":0.0,\"y\":0.0,\"z\":0.0}}},\"roomPose\":{\"position\":{\"x\":0.0,\"y\":0.0,\"z\":0.0},\"rotation\":{\"x\":0.0,\"y\":0.0,\"z\":0.0},\"scale\":{\"x\":0.0,\"y\":0.0,\"z\":0.0}}}],\"selection\":{\"anchorId\":\"\",\"objectId\":\"\",\"position\":{\"x\":0.0,\"y\":0.0,\"z\":0.0}},\"viewer\":{\"frames\":[]},\"pointing\":{\"anchorId\":\"\",\"objectId\":\"\",\"position\":{\"x\":0.0,\"y\":0.0,\"z\":0.0},\"normal\":{\"x\":0.0,\"y\":0.0,\"z\":0.0},\"origin\":{\"x\":0.0,\"y\":0.0,\"z\":0.0},\"direction\":{\"x\":0.0,\"y\":0.0,\"z\":0.0}},\"roomContext\":{\"mode\":\"\",\"state\":\"\",\"message\":\"\",\"alignmentVerified\":false}}"
     },
     {
       "name": "voice WAV uses interoperable RIFF WAVE chunk sizes",
@@ -1183,6 +1183,331 @@
     },
     {
       "name": "object moved to a different anchor invalidates its old pointing frame",
+      "passed": true,
+      "detail": ""
+    },
+    {
+      "name": "new player advertises only implemented behavior kinds",
+      "passed": true,
+      "detail": ""
+    },
+    {
+      "name": "set_behavior edits the stable object ID",
+      "passed": true,
+      "detail": ""
+    },
+    {
+      "name": "accepted behavior config is detached from caller",
+      "passed": true,
+      "detail": ""
+    },
+    {
+      "name": "behavior snapshots and capabilities cannot mutate runtime",
+      "passed": true,
+      "detail": ""
+    },
+    {
+      "name": "bob composes with rotation",
+      "passed": true,
+      "detail": ""
+    },
+    {
+      "name": "setting the same kind replaces configuration without duplication",
+      "passed": true,
+      "detail": ""
+    },
+    {
+      "name": "one behavior can be removed while the other remains",
+      "passed": true,
+      "detail": ""
+    },
+    {
+      "name": "remove all leaves object identity and transform intact",
+      "passed": true,
+      "detail": ""
+    },
+    {
+      "name": "full behavior config works through actual Unity JSON",
+      "passed": true,
+      "detail": ""
+    },
+    {
+      "name": "wire remove accepts omitted inline DTO defaults",
+      "passed": true,
+      "detail": ""
+    },
+    {
+      "name": "invalid behavior config 0 is atomic",
+      "passed": true,
+      "detail": ""
+    },
+    {
+      "name": "invalid behavior config 1 is atomic",
+      "passed": true,
+      "detail": ""
+    },
+    {
+      "name": "invalid behavior config 2 is atomic",
+      "passed": true,
+      "detail": ""
+    },
+    {
+      "name": "invalid behavior config 3 is atomic",
+      "passed": true,
+      "detail": ""
+    },
+    {
+      "name": "invalid behavior config 4 is atomic",
+      "passed": true,
+      "detail": ""
+    },
+    {
+      "name": "invalid behavior config 5 is atomic",
+      "passed": true,
+      "detail": ""
+    },
+    {
+      "name": "invalid behavior config 6 is atomic",
+      "passed": true,
+      "detail": ""
+    },
+    {
+      "name": "invalid behavior config 7 is atomic",
+      "passed": true,
+      "detail": ""
+    },
+    {
+      "name": "invalid behavior config 8 is atomic",
+      "passed": true,
+      "detail": ""
+    },
+    {
+      "name": "invalid behavior config 9 is atomic",
+      "passed": true,
+      "detail": ""
+    },
+    {
+      "name": "invalid behavior config 10 is atomic",
+      "passed": true,
+      "detail": ""
+    },
+    {
+      "name": "invalid behavior config 11 is atomic",
+      "passed": true,
+      "detail": ""
+    },
+    {
+      "name": "invalid behavior config 12 is atomic",
+      "passed": true,
+      "detail": ""
+    },
+    {
+      "name": "invalid behavior commands do not consume history",
+      "passed": true,
+      "detail": ""
+    },
+    {
+      "name": "foreign behavior field rejected by get_scene",
+      "passed": true,
+      "detail": ""
+    },
+    {
+      "name": "foreign behavior field rejected by spawn",
+      "passed": true,
+      "detail": ""
+    },
+    {
+      "name": "foreign behavior field rejected by select",
+      "passed": true,
+      "detail": ""
+    },
+    {
+      "name": "foreign behavior field rejected by duplicate",
+      "passed": true,
+      "detail": ""
+    },
+    {
+      "name": "foreign behavior field rejected by set_transform",
+      "passed": true,
+      "detail": ""
+    },
+    {
+      "name": "foreign behavior field rejected by delete",
+      "passed": true,
+      "detail": ""
+    },
+    {
+      "name": "foreign behavior field rejected by clear",
+      "passed": true,
+      "detail": ""
+    },
+    {
+      "name": "foreign behavior field rejected by load",
+      "passed": true,
+      "detail": ""
+    },
+    {
+      "name": "foreign behavior field rejected by undo",
+      "passed": true,
+      "detail": ""
+    },
+    {
+      "name": "foreign behavior field rejected by redo",
+      "passed": true,
+      "detail": ""
+    },
+    {
+      "name": "foreign behavior field rejected by remove_behavior",
+      "passed": true,
+      "detail": ""
+    },
+    {
+      "name": "set_behavior rejects a foreign removal kind",
+      "passed": true,
+      "detail": ""
+    },
+    {
+      "name": "behavior command rejects unrelated transform edits",
+      "passed": true,
+      "detail": ""
+    },
+    {
+      "name": "remove_behavior rejects unknown kinds",
+      "passed": true,
+      "detail": ""
+    },
+    {
+      "name": "set_behavior requires an existing stable object",
+      "passed": true,
+      "detail": ""
+    },
+    {
+      "name": "duplicate behavior kinds reject the whole load",
+      "passed": true,
+      "detail": ""
+    },
+    {
+      "name": "oversized behavior array rejects the whole load",
+      "passed": true,
+      "detail": ""
+    },
+    {
+      "name": "unknown behavior in a saved scene rejects the whole load",
+      "passed": true,
+      "detail": ""
+    },
+    {
+      "name": "behavior bounds accept endpoint -1",
+      "passed": true,
+      "detail": ""
+    },
+    {
+      "name": "behavior bounds accept endpoint 1",
+      "passed": true,
+      "detail": ""
+    },
+    {
+      "name": "schema-1 saves without behaviors still load as no behavior",
+      "passed": true,
+      "detail": ""
+    },
+    {
+      "name": "explicit null behaviors retain legacy compatibility",
+      "passed": true,
+      "detail": ""
+    },
+    {
+      "name": "undo behavior addition leaves the previous behavior",
+      "passed": true,
+      "detail": ""
+    },
+    {
+      "name": "undo all behavior additions restores exact original state",
+      "passed": true,
+      "detail": ""
+    },
+    {
+      "name": "redo restores exact behavior parameters and paused state",
+      "passed": true,
+      "detail": ""
+    },
+    {
+      "name": "duplicate retains detached behavior configs with a new identity",
+      "passed": true,
+      "detail": ""
+    },
+    {
+      "name": "editing duplicate behavior leaves the original configuration",
+      "passed": true,
+      "detail": ""
+    },
+    {
+      "name": "JSON save clear load preserves exact IDs poses and behavior configs",
+      "passed": true,
+      "detail": ""
+    },
+    {
+      "name": "undo removal restores both configurations",
+      "passed": true,
+      "detail": ""
+    },
+    {
+      "name": "redo removal leaves the same object without behaviors",
+      "passed": true,
+      "detail": ""
+    },
+    {
+      "name": "rotation and bob visibly compose on one prefab child",
+      "passed": true,
+      "detail": ""
+    },
+    {
+      "name": "animated presentation never changes placed root or saved scene",
+      "passed": true,
+      "detail": ""
+    },
+    {
+      "name": "paused behaviors hold their current visual pose",
+      "passed": true,
+      "detail": ""
+    },
+    {
+      "name": "resuming rotation keeps its phase without a visual jump",
+      "passed": true,
+      "detail": ""
+    },
+    {
+      "name": "resumed rotation continues while bob stays paused",
+      "passed": true,
+      "detail": ""
+    },
+    {
+      "name": "moving and resizing root preserves actual bob meters along anchor normal",
+      "passed": true,
+      "detail": ""
+    },
+    {
+      "name": "many animation frames do not drift persistence or placed baseline",
+      "passed": true,
+      "detail": ""
+    },
+    {
+      "name": "disabled rotation removes only its visual contribution",
+      "passed": true,
+      "detail": ""
+    },
+    {
+      "name": "removing all behaviors resets visual child without moving edited root",
+      "passed": true,
+      "detail": ""
+    },
+    {
+      "name": "removed then readded rotation starts a fresh signed phase",
+      "passed": true,
+      "detail": ""
+    },
+    {
+      "name": "animated collider descendant still resolves the stable placed identity",
       "passed": true,
       "detail": ""
     }

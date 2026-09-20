@@ -34,7 +34,7 @@ foreach ($relativeDirectory in @('Assets\Sandbox\Runtime', 'Assets\Sandbox\Edito
     [void](New-Item -ItemType Directory -Path (Join-Path $fixtureRoot $relativeDirectory) -Force)
 }
 [IO.File]::WriteAllText($markerPath, ('AR Sandbox authored desktop simulation fixture.' + [Environment]::NewLine), $utf8)
-$runtimeFiles = @('DesktopControls.cs', 'PcBridge.cs', 'SandboxApp.cs', 'SandboxData.cs', 'SandboxWorld.cs')
+$runtimeFiles = @('DesktopControls.cs', 'PcBridge.cs', 'SandboxApp.cs', 'SandboxData.cs', 'SandboxWorld.cs', 'SandboxBehaviorVisual.cs')
 $editorFiles = @('SandboxCoreChecks.cs', 'SandboxProjectSetup.cs', 'LessonGuideChecks.cs', 'DesktopValidationBuild.cs')
 foreach ($group in @(
     @{ Directory = 'Assets\Sandbox\Runtime'; Files = $runtimeFiles },

@@ -1,0 +1,97 @@
+{
+  "milestone": "Live runtime Rotate and Bob behaviors",
+  "recordedUtc": "2026-09-20T23:47:35.706868+00:00",
+  "implemented": [
+    "Bounded rotate and upward bob",
+    "Independent enable, pause, resume and removal",
+    "Placed wrapper separated from animated prefab child",
+    "Stable-ID edits, undo/redo, old-save compatibility and behavior persistence",
+    "Real-AI command/schema/context integration",
+    "Capability-derived runtime skill catalog inspired by LLMR",
+    "PC selected-object behavior status"
+  ],
+  "pythonTests": {
+    "passed": 292,
+    "failed": 0,
+    "newBehaviorTests": 26
+  },
+  "operatorPanel": {
+    "interactionChecksPassed": true,
+    "browserUpdatedControlsVisible": true,
+    "modelAndReasoningPreferencesPreserved": true
+  },
+  "builds": {
+    "desktop": {
+      "status": "succeeded",
+      "unityChecksPassed": 301,
+      "unityChecksFailed": 0,
+      "artifact": "Builds/WhiteRoomDesktop/MatrixOperator.exe",
+      "bytes": 667136,
+      "sha256": "718444f6a718fa668da96eb0a58445b009673310e6129152a63dbf7a92b8de00",
+      "scope": "Editor compile, deterministic core checks and player build"
+    },
+    "whiteRoomQuest": {
+      "status": "succeeded",
+      "unityChecksPassed": 301,
+      "unityChecksFailed": 0,
+      "artifact": "Builds/WhiteRoomQuest/MatrixOperator.apk",
+      "bytes": 53847545,
+      "sha256": "429dd09c0b40006ab22c175fc56ff451ea8bdb515957a77e439e480c773158bd",
+      "scope": "Editor compile, deterministic core checks and player build"
+    },
+    "roomARQuest": {
+      "status": "succeeded",
+      "unityChecksPassed": 301,
+      "unityChecksFailed": 0,
+      "artifact": "Builds/RoomARQuest/MatrixOperatorAR.apk",
+      "bytes": 84679008,
+      "sha256": "c94a760f55b15b01cf7e5facfcf6cdde165ab4bbc91014567a49f18df9a79dac",
+      "scope": "Editor compile, deterministic core checks and player build"
+    }
+  },
+  "desktopRuntime": {
+    "status": "passed",
+    "checksPassed": 46,
+    "checksFailed": 0,
+    "realCodexRequests": 4,
+    "receipt": "behavior-desktop-results.json",
+    "headsetMicrophoneOrDisplay": false
+  },
+  "hardware": {
+    "arUpdateInstalled": true,
+    "updatedRuntimeConnected": true,
+    "behaviorKinds": [
+      "rotate",
+      "bob"
+    ],
+    "wearerVerifiedOutlinesAfterUpdate": true,
+    "originalOrbRestoredExactlyAndSelected": true,
+    "voiceBehaviorApplied": false,
+    "wearerSawBobbing": false,
+    "behaviorSaveRestore": false,
+    "voiceDiagnostic": {
+      "observed": "Listening then no audible speech captured",
+      "recordAudioPermission": true,
+      "systemMicrophoneMute": true,
+      "pcVoiceJobCreated": false,
+      "resolution": "Awaiting wearer to unmute and retry; no source fix justified yet"
+    }
+  },
+  "preservation": {
+    "baseCommit": "6962eaf",
+    "originalSceneSave": "BeforeBehaviors_20260920_172929",
+    "localPriorApkAndSaveCheckpoint": "../checkpoints/RoomARBeforeBehaviors_20260920",
+    "whiteRoomQuestUpdateInstalled": false,
+    "credentialsOnPC": true,
+    "preVoiceRetestSave": "BeforeBehaviorVoice_20260920_174538",
+    "preVoiceRetestObjects": 2,
+    "unityHubExportsSourceVerified": true
+  },
+  "limitations": [
+    "Only rotate and bob are implemented; general programs, interaction triggers and physics remain proposed",
+    "Animation phase is not persisted; restored paused behavior starts at baseline phase",
+    "Animated swept volumes are not collision checked; rotation may intersect physical surfaces",
+    "Nonuniformly scaled parents can deform rotating visuals",
+    "No arbitrary generated C# execution, autonomous navigation or artificial AR locomotion"
+  ]
+}

@@ -209,6 +209,10 @@ namespace ArSandbox
             Group("Room metadata isolation and target queries", CheckRoomMetadata);
             Group("AR alignment gates and retained scene recovery", CheckRoomRecovery);
             Group("Pointing after object deletion and reanchoring", CheckPointingLifecycle);
+            Group("Behavior commands and isolated configuration", CheckBehaviorCommands);
+            Group("Behavior rejection and atomic scene loading", CheckBehaviorRejection);
+            Group("Behavior history and backward-compatible persistence", CheckBehaviorPersistence);
+            Group("Behavior presentation composition and stable placement", CheckBehaviorAnimation);
 
             report.completedUtc = DateTime.UtcNow.ToString("O");
             Directory.CreateDirectory(Path.GetDirectoryName(outputPath));
@@ -1065,7 +1069,7 @@ namespace ArSandbox
                 Check("surface resolution does not mutate the caller's clearance transform", spawn.transform.position.y == 0f);
                 fixture.world.TryGetObject(created.objectId, out GameObject orb);
                 Check("surface object uses its stable physical anchor transform", orb != null && orb.transform.parent == fixture.anchor &&
-                    Mathf.Abs(orb.GetComponent<Renderer>().bounds.min.y - fixture.anchor.position.y) < .0001f);
+                    Mathf.Abs(orb.GetComponentInChildren<Renderer>().bounds.min.y - fixture.anchor.position.y) < .0001f);
 
                 var moved = SandboxWorld.DefaultTransform();
                 moved.position = new Float3(.3f, .05f, -.2f);
@@ -1320,6 +1324,185 @@ namespace ArSandbox
                 if (data.objectId == objectId)
                     return data;
             throw new Exception("Expected object ID not found: " + objectId);
+        }
+
+        private static SandboxCommand BehaviorCommand(string objectId, BehaviorData behavior)
+        {
+            return new SandboxCommand { op = "set_behavior", objectId = objectId, behavior = behavior };
+        }
+
+        private static void CheckBehaviorCommands()
+        {
+            using (var fixture = new Fixture())
+            {
+                string first = fixture.Spawn(), second = fixture.Spawn();
+                Check("new player advertises only implemented behavior kinds",
+                    string.Join(",", fixture.world.Capture().behaviorKinds) == "rotate,bob");
+                var rotate = new BehaviorData { kind = "rotate" };
+                Check("set_behavior edits the stable object ID", fixture.world.Execute(BehaviorCommand(first, rotate)).objectId == first);
+                rotate.speedDegreesPerSecond = 99f;
+                Check("accepted behavior config is detached from caller", Find(fixture.world.Capture().scene, first).behaviors[0].speedDegreesPerSecond == 30f);
+                var captured = fixture.world.Capture();
+                Find(captured.scene, first).behaviors[0].axis = "x";
+                captured.behaviorKinds[0] = "invented";
+                Check("behavior snapshots and capabilities cannot mutate runtime", Find(fixture.world.Capture().scene, first).behaviors[0].axis == "y" && fixture.world.Capture().behaviorKinds[0] == "rotate");
+                Check("bob composes with rotation", fixture.world.Execute(BehaviorCommand(first, new BehaviorData { kind = "bob" })).ok &&
+                    Find(fixture.world.Capture().scene, first).behaviors.Count == 2 && Find(fixture.world.Capture().scene, second).behaviors.Count == 0);
+                Check("setting the same kind replaces configuration without duplication", fixture.world.Execute(BehaviorCommand(first,
+                    new BehaviorData { kind = "rotate", speedDegreesPerSecond = -60f, axis = "z", paused = true })).ok &&
+                    Find(fixture.world.Capture().scene, first).behaviors.Count == 2 && Find(fixture.world.Capture().scene, first).behaviors[0].paused);
+                Check("one behavior can be removed while the other remains", fixture.world.Execute(new SandboxCommand
+                    { op = "remove_behavior", objectId = first, behaviorKind = "rotate" }).ok &&
+                    Find(fixture.world.Capture().scene, first).behaviors.Count == 1 && Find(fixture.world.Capture().scene, first).behaviors[0].kind == "bob");
+                Check("remove all leaves object identity and transform intact", fixture.world.Execute(new SandboxCommand
+                    { op = "remove_behavior", objectId = first, behaviorKind = "all" }).ok &&
+                    Find(fixture.world.Capture().scene, first).behaviors.Count == 0 && fixture.world.TryGetObject(first, out _));
+                SandboxCommand wire = JsonUtility.FromJson<SandboxCommand>("{\"op\":\"set_behavior\",\"objectId\":\"" + first +
+                    "\",\"behavior\":{\"kind\":\"rotate\",\"enabled\":true,\"paused\":false,\"axis\":\"y\",\"speedDegreesPerSecond\":30,\"amplitudeMeters\":0.05,\"frequencyHz\":0.5}}");
+                Check("full behavior config works through actual Unity JSON", fixture.world.Execute(wire).ok);
+                Check("wire remove accepts omitted inline DTO defaults", fixture.world.Execute(JsonUtility.FromJson<SandboxCommand>(
+                    "{\"op\":\"remove_behavior\",\"objectId\":\"" + first + "\",\"behaviorKind\":\"all\"}")).ok);
+            }
+        }
+
+        private static void CheckBehaviorRejection()
+        {
+            using (var fixture = new Fixture())
+            {
+                string id = fixture.Spawn();
+                fixture.world.Execute(BehaviorCommand(id, new BehaviorData { kind = "rotate" }));
+                var invalid = new List<BehaviorData>
+                {
+                    null, new BehaviorData { kind = "script" }, new BehaviorData { kind = "rotate", axis = "world" },
+                    new BehaviorData { kind = "rotate", speedDegreesPerSecond = float.NaN },
+                    new BehaviorData { kind = "bob", speedDegreesPerSecond = float.PositiveInfinity },
+                    new BehaviorData { kind = "rotate", amplitudeMeters = float.NaN },
+                    new BehaviorData { kind = "bob", frequencyHz = float.NegativeInfinity },
+                    new BehaviorData { kind = "rotate", speedDegreesPerSecond = 181f },
+                    new BehaviorData { kind = "bob", speedDegreesPerSecond = -181f },
+                    new BehaviorData { kind = "bob", amplitudeMeters = -.01f },
+                    new BehaviorData { kind = "rotate", amplitudeMeters = .251f },
+                    new BehaviorData { kind = "bob", frequencyHz = .049f },
+                    new BehaviorData { kind = "rotate", frequencyHz = 2.01f }
+                };
+                int history = fixture.world.UndoCount;
+                for (int i = 0; i < invalid.Count; i++)
+                    RejectedPreserves("invalid behavior config " + i + " is atomic", fixture.world, BehaviorCommand(id, invalid[i]));
+                Check("invalid behavior commands do not consume history", history == fixture.world.UndoCount);
+                foreach (string op in new[] { "get_scene", "spawn", "select", "duplicate", "set_transform", "delete", "clear", "load", "undo", "redo", "remove_behavior" })
+                    RejectedPreserves("foreign behavior field rejected by " + op, fixture.world,
+                        new SandboxCommand { op = op, objectId = id, behavior = new BehaviorData { kind = "bob" } });
+                RejectedPreserves("set_behavior rejects a foreign removal kind", fixture.world,
+                    new SandboxCommand { op = "set_behavior", objectId = id, behavior = new BehaviorData { kind = "bob" }, behaviorKind = "all" });
+                RejectedPreserves("behavior command rejects unrelated transform edits", fixture.world,
+                    new SandboxCommand { op = "set_behavior", objectId = id, behavior = new BehaviorData { kind = "bob" }, transform = SandboxWorld.DefaultTransform() });
+                RejectedPreserves("remove_behavior rejects unknown kinds", fixture.world,
+                    new SandboxCommand { op = "remove_behavior", objectId = id, behaviorKind = "fly" });
+                RejectedPreserves("set_behavior requires an existing stable object", fixture.world, BehaviorCommand("missing", new BehaviorData { kind = "bob" }));
+                SceneData duplicate = fixture.world.Capture().scene;
+                duplicate.objects[0].behaviors.Add(new BehaviorData { kind = "rotate" });
+                RejectLoad("duplicate behavior kinds reject the whole load", fixture.world, duplicate);
+                SceneData oversized = fixture.world.Capture().scene;
+                oversized.objects[0].behaviors.Add(new BehaviorData { kind = "bob" });
+                oversized.objects[0].behaviors.Add(new BehaviorData { kind = "rotate" });
+                RejectLoad("oversized behavior array rejects the whole load", fixture.world, oversized);
+                SceneData unknown = fixture.world.Capture().scene;
+                unknown.objects[0].behaviors[0].kind = "execute_code";
+                RejectLoad("unknown behavior in a saved scene rejects the whole load", fixture.world, unknown);
+                foreach (float sign in new[] { -1f, 1f })
+                    Check("behavior bounds accept endpoint " + sign, fixture.world.Execute(BehaviorCommand(id,
+                        new BehaviorData { kind = "rotate", speedDegreesPerSecond = sign * 180f,
+                            amplitudeMeters = sign < 0 ? 0f : .25f, frequencyHz = sign < 0 ? .05f : 2f })).ok);
+            }
+        }
+
+        private static void CheckBehaviorPersistence()
+        {
+            using (var fixture = new Fixture())
+            {
+                string id = fixture.Spawn();
+                string legacy = JsonUtility.ToJson(fixture.world.Capture().scene).Replace(",\"behaviors\":[]", "");
+                Check("schema-1 saves without behaviors still load as no behavior", fixture.world.Execute(new SandboxCommand
+                    { op = "load", scene = JsonUtility.FromJson<SceneData>(legacy) }).ok && Find(fixture.world.Capture().scene, id).behaviors.Count == 0);
+                SceneData withNull = fixture.world.Capture().scene;
+                withNull.objects[0].behaviors = null;
+                Check("explicit null behaviors retain legacy compatibility", fixture.world.Execute(new SandboxCommand { op = "load", scene = withNull }).ok);
+                string before = JsonUtility.ToJson(fixture.world.Capture().scene);
+                fixture.world.Execute(BehaviorCommand(id, new BehaviorData { kind = "rotate", speedDegreesPerSecond = -45f }));
+                fixture.world.Execute(BehaviorCommand(id, new BehaviorData { kind = "bob", amplitudeMeters = .1f, paused = true }));
+                string configured = JsonUtility.ToJson(fixture.world.Capture().scene);
+                Check("undo behavior addition leaves the previous behavior", fixture.world.Execute(new SandboxCommand { op = "undo" }).ok &&
+                    Find(fixture.world.Capture().scene, id).behaviors.Count == 1);
+                Check("undo all behavior additions restores exact original state", fixture.world.Execute(new SandboxCommand { op = "undo" }).ok &&
+                    JsonUtility.ToJson(fixture.world.Capture().scene) == before);
+                fixture.world.Execute(new SandboxCommand { op = "redo" });
+                Check("redo restores exact behavior parameters and paused state", fixture.world.Execute(new SandboxCommand { op = "redo" }).ok &&
+                    JsonUtility.ToJson(fixture.world.Capture().scene) == configured);
+                CommandResult duplicate = fixture.world.Execute(new SandboxCommand { op = "duplicate", objectId = id });
+                Check("duplicate retains detached behavior configs with a new identity", duplicate.ok && duplicate.objectId != id &&
+                    Find(fixture.world.Capture().scene, duplicate.objectId).behaviors.Count == 2);
+                fixture.world.Execute(BehaviorCommand(duplicate.objectId, new BehaviorData { kind = "rotate", speedDegreesPerSecond = 90f }));
+                Check("editing duplicate behavior leaves the original configuration", Find(fixture.world.Capture().scene, id).behaviors[0].speedDegreesPerSecond == -45f);
+                string saved = JsonUtility.ToJson(fixture.world.Capture().scene);
+                fixture.world.Execute(new SandboxCommand { op = "clear" });
+                Check("JSON save clear load preserves exact IDs poses and behavior configs", fixture.world.Execute(new SandboxCommand
+                    { op = "load", scene = JsonUtility.FromJson<SceneData>(saved) }).ok && JsonUtility.ToJson(fixture.world.Capture().scene) == saved);
+                fixture.world.Execute(new SandboxCommand { op = "remove_behavior", objectId = id, behaviorKind = "all" });
+                Check("undo removal restores both configurations", fixture.world.Execute(new SandboxCommand { op = "undo" }).ok &&
+                    JsonUtility.ToJson(fixture.world.Capture().scene) == saved);
+                Check("redo removal leaves the same object without behaviors", fixture.world.Execute(new SandboxCommand { op = "redo" }).ok &&
+                    Find(fixture.world.Capture().scene, id).behaviors.Count == 0);
+            }
+        }
+
+        private static void CheckBehaviorAnimation()
+        {
+            using (var fixture = new Fixture())
+            {
+                string id = fixture.Spawn();
+                fixture.world.TryGetObject(id, out GameObject placed);
+                Transform child = placed.transform.GetChild(0);
+                SandboxBehaviorVisual visual = placed.GetComponent<SandboxBehaviorVisual>();
+                fixture.world.Execute(BehaviorCommand(id, new BehaviorData { kind = "rotate", speedDegreesPerSecond = 90f }));
+                fixture.world.Execute(BehaviorCommand(id, new BehaviorData { kind = "bob", amplitudeMeters = .1f, frequencyHz = 1f }));
+                string baseline = JsonUtility.ToJson(fixture.world.Capture().scene);
+                visual.Tick(.5f);
+                Check("rotation and bob visibly compose on one prefab child", Quaternion.Angle(child.localRotation, Quaternion.Euler(0f,45f,0f)) < .001f &&
+                    Vector3.Distance(child.position - placed.transform.position, Vector3.up * .1f) < .0001f);
+                Check("animated presentation never changes placed root or saved scene", placed.transform.localPosition == Vector3.zero &&
+                    placed.transform.localRotation == Quaternion.identity && JsonUtility.ToJson(fixture.world.Capture().scene) == baseline);
+                fixture.world.Execute(BehaviorCommand(id, new BehaviorData { kind = "rotate", speedDegreesPerSecond = 90f, paused = true }));
+                fixture.world.Execute(BehaviorCommand(id, new BehaviorData { kind = "bob", amplitudeMeters = .1f, frequencyHz = 1f, paused = true }));
+                Quaternion frozenRotation = child.localRotation;
+                Vector3 frozenPosition = child.localPosition;
+                visual.Tick(10f);
+                Check("paused behaviors hold their current visual pose", Quaternion.Angle(child.localRotation, frozenRotation) < .001f &&
+                    Vector3.Distance(child.localPosition, frozenPosition) < .0001f);
+                fixture.world.Execute(BehaviorCommand(id, new BehaviorData { kind = "rotate", speedDegreesPerSecond = 90f }));
+                Check("resuming rotation keeps its phase without a visual jump", Quaternion.Angle(child.localRotation, frozenRotation) < .001f);
+                visual.Tick(.5f);
+                Check("resumed rotation continues while bob stays paused", Quaternion.Angle(child.localRotation, Quaternion.Euler(0f,90f,0f)) < .001f &&
+                    Vector3.Distance(child.localPosition, frozenPosition) < .0001f);
+                TransformData moved = SandboxWorld.DefaultTransform();
+                moved.position = new Float3(2f, 1f, -3f); moved.scale = new Float3(.2f, .4f, .6f); moved.rotation = new Float3(20f, 40f, 10f);
+                fixture.world.Execute(new SandboxCommand { op = "set_transform", objectId = id, transform = moved });
+                visual.Tick(0f);
+                Check("moving and resizing root preserves actual bob meters along anchor normal", Vector3.Distance(child.position - placed.transform.position, fixture.anchor.up * .1f) < .0001f);
+                string movedBaseline = JsonUtility.ToJson(fixture.world.Capture().scene);
+                for (int i = 0; i < 1000; i++) visual.Tick(.016f);
+                Check("many animation frames do not drift persistence or placed baseline", JsonUtility.ToJson(fixture.world.Capture().scene) == movedBaseline &&
+                    Vector3.Distance(placed.transform.localPosition, new Vector3(2f,1f,-3f)) < .0001f);
+                fixture.world.Execute(BehaviorCommand(id, new BehaviorData { kind = "rotate", enabled = false }));
+                Check("disabled rotation removes only its visual contribution", Quaternion.Angle(child.localRotation, Quaternion.identity) < .001f &&
+                    Vector3.Distance(child.position - placed.transform.position, fixture.anchor.up * .1f) < .0001f);
+                fixture.world.Execute(new SandboxCommand { op = "remove_behavior", objectId = id, behaviorKind = "all" });
+                Check("removing all behaviors resets visual child without moving edited root", child.localPosition == Vector3.zero &&
+                    Quaternion.Angle(child.localRotation, Quaternion.identity) < .001f && placed.transform.localScale == new Vector3(.2f,.4f,.6f));
+                fixture.world.Execute(BehaviorCommand(id, new BehaviorData { kind = "rotate", speedDegreesPerSecond = -90f, axis = "x" }));
+                visual.Tick(.5f);
+                Check("removed then readded rotation starts a fresh signed phase", Quaternion.Angle(child.localRotation, Quaternion.Euler(-45f,0f,0f)) < .001f);
+                Check("animated collider descendant still resolves the stable placed identity", fixture.world.TryGetObjectId(child, out string pointed) && pointed == id);
+            }
         }
 
         private static void RejectLoad(string name, SandboxWorld world, SceneData scene)

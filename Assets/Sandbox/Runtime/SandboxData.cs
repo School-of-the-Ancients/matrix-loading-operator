@@ -38,6 +38,20 @@ namespace ArSandbox
         public string assetId;
         public string anchorId;
         public TransformData transform;
+        // Optional for legacy schema-1 scenes. Animation phase is presentation only.
+        public List<BehaviorData> behaviors;
+    }
+
+    [Serializable]
+    public sealed class BehaviorData
+    {
+        public string kind;
+        public bool enabled = true;
+        public bool paused;
+        public string axis = "y";
+        public float speedDegreesPerSecond = 30f;
+        public float amplitudeMeters = .05f;
+        public float frequencyHz = .5f;
     }
 
     [Serializable]
@@ -125,6 +139,7 @@ namespace ArSandbox
     [Serializable]
     public sealed class SandboxSnapshot
     {
+        public string[] behaviorKinds = new[] { "rotate", "bob" };
         // A retained AR scene may be saved or explicitly cleared after anchors
         // become unavailable. It must never be used for new placement or restore.
         public bool readOnly;
@@ -173,6 +188,8 @@ namespace ArSandbox
         public TransformData transform;
         public SceneData scene;
         public string placement; // Optional "surface": position.y is clearance, resolve prefab pivot.
+        public BehaviorData behavior;
+        public string behaviorKind;
     }
 
     [Serializable]

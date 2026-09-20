@@ -11,7 +11,7 @@ $fixtureRoot = [IO.Path]::GetFullPath((Join-Path $repositoryRoot ('.white-room-f
 if (-not $fixtureRoot.StartsWith($repositoryRoot + [IO.Path]::DirectorySeparatorChar, [StringComparison]::OrdinalIgnoreCase)) {
     throw 'The fixture must remain inside this repository.'
 }
-$runtimeNames = @('SandboxData', 'SandboxWorld', 'SandboxApp', 'PcBridge', 'SandboxVoiceInput', 'WhiteRoomAdapter', 'WhiteRoomDesktopControls', 'WhiteRoomXrControls')
+$runtimeNames = @('SandboxData', 'SandboxWorld', 'SandboxBehaviorVisual', 'SandboxApp', 'PcBridge', 'SandboxVoiceInput', 'WhiteRoomAdapter', 'WhiteRoomDesktopControls', 'WhiteRoomXrControls')
 $editorNames = @('WhiteRoomSceneSetup', 'WhiteRoomXrSetup', 'WhiteRoomPreview', 'SandboxCoreChecks')
 $authoredFiles = @($runtimeNames | ForEach-Object { 'Assets\Sandbox\Runtime\' + $_ + '.cs' }) +
                  @($editorNames | ForEach-Object { 'Assets\Sandbox\Editor\' + $_ + '.cs' })

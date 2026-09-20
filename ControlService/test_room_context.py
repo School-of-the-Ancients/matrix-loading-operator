@@ -250,7 +250,7 @@ class RoomPlannerContextTests(unittest.TestCase):
         original = copy.deepcopy(SNAPSHOT)
         result = self.planner.plan("put an orb on my table", original, mode="codex-cli")
         context = self.transport.call_args.args[3]
-        self.assertEqual(context, SNAPSHOT)
+        self.assertEqual(context, {**SNAPSHOT, "runtimeSkillCatalog": ai_adapter.runtime_skill_catalog(SNAPSHOT)})
         self.assertEqual(result["commands"], [spawn()])
         context["pointing"]["position"]["x"] = 99
         context["anchors"][0]["surface"]["boundary"][0]["x"] = 99

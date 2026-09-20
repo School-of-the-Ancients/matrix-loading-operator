@@ -1,0 +1,281 @@
+{
+  "status": "passed",
+  "startedUtc": "2026-09-20T23:35:41.621795+00:00",
+  "scope": "Real Codex, actual Windows player, isolated PC persistence",
+  "headsetTested": false,
+  "voiceCaptureTested": false,
+  "visualInspection": false,
+  "checks": [
+    {
+      "name": "Updated actual player advertises behavior support",
+      "passed": true
+    },
+    {
+      "name": "Owned player starts empty; user scene untouched",
+      "passed": true
+    },
+    {
+      "name": "Actual Windows player acknowledged queued command",
+      "passed": true
+    },
+    {
+      "name": "Real AI produced reviewed proposal: Make this orb rotate slowly.",
+      "passed": true
+    },
+    {
+      "name": "Real Codex completed inference without offline substitution",
+      "passed": true
+    },
+    {
+      "name": "Proposal did not execute before Apply",
+      "passed": true
+    },
+    {
+      "name": "Actual Windows player acknowledged queued command",
+      "passed": true
+    },
+    {
+      "name": "Rotation configuration applied to existing orb",
+      "passed": true
+    },
+    {
+      "name": "Real AI produced reviewed proposal: Make it float gently above its placed baseline, keeping its rotation.",
+      "passed": true
+    },
+    {
+      "name": "Real Codex completed inference without offline substitution",
+      "passed": true
+    },
+    {
+      "name": "Proposal did not execute before Apply",
+      "passed": true
+    },
+    {
+      "name": "Actual Windows player acknowledged queued command",
+      "passed": true
+    },
+    {
+      "name": "Rotation and bob coexist",
+      "passed": true
+    },
+    {
+      "name": "Adding behaviors preserves identity and baseline",
+      "passed": true
+    },
+    {
+      "name": "Running animation does not change portable root placement or configuration",
+      "passed": true
+    },
+    {
+      "name": "Actual Windows player acknowledged queued command",
+      "passed": true
+    },
+    {
+      "name": "Moving animated object preserves identity and both behaviors",
+      "passed": true
+    },
+    {
+      "name": "Actual Windows player acknowledged queued command",
+      "passed": true
+    },
+    {
+      "name": "Pause rotation independently of bob",
+      "passed": true
+    },
+    {
+      "name": "Actual Windows player acknowledged queued command",
+      "passed": true
+    },
+    {
+      "name": "Resume rotation",
+      "passed": true
+    },
+    {
+      "name": "Actual Windows player acknowledged queued command",
+      "passed": true
+    },
+    {
+      "name": "Disable preserves configuration",
+      "passed": true
+    },
+    {
+      "name": "Actual Windows player acknowledged queued command",
+      "passed": true
+    },
+    {
+      "name": "Real AI produced reviewed proposal: Stop the bobbing but keep it rotating.",
+      "passed": true
+    },
+    {
+      "name": "Real Codex completed inference without offline substitution",
+      "passed": true
+    },
+    {
+      "name": "Proposal did not execute before Apply",
+      "passed": true
+    },
+    {
+      "name": "Actual Windows player acknowledged queued command",
+      "passed": true
+    },
+    {
+      "name": "AI stops bob while preserving active rotation",
+      "passed": true
+    },
+    {
+      "name": "Actual Windows player acknowledged queued command",
+      "passed": true
+    },
+    {
+      "name": "Undo behavior edit restores previous configuration and placement",
+      "passed": true
+    },
+    {
+      "name": "Actual Windows player acknowledged queued command",
+      "passed": true
+    },
+    {
+      "name": "PC saves animated scene",
+      "passed": true
+    },
+    {
+      "name": "Save contains exact placement/configuration without live capability or viewer data",
+      "passed": true
+    },
+    {
+      "name": "Actual Windows player acknowledged queued command",
+      "passed": true
+    },
+    {
+      "name": "Clear removes animated object",
+      "passed": true
+    },
+    {
+      "name": "Actual Windows player acknowledged queued command",
+      "passed": true
+    },
+    {
+      "name": "Restore preserves IDs, placement, enabled state and paused behavior settings",
+      "passed": true
+    },
+    {
+      "name": "Actual Windows player acknowledged queued command",
+      "passed": true
+    },
+    {
+      "name": "Real AI produced reviewed proposal: Remove its animations.",
+      "passed": true
+    },
+    {
+      "name": "Real Codex completed inference without offline substitution",
+      "passed": true
+    },
+    {
+      "name": "Proposal did not execute before Apply",
+      "passed": true
+    },
+    {
+      "name": "Actual Windows player acknowledged queued command",
+      "passed": true
+    },
+    {
+      "name": "AI removes all animations without changing baseline",
+      "passed": true
+    },
+    {
+      "name": "Actual Windows player acknowledged queued command",
+      "passed": true
+    },
+    {
+      "name": "Undo animation removal restores saved configuration",
+      "passed": true
+    }
+  ],
+  "inferences": [
+    {
+      "request": "Make this orb rotate slowly.",
+      "summary": "Proposes a slow, continuous rotation of the selected orb around its local Y axis at 15 degrees per second. Its placement and size remain unchanged; motion begins only after Apply.",
+      "receipt": {
+        "transport": "codex-cli",
+        "completedTurn": true,
+        "usage": {
+          "input_tokens": 15047,
+          "cached_input_tokens": 0,
+          "output_tokens": 153,
+          "reasoning_output_tokens": 0
+        },
+        "toolCallCount": 0,
+        "requestedModel": "gpt-5.6-sol",
+        "requestedReasoningEffort": "xhigh"
+      },
+      "operations": [
+        "set_behavior"
+      ]
+    },
+    {
+      "request": "Make it float gently above its placed baseline, keeping its rotation.",
+      "summary": "Adds a gentle vertical float up to 0.03 m above the orb's placed baseline while preserving its existing slow Y-axis rotation and base transform. Changes occur only after Apply.",
+      "receipt": {
+        "transport": "codex-cli",
+        "completedTurn": true,
+        "usage": {
+          "input_tokens": 15115,
+          "cached_input_tokens": 0,
+          "output_tokens": 156,
+          "reasoning_output_tokens": 0
+        },
+        "toolCallCount": 0,
+        "requestedModel": "gpt-5.6-sol",
+        "requestedReasoningEffort": "xhigh"
+      },
+      "operations": [
+        "set_behavior"
+      ]
+    },
+    {
+      "request": "Stop the bobbing but keep it rotating.",
+      "summary": "Stops the selected jade orb's bobbing while preserving its existing rotation.",
+      "receipt": {
+        "transport": "codex-cli",
+        "completedTurn": true,
+        "usage": {
+          "input_tokens": 15164,
+          "cached_input_tokens": 0,
+          "output_tokens": 70,
+          "reasoning_output_tokens": 0
+        },
+        "toolCallCount": 0,
+        "requestedModel": "gpt-5.6-sol",
+        "requestedReasoningEffort": "xhigh"
+      },
+      "operations": [
+        "remove_behavior"
+      ]
+    },
+    {
+      "request": "Remove its animations.",
+      "summary": "Remove both the rotate and bob animations from the selected jade orb while preserving its base transform.",
+      "receipt": {
+        "transport": "codex-cli",
+        "completedTurn": true,
+        "usage": {
+          "input_tokens": 15162,
+          "cached_input_tokens": 0,
+          "output_tokens": 86,
+          "reasoning_output_tokens": 0
+        },
+        "toolCallCount": 0,
+        "requestedModel": "gpt-5.6-sol",
+        "requestedReasoningEffort": "xhigh"
+      },
+      "operations": [
+        "remove_behavior"
+      ]
+    }
+  ],
+  "ownedProcessesStopped": true,
+  "passed": 46,
+  "failed": 0,
+  "completedUtc": "2026-09-20T23:36:39.009259+00:00",
+  "localDiagnosticsRetained": true
+}

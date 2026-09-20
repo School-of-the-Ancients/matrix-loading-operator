@@ -257,7 +257,8 @@ namespace ArSandbox
             var result = World.Execute(command);
             if (result.ok)
             {
-                if (command.op == "spawn" || command.op == "set_transform" || command.op == "select" || command.op == "duplicate")
+                if (command.op == "spawn" || command.op == "set_transform" || command.op == "select" || command.op == "duplicate" ||
+                    command.op == "set_behavior" || command.op == "remove_behavior")
                     SelectedObjectId = result.objectId;
                 if (command.op == "clear" || (command.op == "delete" && command.objectId == SelectedObjectId)) SelectedObjectId = null;
                 if ((command.op == "load" || command.op == "undo" || command.op == "redo") &&

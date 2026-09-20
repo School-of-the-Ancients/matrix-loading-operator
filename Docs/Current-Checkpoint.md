@@ -1,8 +1,20 @@
 # Matrix Operator checkpoints
 
-Latest milestone: **[Quest Pro room AR](Room-AR.md)** on `codex/quest-pro-room-ar`, [PR #6](https://github.com/School-of-the-Ancients/matrix-loading-operator/pull/6), based on merged PR #5. The actual Quest Pro loaded 28 manually configured MRUK anchors. The wearer verified outlines, voice orb placement on the real table and voice movement toward its center. PC save/clear/restore retained the exact scene; the wearer confirmed that the restored orb returned to the same spot on the real table. The requested same-session acceptance loop is complete. Hardware and automated evidence are separated in `Validation/room-ar-validation.json`.
+Latest work: **[Live Rotate/Bob behaviors](Runtime-Behaviors.md)** on `codex/runtime-prefab-behaviors`, based on completed AR checkpoint **`6962eaf`**. Existing props support independent pause/resume, disabling, removal, undo/redo, and saved behavior configuration. The placed wrapper remains authoritative; its animated child does not change the saved pose or scene revision each frame. A shared PC-derived skill catalog exposes only capabilities advertised by the connected player. General programs, interaction triggers, physics, generated C#, and navigation remain proposed.
 
-Latest local AR save: **`RoomARAcceptance_20260920_171926`** in `ControlService/scenes/`. Start the PC service, connect USB, open **Matrix Operator AR**, verify outlines and confirm alignment before restoring. The AR APK is `Builds/RoomARQuest/MatrixOperatorAR.apk`, SHA-256 `BD83A89FEC5B4E6D966E7F3AF057CD92F0BC3B1A84954107045F6C7686850111`. App restart/relocalization and changed-anchor recovery remain hardware-unverified. The white-room app and its previous checkpoint below remain available.
+Validation: **292 Python tests**, **301 Unity checks in each of three successful builds**, and **46 actual Windows-player checks including four real Codex requests**. See [behavior-validation.json](../Validation/behavior-validation.json) and [behavior-desktop-results.json](../Validation/behavior-desktop-results.json). These do not establish headset-visible animation.
+
+The updated AR APK is installed and connected; the wearer verified the outlines still align, and the original orb was restored exactly and reselected. **Behavior headset acceptance remains pending:** the latest voice attempt contained no audible speech; device diagnostics reported system microphone mute `true` while app permission was granted. The wearer was asked to unmute. Do not count this attempt as applied AI animation or successful behavior save/restore.
+
+The later two-object orb/block scene is also preserved as **`BeforeBehaviorVoice_20260920_174538`**. Recheck live state before restoring; subsequent wearer edits are separate.
+
+Before-update save: **`BeforeBehaviors_20260920_172929`** in `ControlService/scenes/`. The prior working AR APK and save are preserved locally in sibling `outputs/checkpoints/RoomARBeforeBehaviors_20260920/`. Current AR build: `Builds/RoomARQuest/MatrixOperatorAR.apk`, SHA-256 `C94A760F55B15B01CF7E5FACFCF6CDDE165AB4BBC91014567A49F18DF9A79DAC`. The white-room regression APK was built but not installed over its working app.
+
+To resume this milestone, verify the service on port 8765 and the authorized USB reverse mapping, manually open **Matrix Operator AR**, check room alignment, and confirm the system microphone is unmuted. Select the orb, hold/release left trigger for a modest upward bob request, review, and apply with Y. Confirm visible motion separately from the runtime acknowledgement, then test behavior save/clear/restore. Keep credentials on the PC. The [LLMR review](LLMR-Behavior-Runtime.md) and [GOAP next-step note](GOAP-Next-Step.md) separate implemented foundations from later composable programs and character navigation.
+
+Previous completed milestone: **[Quest Pro room AR](Room-AR.md)** on `codex/quest-pro-room-ar`, [PR #6](https://github.com/School-of-the-Ancients/matrix-loading-operator/pull/6), based on merged PR #5. The actual Quest Pro loaded 28 manually configured MRUK anchors. The wearer verified outlines, voice orb placement on the real table and voice movement toward its center. PC save/clear/restore retained the exact scene; the wearer confirmed that the restored orb returned to the same spot on the real table. The requested same-session acceptance loop is complete. Hardware and automated evidence are separated in `Validation/room-ar-validation.json`.
+
+AR acceptance save: **`RoomARAcceptance_20260920_171926`**. The APK used for that earlier acceptance had SHA-256 `BD83A89FEC5B4E6D966E7F3AF057CD92F0BC3B1A84954107045F6C7686850111`; it is the preserved previous build, not the current behavior APK. App restart/relocalization and changed-anchor recovery remain hardware-unverified. The white-room app and its earlier checkpoint below remain available.
 
 Previous milestone: **push-to-talk and Codex model/reasoning selectors** are implemented, pushed and installed. Start with [Voice-And-Codex-Controls.md](Voice-And-Codex-Controls.md). The real audio-to-AI-to-Windows-player loop passed 24 checks. The Quest then supplied real microphone speech, received a real Codex proposal, acknowledged four edits and returned to its exact original 40-object scene through observed undo changes: 12 device/network checks passed in `Validation/voice-headset-results.json`. Separate wearer confirmation of physical buttons and HUD readability is pending. The earlier recovery checkpoint below remains intact; the pre-install layout is also saved as `BeforeVoiceInstall_20260920`.
 
@@ -10,7 +22,7 @@ Checkpoint: **2026-09-20 16:07:37 America/Denver**. The wearer confirmed **“it
 
 Git recovery tag: `checkpoint/2026-09-20-160737` on `codex/quest-pro-ai-validation`, tracked by [PR #5](https://github.com/School-of-the-Ancients/matrix-loading-operator/pull/5). This file and the confirmation record are part of that checkpoint commit. Implementation and earlier synchronization were already published through `bc97027`.
 
-## Current scene and files
+## Earlier white-room checkpoint scene and files
 
 - PC save: `MatrixCheckpoint_20260920_160737`, containing **40 objects**. It was saved through the running service, read back and SHA-256 checked. This is the scene at checkpoint time; subsequent edits are separate.
 - Save SHA-256: `272134C61FE6F7D9F6684EAB7A3AC3BA42B70664489BCBF39315BFBB5FB8658D`. The live viewer pose is excluded from the save.
@@ -26,7 +38,7 @@ The exact table/two-chair request and a room made from wall pieces passed **93 c
 
 Installed Quest package: `com.matt.matrixoperator.whiteroom`. APK: `Builds/WhiteRoomQuest/MatrixOperator.apk`, 53,838,926 bytes, SHA-256 `5CFBD0F64763392F9F4EC120CF8AC0358A20E84B19302DD59761021E42C1ADED`. Both generated build targets use Unity **6000.6.0f1**. See the composition reports in `Validation` for exact execution evidence.
 
-## Resume
+## Recover the earlier white-room checkpoint
 
 1. Use this tagged checkout, or clone `source.bundle` from the local archive and check out the tag. Do not overwrite later work without checking its Git state.
 2. If port 8765 is not already serving this project, run `./Start-CodexControlService.ps1` from the chosen full checkout. Keep credentials in Codex's existing PC login; no API-key substitute is required.
