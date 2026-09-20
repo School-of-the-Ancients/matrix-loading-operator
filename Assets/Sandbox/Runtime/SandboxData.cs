@@ -53,6 +53,7 @@ namespace ArSandbox
     {
         public string assetId;
         public string displayName;
+        public float spawnScale = 0.2f;
     }
 
     [Serializable]
@@ -105,6 +106,7 @@ namespace ArSandbox
     {
         public string assetId;
         public string displayName;
+        public float spawnScale = 0.2f;
         public GameObject prefab;
     }
 

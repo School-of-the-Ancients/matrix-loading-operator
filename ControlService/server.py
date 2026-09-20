@@ -28,7 +28,8 @@ MAX_PENDING = 64
 MAX_BATCH = 20
 LEASE_SECONDS = 15
 NAME = re.compile(r"[A-Za-z0-9][A-Za-z0-9 _-]{0,63}\Z")
-OPS = {"spawn", "set_transform", "delete", "clear", "load", "get_scene", "list_assets", "list_targets"}
+OPS = {"spawn", "set_transform", "select", "duplicate", "delete", "undo", "redo", "clear", "load",
+       "get_scene", "list_assets", "list_targets"}
 
 
 class APIError(Exception):
@@ -96,7 +97,12 @@ def catalog(value, key, limit):
         identifier = text(item.get(key), key)
         require(identifier not in ids, f"Duplicate {key}")
         ids.add(identifier)
-        result.append({key: identifier, "displayName": text(item.get("displayName"), "displayName")})
+        entry = {key: identifier, "displayName": text(item.get("displayName"), "displayName")}
+        if key == "assetId" and "spawnScale" in item:
+            scale = item["spawnScale"]
+            require(type(scale) in (int, float) and 0.01 <= scale <= 20 and math.isfinite(scale), "Invalid spawnScale")
+            entry["spawnScale"] = scale
+        result.append(entry)
     return result
 
 
@@ -123,7 +129,8 @@ def command(value):
     require(isinstance(op, str) and op in OPS, "Unknown command op")
     allowed = {"op", "requestId"}
     required = {"spawn": {"assetId", "anchorId", "transform"}, "set_transform": {"objectId", "transform"},
-                "delete": {"objectId"}, "load": {"scene"}}.get(op, set())
+                "select": {"objectId"}, "duplicate": {"objectId"}, "delete": {"objectId"},
+                "load": {"scene"}}.get(op, set())
     allowed |= required
     if op == "spawn":
         allowed |= {"anchorId", "transform"}

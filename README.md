@@ -1,12 +1,23 @@
 # Matrix Loading Operator
 
-The operator layer of School of the Ancients VR: “Operator, load the Renaissance with Leonardo da Vinci.” The long-term concept is a scene that responds with “Greetings scholar, what shall we invent today?”
+The current prototype is a **fully virtual white room**: summon bundled props, select and edit them, duplicate, undo/redo, then save, clear and restore the arrangement through a PC Operator panel. Quest Pro is the hardware target; Quest 3 is optional.
 
-The first implemented step is an **AR Sandbox** with bundled props, runtime scene editing, and PC-side language commands and persistence. Historical characters and downloadable worlds are outside this prototype.
+Start here: **[White-room build, controls and demo](Docs/White-Room.md)** · **[Validation evidence](Validation/White-Room-Validation.md)** · **[Progress and continuation](Docs/Progress-Log.md)**.
 
-Quest Pro with manually configured room data is the primary target. Quest 3 is optional. The project uses bundled block, orb, and column prefabs; there is no downloadable catalog or dependency on VaM.
+The catalog contains chairs, tables, walls, pedestals, blocks, orbs and columns. Furniture starts at life size. Education/mentor systems, downloaded catalogs and physical-room scanning are deferred. No VaM integration is required.
 
-**Working and tested:** the Windows simulation completes room load → text-command spawn → resize/move/rotate the same object → PC save → clear → exact restore in one running Unity application. **Not yet hardware-tested:** real MRUK room loading, passthrough, Quest controllers, and tracking. No headset was connected. The APK build is blocked by Malwarebytes quarantining Meta's generated `AIBlocks.dll`; [current evidence and resume details](Docs/Security-Block.md).
+Build with `./Build-WhiteRoom.ps1 -Target Desktop` or `-Target Quest`. This creates a separate Unity-only project for each target under `.white-room-fixture/`; virtual mode uses standard Unity OpenXR and needs no MRUK room data or Meta Core. It preserves the original MR project and makes no antivirus changes. Run `./Start-ControlService.ps1`, launch `Builds/WhiteRoomDesktop/MatrixOperator.exe`, then open <http://127.0.0.1:8765/>. For an authorized USB-connected Quest, `./Install-WhiteRoom.ps1` installs and launches the white-room APK.
+
+The natural-language demonstration uses an explicitly labeled offline parser. An optional configured AI adapter is available and mock-tested; live model access and voice are not assumed. No headset was connected during development, so hardware behavior remains unverified. See the validation report for exact build and runtime evidence.
+
+![Unity-rendered gallery of the seven bundled white-room props](Validation/white-room-preview.png)
+
+The gallery is an arranged Editor preview; the app starts with an empty room.
+
+<details>
+<summary>Earlier physical-room / MRUK prototype documentation</summary>
+
+The following sections document the separate AR/MRUK path. Its Windows simulation previously passed the spawn/edit/save/restore loop. Its Meta Core APK build encountered an antivirus quarantine, described in [the historical security report](Docs/Security-Block.md). That evidence is specific to the original MR build, not the virtual white-room build above.
 
 ## Open a fresh clone
 
@@ -77,3 +88,5 @@ The provider receives the request, available props, current objects, room target
 Reproduce PC tests with `python -m unittest discover -s ControlService -v`. Reproduce the actual player loop with `python Validation/Run-Prototype-Loop.py`; it uses a temporary service/save folder and terminates only its own test player. [Exact runtime evidence](Validation/prototype-loop-results.json), [core evidence](Validation/core-results.json), and the [durable progress log](Docs/Progress-Log.md) record what passed and how to resume. The [validation report](Validation/Prototype-Validation.md) separates source, simulation, build, and hardware results.
 
 Published validation reports describe the original local runs and have workstation paths redacted. Raw logs remain local. See [handoff status](Docs/Publication.md) before resuming native validation.
+
+</details>

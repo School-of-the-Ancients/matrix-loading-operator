@@ -72,6 +72,71 @@ class OfflineTests(unittest.TestCase):
     def test_delete_selected_object(self):
         self.assertEqual(self.plan("delete it")["commands"], [{"op": "delete", "objectId": "object-1"}])
 
+    def test_select_existing_asset_or_exact_object_id_and_duplicate_selection(self):
+        for phrase in ("select the cube", "select object-1"):
+            self.assertEqual(self.plan(phrase)["commands"], [{"op": "select", "objectId": "object-1"}])
+        for phrase in ("duplicate it", "copy the cube", "duplicate object-1"):
+            self.assertEqual(self.plan(phrase)["commands"], [{"op": "duplicate", "objectId": "object-1"}])
+        self.assertEqual(self.snapshot, SNAPSHOT)
+
+    def test_selection_and_duplicate_reject_unknown_ambiguous_or_missing_references(self):
+        self.snapshot["scene"]["objects"].append({**copy.deepcopy(SNAPSHOT["scene"]["objects"][0]), "objectId": "object-2"})
+        for phrase in ("select the cube", "duplicate the cube", "select missing-id", "duplicate missing-id"):
+            with self.subTest(phrase=phrase), self.assertRaisesRegex(PlannerError, "missing or ambiguous"):
+                self.plan(phrase)
+        self.assertEqual(self.plan("select object-2")["commands"][0]["objectId"], "object-2")
+        self.snapshot["selection"]["objectId"] = ""
+        with self.assertRaisesRegex(PlannerError, "Select an existing object first"):
+            self.plan("duplicate it")
+
+    def test_undo_and_redo_are_runtime_commands_without_invented_history(self):
+        for phrase, op in (("undo", "undo"), ("undo last change", "undo"), ("redo", "redo"), ("redo last action", "redo")):
+            result = self.plan(phrase)
+            self.assertEqual(result["commands"], [{"op": op}])
+            self.assertIn("if runtime history is available", result["summary"])
+
+    def test_load_and_summon_use_catalog_ids_and_selected_placement(self):
+        self.snapshot["assets"].append({"assetId": "bundled-seat-17", "displayName": "Chair"})
+        for phrase in ("load a chair", "summon a chair", "load the chair here", "summon chair on the floor"):
+            with self.subTest(phrase=phrase):
+                result = self.plan(phrase, saved_scenes=["Demo"])["commands"][0]
+                self.assertEqual((result["op"], result["assetId"]), ("spawn", "bundled-seat-17"))
+                if "floor" not in phrase:
+                    self.assertEqual(result["anchorId"], "table-1")
+                    self.assertEqual(result["transform"]["position"], SNAPSHOT["selection"]["position"])
+        for phrase in ("load a spaceship", "summon a spaceship"):
+            with self.subTest(phrase=phrase), self.assertRaises(PlannerError):
+                self.plan(phrase)
+
+    def test_optional_catalog_spawn_scale_preserves_full_size_furniture_and_old_defaults(self):
+        self.snapshot["assets"].append({"assetId": "furniture-seat", "displayName": "Chair", "spawnScale": 1.0})
+        self.assertEqual(self.plan("load a chair")["commands"][0]["transform"]["scale"], dict.fromkeys("xyz", 1.0))
+        self.assertEqual(self.plan("load cube")["commands"][0]["transform"]["scale"], dict.fromkeys("xyz", 0.2))
+        for scale in (0.01, 20):
+            self.snapshot["assets"][-1]["spawnScale"] = scale
+            self.assertEqual(self.plan("summon chair")["commands"][0]["transform"]["scale"], dict.fromkeys("xyz", scale))
+
+    def test_saved_scene_load_takes_precedence_over_catalog_asset(self):
+        self.snapshot["assets"].append({"assetId": "chair", "displayName": "Chair"})
+        for phrase, saved in (("Load Demo", "Demo"), ("load chair", "Chair"), ("load a chair", "a chair")):
+            with self.subTest(phrase=phrase):
+                self.assertEqual(self.plan(phrase, saved_scenes=[saved])["commands"], [{"op": "load_scene", "name": saved}])
+        self.assertEqual(self.plan("load chair", saved_scenes=[])["commands"][0]["op"], "spawn")
+        for phrase in ("restore chair", "load scene chair", "load the room chair"):
+            with self.subTest(phrase=phrase), self.assertRaisesRegex(PlannerError, "existing saved scene"):
+                self.plan(phrase, saved_scenes=[])
+
+    def test_ambiguous_saved_name_or_asset_and_missing_placement_are_not_guessed(self):
+        with self.assertRaisesRegex(PlannerError, "Saved scene name is ambiguous"):
+            self.plan("load demo", saved_scenes=["Demo", "demo"])
+        self.snapshot["assets"].extend([{"assetId": "chair-1", "displayName": "Dining Chair"},
+                                        {"assetId": "chair-2", "displayName": "Office Chair"}])
+        with self.assertRaisesRegex(PlannerError, "Asset is missing or ambiguous"):
+            self.plan("load a chair")
+        del self.snapshot["selection"]
+        with self.assertRaisesRegex(PlannerError, "Select a placement point"):
+            self.plan("summon cube")
+
     def test_persistence_phrases_and_clear(self):
         self.assertEqual(self.plan("save scene as Demo")["commands"], [{"op": "save_scene", "name": "Demo"}])
         self.assertEqual(self.plan("clear the scene")["commands"], [{"op": "clear"}])
@@ -121,6 +186,13 @@ class OfflineTests(unittest.TestCase):
 
 
 class ValidationTests(unittest.TestCase):
+    def test_optional_catalog_spawn_scale_rejects_nonfinite_boolean_or_out_of_bounds_values(self):
+        for value in (0, -1, 20.01, True, None, "1", float("nan"), float("inf"), 10 ** 400):
+            snap = copy.deepcopy(SNAPSHOT)
+            snap["assets"][0]["spawnScale"] = value
+            with self.subTest(value=value), self.assertRaisesRegex(PlannerError, "spawnScale"):
+                validate_commands([{"op": "get_scene"}], snap)
+
     def test_id_validation_and_unknown_fields(self):
         cases = [
             {"op": "spawn", "assetId": "invented", "anchorId": "table-1", "transform": POSE},
@@ -140,6 +212,39 @@ class ValidationTests(unittest.TestCase):
         for first in ({"op": "delete", "objectId": "object-1"}, {"op": "clear"}):
             with self.assertRaises(PlannerError):
                 validate_commands([first, edit], SNAPSHOT)
+
+    def test_new_commands_reject_extra_fields_missing_ids_and_dead_batch_references(self):
+        invalid = [{"op": op} for op in ("select", "duplicate")]
+        invalid += [{"op": op, "objectId": "unknown"} for op in ("select", "duplicate")]
+        invalid += [{"op": op, "objectId": "object-1", "transform": POSE} for op in ("select", "duplicate")]
+        invalid += [{"op": op, "objectId": "object-1"} for op in ("undo", "redo")]
+        for value in invalid:
+            with self.subTest(value=value), self.assertRaises(PlannerError):
+                validate_commands([value], SNAPSHOT)
+        for op in ("select", "duplicate"):
+            command = {"op": op, "objectId": "object-1"}
+            self.assertEqual(validate_commands([command], SNAPSHOT), [command])
+            for first in ({"op": "delete", "objectId": "object-1"}, {"op": "clear"}):
+                with self.subTest(op=op, first=first), self.assertRaises(PlannerError):
+                    validate_commands([first, command], SNAPSHOT)
+
+    def test_duplicate_capacity_accounts_for_every_new_object_in_batch(self):
+        snap = copy.deepcopy(SNAPSHOT)
+        snap["scene"]["objects"] = [{**copy.deepcopy(SNAPSHOT["scene"]["objects"][0]), "objectId": "object-" + str(i)} for i in range(99)]
+        duplicate = {"op": "duplicate", "objectId": "object-1"}
+        self.assertEqual(validate_commands([duplicate], snap), [duplicate])
+        with self.assertRaisesRegex(PlannerError, "object limit"):
+            validate_commands([duplicate, duplicate], snap)
+        with self.assertRaises(PlannerError):
+            validate_commands([duplicate, {"op": "select", "objectId": "invented-copy-id"}], snap)
+
+    def test_history_operations_must_be_standalone_before_refreshing_context(self):
+        for op in ("undo", "redo"):
+            self.assertEqual(validate_commands([{"op": op}], SNAPSHOT), [{"op": op}])
+            for commands in ([{"op": op}, {"op": "select", "objectId": "object-1"}],
+                             [{"op": "delete", "objectId": "object-1"}, {"op": op}]):
+                with self.subTest(commands=commands), self.assertRaisesRegex(PlannerError, "separate proposal"):
+                    validate_commands(commands, SNAPSHOT)
 
     def test_persistence_must_be_single_and_load_name_known(self):
         with self.assertRaises(PlannerError):
@@ -242,6 +347,32 @@ class MockProviderTests(unittest.TestCase):
         self.reply["choices"][0]["message"]["content"] = json.dumps({"commands": [{"op": "delete", "objectId": "made-up"}]})
         with self.assertRaises(PlannerError):
             self.plan()
+
+    def test_provider_new_commands_pass_only_known_bounded_contract(self):
+        for commands in ([{"op": "select", "objectId": "object-1"}, {"op": "duplicate", "objectId": "object-1"}],
+                         [{"op": "undo"}], [{"op": "redo"}]):
+            self.reply["choices"][0]["message"]["content"] = json.dumps({"commands": commands})
+            self.assertEqual(self.plan()["commands"], commands)
+        system = self.requests[-1][2]["messages"][0]["content"]
+        self.assertIn("select:", system)
+        self.assertIn("duplicate:", system)
+        self.assertIn("exact case-insensitive saved-scene name", system)
+
+    def test_provider_context_preserves_catalog_spawn_scale(self):
+        snap = copy.deepcopy(SNAPSHOT)
+        snap["assets"][0]["spawnScale"] = 1.0
+        self.planner.plan("delete it", snap, mode="openai-compatible")
+        payload = self.requests[-1][2]
+        self.assertEqual(json.loads(payload["messages"][1]["content"])["snapshot"]["assets"][0]["spawnScale"], 1.0)
+        self.assertIn("catalog spawnScale", payload["messages"][0]["content"])
+
+    def test_provider_history_batch_and_invented_duplicate_id_are_rejected(self):
+        for commands in ([{"op": "undo"}, {"op": "delete", "objectId": "object-1"}],
+                         [{"op": "duplicate", "objectId": "unknown"}],
+                         [{"op": "select", "objectId": "object-1", "assetUrl": "https://example.test/download"}]):
+            self.reply["choices"][0]["message"]["content"] = json.dumps({"commands": commands})
+            with self.subTest(commands=commands), self.assertRaises(PlannerError):
+                self.plan()
 
     def test_provider_duplicate_json_keys_are_rejected(self):
         self.reply["choices"][0]["message"]["content"] = '{"commands":[{"op":"clear"}],"commands":[{"op":"get_scene"}]}'

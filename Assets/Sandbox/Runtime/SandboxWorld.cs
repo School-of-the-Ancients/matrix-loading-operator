@@ -15,6 +15,7 @@ namespace ArSandbox
         public const float MaximumPosition = 100f;
         public const float MinimumScale = 0.01f;
         public const float MaximumScale = 20f;
+        public const int MaximumHistory = 32;
 
         private const int MaximumIdLength = 128;
         private const float MaximumRotation = 36000f;
@@ -33,7 +34,12 @@ namespace ArSandbox
             new Dictionary<string, RoomTarget>(StringComparer.Ordinal);
         private Dictionary<string, Instance> instances =
             new Dictionary<string, Instance>(StringComparer.Ordinal);
+        private readonly List<SceneData> undoHistory = new List<SceneData>();
+        private readonly List<SceneData> redoHistory = new List<SceneData>();
         private bool disposed;
+
+        public int UndoCount => undoHistory.Count;
+        public int RedoCount => redoHistory.Count;
 
         public SandboxWorld(string roomId, Transform objectRoot, PrefabEntry[] assets, RoomTarget[] targets)
         {
@@ -55,12 +61,16 @@ namespace ArSandbox
                 ValidateId(asset.assetId, "assetId");
                 if (asset.prefab == null)
                     throw new ArgumentException("Asset '" + asset.assetId + "' has no prefab.", nameof(assets));
+                if (!InRange(asset.spawnScale, MinimumScale, MaximumScale))
+                    throw new ArgumentException("Asset '" + asset.assetId + "' spawnScale must be finite and between " +
+                        MinimumScale + " and " + MaximumScale + ".", nameof(assets));
                 if (this.assets.ContainsKey(asset.assetId))
                     throw new ArgumentException("Duplicate assetId '" + asset.assetId + "'.", nameof(assets));
                 this.assets.Add(asset.assetId, new PrefabEntry
                 {
                     assetId = asset.assetId,
                     displayName = asset.displayName ?? asset.assetId,
+                    spawnScale = asset.spawnScale,
                     prefab = asset.prefab
                 });
             }
@@ -92,6 +102,7 @@ namespace ArSandbox
                 if (command == null)
                     throw new ArgumentException("A command is required.");
                 ValidateRequestId(command.requestId);
+                SceneData before = IsMutation(command.op) ? Capture().scene : null;
 
                 switch (command.op)
                 {
@@ -102,6 +113,15 @@ namespace ArSandbox
                         break;
                     case "spawn":
                         result.objectId = Spawn(command);
+                        break;
+                    case "select":
+                        ValidateObjectOnlyCommand(command);
+                        RequireInstance(command.objectId);
+                        result.objectId = command.objectId;
+                        break;
+                    case "duplicate":
+                        ValidateObjectOnlyCommand(command);
+                        result.objectId = Duplicate(command.objectId);
                         break;
                     case "set_transform":
                         SetTransform(command);
@@ -117,8 +137,21 @@ namespace ArSandbox
                     case "load":
                         Load(command.scene);
                         break;
+                    case "undo":
+                        ValidateHistoryCommand(command);
+                        Replay(undoHistory, redoHistory, "undo");
+                        break;
+                    case "redo":
+                        ValidateHistoryCommand(command);
+                        Replay(redoHistory, undoHistory, "redo");
+                        break;
                     default:
-                        throw new ArgumentException("Unknown operation. Allowed: get_scene, list_assets, list_targets, spawn, set_transform, delete, clear, load.");
+                        throw new ArgumentException("Unknown operation. Allowed: get_scene, list_assets, list_targets, spawn, select, duplicate, set_transform, delete, clear, load, undo, redo.");
+                }
+                if (before != null)
+                {
+                    PushHistory(undoHistory, before);
+                    redoHistory.Clear();
                 }
                 result.ok = true;
             }
@@ -145,7 +178,7 @@ namespace ArSandbox
 
             var assetInfos = new List<AssetInfo>(assets.Count);
             foreach (PrefabEntry asset in assets.Values)
-                assetInfos.Add(new AssetInfo { assetId = asset.assetId, displayName = asset.displayName });
+                assetInfos.Add(new AssetInfo { assetId = asset.assetId, displayName = asset.displayName, spawnScale = asset.spawnScale });
             assetInfos.Sort((a, b) => string.CompareOrdinal(a.assetId, b.assetId));
 
             var anchorInfos = new List<AnchorInfo>(targets.Count);
@@ -170,6 +203,8 @@ namespace ArSandbox
             if (disposed)
                 return;
             ClearInstances();
+            undoHistory.Clear();
+            redoHistory.Clear();
             disposed = true;
         }
 
@@ -212,6 +247,87 @@ namespace ArSandbox
                 DestroyOwned(instance.gameObject);
                 throw;
             }
+        }
+
+        private string Duplicate(string objectId)
+        {
+            Instance original = RequireInstance(objectId);
+            TransformData pose = Clone(original.data.transform);
+            pose.position.x = Mathf.Min(MaximumPosition, pose.position.x + 0.3f);
+            return Spawn(new SandboxCommand
+            {
+                op = "spawn",
+                assetId = original.data.assetId,
+                anchorId = original.data.anchorId,
+                transform = pose
+            });
+        }
+
+        private Instance RequireInstance(string objectId)
+        {
+            ValidateId(objectId, "objectId");
+            if (!instances.TryGetValue(objectId, out Instance instance))
+                throw new ArgumentException("Unknown objectId '" + objectId + "'.");
+            if (instance.gameObject == null)
+                throw new InvalidOperationException("The object is unavailable. Its room anchor may have been removed; reacquire the room before restoring it.");
+            return instance;
+        }
+
+        private static bool IsMutation(string operation)
+        {
+            return operation == "spawn" || operation == "duplicate" || operation == "set_transform" ||
+                operation == "delete" || operation == "clear" || operation == "load";
+        }
+
+        private static void ValidateObjectOnlyCommand(SandboxCommand command)
+        {
+            if (!string.IsNullOrEmpty(command.assetId) || !string.IsNullOrEmpty(command.anchorId) ||
+                HasTransformPayload(command.transform) || HasScenePayload(command.scene))
+                throw new ArgumentException(command.op + " accepts only objectId and an optional requestId.");
+        }
+
+        private static void ValidateHistoryCommand(SandboxCommand command)
+        {
+            if (!string.IsNullOrEmpty(command.objectId) || !string.IsNullOrEmpty(command.assetId) || !string.IsNullOrEmpty(command.anchorId) ||
+                HasTransformPayload(command.transform) || HasScenePayload(command.scene))
+                throw new ArgumentException(command.op + " accepts only an optional requestId.");
+        }
+
+        // JsonUtility can materialize omitted inline DTOs and strings as empty defaults.
+        // The HTTP schema checks field presence; here reject meaningful extra payloads,
+        // while accepting the indistinguishable defaults of a valid wire command.
+        private static bool HasTransformPayload(TransformData value)
+        {
+            return value != null && (HasVectorPayload(value.position) || HasVectorPayload(value.rotation) || HasVectorPayload(value.scale));
+        }
+
+        private static bool HasVectorPayload(Float3 value)
+        {
+            return value != null && (value.x != 0f || value.y != 0f || value.z != 0f);
+        }
+
+        private static bool HasScenePayload(SceneData value)
+        {
+            return value != null && (!string.IsNullOrEmpty(value.roomId) || (value.objects != null && value.objects.Count > 0) ||
+                (value.schemaVersion != 0 && value.schemaVersion != 1));
+        }
+
+        private static void PushHistory(List<SceneData> history, SceneData scene)
+        {
+            if (history.Count == MaximumHistory) history.RemoveAt(0);
+            history.Add(scene);
+        }
+
+        private void Replay(List<SceneData> from, List<SceneData> to, string operation)
+        {
+            if (from.Count == 0)
+                throw new InvalidOperationException("There is no scene change to " + operation + ".");
+            SceneData current = Capture().scene;
+            // Load stages and validates the complete replacement before removing any live object.
+            // Retain both stacks when an anchor or prefab prevents the replay.
+            Load(from[from.Count - 1]);
+            from.RemoveAt(from.Count - 1);
+            PushHistory(to, current);
         }
 
         private void SetTransform(SandboxCommand command)

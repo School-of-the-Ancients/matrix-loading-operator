@@ -231,6 +231,84 @@ class ServiceTests(unittest.TestCase):
                 self.assertEqual(status["pendingCount"], 0)
                 self.assertEqual(status["snapshot"], changed)
 
+    def test_new_commands_use_existing_queue_acknowledgements_and_strict_shapes(self):
+        selected = self.selected_snapshot(with_object=True)
+        self.exchange(snap=selected)
+        for malformed in ({"op": "select"}, {"op": "duplicate"}, {"op": "select", "objectId": "one", "transform": TRANSFORM},
+                          {"op": "undo", "objectId": "one"}, {"op": "redo", "scene": selected["scene"]}):
+            with self.subTest(malformed=malformed):
+                self.assertEqual(self.request("/api/command", malformed)[0], 400)
+        self.assertEqual(self.request("/api/state")[1]["pendingCount"], 0)
+        for command in ({"op": "select", "objectId": "one"}, {"op": "duplicate", "objectId": "one"},
+                        {"op": "undo"}, {"op": "redo"}):
+            with self.subTest(command=command):
+                code, queued = self.request("/api/command", command)
+                self.assertEqual(code, 200)
+                self.assertEqual(self.exchange(snap=selected)[1], queued)
+                self.assertEqual(self.exchange(snap=selected)[1], queued)
+                request_id = queued["commands"][0]["requestId"]
+                self.exchange(snap=selected, results=[{"requestId": request_id, "ok": True, "objectId": "one"}])
+                self.assertEqual(self.request("/api/state")[1]["pendingCount"], 0)
+
+    def test_select_and_duplicate_proposals_reject_context_changes(self):
+        for phrase in ("select the cube", "duplicate it", "undo", "redo"):
+            with self.subTest(phrase=phrase):
+                selected = self.selected_snapshot(with_object=True)
+                self.exchange(snap=selected)
+                proposal = self.offline_plan(phrase)
+                self.assertEqual(self.request("/api/state")[1]["pendingCount"], 0)
+                changed = copy.deepcopy(selected)
+                changed["selection"]["position"]["z"] += 1
+                self.exchange(snap=changed)
+                self.assertEqual(self.apply_plan(proposal)[0], 409)
+                self.assertEqual(self.request("/api/state")[1]["pendingCount"], 0)
+
+    def test_duplicate_acknowledgement_selection_guides_next_edit(self):
+        selected = self.selected_snapshot(with_object=True)
+        self.exchange(snap=selected)
+        proposal = self.offline_plan("duplicate it")
+        code, queued = self.apply_plan(proposal)
+        self.assertEqual(code, 200)
+        self.assertEqual(queued["commands"][0]["objectId"], "one")
+        duplicated = copy.deepcopy(selected)
+        clone = copy.deepcopy(duplicated["scene"]["objects"][0])
+        clone["objectId"] = "two"
+        clone["transform"]["position"]["x"] += 0.3
+        duplicated["scene"]["objects"].append(clone)
+        duplicated["selection"]["objectId"] = "two"
+        self.exchange(snap=duplicated, results=[{"requestId": queued["commands"][0]["requestId"], "ok": True, "objectId": "two"}])
+        edit = self.offline_plan("make it twice as big")
+        self.assertEqual(edit["commands"][0]["objectId"], "two")
+        self.assertEqual(self.request("/api/plan", {"text": "select the cube", "mode": "offline-rules"})[0], 422)
+        self.assertEqual(self.offline_plan("select one")["commands"], [{"op": "select", "objectId": "one"}])
+
+    def test_load_furniture_and_saved_scene_keep_distinct_reviewed_intents(self):
+        selected = self.selected_snapshot()
+        selected["assets"].append({"assetId": "bundle-chair", "displayName": "Chair", "spawnScale": 1.0})
+        self.exchange(snap=selected)
+        self.assertEqual(self.request("/api/save", {"name": "chair"})[0], 200)
+        self.assertEqual(self.offline_plan("load chair")["commands"], [{"op": "load_scene", "name": "chair"}])
+        for phrase in ("load a chair", "summon a chair"):
+            with self.subTest(phrase=phrase):
+                command = self.offline_plan(phrase)["commands"][0]
+                self.assertEqual((command["op"], command["assetId"]), ("spawn", "bundle-chair"))
+                self.assertEqual(command["transform"]["scale"], dict.fromkeys("xyz", 1.0))
+        self.assertEqual(self.request("/api/state")[1]["pendingCount"], 0)
+
+    def test_catalog_spawn_scale_roundtrip_and_validation_preserve_previous_snapshot(self):
+        selected = self.selected_snapshot()
+        selected["assets"][0]["spawnScale"] = 1.0
+        self.assertEqual(self.exchange(snap=selected)[0], 200)
+        self.assertEqual(self.request("/api/state")[1]["snapshot"]["assets"], selected["assets"])
+        self.assertEqual(self.request("/api/save", {"name": "with-size"})[0], 200)
+        self.assertEqual(json.loads(Path(self.temp.name, "with-size.json").read_text())["assets"], selected["assets"])
+        for value in (0, -1, 20.01, True, None, "1"):
+            bad = copy.deepcopy(selected)
+            bad["assets"][0]["spawnScale"] = value
+            with self.subTest(value=value):
+                self.assertEqual(self.exchange(snap=bad)[0], 400)
+                self.assertEqual(self.request("/api/state")[1]["snapshot"], selected)
+
     def test_proposal_applies_once_and_does_not_replay(self):
         selected = self.selected_snapshot()
         self.exchange(snap=selected)
