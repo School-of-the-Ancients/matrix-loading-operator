@@ -1,0 +1,37 @@
+{
+  "milestone": "Quest Pro room-aware AR",
+  "pythonTests": {
+    "passed": 266,
+    "failed": 0,
+    "scope": "PC service, schema, planner, voice, persistence; synthetic fixtures"
+  },
+  "nativeEditor": {
+    "compiled": true,
+    "unityChecksPassed": 236,
+    "unityChecksFailed": 0
+  },
+  "liveProvider": {
+    "passed": 3,
+    "scope": "Real Codex, synthetic room context; no runtime execution",
+    "evidence": "room-context-live-codex.json"
+  },
+  "browser": {
+    "syntheticRoom": true,
+    "alignmentGateVisible": true,
+    "editsDisabledUntilAlignment": true,
+    "readOnlyRecoverySaveAndClearEnabled": true,
+    "recoveryEditingAndPlanningDisabled": true
+  },
+  "androidBuild": {
+    "status": "in progress"
+  },
+  "hardware": {
+    "installed": false,
+    "roomLocalized": false,
+    "wearerVerifiedOutlines": false,
+    "voiceOrbPlacement": false,
+    "voiceMovement": false,
+    "tableAlignedSaveRestore": false
+  },
+  "note": "Do not infer physical alignment or microphone acceptance from automated/synthetic checks."
+}

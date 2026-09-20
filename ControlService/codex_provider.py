@@ -153,11 +153,15 @@ def _schema():
     vector = _object({axis: {"type": "number"} for axis in "xyz"})
     transform = _object({name: vector for name in ("position", "rotation", "scale")})
     identifier = {"type": "string"}
+    surface_placement = {"type": "string", "enum": ["surface"]}
     variants = []
     for op, fields in (
         ("spawn", {"assetId": identifier, "anchorId": identifier, "transform": transform}),
+        ("spawn", {"assetId": identifier, "anchorId": identifier, "transform": transform, "placement": surface_placement}),
         ("set_transform", {"objectId": identifier, "transform": transform}),
+        ("set_transform", {"objectId": identifier, "transform": transform, "placement": surface_placement}),
         ("set_transform", {"objectId": identifier, "anchorId": identifier, "transform": transform}),
+        ("set_transform", {"objectId": identifier, "anchorId": identifier, "transform": transform, "placement": surface_placement}),
         *((op, {"objectId": identifier}) for op in ("select", "duplicate", "delete")),
         *((op, {}) for op in ("undo", "redo", "clear", "get_scene", "list_assets", "list_targets")),
         *((op, {"name": identifier}) for op in ("save_scene", "load_scene")),

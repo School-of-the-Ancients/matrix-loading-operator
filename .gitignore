@@ -109,6 +109,7 @@ InitTestScene*.unity*
 /Validation/*.log
 /Validation/prototype-source-hashes.json
 /.white-room-fixture/
+/.room-ar-fixture/
 /Validation/white-room-preview.bmp
 
 # Meta-generated local credentials, upload preferences and session identifiers

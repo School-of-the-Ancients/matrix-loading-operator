@@ -11,6 +11,9 @@ namespace ArSandbox
         public bool simulatedRoom;
         public SandboxWorld World { get; private set; }
         public bool RoomReloading { get; set; }
+        public RoomContextData RoomContext { get; private set; }
+        public bool RoomEditingAllowed => RoomContext == null || RoomContext.mode != "ar" ||
+            (RoomContext.state == "ready" && RoomContext.alignmentVerified);
         public string Status { get; private set; } = "Waiting for room permission and room data.";
         public string SelectedObjectId { get; private set; }
         public string SelectedAnchorId { get; private set; }
@@ -25,7 +28,9 @@ namespace ArSandbox
         private GameObject marker;
         private Material markerMaterial;
         private bool hasViewerPose;
-        private Vector3 viewerPosition, viewerForward;
+        private Vector3 viewerPosition, viewerForward, viewerLookDirection;
+        private PointingData pointing;
+        private double pointingTime;
         private double viewerPoseTime;
         private const double ViewerPoseLifetime = 1.0;
 
@@ -51,14 +56,57 @@ namespace ArSandbox
             targets = (RoomTarget[])roomTargets.Clone();
             World = replacement;
             ClearViewerPose();
+            ClearPointingTarget();
             SelectedObjectId = null;
             SelectedAnchorId = null;
             Placement = Vector3.zero;
-            if (targets.Length > 0) SetPlacement(targets[0].anchorId, Vector3.zero);
+            foreach (var target in targets)
+                if (target.source != "mruk" || target.surface?.kind == "support") { SetPlacement(target.anchorId, Vector3.zero); break; }
             Status = simulatedRoom ? "SIMULATED ROOM — desktop fixture" : "Room loaded. Aim at a surface and press trigger, then A to add a prop.";
         }
 
         public void ReportStatus(string message) { Status = message; }
+
+        public void SetRoomContext(string state, string message, bool verified = false)
+        {
+            RoomContext = new RoomContextData { mode = "ar", state = state, message = message, alignmentVerified = verified && state == "ready" };
+            Status = message;
+        }
+
+        public SandboxSnapshot CaptureSnapshot()
+        {
+            if (World == null || RoomReloading) return null;
+            bool readOnly = RoomContext?.mode == "ar" && RoomContext.state != "ready";
+            var snapshot = World.Capture();
+            snapshot.readOnly = readOnly;
+            snapshot.selection = new SelectionData { anchorId = SelectedAnchorId, objectId = SelectedObjectId, position = Vec(Placement) };
+            snapshot.viewer = readOnly ? new ViewerData() : CaptureViewer() ?? new ViewerData();
+            snapshot.pointing = readOnly ? new PointingData() : CapturePointing() ?? new PointingData();
+            if (RoomContext != null) snapshot.roomContext = new RoomContextData { mode = RoomContext.mode,
+                state = RoomContext.state, message = RoomContext.message, alignmentVerified = RoomContext.alignmentVerified };
+            return snapshot;
+        }
+
+        public void SetPointingTarget(string anchorId, string objectId, Vector3 localHit, Vector3 localNormal, Vector3 localRayOrigin, Vector3 localRayDirection)
+        {
+            if (World == null || RoomReloading || !Finite(localHit) || !Finite(localNormal) || !Finite(localRayOrigin) ||
+                !Finite(localRayDirection) || localNormal.sqrMagnitude < .0001f || localRayDirection.sqrMagnitude < .0001f)
+            { ClearPointingTarget(); return; }
+            pointing = new PointingData { anchorId = anchorId, objectId = objectId ?? "", position = Vec(localHit),
+                normal = Vec(localNormal.normalized), origin = Vec(localRayOrigin), direction = Vec(localRayDirection.normalized) };
+            pointingTime = Time.realtimeSinceStartupAsDouble;
+        }
+
+        public void ClearPointingTarget() { pointing = null; pointingTime = 0; }
+
+        public PointingData CapturePointing()
+        {
+            if (pointing == null || Time.realtimeSinceStartupAsDouble - pointingTime >= 1 || World == null || RoomReloading) return null;
+            if (!World.TryGetTarget(pointing.anchorId, out var target)) return null;
+            if (!string.IsNullOrEmpty(pointing.objectId) &&
+                (!World.TryGetObject(pointing.objectId, out var value) || !value.transform.IsChildOf(target.origin))) return null;
+            return JsonUtility.FromJson<PointingData>(JsonUtility.ToJson(pointing));
+        }
 
         public void InvalidateRoom(string message)
         {
@@ -66,6 +114,7 @@ namespace ArSandbox
             World?.Dispose();
             World = null;
             ClearViewerPose();
+            ClearPointingTarget();
             if (objectRoot != null) DestroyOwned(objectRoot.gameObject);
             objectRoot = null;
             if (marker != null) DestroyOwned(marker);
@@ -115,6 +164,7 @@ namespace ArSandbox
             if (!TryHorizontalDirection(worldForward, out Vector3 direction)) { ClearViewerPose(); return; }
             viewerPosition = worldPosition;
             viewerForward = direction;
+            viewerLookDirection = worldForward.normalized;
             viewerPoseTime = Time.realtimeSinceStartupAsDouble;
             hasViewerPose = true;
         }
@@ -122,7 +172,7 @@ namespace ArSandbox
         public void ClearViewerPose()
         {
             hasViewerPose = false;
-            viewerPosition = viewerForward = Vector3.zero;
+            viewerPosition = viewerForward = viewerLookDirection = Vector3.zero;
             viewerPoseTime = 0;
         }
 
@@ -152,7 +202,8 @@ namespace ArSandbox
                 direction.y = 0f;
                 if (!Finite(position) || Mathf.Abs(position.x) > 10000 || Mathf.Abs(position.y) > 10000 || Mathf.Abs(position.z) > 10000 ||
                     !TryHorizontalDirection(direction, out Vector3 normalized)) continue;
-                frames.Add(new ViewerFrame { anchorId = target.anchorId, position = Vec(position), forward = Vec(normalized) });
+                frames.Add(new ViewerFrame { anchorId = target.anchorId, position = Vec(position), forward = Vec(normalized),
+                    lookDirection = Vec(origin.InverseTransformDirection(viewerLookDirection).normalized) });
             }
             frames.Sort((a, b) => string.CompareOrdinal(a.anchorId, b.anchorId));
             return frames.Count == 0 ? null : new ViewerData { frames = frames };
@@ -182,11 +233,25 @@ namespace ArSandbox
         {
             if (World == null || string.IsNullOrEmpty(SelectedAnchorId)) { Status = "Select an available room surface first."; return; }
             Execute(new SandboxCommand { op = "spawn", assetId = SelectedAssetId, anchorId = SelectedAnchorId,
-                transform = Pose(Placement, Vector3.zero, Vector3.one * SelectedAssetScale) });
+                transform = Pose(Placement, Vector3.zero, Vector3.one * SelectedAssetScale),
+                placement = World.TryGetTarget(SelectedAnchorId, out var target) && target.source == "mruk" ? "surface" : null });
         }
 
         public CommandResult Execute(SandboxCommand command)
         {
+            if (command?.op == "confirm_room")
+            {
+                if (RoomReloading || World == null || RoomContext?.mode != "ar" || RoomContext.state != "ready")
+                    return new CommandResult { requestId = command.requestId, ok = false, error = "Load a configured real room before confirming alignment." };
+                SetRoomContext("ready", "Room alignment confirmed. Select a surface or ask the Operator to place a prop.", true);
+                return new CommandResult { requestId = command.requestId, ok = true };
+            }
+            if (!RoomEditingAllowed && command != null && command.op != "clear" &&
+                !(command.op == "select" && RoomContext?.state == "ready") &&
+                command.op != "get_scene" && command.op != "list_assets" && command.op != "list_targets")
+                return new CommandResult { requestId = command.requestId, ok = false, error = RoomContext?.state == "ready" ?
+                    "Verify the labeled room outlines and confirm alignment in the PC Operator first." :
+                    "Room is unavailable. Save or clear the retained scene before reloading room data." };
             if (RoomReloading) return new CommandResult { requestId = command?.requestId, ok = false, error = "Room reload in progress." };
             if (World == null) return new CommandResult { requestId = command?.requestId, ok = false, error = "Room is not ready." };
             var result = World.Execute(command);

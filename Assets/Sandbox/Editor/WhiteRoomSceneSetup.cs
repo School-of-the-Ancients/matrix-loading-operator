@@ -18,13 +18,8 @@ namespace ArSandbox
 #endif
         private static void Generate(bool quest)
         {
-            Directory.CreateDirectory(Root + "/Prefabs");
-            Directory.CreateDirectory(Root + "/Materials");
             Directory.CreateDirectory(Root + "/Scenes");
-            var assets = new[] { Furniture("chair", "Chair"), Furniture("table", "Table"), Furniture("wall", "Wall"), Furniture("pedestal", "Pedestal"),
-                Primitive("block", "Terracotta block", PrimitiveType.Cube, new Color(.75f,.3f,.17f)),
-                Primitive("orb", "Jade orb", PrimitiveType.Sphere, new Color(.08f,.58f,.43f)),
-                Primitive("column", "Stone column", PrimitiveType.Cylinder, new Color(.67f,.64f,.56f)) };
+            var assets = CreateBundledCatalog();
             EditorSceneManager.NewScene(NewSceneSetup.EmptyScene, NewSceneMode.Single);
             var app = new GameObject("Matrix Operator").AddComponent<SandboxApp>();
             app.prefabs = assets; app.simulatedRoom = false;
@@ -79,6 +74,24 @@ namespace ArSandbox
             EditorBuildSettings.scenes = new[] { new EditorBuildSettingsScene(path, true) };
             AssetDatabase.SaveAssets();
             Debug.Log("WHITE_ROOM_SETUP_OK " + path);
+        }
+
+        // Both device modes use the same IDs, geometry, pivots, and asset metadata.
+        // Calling this creates only catalog assets; it does not replace the open scene.
+        public static PrefabEntry[] CreateBundledCatalog()
+        {
+            Directory.CreateDirectory(Root + "/Prefabs");
+            Directory.CreateDirectory(Root + "/Materials");
+            return new[] { Furniture("chair", "Chair"), Furniture("table", "Table"), Furniture("wall", "Wall"), Furniture("pedestal", "Pedestal"),
+                Primitive("block", "Terracotta block", PrimitiveType.Cube, new Color(.75f,.3f,.17f)),
+                Primitive("orb", "Jade orb", PrimitiveType.Sphere, new Color(.08f,.58f,.43f)),
+                Primitive("column", "Stone column", PrimitiveType.Cylinder, new Color(.67f,.64f,.56f)) };
+        }
+
+        public static Material CreatePlacementMaterial()
+        {
+            Directory.CreateDirectory(Root + "/Materials");
+            return Material("placement", new Color(.05f,.8f,.45f));
         }
 
         private static PrefabEntry Primitive(string id, string name, PrimitiveType type, Color color)

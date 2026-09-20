@@ -20,7 +20,8 @@ import urllib.parse
 import urllib.request
 import uuid
 
-from ai_adapter import Planner, PlannerError, validate_local_bounds, validate_viewer
+from ai_adapter import (Planner, PlannerError, validate_local_bounds, validate_viewer,
+                        validate_anchor_metadata, validate_room_context, validate_pointing)
 from learning import LearningBridge, LearningError, identifier
 from codex_provider import CodexConfig, CodexProviderError, codex_options, select_codex_config
 import speech
@@ -32,7 +33,7 @@ MAX_BATCH = 20
 LEASE_SECONDS = 15
 NAME = re.compile(r"[A-Za-z0-9][A-Za-z0-9 _-]{0,63}\Z")
 OPS = {"spawn", "set_transform", "select", "duplicate", "delete", "undo", "redo", "clear", "load",
-       "get_scene", "list_assets", "list_targets"}
+       "get_scene", "list_assets", "list_targets", "confirm_room"}
 
 
 class APIError(Exception):
@@ -114,6 +115,11 @@ def catalog(value, key, limit):
                 raise APIError(400, str(error)) from None
             if bounds is not None:
                 entry["localBounds"] = bounds
+        if key == "anchorId":
+            try:
+                entry.update(validate_anchor_metadata(item))
+            except PlannerError as error:
+                raise APIError(400, str(error)) from None
         result.append(entry)
     return result
 
@@ -134,16 +140,30 @@ def snapshot(value):
                                "position": vector(selected.get("position"), "position")}
     try:
         viewer = validate_viewer(value.get("viewer"), {a["anchorId"] for a in result["anchors"]})
+        pointing = validate_pointing(value.get("pointing"),
+                                     {a["anchorId"]: a for a in result["anchors"]},
+                                     {o["objectId"]: o for o in result["scene"]["objects"]})
+        room = validate_room_context(value.get("roomContext"))
     except PlannerError as error:
         raise APIError(400, str(error)) from None
     if viewer is not None:
         result["viewer"] = viewer
+    if pointing is not None:
+        result["pointing"] = pointing
+    if room is not None:
+        result["roomContext"] = room
+    read_only = value.get("readOnly", False)
+    require(type(read_only) is bool, "Invalid readOnly marker")
+    if read_only:
+        require(room and room["mode"] == "ar" and room["state"] != "ready",
+                "Read-only recovery requires an unavailable AR room")
+        result["readOnly"] = True
     return result
 
 
 def scene_revision_data(value):
-    # Plans use the viewpoint at request time. Normal head motion is not a scene edit.
-    return None if value is None else {key: item for key, item in value.items() if key != "viewer"}
+    # Voice captures head/controller pose at recording start. Movement isn't a scene edit.
+    return None if value is None else {key: item for key, item in value.items() if key not in ("viewer", "pointing")}
 
 
 def command(value):
@@ -156,9 +176,9 @@ def command(value):
                 "load": {"scene"}}.get(op, set())
     allowed |= required
     if op == "spawn":
-        allowed |= {"anchorId", "transform"}
+        allowed |= {"anchorId", "transform", "placement"}
     if op == "set_transform":
-        allowed |= {"anchorId"}
+        allowed |= {"anchorId", "placement"}
     require(not (set(value) - allowed), "Unexpected command fields")
     require(required <= set(value), "Missing command fields")
     result = {"op": op}
@@ -167,6 +187,9 @@ def command(value):
             result[key] = text(value[key], key, empty=key == "anchorId")
     if "transform" in value:
         result["transform"] = transform(value["transform"])
+    if "placement" in value:
+        require(value["placement"] == "surface", "Unknown placement mode")
+        result["placement"] = "surface"
     if "scene" in value:
         result["scene"] = scene(value["scene"])
     return result
@@ -199,6 +222,7 @@ class State:
         self.client_id = None
         self.last_seen = -float("inf")
         self.latest = None
+        self.runtime = None
         self.pending = collections.OrderedDict()
         self.results = collections.deque(maxlen=100)
         self.revision = 0
@@ -224,7 +248,27 @@ class State:
     def exchange(self, body):
         require(isinstance(body, dict), "Expected exchange object")
         client_id = text(body.get("clientId"), "clientId")
-        current = snapshot(body.get("snapshot"))
+        try:
+            runtime = validate_room_context(body.get("runtime"))
+        except PlannerError as error:
+            raise APIError(400, str(error)) from None
+        raw = body.get("snapshot")
+        missing = runtime is not None and runtime["mode"] == "ar" and runtime["state"] != "ready"
+        # JsonUtility can serialize an absent inline snapshot as zero-filled fields.
+        raw_scene = raw.get("scene") if isinstance(raw, dict) else None
+        empty = raw is None or (isinstance(raw, dict) and
+                               (raw_scene is None or isinstance(raw_scene, dict) and not raw_scene.get("roomId")))
+        if empty:
+            require(missing, "A snapshot is required for a ready runtime")
+            current = None
+        else:
+            current = snapshot(raw)
+            if runtime is not None:
+                require(current.get("roomContext") == runtime, "Snapshot and runtime room context disagree")
+            else:
+                runtime = current.get("roomContext")
+            require(not runtime or runtime["mode"] != "ar" or runtime["state"] == "ready" or current.get("readOnly"),
+                    "Unavailable room must not publish an editable snapshot")
         results = body.get("results", [])
         require(isinstance(results, list) and len(results) <= MAX_PENDING, "Too many results")
         checked = []
@@ -241,9 +285,21 @@ class State:
                 if result["requestId"] in self.pending:
                     del self.pending[result["requestId"]]
                     self.results.append(result)
+            if current is None or (current.get("readOnly") and not (self.latest or {}).get("readOnly")):
+                for request_id in self.pending:
+                    self.results.append({"requestId": request_id, "ok": False, "objectId": "",
+                                         "error": "Room became unavailable; command outcome unknown. " + runtime["message"]})
+                self.pending.clear()
+                self.proposals.clear()
+                for job in self.voice_jobs.values():
+                    if job["public"]["phase"] in {"transcribing", "planning", "ready"}:
+                        job["cancelled"] = True
+                        job["public"].update(phase="error", requiresApply=False,
+                                             error="Room became unavailable. Reload the room, check alignment, and speak again.")
             if scene_revision_data(self.latest) != scene_revision_data(current):
                 self.revision += 1
             self.latest = current
+            self.runtime = runtime
             response = {"commands": copy.deepcopy(list(self.pending.values()))}
             if self.learning:
                 self.learning.restore_after_ack(self)
@@ -260,6 +316,18 @@ class State:
             self.expire()
             require(not self.learning or not self.learning.restore, "Finish the pending lesson restore before editing", 409)
             require(self.online(), "Headset client is offline", 409)
+            require(self.latest is not None, self.room_unavailable_message(), 409)
+            room = self.runtime
+            for item in checked:
+                if self.latest.get("readOnly"):
+                    require(item["op"] in {"clear", "get_scene", "list_assets", "list_targets"},
+                            "Room changed. Save the retained poses, clear objects, then reload room data and verify outlines", 409)
+                if item["op"] == "confirm_room":
+                    require(room and room["mode"] == "ar" and room["state"] == "ready",
+                            "Load a real room and inspect its outlines before confirming alignment", 409)
+                elif room and room["mode"] == "ar" and not room.get("alignmentVerified"):
+                    require(item["op"] in {"clear", "select", "get_scene", "list_assets", "list_targets"},
+                            "Check the labeled outlines in the headset, then confirm room alignment on this panel", 409)
             require(len(self.pending) + len(checked) <= MAX_PENDING, "Command queue full", 409)
             for item in checked:
                 item["requestId"] = uuid.uuid4().hex
@@ -271,8 +339,14 @@ class State:
         with self.lock:
             self.expire()
             return {"online": self.online(), "clientId": self.client_id, "snapshot": copy.deepcopy(self.latest),
+                    "runtime": copy.deepcopy(self.runtime),
                     "pendingCount": len(self.pending), "results": copy.deepcopy(list(self.results)),
                     "voice": voice_status(self) if self.voice_jobs else None}
+
+    def room_unavailable_message(self):
+        if self.online() and self.runtime and self.runtime.get("mode") == "ar":
+            return "Room unavailable: " + (self.runtime.get("message") or self.runtime["state"])
+        return "Headset client is offline"
 
     def path(self, name):
         require(isinstance(name, str) and NAME.fullmatch(name) is not None,
@@ -288,10 +362,13 @@ class State:
         target = self.path(name)
         with self.lock:
             self.expire()
-            require(self.online() and self.latest is not None, "Headset client is offline", 409)
+            require(self.online() and self.latest is not None, self.room_unavailable_message(), 409)
             require(not self.pending, "Wait for all queued commands to finish before saving", 409)
             saved = copy.deepcopy(self.latest)
             saved.pop("viewer", None)
+            saved.pop("pointing", None)
+            saved.pop("roomContext", None)
+            saved.pop("readOnly", None)
             if self.learning:
                 require(not self.learning.restore, "Finish the pending lesson restore before saving", 409)
                 checkpoint = self.learning.checkpoint(self)
@@ -375,7 +452,8 @@ def plan(state, body, request_context=None):
     require(mode in (None, "offline-rules", "openai-compatible", "codex-cli"), "Invalid planner mode")
     with state.lock:
         state.expire()
-        require(state.online() and state.latest is not None, "Runtime is offline", 409)
+        require(state.online() and state.latest is not None, state.room_unavailable_message(), 409)
+        require(not state.latest.get("readOnly"), state.room_unavailable_message(), 409)
         require(not state.pending, "Wait for queued commands before creating a proposal", 409)
         current = copy.deepcopy(state.latest)
         client_id, revision = state.client_id, state.revision
@@ -409,7 +487,8 @@ def plan(state, body, request_context=None):
         checked = [{"op": item["op"], "name": item["name"]}]
     else:
         checked = [command(item) for item in values]
-        require(all(item["op"] != "load" for item in checked), "Planner cannot invent a scene document", 502)
+        require(all(item["op"] not in {"load", "confirm_room"} for item in checked),
+                "Planner cannot invent a scene document or confirm physical alignment", 502)
     with state.lock:
         state.expire()
         require(state.online() and state.client_id == client_id and state.revision == revision
@@ -422,6 +501,8 @@ def plan(state, body, request_context=None):
     result = {**proposed, "commands": checked, "planId": plan_id, "requiresApply": True}
     if "viewer" in current:
         result["viewerAtRequest"] = copy.deepcopy(current["viewer"])
+    if "pointing" in current:
+        result["pointingAtRequest"] = copy.deepcopy(current["pointing"])
     return result
 
 

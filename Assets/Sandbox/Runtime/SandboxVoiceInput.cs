@@ -82,10 +82,7 @@ namespace ArSandbox
                 if (devices.Length == 0) { Fail("No microphone is available on this device."); return; }
                 microphoneDevice = devices[0];
                 // A spoken deictic reference uses the selection and view at recording start.
-                capturedSnapshot = app.World.Capture();
-                capturedSnapshot.selection = new SelectionData { anchorId = app.SelectedAnchorId, objectId = app.SelectedObjectId,
-                    position = SandboxApp.Vec(app.Placement) };
-                capturedSnapshot.viewer = app.CaptureViewer() ?? new ViewerData();
+                capturedSnapshot = app.CaptureSnapshot();
                 recording = Microphone.Start(microphoneDevice, false, MaximumSeconds, SampleRate);
                 if (recording == null) { Fail("Microphone capture did not start. Release and try again."); return; }
                 recordingStarted = Time.realtimeSinceStartupAsDouble;

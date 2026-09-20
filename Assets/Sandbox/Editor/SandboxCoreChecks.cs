@@ -94,6 +94,76 @@ namespace ArSandbox
 
         private static Report report;
 
+        private sealed class SurfaceFixture : IDisposable
+        {
+            public readonly GameObject root = new GameObject("Physical support fixture");
+            public readonly Transform anchor;
+            public readonly GameObject orb;
+            public readonly GameObject block;
+            public readonly GameObject unknown;
+            public readonly RoomTarget target;
+            public SandboxWorld world;
+            public bool localized = true;
+            public bool planeSamples = true;
+            public int surfaceQueries;
+
+            public SurfaceFixture()
+            {
+                anchor = new GameObject("Table anchor").transform;
+                anchor.SetParent(root.transform, false);
+                anchor.localPosition = new Vector3(2f, .8f, -1f);
+                orb = GameObject.CreatePrimitive(PrimitiveType.Sphere);
+                orb.name = "Center pivot orb";
+                orb.transform.SetParent(root.transform, false);
+                orb.SetActive(false);
+                block = GameObject.CreatePrimitive(PrimitiveType.Cube);
+                block.transform.SetParent(root.transform, false);
+                block.SetActive(false);
+                unknown = new GameObject("Unknown bounds");
+                unknown.transform.SetParent(root.transform, false);
+                unknown.SetActive(false);
+                target = new RoomTarget
+                {
+                    anchorId = "physical-table", displayName = "Table", origin = anchor, source = "mruk",
+                    semanticLabels = new[] { "TABLE" }, roomPose = SandboxWorld.DefaultTransform(),
+                    surface = new RoomSurfaceData
+                    {
+                        kind = "support", boundary = Polygon(-4f, -4f, 4f, -4f, 4f, 4f, -4f, 4f),
+                        localBounds = new BoundsData { center = new Float3(0f, 0f, 0f), size = new Float3(8f, 0f, 8f) }
+                    },
+                    surfaceValidator = point => { surfaceQueries++; planeSamples &= Mathf.Abs(point.y) < .00001f; return localized; }
+                };
+                Rebuild();
+            }
+
+            public void Rebuild()
+            {
+                world?.Dispose();
+                world = new SandboxWorld("physical-room", root.transform,
+                    new[] { new PrefabEntry { assetId = "orb", prefab = orb }, new PrefabEntry { assetId = "block", prefab = block },
+                        new PrefabEntry { assetId = "unknown", prefab = unknown } }, new[] { target });
+            }
+
+            public SandboxCommand Spawn(string assetId = "orb", bool surface = true)
+            {
+                return new SandboxCommand { op = "spawn", assetId = assetId, anchorId = target.anchorId,
+                    transform = SandboxWorld.DefaultTransform(), placement = surface ? "surface" : null };
+            }
+
+            public void Dispose()
+            {
+                world?.Dispose();
+                Object.DestroyImmediate(root);
+            }
+        }
+
+        private static List<Float3> Polygon(params float[] coordinates)
+        {
+            var points = new List<Float3>();
+            for (int i = 0; i < coordinates.Length; i += 2) points.Add(new Float3(coordinates[i], 0f, coordinates[i + 1]));
+            return points;
+        }
+
         public static void Run()
         {
             string projectPath = Directory.GetParent(Application.dataPath).FullName;
@@ -134,6 +204,11 @@ namespace ArSandbox
             Group("Live viewer context", CheckViewerContext);
             Group("Bounded voice audio encoding", CheckVoiceAudio);
             Group("Unity JSON wire command compatibility", CheckWireCommands);
+            Group("Physical support placement and persistence", CheckSurfacePlacement);
+            Group("Physical support footprint and rejection", CheckSurfaceRejection);
+            Group("Room metadata isolation and target queries", CheckRoomMetadata);
+            Group("AR alignment gates and retained scene recovery", CheckRoomRecovery);
+            Group("Pointing after object deletion and reanchoring", CheckPointingLifecycle);
 
             report.completedUtc = DateTime.UtcNow.ToString("O");
             Directory.CreateDirectory(Path.GetDirectoryName(outputPath));
@@ -973,6 +1048,269 @@ namespace ArSandbox
                 Check("wire redo restores the same duplicated ID",
                     fixture.world.Execute(JsonUtility.FromJson<SandboxCommand>("{\"op\":\"redo\"}")).ok &&
                     fixture.world.TryGetObject(copied.objectId, out _));
+            }
+        }
+
+        private static void CheckSurfacePlacement()
+        {
+            using (var fixture = new SurfaceFixture())
+            {
+                SandboxCommand spawn = fixture.Spawn();
+                spawn.transform.scale = new Float3(.2f, .2f, .2f);
+                CommandResult created = fixture.world.Execute(spawn);
+                Check("surface orb places its bottom on the table from a centered prefab pivot", created.ok &&
+                    Near(Find(fixture.world.Capture().scene, created.objectId).transform.position, new Vector3(0f, .1f, 0f)));
+                Check("surface validation queries live MRUK corners and center in the target plane",
+                    fixture.surfaceQueries >= 9 && fixture.planeSamples);
+                Check("surface resolution does not mutate the caller's clearance transform", spawn.transform.position.y == 0f);
+                fixture.world.TryGetObject(created.objectId, out GameObject orb);
+                Check("surface object uses its stable physical anchor transform", orb != null && orb.transform.parent == fixture.anchor &&
+                    Mathf.Abs(orb.GetComponent<Renderer>().bounds.min.y - fixture.anchor.position.y) < .0001f);
+
+                var moved = SandboxWorld.DefaultTransform();
+                moved.position = new Float3(.3f, .05f, -.2f);
+                moved.scale = new Float3(.4f, .4f, .4f);
+                CommandResult edited = fixture.world.Execute(new SandboxCommand { op = "set_transform", objectId = created.objectId,
+                    transform = moved, placement = "surface" });
+                Check("surface resize resolves a new pivot while preserving requested clearance and object ID", edited.ok && edited.objectId == created.objectId &&
+                    Near(Find(fixture.world.Capture().scene, created.objectId).transform.position, new Vector3(.3f, .25f, -.2f)));
+                Check("physical edit undo restores the prior resolved pose and same object ID", fixture.world.Execute(new SandboxCommand { op = "undo" }).ok &&
+                    Near(Find(fixture.world.Capture().scene, created.objectId).transform.position, new Vector3(0f, .1f, 0f)));
+                Check("physical edit redo restores resolved placement without applying clearance twice", fixture.world.Execute(new SandboxCommand { op = "redo" }).ok &&
+                    Near(Find(fixture.world.Capture().scene, created.objectId).transform.position, new Vector3(.3f, .25f, -.2f)));
+
+                SceneData saved = JsonUtility.FromJson<SceneData>(JsonUtility.ToJson(fixture.world.Capture().scene));
+                string savedWire = JsonUtility.ToJson(saved);
+                Check("physical saves contain resolved transforms without placement hints or room metadata", !savedWire.Contains("placement") &&
+                    !savedWire.Contains("surface") && !savedWire.Contains("semanticLabels"));
+                fixture.world.Execute(new SandboxCommand { op = "clear" });
+                fixture.anchor.position = new Vector3(-3f, 1.2f, 7f);
+                fixture.anchor.rotation = Quaternion.Euler(0f, 75f, 0f);
+                CommandResult restored = fixture.world.Execute(new SandboxCommand { op = "load", scene = saved });
+                fixture.world.TryGetObject(created.objectId, out GameObject replacement);
+                Check("physical restore retains exact local pose after room origin translation and rotation", restored.ok &&
+                    JsonUtility.ToJson(fixture.world.Capture().scene) == savedWire && replacement != null &&
+                    Vector3.Distance(replacement.transform.position, fixture.anchor.TransformPoint(new Vector3(.3f, .25f, -.2f))) < .0001f);
+
+                var floating = SandboxWorld.DefaultTransform();
+                floating.position.y = 1f;
+                Check("physical floating edit can omit the placement hint when geometry remains above its support", fixture.world.Execute(new SandboxCommand
+                    { op = "set_transform", objectId = created.objectId, transform = floating }).ok);
+            }
+            using (var fixture = new SurfaceFixture())
+            {
+                // Replace the registered block with a nested, transformed mesh. The
+                // world already measures nested root-local bounds at registration.
+                Object.DestroyImmediate(fixture.block.GetComponent<MeshRenderer>());
+                Object.DestroyImmediate(fixture.block.GetComponent<MeshFilter>());
+                var group = new GameObject("Nested part").transform;
+                group.SetParent(fixture.block.transform, false);
+                group.localPosition = new Vector3(0f, 1f, 0f);
+                group.localRotation = Quaternion.Euler(0f, 0f, 90f);
+                group.localScale = new Vector3(1f, 2f, 1f);
+                var geometry = GameObject.CreatePrimitive(PrimitiveType.Cube).transform;
+                geometry.SetParent(group, false);
+                geometry.localPosition = new Vector3(0f, .25f, 0f);
+                geometry.localScale = new Vector3(.5f, 1f, .25f);
+                fixture.Rebuild();
+                SandboxCommand spawn = fixture.Spawn("block");
+                spawn.transform.rotation.z = 90f;
+                spawn.transform.scale = new Float3(.5f, 2f, 1f);
+                CommandResult result = fixture.world.Execute(spawn);
+                fixture.world.TryGetObject(result.objectId, out GameObject instance);
+                Check("surface placement accounts for nested geometry and rotated nonuniform scaled bounds", result.ok && instance != null &&
+                    Mathf.Abs(instance.transform.localPosition.y - .75f) < .0001f &&
+                    Mathf.Abs(instance.GetComponentInChildren<Renderer>().bounds.min.y - fixture.anchor.position.y) < .0001f);
+            }
+        }
+
+        private static void CheckSurfaceRejection()
+        {
+            using (var fixture = new SurfaceFixture())
+            {
+                SandboxCommand command = fixture.Spawn();
+                CommandResult first = fixture.world.Execute(command);
+                Check("physical rejection fixture starts with a valid existing object", first.ok);
+                command.transform.position.x = 3.75f;
+                RejectedPreserves("physical footprint rejects a pivot inside the table when bounds cross its edge", fixture.world, command);
+                command.transform.position.x = 0f;
+                command.transform.position.y = -.01f;
+                RejectedPreserves("surface placement rejects negative clearance", fixture.world, command);
+                command.placement = null;
+                command.transform.position.y = 0f;
+                RejectedPreserves("physical placement without a hint rejects geometry below the surface", fixture.world, command);
+                command.placement = "surface";
+                command.assetId = "unknown";
+                RejectedPreserves("physical placement rejects unknown prefab bounds", fixture.world, command);
+                command.assetId = "orb";
+                command.placement = "guess";
+                RejectedPreserves("physical placement rejects unrecognized placement modes", fixture.world, command);
+                RejectedPreserves("read commands reject misplaced surface hints", fixture.world,
+                    new SandboxCommand { op = "get_scene", placement = "surface" });
+                fixture.localized = false;
+                command.placement = "surface";
+                RejectedPreserves("live MRUK surface rejection preserves existing objects", fixture.world, command);
+                fixture.localized = true;
+                SceneData saved = fixture.world.Capture().scene;
+                saved.objects.Add(new SceneObjectData { objectId = "missing-table-object", assetId = "orb", anchorId = "removed-anchor",
+                    transform = SandboxWorld.DefaultTransform() });
+                RejectLoad("missing physical anchor rejects the entire restore after a valid first object", fixture.world, saved);
+                saved = fixture.world.Capture().scene;
+                saved.objects[0].transform.position.y = 0f;
+                RejectLoad("physical restore revalidates support penetration without clearing the live scene", fixture.world, saved);
+                fixture.anchor.gameObject.SetActive(false);
+                RejectedPreserves("unavailable physical support rejects edits before mutation", fixture.world,
+                    new SandboxCommand { op = "set_transform", objectId = first.objectId, transform = SandboxWorld.DefaultTransform(), placement = "surface" });
+                fixture.anchor.gameObject.SetActive(true);
+                command.transform.position = new Float3(3.4f, 0f, 0f);
+                CommandResult nearEdge = fixture.world.Execute(command);
+                Check("a physical object can fit near the edge before duplication", nearEdge.ok);
+                RejectedPreserves("physical duplicate validates its offset footprint", fixture.world,
+                    new SandboxCommand { op = "duplicate", objectId = nearEdge.objectId });
+            }
+            using (var fixture = new SurfaceFixture())
+            {
+                // Narrow notch misses all four outer footprint corners and its
+                // center. Edge-interior validation must still reject the crossing.
+                fixture.target.surface.boundary = Polygon(-4f, -4f, 4f, -4f, 4f, 4f, 2f, 4f, 2f, .5f, 1f, .5f, 1f, 4f, -4f, 4f);
+                fixture.Rebuild();
+                SandboxCommand broad = fixture.Spawn("block");
+                broad.transform.scale = new Float3(6f, .2f, 2f);
+                RejectedPreserves("concave support rejects an edge crossing even with every corner and center inside", fixture.world, broad);
+                broad.transform.scale = new Float3(.2f, .2f, .2f);
+                Check("concave support permits a small footprint contained in one continuous region", fixture.world.Execute(broad).ok);
+                fixture.target.surface.kind = "wall";
+                fixture.Rebuild();
+                RejectedPreserves("wall anchors remain context but reject unsupported prop placement", fixture.world, fixture.Spawn());
+                fixture.target.surface.kind = "support";
+                fixture.target.surface.boundary = Polygon(-1f, -1f, 1f, 1f, -1f, 1f, 1f, -1f);
+                fixture.Rebuild();
+                RejectedPreserves("invalid self-intersecting support geometry fails explicitly", fixture.world, fixture.Spawn());
+                fixture.target.surface.boundary = Polygon(-4f, -4f, 4f, -4f, 4f, 4f, -4f, 4f);
+                fixture.target.surfaceValidator = null;
+                fixture.Rebuild();
+                RejectedPreserves("physical placement requires a current MRUK geometry validator", fixture.world, fixture.Spawn());
+            }
+            using (var fixture = new Fixture())
+            {
+                Check("legacy white-room targets still allow unknown bounds and unrestricted anchor-local poses", fixture.Spawn() != null);
+                RejectedPreserves("legacy targets cannot pretend to resolve physical surface placement", fixture.world,
+                    new SandboxCommand { op = "spawn", assetId = "cube", anchorId = "floor", transform = SandboxWorld.DefaultTransform(), placement = "surface" });
+            }
+        }
+
+        private static void CheckRoomMetadata()
+        {
+            using (var fixture = new SurfaceFixture())
+            {
+                fixture.target.semanticLabels[0] = "changed-source";
+                fixture.target.surface.boundary[0].x = -100f;
+                fixture.target.surface.localBounds.size.x = 999f;
+                fixture.target.roomPose.position.x = 999f;
+                AnchorInfo first = fixture.world.Capture().anchors[0];
+                Check("room registry clones semantic labels geometry and pose from adapter input", first.source == "mruk" &&
+                    first.semanticLabels[0] == "TABLE" && first.surface.boundary[0].x == -4f && first.surface.localBounds.size.x == 8f && first.roomPose.position.x == 0f);
+                first.semanticLabels[0] = "changed-snapshot";
+                first.surface.boundary[0].x = -50f;
+                first.surface.localBounds.size.x = 888f;
+                first.roomPose.position.x = 888f;
+                AnchorInfo fresh = fixture.world.Capture().anchors[0];
+                Check("anchor snapshots cannot mutate physical registry metadata", fresh.semanticLabels[0] == "TABLE" &&
+                    fresh.surface.boundary[0].x == -4f && fresh.surface.localBounds.size.x == 8f && fresh.roomPose.position.x == 0f);
+                SandboxSnapshot decoded = JsonUtility.FromJson<SandboxSnapshot>(JsonUtility.ToJson(fixture.world.Capture()));
+                Check("room anchor metadata survives actual Unity snapshot serialization", decoded.anchors[0].source == "mruk" &&
+                    decoded.anchors[0].semanticLabels[0] == "TABLE" && decoded.anchors[0].surface.kind == "support" &&
+                    decoded.anchors[0].surface.boundary.Count == 4 && decoded.anchors[0].roomPose.scale.x == 1f);
+                CommandResult created = fixture.world.Execute(fixture.Spawn());
+                fixture.world.TryGetObject(created.objectId, out GameObject instance);
+                var hitChild = new GameObject("Hit child").transform;
+                hitChild.SetParent(instance.transform, false);
+                Check("pointer hit lookup returns the same stable object ID for root and descendant", fixture.world.TryGetObjectId(instance.transform, out string rootId) &&
+                    fixture.world.TryGetObjectId(hitChild, out string childId) && rootId == created.objectId && childId == rootId);
+                Check("pointer target query returns the active anchor frame without snapshot capture", fixture.world.TryGetTarget("physical-table", out RoomTarget target) &&
+                    target.origin == fixture.anchor && !fixture.world.TryGetTarget("absent", out _));
+                Check("unowned pointer hit has no scene object ID", !fixture.world.TryGetObjectId(fixture.root.transform, out _));
+                fixture.anchor.gameObject.SetActive(false);
+                Check("unavailable anchor and inactive object are excluded from pointer lookup", !fixture.world.TryGetTarget("physical-table", out _) &&
+                    !fixture.world.TryGetObjectId(hitChild, out _));
+            }
+        }
+
+        private static void CheckRoomRecovery()
+        {
+            using (var fixture = new Fixture())
+            {
+                var appObject = new GameObject("AR gate validation");
+                appObject.transform.SetParent(fixture.root.transform, false);
+                var app = appObject.AddComponent<SandboxApp>();
+                app.prefabs = new[] { new PrefabEntry { assetId = "cube", prefab = fixture.source } };
+                app.InitializeWorld("test-room", new[] { new RoomTarget { anchorId = "floor", origin = fixture.anchor } });
+                app.SetRoomContext("ready", "Inspect loaded outlines.");
+                var spawn = new SandboxCommand { op = "spawn", assetId = "cube", anchorId = "floor", transform = SandboxWorld.DefaultTransform() };
+                Check("AR alignment gate blocks placement before explicit confirmation", !app.RoomEditingAllowed &&
+                    !app.Execute(spawn).ok && app.World.Capture().scene.objects.Count == 0);
+                app.RoomReloading = true;
+                Check("room confirmation cannot approve a reload still in progress", !app.Execute(new SandboxCommand { op = "confirm_room" }).ok);
+                app.RoomReloading = false;
+                app.SetRoomContext("missing", "Room missing.");
+                Check("room confirmation cannot approve missing room data", !app.Execute(new SandboxCommand { op = "confirm_room" }).ok);
+                app.SetRoomContext("ready", "Inspect loaded outlines.");
+                Check("explicit room confirmation opens the existing editing gate", app.Execute(new SandboxCommand { op = "confirm_room" }).ok && app.RoomEditingAllowed);
+                CommandResult created = app.Execute(spawn);
+                Check("confirmed room accepts commands through the existing executor", created.ok && app.SelectedObjectId == created.objectId);
+                app.SetViewerPose(fixture.anchor.TransformPoint(new Vector3(0f, 1.6f, 0f)), Vector3.forward);
+                app.SetPointingTarget("floor", created.objectId, Vector3.zero, Vector3.up, Vector3.up, Vector3.down);
+                SandboxSnapshot ready = app.CaptureSnapshot();
+                string savedScene = JsonUtility.ToJson(ready.scene);
+                Check("ready room snapshot remains editable and carries live context", !ready.readOnly && ready.viewer.frames.Count == 1 &&
+                    ready.pointing.objectId == created.objectId);
+                app.SetRoomContext("error", "Room geometry changed. Save and clear before reload.");
+                SandboxSnapshot retained = app.CaptureSnapshot();
+                Check("unavailable room retains saveable poses while removing live viewer and pointing context", retained != null && retained.readOnly &&
+                    retained.roomContext.state == "error" && !retained.roomContext.alignmentVerified &&
+                    JsonUtility.ToJson(retained.scene) == savedScene && retained.viewer.frames.Count == 0 && string.IsNullOrEmpty(retained.pointing.anchorId));
+                Check("recovery snapshot explicitly marks read-only on the Unity JSON wire", JsonUtility.ToJson(retained).Contains("\"readOnly\":true"));
+                Check("unavailable room blocks spawn select load and undo while preserving retained poses", !app.Execute(spawn).ok &&
+                    !app.Execute(new SandboxCommand { op = "select", objectId = created.objectId }).ok &&
+                    !app.Execute(new SandboxCommand { op = "load", scene = retained.scene }).ok &&
+                    !app.Execute(new SandboxCommand { op = "undo" }).ok && JsonUtility.ToJson(app.World.Capture().scene) == savedScene);
+                Object.DestroyImmediate(fixture.anchor.gameObject);
+                retained = app.CaptureSnapshot();
+                Check("destroyed native anchor cannot erase the retained recovery snapshot", retained != null && retained.readOnly &&
+                    JsonUtility.ToJson(retained.scene) == savedScene && !app.World.TryGetObject(created.objectId, out _));
+                Check("unavailable room still permits explicit scene reads", app.Execute(new SandboxCommand { op = "get_scene" }).ok);
+                Check("explicit clear releases the nonempty scene guard after anchor loss", app.Execute(new SandboxCommand { op = "clear" }).ok &&
+                    app.World.Capture().scene.objects.Count == 0 && app.CaptureSnapshot().readOnly && app.CaptureSnapshot().scene.objects.Count == 0);
+                app.RoomReloading = true;
+                Check("active room reload publishes no stale recovery snapshot", app.CaptureSnapshot() == null);
+                app.RoomReloading = false;
+                app.InvalidateRoom("Reloading after explicit clear.");
+                Check("empty scene can release old room state for a fresh discovery", app.World == null && app.CaptureSnapshot() == null);
+            }
+        }
+
+        private static void CheckPointingLifecycle()
+        {
+            using (var fixture = new Fixture())
+            {
+                var appObject = new GameObject("Pointing lifecycle validation");
+                appObject.transform.SetParent(fixture.root.transform, false);
+                var app = appObject.AddComponent<SandboxApp>();
+                app.prefabs = new[] { new PrefabEntry { assetId = "cube", prefab = fixture.source } };
+                app.InitializeWorld("test-room", new[] { new RoomTarget { anchorId = "floor", origin = fixture.anchor },
+                    new RoomTarget { anchorId = "table", origin = fixture.secondAnchor } });
+                CommandResult created = app.Execute(new SandboxCommand { op = "spawn", assetId = "cube", anchorId = "floor",
+                    transform = SandboxWorld.DefaultTransform() });
+                app.SetPointingTarget("floor", created.objectId, Vector3.zero, Vector3.up, Vector3.up, Vector3.down);
+                Check("pointing context initially resolves the live stable object", app.CapturePointing()?.objectId == created.objectId);
+                app.Execute(new SandboxCommand { op = "delete", objectId = created.objectId });
+                Check("deleted object is removed from pointing before the next pointer update", app.CapturePointing() == null &&
+                    string.IsNullOrEmpty(app.CaptureSnapshot().pointing.objectId));
+                app.Execute(new SandboxCommand { op = "undo" });
+                app.SetPointingTarget("floor", created.objectId, Vector3.zero, Vector3.up, Vector3.up, Vector3.down);
+                app.Execute(new SandboxCommand { op = "set_transform", objectId = created.objectId, anchorId = "table",
+                    transform = SandboxWorld.DefaultTransform() });
+                Check("object moved to a different anchor invalidates its old pointing frame", app.CapturePointing() == null);
             }
         }
 
