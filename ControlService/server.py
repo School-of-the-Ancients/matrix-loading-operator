@@ -20,7 +20,7 @@ import urllib.parse
 import urllib.request
 import uuid
 
-from ai_adapter import Planner, PlannerError
+from ai_adapter import Planner, PlannerError, validate_local_bounds, validate_viewer
 from learning import LearningBridge, LearningError, identifier
 
 MAX_BODY = 1024 * 1024
@@ -99,10 +99,19 @@ def catalog(value, key, limit):
         require(identifier not in ids, f"Duplicate {key}")
         ids.add(identifier)
         entry = {key: identifier, "displayName": text(item.get("displayName"), "displayName")}
+        if key == "assetId" and item.get("description"):
+            entry["description"] = text(item["description"], "asset description", limit=500)
         if key == "assetId" and "spawnScale" in item:
             scale = item["spawnScale"]
             require(type(scale) in (int, float) and 0.01 <= scale <= 20 and math.isfinite(scale), "Invalid spawnScale")
             entry["spawnScale"] = scale
+        if key == "assetId" and "localBounds" in item:
+            try:
+                bounds = validate_local_bounds(item["localBounds"])
+            except PlannerError as error:
+                raise APIError(400, str(error)) from None
+            if bounds is not None:
+                entry["localBounds"] = bounds
         result.append(entry)
     return result
 
@@ -121,7 +130,18 @@ def snapshot(value):
         require(not object_id or object_id in {o["objectId"] for o in result["scene"]["objects"]}, "Unknown selection objectId")
         result["selection"] = {"anchorId": anchor_id, "objectId": object_id,
                                "position": vector(selected.get("position"), "position")}
+    try:
+        viewer = validate_viewer(value.get("viewer"), {a["anchorId"] for a in result["anchors"]})
+    except PlannerError as error:
+        raise APIError(400, str(error)) from None
+    if viewer is not None:
+        result["viewer"] = viewer
     return result
+
+
+def scene_revision_data(value):
+    # Plans use the viewpoint at request time. Normal head motion is not a scene edit.
+    return None if value is None else {key: item for key, item in value.items() if key != "viewer"}
 
 
 def command(value):
@@ -216,7 +236,7 @@ class State:
                 if result["requestId"] in self.pending:
                     del self.pending[result["requestId"]]
                     self.results.append(result)
-            if self.latest != current:
+            if scene_revision_data(self.latest) != scene_revision_data(current):
                 self.revision += 1
             self.latest = current
             response = {"commands": copy.deepcopy(list(self.pending.values()))}
@@ -265,6 +285,7 @@ class State:
             require(self.online() and self.latest is not None, "Headset client is offline", 409)
             require(not self.pending, "Wait for all queued commands to finish before saving", 409)
             saved = copy.deepcopy(self.latest)
+            saved.pop("viewer", None)
             if self.learning:
                 require(not self.learning.restore, "Finish the pending lesson restore before saving", 409)
                 checkpoint = self.learning.checkpoint(self)
@@ -358,7 +379,16 @@ def plan(state, body):
     except PlannerError as error:
         raise APIError(error.status, str(error)) from None
     values = proposed.get("commands")
-    require(isinstance(values, list) and 0 < len(values) <= MAX_BATCH, "Invalid proposal", 502)
+    require(isinstance(values, list) and len(values) <= MAX_BATCH, "Invalid proposal", 502)
+    if not values:
+        require(proposed.get("requiresApply") is False and proposed.get("status") == "needs_clarification",
+                "Invalid empty proposal", 502)
+        with state.lock:
+            state.expire()
+            require(state.online() and state.client_id == client_id and state.revision == revision
+                    and not state.pending, "Scene changed during planning; try again", 409)
+        # A clarification is information only. It never receives an executable plan ID.
+        return {**proposed, "commands": [], "requiresApply": False}
     persistence = [item for item in values if item.get("op") in ("save_scene", "load_scene")]
     if persistence:
         require(len(values) == 1, "Save/load must be a separate proposal after edits finish", 422)
@@ -378,7 +408,10 @@ def plan(state, body):
                                     "expires": state.clock() + 120, "commands": copy.deepcopy(checked)}
         while len(state.proposals) > 16:
             state.proposals.popitem(last=False)
-    return {**proposed, "commands": checked, "planId": plan_id, "requiresApply": True}
+    result = {**proposed, "commands": checked, "planId": plan_id, "requiresApply": True}
+    if "viewer" in current:
+        result["viewerAtRequest"] = copy.deepcopy(current["viewer"])
+    return result
 
 
 class Server(ThreadingHTTPServer):

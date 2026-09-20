@@ -26,6 +26,20 @@ The launcher requires the native `codex.exe`, verifies ChatGPT sign-in, and star
 
 Keep controller and other browser edits idle during inference and until Apply completes. If the scene changes, create a new proposal from its current state.
 
+## Composing with available pieces
+
+In either real AI mode, requests such as `put a table in front of me with two chairs` and `create a room` are design requests. The model receives the current objects, available prefab IDs, measured root-local render bounds, optional orientation descriptions, room targets, selection and current viewer pose. It chooses multiple spawn commands with final positions, rotations and independent axis scales. There are no room or furniture-arrangement templates in the planner, and no new prefab is required for each requested composition. This is structured scene context; the model does not receive a rendered headset image.
+
+The updated runtime supplies bounds measured once per registered prefab. Unknown, animated or unsupported geometry remains unknown. The bundled chair also describes its seat-facing direction. Missing geometry can still permit a basic single-object edit, but a construction requiring exact measurements may need the updated runtime. Existing scenes and old clients remain compatible.
+
+`In front of me` uses a fresh tracked headset position and horizontal facing direction, expressed in the chosen anchor's frame. Furniture stays at floor height. The proposal captures the viewpoint when requested; looking around afterward neither moves the pieces nor invalidates the proposal. Scene edits, selection changes, catalog changes and runtime reconnection still invalidate it. If tracking is unavailable, the AI should explain that specific blocker. The desktop camera also supplies a viewpoint while the browser has focus. Viewer data is transient and is excluded from PC scene saves.
+
+Review the readable summary, piece counts and assumptions, then Apply. A normal broad request should result in reasonable defaults; genuine missing context produces a visible explanation with Apply disabled. Each batch is limited to 20 commands and the scene to 100 objects. Applied pieces remain individually editable and use the existing save/load system. Batches are acknowledged per command, so a partial failure can leave successful pieces in the scene; the panel reports confirmed and failed/unconfirmed counts. Generated geometry is approximate and has no automatic collision, structural-quality or functional-door guarantee.
+
+`Validation/Run-Composition-Headset-Loop.py` is a read-only preflight unless passed `--run`. Its controlled run makes two real Codex requests, reviews their command bounds, applies them to the already running Quest, verifies acknowledgements and PC save/clear/restore, and finally restores the pretest scene. Its reports do not substitute for wearer visual confirmation.
+
+The current composition run passed **93 checks on Quest Pro** and **90 checks in an isolated Windows player**, using real Codex for both example requests. Both compositions survived PC save/clear/restore. See [Quest evidence](../Validation/composition-headset-results.json) and [desktop evidence](../Validation/composition-desktop-results.json). The original user scene was restored after testing. `Validation/Run-Composition-Desktop-Loop.py` provides a reusable isolated desktop runner; it requires `--run` for model calls and edits.
+
 OpenAI documents ChatGPT sign-in as subscription access and states that `codex exec` reuses saved CLI authentication. Usage follows the account's available access and limits. The adapter invokes noninteractive Codex for structured output; credentials remain under Codex's management on the PC. [Authentication](https://learn.chatgpt.com/docs/auth), [noninteractive mode](https://learn.chatgpt.com/docs/non-interactive-mode).
 
 ## White-room sequence

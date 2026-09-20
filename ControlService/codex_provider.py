@@ -81,7 +81,9 @@ def _schema():
     ):
         variants.append(_object({"op": {"type": "string", "enum": [op]}, **fields}))
     return _object({"commands": {"type": "array", "items": {"anyOf": variants}, "maxItems": 20},
-                    "summary": {"type": "string", "maxLength": 800}})
+                    "summary": {"type": "string", "maxLength": 800},
+                    "assumptions": {"type": "array", "maxItems": 8,
+                                    "items": {"type": "string", "minLength": 1, "maxLength": 200}}})
 
 
 def _decode(raw):
@@ -234,7 +236,7 @@ def _parse_result(raw, final):
         proposal = _decode(final.decode("utf-8"))
         if completed != 1 or not isinstance(last_message, str) or _decode(last_message) != proposal:
             raise ValueError()
-        if not isinstance(proposal, dict) or set(proposal) != {"commands", "summary"}:
+        if not isinstance(proposal, dict) or set(proposal) not in ({"commands", "summary"}, {"commands", "summary", "assumptions"}):
             raise ValueError()
         if not isinstance(proposal["commands"], list) or len(proposal["commands"]) > 20:
             raise ValueError()
@@ -242,6 +244,12 @@ def _parse_result(raw, final):
             raise ValueError()
         summary = proposal["summary"]
         if not isinstance(summary, str) or not summary or len(summary) > 800 or any(ord(c) < 32 for c in summary):
+            raise ValueError()
+        assumptions = proposal.get("assumptions", [])
+        if not isinstance(assumptions, list) or len(assumptions) > 8:
+            raise ValueError()
+        if any(not isinstance(item, str) or not item.strip() or len(item) > 200
+               or any(ord(c) < 32 for c in item) for item in assumptions):
             raise ValueError()
         receipt = {"transport": "codex-cli", "completedTurn": True, "usage": usage, "toolCallCount": 0}
         if actual_model is not None:

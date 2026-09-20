@@ -129,6 +129,9 @@ namespace ArSandbox
             Group("History rejection and capacity", CheckHistoryRejectionAndCapacity);
             Group("Application history selection and room lifecycle", CheckApplicationHistory);
             Group("Catalog spawn scale defaults and validation", CheckCatalogScale);
+            Group("Catalog geometry and JSON compatibility", CheckCatalogBounds);
+            Group("Bundled prefab geometry", CheckBundledBounds);
+            Group("Live viewer context", CheckViewerContext);
             Group("Unity JSON wire command compatibility", CheckWireCommands);
 
             report.completedUtc = DateTime.UtcNow.ToString("O");
@@ -606,7 +609,7 @@ namespace ArSandbox
                     JsonUtility.FromJson<PrefabEntry>("{\"assetId\":\"legacy\"}").spawnScale == 0.2f &&
                     JsonUtility.FromJson<AssetInfo>("{\"assetId\":\"legacy\"}").spawnScale == 0.2f &&
                     fixture.world.Capture().assets[0].spawnScale == 0.2f);
-                var entry = new PrefabEntry { assetId = "furniture", displayName = "Furniture", prefab = fixture.source, spawnScale = 1f };
+                var entry = new PrefabEntry { assetId = "furniture", displayName = "Furniture", description = "Front is local -Z.", prefab = fixture.source, spawnScale = 1f };
                 var targets = new[] { new RoomTarget { anchorId = "floor", origin = fixture.anchor } };
                 using (var world = new SandboxWorld("test-room", fixture.root.transform, new[] { entry }, targets))
                 {
@@ -615,6 +618,10 @@ namespace ArSandbox
                     SandboxSnapshot snapshot = world.Capture();
                     snapshot.assets[0].spawnScale = 12f;
                     Check("captured spawn scale cannot mutate registry", world.Capture().assets[0].spawnScale == 1f);
+                    entry.description = "changed";
+                    snapshot.assets[0].description = "changed";
+                    Check("authored catalog descriptions are copied into isolated snapshots",
+                        world.Capture().assets[0].description == "Front is local -Z.");
                 }
                 bool invalidRejected = true;
                 foreach (float scale in new[] { float.NaN, float.PositiveInfinity, 0f, -1f, 20.1f })
@@ -628,6 +635,13 @@ namespace ArSandbox
                     catch (ArgumentException) { }
                 }
                 Check("catalog rejects nonfinite and out of range spawn scales", invalidRejected);
+                entry.spawnScale = 1f;
+                entry.description = new string('x', 501);
+                bool descriptionRejected = false;
+                try { using (var world = new SandboxWorld("test-room", fixture.root.transform, new[] { entry }, targets)) { } }
+                catch (ArgumentException) { descriptionRejected = true; }
+                Check("catalog descriptions respect the 500-character wire limit", descriptionRejected);
+                entry.description = null;
                 var appObject = new GameObject("Catalog spawn validation");
                 appObject.transform.SetParent(fixture.root.transform, false);
                 var app = appObject.AddComponent<SandboxApp>();
@@ -638,6 +652,253 @@ namespace ArSandbox
                 Check("app uses authored scale when spawning selected furniture", app.SelectedAssetScale == 1f &&
                     app.World.TryGetObject(app.SelectedObjectId, out GameObject furniture) && furniture.transform.localScale == Vector3.one);
             }
+        }
+
+        private static void CheckCatalogBounds()
+        {
+            using (var fixture = new Fixture())
+            {
+                Check("meshless catalog entries retain unknown geometry", fixture.world.Capture().assets[0].localBounds == null);
+                string unknownWire = JsonUtility.ToJson(fixture.world.Capture().assets[0]);
+                Check("unknown geometry stays null or empty zero data on the actual Unity JSON wire",
+                    UnknownBounds(JsonUtility.FromJson<AssetInfo>(unknownWire).localBounds));
+                report.checks[report.checks.Count - 1].detail = "Actual unknown-geometry JSON: " + unknownWire;
+                Check("legacy asset JSON without localBounds retains unknown geometry",
+                    UnknownBounds(JsonUtility.FromJson<AssetInfo>("{\"assetId\":\"legacy\",\"displayName\":\"Legacy\"}").localBounds));
+
+                var prefab = new GameObject("Bounds source");
+                prefab.transform.SetParent(fixture.root.transform, false);
+                prefab.transform.localPosition = new Vector3(13f, -7f, 5f);
+                prefab.transform.localRotation = Quaternion.Euler(17f, 31f, 9f);
+                prefab.transform.localScale = new Vector3(2f, 3f, 4f);
+                prefab.SetActive(false); // Spawn activates the root, but preserves descendant active states.
+                var group = new GameObject("Nested geometry").transform;
+                group.SetParent(prefab.transform, false);
+                group.localPosition = new Vector3(2f, 1f, -3f);
+                group.localRotation = Quaternion.Euler(0f, 90f, 0f);
+                group.localScale = new Vector3(2f, 3f, 4f);
+                var part = GameObject.CreatePrimitive(PrimitiveType.Cube);
+                part.transform.SetParent(group, false);
+                part.transform.localPosition = new Vector3(.25f, .5f, -.5f);
+                part.transform.localRotation = Quaternion.Euler(0f, 0f, 90f);
+                part.transform.localScale = new Vector3(-1f, 2f, .5f);
+                var hiddenParent = new GameObject("Inactive geometry");
+                hiddenParent.transform.SetParent(prefab.transform, false);
+                hiddenParent.SetActive(false);
+                var hidden = GameObject.CreatePrimitive(PrimitiveType.Cube);
+                hidden.transform.SetParent(hiddenParent.transform, false);
+                hidden.transform.localPosition = Vector3.one * 50f;
+                var disabled = GameObject.CreatePrimitive(PrimitiveType.Cube);
+                disabled.transform.SetParent(prefab.transform, false);
+                disabled.transform.localPosition = Vector3.one * -50f;
+                disabled.GetComponent<MeshRenderer>().enabled = false;
+                var entries = new[] {
+                    new PrefabEntry { assetId = "geometry", prefab = prefab, spawnScale = 3f },
+                    new PrefabEntry { assetId = "shared", prefab = prefab, spawnScale = .2f }
+                };
+                var targets = new[] { new RoomTarget { anchorId = "floor", origin = fixture.anchor } };
+                var center = new Vector3(0f, 2.5f, -3.5f);
+                var size = new Vector3(2f, 3f, 4f);
+                using (var world = new SandboxWorld("test-room", fixture.root.transform, entries, targets))
+                {
+                    SandboxSnapshot capture = world.Capture();
+                    Check("bounds handle nested rotation nonuniform and mirrored child scale in root coordinates",
+                        BoundsMatch(capture.assets[0].localBounds, center, size));
+                    Check("bounds exclude root pose spawn scale disabled renderers and inactive descendants",
+                        BoundsMatch(capture.assets[1].localBounds, center, size));
+                    string wire = JsonUtility.ToJson(capture);
+                    Check("known bounds survive actual snapshot JSON serialization",
+                        BoundsMatch(JsonUtility.FromJson<SandboxSnapshot>(wire).assets[0].localBounds, center, size));
+                    report.checks[report.checks.Count - 1].detail = "Actual known-geometry JSON: " + JsonUtility.ToJson(capture.assets[0]);
+                    capture.assets[0].localBounds.center.x = 999f;
+                    capture.assets[0].localBounds.size.y = 999f;
+                    Check("captured bounds vectors cannot mutate registry or another shared-prefab entry",
+                        BoundsMatch(world.Capture().assets[0].localBounds, center, size) &&
+                        BoundsMatch(capture.assets[1].localBounds, center, size));
+                    group.localPosition += Vector3.one * 10f;
+                    Check("bounds are cached at registration rather than remeasured during capture",
+                        BoundsMatch(world.Capture().assets[0].localBounds, center, size));
+                    group.localPosition -= Vector3.one * 10f;
+                    var command = new SandboxCommand { op = "spawn", assetId = "geometry", anchorId = "floor", transform = SandboxWorld.DefaultTransform() };
+                    CommandResult spawned = world.Execute(command);
+                    world.TryGetObject(spawned.objectId, out GameObject instance);
+                    Check("geometry metadata does not change the spawn pose or serialized scene schema",
+                        spawned.ok && instance.transform.localScale == Vector3.one && world.Capture().scene.schemaVersion == 1 &&
+                        !JsonUtility.ToJson(world.Capture().scene).Contains("localBounds"));
+                }
+
+                var second = GameObject.CreatePrimitive(PrimitiveType.Cube);
+                second.transform.SetParent(prefab.transform, false);
+                second.transform.localPosition = new Vector3(4f, .5f, 0f);
+                var combinedCenter = new Vector3(1.75f, 2f, -2.5f);
+                var combinedSize = new Vector3(5.5f, 4f, 6f);
+                using (var world = new SandboxWorld("test-room", fixture.root.transform, entries, targets))
+                    Check("new registry combines separated renderers without moving the pivot",
+                        BoundsMatch(world.Capture().assets[0].localBounds, combinedCenter, combinedSize));
+                var procedural = new GameObject("Unsupported procedural renderer");
+                procedural.transform.SetParent(prefab.transform, false);
+                procedural.AddComponent<LineRenderer>();
+                using (var world = new SandboxWorld("test-room", fixture.root.transform, entries, targets))
+                    Check("unsupported visible geometry yields unknown bounds instead of a partial estimate",
+                        world.Capture().assets[0].localBounds == null);
+                procedural.SetActive(false);
+                second.transform.localScale = Vector3.zero;
+                group.gameObject.SetActive(false);
+                using (var world = new SandboxWorld("test-room", fixture.root.transform, entries, targets))
+                    Check("zero-volume geometry is unknown rather than an invalid known size",
+                        world.Capture().assets[0].localBounds == null);
+            }
+        }
+
+        private static void CheckBundledBounds()
+        {
+            // Core-only fixtures need no production assets. White-room builds run
+            // this group after their existing generator creates the seven prefabs.
+            const string path = "Assets/Sandbox/WhiteRoom/Prefabs/";
+            if (!Directory.Exists(path)) return;
+            string[] ids = { "chair", "table", "wall", "pedestal", "block", "orb", "column" };
+            Vector3[] sizes = { new Vector3(.5f, 1.04f, .5f), new Vector3(1.4f, .79f, .8f),
+                new Vector3(2.5f, 2.5f, .12f), new Vector3(.65f, 1f, .65f), Vector3.one,
+                Vector3.one, new Vector3(.55f, 1f, .55f) };
+            using (var fixture = new Fixture())
+            {
+                for (int i = 0; i < ids.Length; i++)
+                {
+                    var prefab = UnityEditor.AssetDatabase.LoadAssetAtPath<GameObject>(path + ids[i] + ".prefab");
+                    if (prefab == null) throw new Exception("Missing bundled bounds fixture: " + ids[i]);
+                    using (var world = new SandboxWorld("test-room", fixture.root.transform,
+                        new[] { new PrefabEntry { assetId = ids[i], prefab = prefab, spawnScale = i < 4 ? 1f : .2f } },
+                        new[] { new RoomTarget { anchorId = "floor", origin = fixture.anchor } }))
+                    {
+                        AssetInfo asset = world.Capture().assets[0];
+                        Check("bundled " + ids[i] + " exposes authored dimensions and bottom-center pivot",
+                            BoundsMatch(asset.localBounds, new Vector3(0f, sizes[i].y / 2f, 0f), sizes[i]));
+                        report.checks[report.checks.Count - 1].detail = JsonUtility.ToJson(asset);
+                    }
+                }
+            }
+        }
+
+        private static bool BoundsMatch(BoundsData value, Vector3 center, Vector3 size)
+        {
+            return value != null && value.center != null && value.size != null &&
+                Vector3.Distance(new Vector3(value.center.x, value.center.y, value.center.z), center) < .0001f &&
+                Vector3.Distance(new Vector3(value.size.x, value.size.y, value.size.z), size) < .0001f;
+        }
+
+        private static bool UnknownBounds(BoundsData value)
+        {
+            return value == null || (ZeroVector(value.center) && ZeroVector(value.size));
+        }
+
+        private static bool ZeroVector(Float3 value)
+        {
+            return value == null || (value.x == 0f && value.y == 0f && value.z == 0f);
+        }
+
+        private static void CheckViewerContext()
+        {
+            using (var fixture = new Fixture())
+            {
+                var appObject = new GameObject("Viewer context validation");
+                appObject.transform.SetParent(fixture.root.transform, false);
+                var app = appObject.AddComponent<SandboxApp>();
+                app.prefabs = new[] { new PrefabEntry { assetId = "cube", prefab = fixture.source } };
+                var targets = new[] { new RoomTarget { anchorId = "floor", origin = fixture.anchor },
+                    new RoomTarget { anchorId = "table", origin = fixture.secondAnchor } };
+                app.InitializeWorld("test-room", targets);
+                Check("a room without a published viewer pose reports unknown viewer context", app.CaptureViewer() == null);
+                fixture.room.position = new Vector3(5f, 1f, -7f);
+                fixture.room.rotation = Quaternion.Euler(0f, 90f, 0f);
+                fixture.room.localScale = new Vector3(2f, 3f, 4f);
+                Vector3 worldPosition = fixture.anchor.TransformPoint(new Vector3(1f, 1.6f, 2f));
+                Vector3 worldForward = fixture.anchor.TransformVector(new Vector3(1f, .3f, 2f));
+                app.SetPlacement("floor", new Vector3(7f, 0f, 8f));
+                string selectedAnchor = app.SelectedAnchorId;
+                Vector3 placement = app.Placement;
+                string scene = JsonUtility.ToJson(app.World.Capture().scene);
+                app.SetViewerPose(worldPosition, worldForward);
+                ViewerData viewer = app.CaptureViewer();
+                Check("viewer eye position uses translated rotated and scaled anchor-local units",
+                    viewer != null && viewer.frames.Count == 2 && viewer.frames[0].anchorId == "floor" &&
+                    Near(viewer.frames[0].position, new Vector3(1f, 1.6f, 2f)));
+                Check("each horizontal placement anchor receives its own viewer position",
+                    viewer.frames[1].anchorId == "table" && Near(viewer.frames[1].position, new Vector3(-1f, .8f, 3f)));
+                Check("viewer heading is horizontal and normalized in the anchor frame",
+                    Near(viewer.frames[0].forward, new Vector3(1f, 0f, 2f).normalized));
+                Check("publishing viewer context does not move placement or change portable scene state",
+                    app.SelectedAnchorId == selectedAnchor && app.Placement == placement && JsonUtility.ToJson(app.World.Capture().scene) == scene);
+                viewer.frames[0].position.x = 999f;
+                viewer.frames[1].forward.z = 999f;
+                viewer.frames.RemoveAt(1);
+                Check("viewer snapshots do not share mutable frames or vectors",
+                    app.CaptureViewer().frames.Count == 2 && Near(app.CaptureViewer().frames[0].position, new Vector3(1f, 1.6f, 2f)));
+                SandboxSnapshot wireSnapshot = app.World.Capture();
+                wireSnapshot.viewer = app.CaptureViewer();
+                Check("live viewer context survives actual snapshot JSON serialization",
+                    Near(JsonUtility.FromJson<SandboxSnapshot>(JsonUtility.ToJson(wireSnapshot)).viewer.frames[0].forward,
+                        new Vector3(1f, 0f, 2f).normalized));
+                Check("world snapshots and portable scene JSON do not restore a live viewer pose",
+                    app.World.Capture().viewer == null && !JsonUtility.ToJson(wireSnapshot.scene).Contains("viewer"));
+                app.ClearViewerPose();
+                Check("clearing viewer pose removes previously valid context", app.CaptureViewer() == null);
+
+                bool invalidRejected = true;
+                foreach (Vector3 direction in new[] { Vector3.zero, Vector3.up, new Vector3(.0001f, 1f, 0f),
+                    new Vector3(float.NaN, 0f, 1f), new Vector3(0f, 0f, float.PositiveInfinity) })
+                {
+                    app.SetViewerPose(worldPosition, worldForward);
+                    app.SetViewerPose(worldPosition, direction);
+                    invalidRejected &= app.CaptureViewer() == null;
+                }
+                app.SetViewerPose(new Vector3(float.NaN, 0f, 0f), worldForward);
+                invalidRejected &= app.CaptureViewer() == null;
+                Check("invalid positions and missing or near-vertical gaze clear viewer context", invalidRejected);
+                app.SetViewerPose(worldPosition, worldForward);
+                fixture.anchor.gameObject.SetActive(false);
+                Check("inactive anchors are excluded without discarding valid horizontal frames",
+                    app.CaptureViewer().frames.Count == 1 && app.CaptureViewer().frames[0].anchorId == "table");
+                fixture.secondAnchor.localRotation = Quaternion.Euler(0f, 0f, 90f);
+                Check("no available horizontal frames means unknown viewer context", app.CaptureViewer() == null);
+                fixture.anchor.gameObject.SetActive(true);
+                fixture.secondAnchor.localRotation = Quaternion.identity;
+                fixture.anchor.localScale = Vector3.zero;
+                fixture.secondAnchor.localPosition = Vector3.one * 100000f;
+                Check("singular and excessively distant anchor frames are excluded", app.CaptureViewer() == null);
+                fixture.anchor.localScale = Vector3.one;
+                fixture.secondAnchor.localPosition = new Vector3(2f, .8f, -1f);
+                app.RoomReloading = true;
+                Check("room reload suppresses viewer context immediately", app.CaptureViewer() == null);
+                app.RoomReloading = false;
+                app.InitializeWorld("test-room", targets);
+                Check("room reinitialization discards the previous room's viewer pose", app.CaptureViewer() == null);
+                app.SetViewerPose(worldPosition, worldForward);
+                app.enabled = false;
+                bool disabledUnknown = app.CaptureViewer() == null;
+                app.SetViewerPose(worldPosition, worldForward);
+                app.enabled = true;
+                Check("disabled app suppresses viewer context and rejects pose publication", disabledUnknown && app.CaptureViewer() == null);
+                app.SetViewerPose(worldPosition, worldForward);
+                System.Threading.Thread.Sleep(1100); // Exercise real unscaled freshness without exposing a mutable test clock.
+                Check("viewer poses expire after one real second even without another publisher update", app.CaptureViewer() == null);
+                app.SetViewerPose(worldPosition, worldForward);
+                app.InvalidateRoom("Validation invalidation");
+                Check("room invalidation clears viewer context", app.CaptureViewer() == null);
+                SandboxSnapshot missing = fixture.world.Capture();
+                string nullWire = JsonUtility.ToJson(missing);
+                // Match the actual bridge: null app pose becomes explicit empty frames.
+                missing.viewer = app.CaptureViewer() ?? new ViewerData();
+                string unknownWire = JsonUtility.ToJson(missing);
+                ViewerData decoded = JsonUtility.FromJson<SandboxSnapshot>(unknownWire).viewer;
+                Check("unknown viewer is explicit empty frames on the actual bridge JSON wire",
+                    decoded != null && decoded.frames != null && decoded.frames.Count == 0 && unknownWire.Contains("\"viewer\":{\"frames\":[]}"));
+                report.checks[report.checks.Count - 1].detail = "Raw null-viewer JSON: " + nullWire + "\nActual bridge unknown-viewer JSON: " + unknownWire;
+            }
+        }
+
+        private static bool Near(Float3 actual, Vector3 expected)
+        {
+            return actual != null && Vector3.Distance(new Vector3(actual.x, actual.y, actual.z), expected) < .0001f;
         }
 
         private static void CheckWireCommands()

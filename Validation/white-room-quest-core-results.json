@@ -1,9 +1,9 @@
 {
-  "startedUtc": "2026-09-20T20:23:05.422084Z",
-  "completedUtc": "2026-09-20T20:23:05.4936606Z",
+  "startedUtc": "2026-09-20T21:47:56.6221006Z",
+  "completedUtc": "2026-09-20T21:47:57.8210276Z",
   "unityVersion": "6000.6.0f1",
   "projectPath": "<repository>/.white-room-fixture/Quest",
-  "passed": 129,
+  "passed": 169,
   "failed": 0,
   "checks": [
     {
@@ -622,7 +622,17 @@
       "detail": ""
     },
     {
+      "name": "authored catalog descriptions are copied into isolated snapshots",
+      "passed": true,
+      "detail": ""
+    },
+    {
       "name": "catalog rejects nonfinite and out of range spawn scales",
+      "passed": true,
+      "detail": ""
+    },
+    {
+      "name": "catalog descriptions respect the 500-character wire limit",
       "passed": true,
       "detail": ""
     },
@@ -630,6 +640,196 @@
       "name": "app uses authored scale when spawning selected furniture",
       "passed": true,
       "detail": ""
+    },
+    {
+      "name": "meshless catalog entries retain unknown geometry",
+      "passed": true,
+      "detail": ""
+    },
+    {
+      "name": "unknown geometry stays null or empty zero data on the actual Unity JSON wire",
+      "passed": true,
+      "detail": "Actual unknown-geometry JSON: {\"assetId\":\"cube\",\"displayName\":\"Cube\",\"description\":\"\",\"spawnScale\":0.20000000298023224,\"localBounds\":{\"center\":{\"x\":0.0,\"y\":0.0,\"z\":0.0},\"size\":{\"x\":0.0,\"y\":0.0,\"z\":0.0}}}"
+    },
+    {
+      "name": "legacy asset JSON without localBounds retains unknown geometry",
+      "passed": true,
+      "detail": ""
+    },
+    {
+      "name": "bounds handle nested rotation nonuniform and mirrored child scale in root coordinates",
+      "passed": true,
+      "detail": ""
+    },
+    {
+      "name": "bounds exclude root pose spawn scale disabled renderers and inactive descendants",
+      "passed": true,
+      "detail": ""
+    },
+    {
+      "name": "known bounds survive actual snapshot JSON serialization",
+      "passed": true,
+      "detail": "Actual known-geometry JSON: {\"assetId\":\"geometry\",\"displayName\":\"geometry\",\"description\":\"\",\"spawnScale\":3.0,\"localBounds\":{\"center\":{\"x\":-2.384185791015625e-7,\"y\":2.499999523162842,\"z\":-3.499999761581421},\"size\":{\"x\":2.0000009536743164,\"y\":3.000000476837158,\"z\":4.000001430511475}}}"
+    },
+    {
+      "name": "captured bounds vectors cannot mutate registry or another shared-prefab entry",
+      "passed": true,
+      "detail": ""
+    },
+    {
+      "name": "bounds are cached at registration rather than remeasured during capture",
+      "passed": true,
+      "detail": ""
+    },
+    {
+      "name": "geometry metadata does not change the spawn pose or serialized scene schema",
+      "passed": true,
+      "detail": ""
+    },
+    {
+      "name": "new registry combines separated renderers without moving the pivot",
+      "passed": true,
+      "detail": ""
+    },
+    {
+      "name": "unsupported visible geometry yields unknown bounds instead of a partial estimate",
+      "passed": true,
+      "detail": ""
+    },
+    {
+      "name": "zero-volume geometry is unknown rather than an invalid known size",
+      "passed": true,
+      "detail": ""
+    },
+    {
+      "name": "bundled chair exposes authored dimensions and bottom-center pivot",
+      "passed": true,
+      "detail": "{\"assetId\":\"chair\",\"displayName\":\"chair\",\"description\":\"\",\"spawnScale\":1.0,\"localBounds\":{\"center\":{\"x\":0.0,\"y\":0.5199999809265137,\"z\":0.0},\"size\":{\"x\":0.5,\"y\":1.0399999618530273,\"z\":0.5}}}"
+    },
+    {
+      "name": "bundled table exposes authored dimensions and bottom-center pivot",
+      "passed": true,
+      "detail": "{\"assetId\":\"table\",\"displayName\":\"table\",\"description\":\"\",\"spawnScale\":1.0,\"localBounds\":{\"center\":{\"x\":0.0,\"y\":0.39500001072883606,\"z\":0.0},\"size\":{\"x\":1.399999976158142,\"y\":0.7900000214576721,\"z\":0.800000011920929}}}"
+    },
+    {
+      "name": "bundled wall exposes authored dimensions and bottom-center pivot",
+      "passed": true,
+      "detail": "{\"assetId\":\"wall\",\"displayName\":\"wall\",\"description\":\"\",\"spawnScale\":1.0,\"localBounds\":{\"center\":{\"x\":0.0,\"y\":1.25,\"z\":0.0},\"size\":{\"x\":2.5,\"y\":2.5,\"z\":0.11999999731779099}}}"
+    },
+    {
+      "name": "bundled pedestal exposes authored dimensions and bottom-center pivot",
+      "passed": true,
+      "detail": "{\"assetId\":\"pedestal\",\"displayName\":\"pedestal\",\"description\":\"\",\"spawnScale\":1.0,\"localBounds\":{\"center\":{\"x\":0.0,\"y\":0.5,\"z\":0.0},\"size\":{\"x\":0.6499999761581421,\"y\":1.0,\"z\":0.6499999761581421}}}"
+    },
+    {
+      "name": "bundled block exposes authored dimensions and bottom-center pivot",
+      "passed": true,
+      "detail": "{\"assetId\":\"block\",\"displayName\":\"block\",\"description\":\"\",\"spawnScale\":0.20000000298023224,\"localBounds\":{\"center\":{\"x\":0.0,\"y\":0.5,\"z\":0.0},\"size\":{\"x\":1.0,\"y\":1.0,\"z\":1.0}}}"
+    },
+    {
+      "name": "bundled orb exposes authored dimensions and bottom-center pivot",
+      "passed": true,
+      "detail": "{\"assetId\":\"orb\",\"displayName\":\"orb\",\"description\":\"\",\"spawnScale\":0.20000000298023224,\"localBounds\":{\"center\":{\"x\":0.0,\"y\":0.5,\"z\":0.0},\"size\":{\"x\":1.0,\"y\":1.0,\"z\":1.0}}}"
+    },
+    {
+      "name": "bundled column exposes authored dimensions and bottom-center pivot",
+      "passed": true,
+      "detail": "{\"assetId\":\"column\",\"displayName\":\"column\",\"description\":\"\",\"spawnScale\":0.20000000298023224,\"localBounds\":{\"center\":{\"x\":2.9802322387695313e-8,\"y\":0.5,\"z\":-5.960464477539063e-8},\"size\":{\"x\":0.5500000715255737,\"y\":1.0,\"z\":0.5500001311302185}}}"
+    },
+    {
+      "name": "a room without a published viewer pose reports unknown viewer context",
+      "passed": true,
+      "detail": ""
+    },
+    {
+      "name": "viewer eye position uses translated rotated and scaled anchor-local units",
+      "passed": true,
+      "detail": ""
+    },
+    {
+      "name": "each horizontal placement anchor receives its own viewer position",
+      "passed": true,
+      "detail": ""
+    },
+    {
+      "name": "viewer heading is horizontal and normalized in the anchor frame",
+      "passed": true,
+      "detail": ""
+    },
+    {
+      "name": "publishing viewer context does not move placement or change portable scene state",
+      "passed": true,
+      "detail": ""
+    },
+    {
+      "name": "viewer snapshots do not share mutable frames or vectors",
+      "passed": true,
+      "detail": ""
+    },
+    {
+      "name": "live viewer context survives actual snapshot JSON serialization",
+      "passed": true,
+      "detail": ""
+    },
+    {
+      "name": "world snapshots and portable scene JSON do not restore a live viewer pose",
+      "passed": true,
+      "detail": ""
+    },
+    {
+      "name": "clearing viewer pose removes previously valid context",
+      "passed": true,
+      "detail": ""
+    },
+    {
+      "name": "invalid positions and missing or near-vertical gaze clear viewer context",
+      "passed": true,
+      "detail": ""
+    },
+    {
+      "name": "inactive anchors are excluded without discarding valid horizontal frames",
+      "passed": true,
+      "detail": ""
+    },
+    {
+      "name": "no available horizontal frames means unknown viewer context",
+      "passed": true,
+      "detail": ""
+    },
+    {
+      "name": "singular and excessively distant anchor frames are excluded",
+      "passed": true,
+      "detail": ""
+    },
+    {
+      "name": "room reload suppresses viewer context immediately",
+      "passed": true,
+      "detail": ""
+    },
+    {
+      "name": "room reinitialization discards the previous room's viewer pose",
+      "passed": true,
+      "detail": ""
+    },
+    {
+      "name": "disabled app suppresses viewer context and rejects pose publication",
+      "passed": true,
+      "detail": ""
+    },
+    {
+      "name": "viewer poses expire after one real second even without another publisher update",
+      "passed": true,
+      "detail": ""
+    },
+    {
+      "name": "room invalidation clears viewer context",
+      "passed": true,
+      "detail": ""
+    },
+    {
+      "name": "unknown viewer is explicit empty frames on the actual bridge JSON wire",
+      "passed": true,
+      "detail": "Raw null-viewer JSON: {\"scene\":{\"schemaVersion\":1,\"roomId\":\"test-room\",\"objects\":[]},\"assets\":[{\"assetId\":\"cube\",\"displayName\":\"Cube\",\"description\":\"\",\"spawnScale\":0.20000000298023224,\"localBounds\":{\"center\":{\"x\":0.0,\"y\":0.0,\"z\":0.0},\"size\":{\"x\":0.0,\"y\":0.0,\"z\":0.0}}},{\"assetId\":\"sphere\",\"displayName\":\"Sphere\",\"description\":\"\",\"spawnScale\":0.20000000298023224,\"localBounds\":{\"center\":{\"x\":0.0,\"y\":0.0,\"z\":0.0},\"size\":{\"x\":0.0,\"y\":0.0,\"z\":0.0}}}],\"anchors\":[{\"anchorId\":\"floor\",\"displayName\":\"Floor\"},{\"anchorId\":\"table\",\"displayName\":\"Table\"}],\"selection\":{\"anchorId\":\"\",\"objectId\":\"\",\"position\":{\"x\":0.0,\"y\":0.0,\"z\":0.0}},\"viewer\":{\"frames\":[]}}\nActual bridge unknown-viewer JSON: {\"scene\":{\"schemaVersion\":1,\"roomId\":\"test-room\",\"objects\":[]},\"assets\":[{\"assetId\":\"cube\",\"displayName\":\"Cube\",\"description\":\"\",\"spawnScale\":0.20000000298023224,\"localBounds\":{\"center\":{\"x\":0.0,\"y\":0.0,\"z\":0.0},\"size\":{\"x\":0.0,\"y\":0.0,\"z\":0.0}}},{\"assetId\":\"sphere\",\"displayName\":\"Sphere\",\"description\":\"\",\"spawnScale\":0.20000000298023224,\"localBounds\":{\"center\":{\"x\":0.0,\"y\":0.0,\"z\":0.0},\"size\":{\"x\":0.0,\"y\":0.0,\"z\":0.0}}}],\"anchors\":[{\"anchorId\":\"floor\",\"displayName\":\"Floor\"},{\"anchorId\":\"table\",\"displayName\":\"Table\"}],\"selection\":{\"anchorId\":\"\",\"objectId\":\"\",\"position\":{\"x\":0.0,\"y\":0.0,\"z\":0.0}},\"viewer\":{\"frames\":[]}}"
     },
     {
       "name": "wire select accepts Unity defaults for omitted fields",

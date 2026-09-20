@@ -183,7 +183,7 @@ class ServiceTests(unittest.TestCase):
             provider["choices"][0]["message"]["content"] = json.dumps({"commands": [{"op": "spawn", "assetId": "invented", "anchorId": "floor", "transform": TRANSFORM}]})
             self.assertEqual(self.request("/api/plan", {"text": "Add a cube", "mode": "openai-compatible"})[0], 422)
             provider["choices"][0]["message"]["content"] = json.dumps({"commands": []})
-            self.assertEqual(self.request("/api/plan", {"text": "Move it here", "mode": "openai-compatible"})[0], 422)
+            self.assertEqual(self.request("/api/plan", {"text": "Move it here", "mode": "openai-compatible"})[0], 502)
             self.assertEqual(self.request("/api/state")[1]["pendingCount"], 0)
 
     def test_explicit_offline_rules_ignore_configured_provider(self):

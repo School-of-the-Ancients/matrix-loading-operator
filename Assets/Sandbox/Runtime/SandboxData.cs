@@ -49,11 +49,24 @@ namespace ArSandbox
     }
 
     [Serializable]
+    public sealed class BoundsData
+    {
+        // Metres in prefab-root coordinates at scale (1,1,1), before object rotation.
+        // The root pivot is (0,0,0); center need not coincide with that pivot.
+        public Float3 center;
+        public Float3 size;
+    }
+
+    [Serializable]
     public sealed class AssetInfo
     {
         public string assetId;
         public string displayName;
+        public string description = "";
         public float spawnScale = 0.2f;
+        // Optional static render bounds. Unknown geometry is null; JsonUtility may
+        // materialize that as an all-zero inline object, never a known positive size.
+        public BoundsData localBounds;
     }
 
     [Serializable]
@@ -64,12 +77,30 @@ namespace ArSandbox
     }
 
     [Serializable]
+    public sealed class ViewerFrame
+    {
+        public string anchorId;
+        // Eye/camera position in anchor-local units, including height above its plane.
+        public Float3 position;
+        // Horizontal, normalized direction in the same frame; y is always zero.
+        public Float3 forward;
+    }
+
+    [Serializable]
+    public sealed class ViewerData
+    {
+        public List<ViewerFrame> frames = new List<ViewerFrame>();
+    }
+
+    [Serializable]
     public sealed class SandboxSnapshot
     {
         public SceneData scene;
         public List<AssetInfo> assets;
         public List<AnchorInfo> anchors;
         public SelectionData selection;
+        // Live context only. Never part of SceneData or a source for restoring viewer pose.
+        public ViewerData viewer;
     }
 
     [Serializable]
@@ -122,6 +153,7 @@ namespace ArSandbox
     {
         public string assetId;
         public string displayName;
+        public string description = "";
         public float spawnScale = 0.2f;
         public GameObject prefab;
     }

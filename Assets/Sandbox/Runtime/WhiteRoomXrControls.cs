@@ -153,6 +153,16 @@ namespace ArSandbox
             }
         }
 
+        private void LateUpdate()
+        {
+            if (app == null) return;
+            // Viewer context depends on tracked head pose, never on controller availability.
+            if (floorReady && Application.isFocused && headCamera != null && headCamera.isActiveAndEnabled &&
+                Tracked(InputSystem.GetDevice<XRHMD>()))
+                app.SetViewerPose(headCamera.transform.position, headCamera.transform.forward);
+            else app.ClearViewerPose();
+        }
+
         private RoomTarget FindFloor()
         {
             foreach (var target in app.Targets)
@@ -196,7 +206,13 @@ namespace ArSandbox
             rect.anchorMin = Vector2.zero; rect.anchorMax = Vector2.one;
             rect.offsetMin = Vector2.zero; rect.offsetMax = Vector2.zero;
         }
-        private void OnDisable() { armed = leftArmed = false; moveLatched = editLatched = true; if (pointer != null) pointer.enabled = false; }
+        private void OnDisable()
+        {
+            armed = leftArmed = false; moveLatched = editLatched = true;
+            if (pointer != null) pointer.enabled = false;
+            if (app != null) app.ClearViewerPose();
+        }
+        private void OnApplicationFocus(bool focused) { if (!focused && app != null) app.ClearViewerPose(); }
         private void OnDestroy()
         {
             if (pointer != null) Destroy(pointer.gameObject);

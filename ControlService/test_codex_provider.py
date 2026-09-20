@@ -92,6 +92,33 @@ class EventTests(unittest.TestCase):
         self.assertEqual(result["receipt"]["model"], "reported-model")
         self.assertNotIn("private reasoning", json.dumps(result))
 
+    def test_explicit_assumptions_survive_with_completed_inference_receipt(self):
+        proposal = {**PROPOSAL, "assumptions": ["The selected floor point is the layout center.",
+                                              "Keep all existing objects in place."]}
+        result = self.parse(events(proposal), json.dumps(proposal).encode())
+        self.assertEqual(result["proposal"], proposal)
+        self.assertTrue(result["receipt"]["completedTurn"])
+
+    def test_empty_commands_retain_model_clarification_without_becoming_commands(self):
+        proposal = {"commands": [], "summary": "Which of the two floor anchors should hold the arrangement?",
+                    "assumptions": []}
+        result = self.parse(events(proposal), json.dumps(proposal).encode())
+        self.assertEqual(result["proposal"], proposal)
+        self.assertTrue(result["receipt"]["completedTurn"])
+
+    def test_assumptions_are_bounded_strings_and_unknown_fields_are_rejected(self):
+        for assumptions in (None, "guess", {}, [False], [1], [None], [""], [" "], ["x\ny"], ["x" * 201], ["x"] * 9):
+            with self.subTest(assumptions=assumptions):
+                proposal = {**PROPOSAL, "assumptions": assumptions}
+                with self.assertRaises(CodexProviderError):
+                    self.parse(events(proposal), json.dumps(proposal).encode())
+        proposal = {**PROPOSAL, "assumptions": ["x" * 200] * 8}
+        self.assertEqual(self.parse(events(proposal), json.dumps(proposal).encode())["proposal"], proposal)
+        for extra in ("status", "planId", "requiresApply", "geometry", "toolCalls"):
+            proposal = {**PROPOSAL, "assumptions": [], extra: "untrusted"}
+            with self.assertRaises(CodexProviderError):
+                self.parse(events(proposal), json.dumps(proposal).encode())
+
     def test_rejects_every_tool_type_file_change_and_unknown_event(self):
         for item_type in ("command_execution", "file_change", "mcp_tool_call", "web_search", "tool_call",
                           "collab_tool_call", "image_generation", "todo_list", "new_future_tool"):
@@ -228,7 +255,12 @@ class PlanningTests(NativeConfigTestCase):
             run.assert_not_called()
 
     def test_schema_contains_only_existing_operations(self):
-        variants = provider._schema()["properties"]["commands"]["items"]["anyOf"]
+        schema = provider._schema()
+        self.assertEqual(set(schema["required"]), {"commands", "summary", "assumptions"})
+        assumptions = schema["properties"]["assumptions"]
+        self.assertEqual(assumptions["maxItems"], 8)
+        self.assertEqual(assumptions["items"], {"type": "string", "minLength": 1, "maxLength": 200})
+        variants = schema["properties"]["commands"]["items"]["anyOf"]
         self.assertEqual({entry["properties"]["op"]["enum"][0] for entry in variants},
                          {"spawn", "set_transform", "select", "duplicate", "delete", "clear", "undo", "redo",
                           "get_scene", "list_assets", "list_targets", "save_scene", "load_scene"})
