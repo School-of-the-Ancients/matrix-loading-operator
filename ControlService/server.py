@@ -21,6 +21,7 @@ import urllib.request
 import uuid
 
 from ai_adapter import Planner, PlannerError
+from learning import LearningBridge, LearningError, identifier
 
 MAX_BODY = 1024 * 1024
 MAX_OBJECTS = 100
@@ -168,7 +169,7 @@ def loopback(host):
 
 
 class State:
-    def __init__(self, directory, clock=time.monotonic):
+    def __init__(self, directory, clock=time.monotonic, learning=None):
         self.directory = Path(directory)
         self.directory.mkdir(parents=True, exist_ok=True)
         self.clock = clock
@@ -180,6 +181,7 @@ class State:
         self.results = collections.deque(maxlen=100)
         self.revision = 0
         self.proposals = collections.OrderedDict()
+        self.learning = learning
 
     def online(self):
         return self.client_id is not None and self.clock() - self.last_seen < LEASE_SECONDS
@@ -188,7 +190,7 @@ class State:
         if self.client_id is not None and not self.online():
             for request_id in self.pending:
                 self.results.append({"requestId": request_id, "ok": False,
-                                     "error": "Client lease expired; command cancelled", "objectId": ""})
+                                     "error": "Client lease expired; command outcome unknown", "objectId": ""})
             self.pending.clear()
             self.proposals.clear()
             self.revision += 1
@@ -217,7 +219,13 @@ class State:
             if self.latest != current:
                 self.revision += 1
             self.latest = current
-            return {"commands": copy.deepcopy(list(self.pending.values()))}
+            response = {"commands": copy.deepcopy(list(self.pending.values()))}
+            if self.learning:
+                self.learning.restore_after_ack(self)
+                guide = self.learning.guide(self)
+                if guide is not None:
+                    response["lesson"] = guide
+            return response
 
     def queue(self, raw_commands):
         require(isinstance(raw_commands, list) and 0 < len(raw_commands) <= MAX_BATCH,
@@ -225,6 +233,7 @@ class State:
         checked = [command(item) for item in raw_commands]
         with self.lock:
             self.expire()
+            require(not self.learning or not self.learning.restore, "Finish the pending lesson restore before editing", 409)
             require(self.online(), "Headset client is offline", 409)
             require(len(self.pending) + len(checked) <= MAX_PENDING, "Command queue full", 409)
             for item in checked:
@@ -255,7 +264,13 @@ class State:
             self.expire()
             require(self.online() and self.latest is not None, "Headset client is offline", 409)
             require(not self.pending, "Wait for all queued commands to finish before saving", 409)
-            data = json.dumps(self.latest, ensure_ascii=False, allow_nan=False, indent=2).encode("utf-8")
+            saved = copy.deepcopy(self.latest)
+            if self.learning:
+                require(not self.learning.restore, "Finish the pending lesson restore before saving", 409)
+                checkpoint = self.learning.checkpoint(self)
+                if checkpoint is not None:
+                    saved["learningCheckpoint"] = checkpoint
+            data = json.dumps(saved, ensure_ascii=False, allow_nan=False, indent=2).encode("utf-8")
             require(len(data) <= MAX_BODY, "Scene exceeds save size limit", 413)
             tmp = None
             try:
@@ -271,14 +286,38 @@ class State:
                     os.unlink(tmp)
             return {"name": name, "saved": True}
 
-    def load(self, name):
+    def load(self, name, request_id=None):
         target = self.path(name)
         require(target.is_file(), "Scene not found", 404)
         with target.open("rb") as handle:
             data = handle.read(MAX_BODY + 1)
         require(len(data) <= MAX_BODY, "Saved scene exceeds size limit", 413)
-        saved = snapshot(parse_json(data))
-        return self.queue([{"op": "load", "scene": saved["scene"]}])
+        document = parse_json(data)
+        saved = snapshot(document)
+        with self.lock:
+            if self.learning:
+                request_id = identifier(request_id or uuid.uuid4().hex, "requestId")
+                prior = self.learning.restore_receipts.get(request_id)
+                if prior:
+                    require(prior["name"] == name, "requestId already used for another load", 409)
+                    return copy.deepcopy(prior["response"])
+                require(not self.pending, "Wait for room commands before loading", 409)
+                require(not self.learning.restore, "Finish or dismiss the pending restore first", 409)
+                checkpoint_id = self.learning.prepare_restore(document)
+            else:
+                require("learningCheckpoint" not in document, "Learning adapter is required to restore this scene", 503)
+            response = self.queue([{"op": "load", "scene": saved["scene"]}])
+            if self.learning:
+                # Scene-only loads with no active lesson need no checkpoint barrier.
+                # In particular, a rejected load must not lock ordinary editing behind learning recovery.
+                if checkpoint_id is not None or self.learning.session is not None:
+                    self.learning.restore = {"commandId": response["commands"][0]["requestId"],
+                                             "checkpointId": checkpoint_id, "requestId": request_id,
+                                             "scene": copy.deepcopy(saved["scene"])}
+                self.learning.restore_receipts[request_id] = {"name": name, "response": copy.deepcopy(response)}
+                if len(self.learning.restore_receipts) > 128:
+                    del self.learning.restore_receipts[next(iter(self.learning.restore_receipts))]
+            return response
 
     def scenes(self):
         return {"scenes": sorted(p.stem for p in self.directory.glob("*.json")
@@ -393,8 +432,12 @@ class Handler(BaseHTTPRequestHandler):
         try:
             self.validate_host()
             path = urllib.parse.urlsplit(self.path).path
-            if path == "/" and loopback(self.client_address[0]):
-                self.send_data(200, Path(__file__).with_name("index.html").read_bytes(), "text/html; charset=utf-8")
+            if path in ("/", "/learning") and loopback(self.client_address[0]):
+                page = "index.html" if path == "/" else "learning.html"
+                self.send_data(200, Path(__file__).with_name(page).read_bytes(), "text/html; charset=utf-8")
+                return
+            if path == "/learning-ui.js" and loopback(self.client_address[0]):
+                self.send_data(200, Path(__file__).with_name("learning-ui.js").read_bytes(), "text/javascript; charset=utf-8")
                 return
             self.authenticate()
             if path == "/api/state":
@@ -403,12 +446,21 @@ class Handler(BaseHTTPRequestHandler):
                 data = self.server.state.scenes()
             elif path == "/api/planner":
                 data = Planner().public_status()
+            elif path in ("/api/lessons", "/api/learning"):
+                require(self.server.state.learning is not None, "Learning adapter unavailable", 503)
+                if path == "/api/lessons":
+                    with self.server.state.lock:
+                        data = self.server.state.learning.catalog()
+                else:
+                    with self.server.state.lock:
+                        self.server.state.expire()
+                        data = self.server.state.learning.status(self.server.state)
             elif path == "/api/health":
                 data = {"ok": True}
             else:
                 raise APIError(404, "Not found")
             self.send_data(200, data)
-        except APIError as error:
+        except (APIError, LearningError) as error:
             self.send_data(error.status, {"error": str(error)})
         except PlannerError as error:
             self.send_data(error.status, {"error": str(error)})
@@ -441,15 +493,30 @@ class Handler(BaseHTTPRequestHandler):
             elif path == "/api/save":
                 data = state.save(body.get("name"))
             elif path == "/api/load":
-                data = state.load(body.get("name"))
+                data = state.load(body.get("name"), body.get("requestId"))
             elif path == "/api/plan":
                 data = plan(state, body)
             elif path == "/api/apply_plan":
                 data = state.apply_plan(body.get("planId"))
+            elif path.startswith("/api/learning/"):
+                require(state.learning is not None, "Learning adapter unavailable", 503)
+                if path == "/api/learning/start":
+                    data = state.learning.start(state, body)
+                elif path == "/api/learning/action":
+                    data = state.learning.act(state, body)
+                elif path == "/api/learning/retry_restore":
+                    data = state.learning.retry_restore(state)
+                elif path == "/api/learning/dismiss_restore":
+                    with state.lock:
+                        require(state.learning.restore and state.learning.restore.get("failed"), "Only an unconfirmed room restore can be dismissed", 409)
+                        state.learning.restore = None
+                        data = state.learning.status(state)
+                else:
+                    raise APIError(404, "Not found")
             else:
                 raise APIError(404, "Not found")
             self.send_data(200, data)
-        except APIError as error:
+        except (APIError, LearningError) as error:
             self.send_data(error.status, {"error": str(error)})
         except (OSError, ValueError, RecursionError):
             self.send_data(500, {"error": "Service I/O error"})
@@ -462,8 +529,8 @@ def main():
     parser.add_argument("--scenes", type=Path, default=Path(__file__).with_name("scenes"))
     args = parser.parse_args()
     try:
-        server = Server((args.host, args.port), State(args.scenes), os.environ.get("SANDBOX_TOKEN", ""))
-    except (APIError, OSError) as error:
+        server = Server((args.host, args.port), State(args.scenes, learning=LearningBridge()), os.environ.get("SANDBOX_TOKEN", ""))
+    except (APIError, LearningError, OSError) as error:
         parser.error(str(error))
     print(f"AR Sandbox service listening on {args.host}:{server.server_port}; Ctrl+C to stop.")
     try:

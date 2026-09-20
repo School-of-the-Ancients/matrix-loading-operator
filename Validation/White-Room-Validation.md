@@ -6,8 +6,8 @@ This report concerns the fully virtual Matrix Operator. Earlier prototype report
 | --- | --- | --- |
 | Unity desktop core/application checks | **129 passed, 0 failed** | Real Unity Editor execution, including wire deserialization and history |
 | Unity Android core/application checks | **129 passed, 0 failed** | Executed during the final Android build |
-| Windows player integration | **84 passed, 0 failed** | Actual Unity players exchange state with the PC HTTP service |
-| PC HTTP service + language adapter | **68 passed, 0 failed** | Includes mock-provider transport; no live model claim |
+| Windows player integration | **95 passed, 0 failed** | Actual Unity players use the production service CLI; optional learning core unavailable |
+| PC HTTP service + language/learning adapters | **99 passed, 0 failed** | Includes mock-provider transport and restore recovery; no live model claim |
 | Browser controls | Passed the flows below | Real page and actual Windows player |
 | Arranged Editor gallery preview | Rendered and visually inspected | Seven actual prefabs, floor contact and camera bounds checked; startup scene remains empty |
 | Desktop build | Produced `Builds/WhiteRoomDesktop/MatrixOperator.exe` | Desktop control visuals and physical input are not covered by headless integration tests |
@@ -17,9 +17,11 @@ This report concerns the fully virtual Matrix Operator. Earlier prototype report
 
 ## Real application loop
 
-`Run-WhiteRoom-Loop.py` starts its own real Windows Unity player and temporary PC service. Only the Unity processes send client snapshots. It verifies the white-room catalog and stable floor, furniture scale, same-ID natural-language movement/rotation/resize, selection, duplication with fresh identity, undo/redo, deletion and undo, clear and undo, a real PC JSON save, exact restore, and rejection of ambiguous selection. It then terminates its first player, waits for the actual 15-second service lease to expire, launches a fresh empty player, and restores identical saved IDs, assets, anchors and transforms. Both player logs are checked for runtime exceptions. Test processes and temporary saves are cleaned up.
+`Run-WhiteRoom-Loop.py` starts its own real Windows Unity player and the production `server.py` CLI with a temporary save directory. The CLI creates its normal optional LearningBridge; the core URL points to a reserved non-listening loopback port. The catalog endpoint correctly returns 503 while ordinary white-room operations remain available. Only the Unity processes send client snapshots. The run verifies the white-room catalog and stable floor, furniture scale, same-ID natural-language movement/rotation/resize, selection, duplication with fresh identity, undo/redo, deletion and undo, clear and undo, a real PC JSON save, exact restore, and rejection of ambiguous selection. It also loads a save from another room: Unity rejects it and preserves the scene, then editing and saving continue. It terminates its first player, lets an unacknowledged plain load expire through the actual 15-second service lease, launches a fresh empty player, and restores identical saved IDs, assets, anchors and transforms. Both player logs are checked for runtime exceptions. Test processes and temporary saves are cleaned up.
 
-The first end-to-end attempt exposed a real serialization mismatch: Unity JsonUtility materialized omitted optional DTO fields. A valid `select` from HTTP was rejected even though direct C# checks passed. The executor now accepts those empty serialization defaults while rejecting meaningful extras; the PC boundary still rejects extra JSON fields. Regression checks exercise the actual wire representation. The final 84-check loop passes this boundary.
+The first end-to-end attempt exposed a real serialization mismatch: Unity JsonUtility materialized omitted optional DTO fields. A valid `select` from HTTP was rejected even though direct C# checks passed. The executor now accepts those empty serialization defaults while rejecting meaningful extras; the PC boundary still rejects extra JSON fields. Regression checks exercise the actual wire representation. The final 95-check loop passes this boundary.
+
+Integrating current main exposed another bug: an ordinary failed/expired scene load created a learning-checkpoint recovery barrier even with no lesson active. Two regression tests failed before the fix. Scene-only restores now skip that barrier when no lesson is active; actual learning/checkpoint restores preserve acknowledgement and recovery behavior. The retained optional UI lives at `/learning`, with the focused white-room page at `/`. Both pages and catalog-based furniture size were checked in the browser against the rebuilt player.
 
 Reproduce:
 
@@ -53,7 +55,7 @@ This is an arranged Editor gallery rendered with the actual scene camera and mat
 
 Final build uses standard Unity OpenXR 1.18.0, XR Management 4.7.0 and Input System 1.20.0. Resolved Meta Core/MRUK package count: zero. The build preserves the original MRUK project and does not alter security settings.
 
-APK metadata: `com.matt.matrixoperator.whiteroom`, ARM64, target SDK 34, UnityPlayerGameActivity, supported devices `cambria|eureka` (Quest Pro / Quest 3). It includes Internet/OpenXR permissions; no scene-data or passthrough permission. Final APK: **40,991,671 bytes**, SHA256 `AF6BAA78C6D00290C29FAA0AB3219E25214B5B790F7DD51EF2220A8E6C9F8BA0`.
+APK metadata: `com.matt.matrixoperator.whiteroom`, ARM64, target SDK 34, UnityPlayerGameActivity, supported devices `cambria|eureka` (Quest Pro / Quest 3). It includes Internet/OpenXR permissions; no scene-data or passthrough permission. Final rebuilt APK after integrating main: **40,992,075 bytes**, SHA256 `4D93BDE08321D44E8A517C53144F8812FBBEA7415E87895A8726DFF8D0523331`.
 
 Source inspection of Unity's installed OpenXR provider confirms that enabled interaction profiles create and attach the controller action maps used by the direct Input System controls. This supports the implementation choice but does not establish physical-controller behavior.
 

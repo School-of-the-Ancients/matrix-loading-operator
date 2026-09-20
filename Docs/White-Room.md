@@ -21,6 +21,8 @@ Keep the service terminal open. In a second terminal:
 
 Open <http://127.0.0.1:8765/>. The page reports **WHITE ROOM CONNECTED** when the app is exchanging state. The desktop player starts empty; the green placement point starts two metres forward of the origin. Click a floor point to move it. Click an object to select it. Hold right mouse and use WASD to move the camera, Q/E to lower/raise it. Release right mouse to edit through the panel.
 
+The previously merged learning activity remains on the separate optional <http://127.0.0.1:8765/learning> page, also linked under Connection settings. Ordinary white-room editing and scene-only save/load require no learning-core process. If you explicitly load a save containing a learning checkpoint, use that page for its learning-core connection and checkpoint recovery controls.
+
 The build script generates an independent Unity project under `.white-room-fixture/Desktop` using an explicit list of this repository's authored sources. It preserves the existing MRUK project. To open the white-room scene in Unity, open this generated project and `Assets/Sandbox/WhiteRoom/Scenes/WhiteRoomDesktop.unity`. **Sandbox → White room → Generate desktop scene** regenerates that generated scene and bundled props.
 
 ## Operator loop

@@ -23,6 +23,8 @@ namespace ArSandbox
         private LineRenderer pointer;
         private Material pointerMaterial;
         private Text hud;
+        private GameObject guidePanel;
+        private Text guideText;
         private PcBridge bridge;
         private bool loading;
         private bool destroyed;
@@ -235,6 +237,7 @@ namespace ArSandbox
                 hud.text = "AR SANDBOX · QUEST PRO / DEVICE ROOM\n" + app.Status + "\nAsset: " + app.SelectedAssetName +
                     "\nTrigger: select prop / place here   A: add   B: next prop   X: delete   Y: reload room" +
                     "\nLeft grip + Y: Space Setup   Left stick: move   Right stick: rotate / resize\n" + (bridge != null ? bridge.ConnectionStatus : "PC bridge missing");
+                UpdateGuidePresentation();
             }
         }
 
@@ -281,6 +284,67 @@ namespace ArSandbox
             hud.alignment = TextAnchor.MiddleCenter;
             hud.color = Color.white;
             hud.raycastTarget = false;
+            CreateGuidePresentation();
+        }
+
+        private void CreateGuidePresentation()
+        {
+            guidePanel = new GameObject("Learning guide", typeof(Canvas));
+            guidePanel.transform.SetParent(rig.centerEyeAnchor, false);
+            guidePanel.transform.localPosition = new Vector3(0f, 0.22f, 1.4f);
+            guidePanel.transform.localScale = Vector3.one * 0.0008f;
+            var canvas = guidePanel.GetComponent<Canvas>();
+            canvas.renderMode = RenderMode.WorldSpace;
+            canvas.worldCamera = rig.centerEyeAnchor.GetComponent<Camera>();
+            ((RectTransform)guidePanel.transform).sizeDelta = new Vector2(1000f, 760f);
+            var background = new GameObject("Background", typeof(Image));
+            background.transform.SetParent(guidePanel.transform, false);
+            Stretch((RectTransform)background.transform);
+            var image = background.GetComponent<Image>();
+            image.color = new Color(0.02f, 0.07f, 0.09f, 0.94f);
+            image.raycastTarget = false;
+            var textObject = new GameObject("Lesson brief", typeof(Text));
+            textObject.transform.SetParent(guidePanel.transform, false);
+            var textRect = (RectTransform)textObject.transform;
+            Stretch(textRect);
+            textRect.offsetMin = new Vector2(30f, 24f);
+            textRect.offsetMax = new Vector2(-30f, -24f);
+            guideText = textObject.GetComponent<Text>();
+            guideText.font = Resources.GetBuiltinResource<Font>("LegacyRuntime.ttf");
+            guideText.fontSize = 25;
+            guideText.alignment = TextAnchor.UpperLeft;
+            guideText.horizontalOverflow = HorizontalWrapMode.Wrap;
+            guideText.verticalOverflow = VerticalWrapMode.Truncate;
+            guideText.supportRichText = false;
+            guideText.color = Color.white;
+            guideText.raycastTarget = false;
+            guidePanel.SetActive(false);
+        }
+
+        private void UpdateGuidePresentation()
+        {
+            if (guidePanel == null) return;
+            var guide = bridge != null ? bridge.CurrentGuide : null;
+            guidePanel.SetActive(guide != null);
+            if (guide == null) return;
+            var text = new System.Text.StringBuilder();
+            text.Append("LEARNING GUIDE\n").Append(GuideExcerpt(guide.title, 90)).Append('\n');
+            text.Append(GuideExcerpt(guide.stageLabel, 64));
+            if (guide.progressTotal > 0) text.Append("  ·  ").Append(guide.progressIndex).Append(" / ").Append(guide.progressTotal);
+            text.Append('\n');
+            if (!bridge.IsConnected) text.Append("PC offline / paused — last received guide\n");
+            if (!string.IsNullOrEmpty(guide.status)) text.Append(GuideExcerpt(guide.status, 80)).Append('\n');
+            if (!string.IsNullOrEmpty(guide.body)) text.Append('\n').Append(GuideExcerpt(guide.body, 300)).Append('\n');
+            if (!string.IsNullOrEmpty(guide.prompt)) text.Append('\n').Append(GuideExcerpt(guide.prompt, 220)).Append('\n');
+            if (!string.IsNullOrEmpty(guide.hint)) text.Append("Hint: ").Append(GuideExcerpt(guide.hint, 100)).Append('\n');
+            text.Append("\nFull lesson, responses and Continue: PC learning panel.");
+            guideText.text = text.ToString();
+        }
+
+        private static string GuideExcerpt(string value, int limit)
+        {
+            if (string.IsNullOrEmpty(value)) return "";
+            return value.Length <= limit ? value : value.Substring(0, limit - 1).TrimEnd() + "…";
         }
 
         private static void Stretch(RectTransform rect)
@@ -294,6 +358,7 @@ namespace ArSandbox
             destroyed = true;
             permissionRequest?.TrySetResult(false);
             if (pointerMaterial != null) Destroy(pointerMaterial);
+            if (guidePanel != null) Destroy(guidePanel);
             foreach (var frame in targetFrames) if (frame != null) Destroy(frame);
         }
     }
