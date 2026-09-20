@@ -12,5 +12,9 @@
   "appliedDuringBrowserCheck": false,
   "sceneObjectsAfterProposal": 1,
   "pendingCommandsAfterProposal": 0,
+  "laterObservedRuntimeAcknowledgements": 3,
+  "laterObservedSceneObjects": 4,
+  "laterObservedPendingCommands": 0,
+  "assistantAppliedTheBrowserProposal": false,
   "wearerVisualCheck": "Tracked separately from browser and executor evidence"
 }
