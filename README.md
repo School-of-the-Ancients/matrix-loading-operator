@@ -4,11 +4,13 @@ The current prototype is a **fully virtual white room**: summon bundled props, s
 
 Start here: **[White-room build, controls and demo](Docs/White-Room.md)** · **[Validation evidence](Validation/White-Room-Validation.md)** · **[Progress and continuation](Docs/Progress-Log.md)**.
 
-The catalog contains chairs, tables, walls, pedestals, blocks, orbs and columns. Furniture starts at life size. The next milestone is sequential: validate this virtual room on Quest Pro, connect a real PC-side AI provider, then use manually configured MRUK room targets with the same editing and persistence system. Education/mentor systems, voice and downloaded catalogs are deferred. No VaM integration is required.
+The catalog contains chairs, tables, walls, pedestals, blocks, orbs and columns. Furniture starts at life size. The actual Quest Pro has passed **21 command/save/load checks**, and the wearer confirms restored objects and selection work. The next milestone is finishing the live AI loop, then using manually configured MRUK room targets with the same editing and persistence system. Education/mentor systems, voice and downloaded catalogs are deferred. No VaM integration is required.
 
-Build with `./Build-WhiteRoom.ps1 -Target Desktop` or `-Target Quest`. This creates a separate Unity-only project for each target under `.white-room-fixture/`; virtual mode uses standard Unity OpenXR and needs no MRUK room data or Meta Core. It preserves the original MR project and makes no antivirus changes. Run `./Start-ControlService.ps1`, launch `Builds/WhiteRoomDesktop/MatrixOperator.exe`, then open <http://127.0.0.1:8765/>. For an authorized USB-connected Quest, `./Install-WhiteRoom.ps1` installs and launches the white-room APK.
+Build with `./Build-WhiteRoom.ps1 -Target Desktop` or `-Target Quest`. This creates a separate Unity-only project for each target under `.white-room-fixture/`; virtual mode uses standard Unity OpenXR and needs no MRUK room data or Meta Core. It preserves the original MR project and makes no antivirus changes. Run `./Start-ControlService.ps1` for offline commands, or `./Start-CodexControlService.ps1` for the selected ChatGPT/Codex subscription mode, then open <http://127.0.0.1:8765/>. Run `Builds/WhiteRoomDesktop/MatrixOperator.exe` for desktop use. For the already installed Quest app, run `./Connect-QuestControl.ps1` after reconnecting USB and open **Matrix Operator** manually from **Unknown Sources**. The installer succeeds at installation/forwarding but its implicit launch failed on the tested Quest OS.
 
-The previously tested natural-language demonstration uses an explicitly labeled offline parser. An optional configured AI adapter is available and mock-tested; live model access is not assumed. Hardware behavior remains unverified. See the [current Quest Pro session](Validation/Quest-Pro-Session.md) and [installed Meta Building Blocks review](Docs/Meta-Building-Blocks-Review.md) for the next-stage evidence and reuse decisions.
+Live Codex CLI inference now produced a reviewed chair spawn acknowledged by the actual headset. The subsequent resize proposal returned HTTP 409; recovery evidence showed a scene change, supporting stale-context rejection without establishing its exact cause. The run finished **27 checks passed, 1 failed**, safely restoring its three original objects. The full live AI loop and MRUK hardware path remain unverified. The PC suite passes **136 tests**; detailed tracking, floor-height and comfort checks remain separate. See the [current Quest Pro session](Validation/Quest-Pro-Session.md) and [AI setup](Docs/AI-Integration.md).
+
+Unity Hub copies are available under **Desktop → Game Design → Matrix White Room Quest** and **Matrix White Room Desktop**. Use Unity **6000.6.0f1** and the exact scene paths in the [Desktop project guide](Docs/Desktop-Unity-Hub.md). Their 103 and 90 source files were hash-verified; neither copy was rebuilt. The sibling **Matrix Loading Operator** checkout contains the full repository, copied builds and local saves. PR #3 was merged; this continuation targets `codex/quest-pro-codex-ai`.
 
 ![Unity-rendered gallery of the seven bundled white-room props](Validation/white-room-preview.png)
 
@@ -74,11 +76,11 @@ See [MRUK and Quest Pro details](Docs/MRUK-QuestPro.md) for setup, sample refere
 
 ## AI and offline language commands
 
-No usable compatible AI configuration was found on the original validation workstation. The default **Offline commands** mode is a finite English parser, **not an AI model**. Unsupported or ambiguous language produces an error; it does not invent assets or IDs.
+The default **Offline commands** mode is a finite English parser, **not an AI model**. The newer **codex-cli** mode uses the PC's existing ChatGPT-authenticated Codex CLI; the first live headset spawn succeeded, while the complete AI loop remains unfinished. Unsupported offline language produces an error; it does not invent assets or IDs.
 
 The replaceable AI adapter supports a configured OpenAI-compatible `/chat/completions` provider. Set `SANDBOX_AI_BASE_URL`, `SANDBOX_AI_MODEL`, and, for a remote provider, `SANDBOX_AI_KEY` in the service's environment, then restart it. It can also use explicitly configured OpenAI/OpenRouter key+model variables. No model is guessed from a key alone. Credentials stay in the PC process, outside Unity and scene saves. See [AI integration and supported phrases](Docs/AI-Integration.md).
 
-The provider receives the request, available props, current objects, room targets, and selection. Proposals are validated, expire after two minutes, and are bound to the current application session and scene/selection revision. Applying a stale or already-used proposal fails; create another. Save/load intents run on the PC and require prior edits to finish. Live model interpretation has **not** been tested; mock HTTP tests validate the adapter protocol and failures. Voice input is not implemented.
+The provider receives the request, available props, current objects, room targets, and selection. Proposals are validated, expire after two minutes, and are bound to the current application session and scene/selection revision. Applying a stale or already-used proposal fails; create another. Save/load intents run on the PC and require prior edits to finish. Current live-Codex results are recorded above; the compatible HTTP provider route has mock evidence. Voice input is not implemented.
 
 ## Validation and continuation
 
@@ -89,7 +91,7 @@ The provider receives the request, available props, current objects, room target
 | PC HTTP service + AI adapter | See current `Validation/service-tests.txt`; includes mock provider, stale proposals, save/load and failure handling |
 | Quest adapter Editor/Android source branches + build setup | C# metadata compilation passed; not a native APK build |
 | Android build | Blocked by antivirus quarantine during Meta assembly compilation |
-| Headset + live AI provider | Not run: no connected headset or configured provider |
+| Earlier MRUK headset + AI path | Not run; current virtual-room headset/Codex evidence is recorded above |
 
 Reproduce PC tests with `python -m unittest discover -s ControlService -v`. Reproduce the actual player loop with `python Validation/Run-Prototype-Loop.py`; it uses a temporary service/save folder and terminates only its own test player. [Exact runtime evidence](Validation/prototype-loop-results.json), [core evidence](Validation/core-results.json), and the [durable progress log](Docs/Progress-Log.md) record what passed and how to resume. The [validation report](Validation/Prototype-Validation.md) separates source, simulation, build, and hardware results.
 

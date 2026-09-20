@@ -1,11 +1,24 @@
 # Natural-language scene control
 
-The PC service has two explicitly labeled planner modes. Both create reviewable proposals and use the same validated scene-command path. Neither planner changes Unity objects directly.
+The PC service has three explicitly labeled planner modes. Each creates reviewable proposals through the same validated scene-command path; planners do not change Unity objects directly.
 
 - **offline-rules — Offline command parser (not an AI model):** a finite English vocabulary that runs locally without credentials or network inference.
 - **openai-compatible:** sends the request, asset catalog, room-target IDs, current objects/transforms, current selection, and saved scene names to the configured Chat Completions provider. The provider proposes structured operations; the service validates them before allowing Apply.
+- **codex-cli:** uses the native PC Codex CLI and its saved ChatGPT sign-in to propose scene commands. This is the subscription mode selected by the user; the service validates the output and still requires Apply and a runtime acknowledgement.
 
-No compatible provider/model configuration was found during the narrow September 20, 2026 inspection of process, user, and machine API environment variables or the checked standard Continue/OpenCode/Aider/LM Studio config paths. No Codex login credentials were read or reused. The external model route was tested against a local mock HTTP provider, not a live AI model. Offline mode is available for the prototype's complete typed-command demo.
+The initial API-provider discovery found no compatible key/model configuration. The user subsequently selected ChatGPT/Codex subscription access, and the native CLI reported `Logged in using ChatGPT`. Codex manages that authentication itself; the project does not extract login tokens or reinterpret them as API keys. A live chair proposal was applied and acknowledged on Quest Pro. The following resize proposal returned HTTP 409; the harness recorded **27 checks passed, 1 failed** and restored its three original objects. This establishes a live spawn, not a completed AI save/clear/restore loop. See [the device report](../Validation/codex-headset-loop-results.json).
+
+## Use the selected ChatGPT/Codex mode
+
+Stop any existing Operator service on port 8765, then run in the repository's PowerShell terminal:
+
+```powershell
+./Start-CodexControlService.ps1
+```
+
+The launcher requires the native `codex.exe`, verifies ChatGPT sign-in, and starts the local service in `codex-cli` mode. Use `-CodexExe` if it is not on PATH; `-Model` optionally selects a model available to the account. If sign-in is missing, run `codex login` on this PC first. Keep the service terminal open, reconnect the Quest with `./Connect-QuestControl.ps1`, and open the Operator page. Review each proposal before Apply; pause controller/browser edits during inference to avoid stale proposals.
+
+OpenAI documents ChatGPT sign-in as subscription access and states that `codex exec` reuses saved CLI authentication. Usage follows the account's available access and limits. The adapter invokes noninteractive Codex for structured output; credentials remain under Codex's management on the PC. [Authentication](https://learn.chatgpt.com/docs/auth), [noninteractive mode](https://learn.chatgpt.com/docs/non-interactive-mode).
 
 ## White-room sequence
 
@@ -28,7 +41,7 @@ The bundled white-room catalog contains chair, table, wall, pedestal, block, orb
 
 Save and restore are PC service operations. Saving requires the runtime's queued commands to have finished; restore queues the saved scene through the normal Unity load operation. Neither operation asks the language model to serialize an arbitrary scene file. Reusing a save name replaces that PC save. Restoring requires a known saved name and compatible room/anchor IDs.
 
-For `load NAME`, a matching saved scene takes precedence over an asset. Matching ignores case and repeated whitespace, but keeps the complete requested name: `load a chair` restores a save named `a chair`; a save named only `chair` does not match that phrase. If there is no matching save, an unqualified `load` can spawn a known catalog asset. `restore NAME`, `load scene NAME`, and `load room NAME` always mean a saved scene. `summon a chair` always uses the catalog. Neither mode downloads assets or searches a remote catalog.
+For offline `load NAME`, a matching saved scene takes precedence over an asset. Matching ignores case and repeated whitespace, but keeps the complete requested name: `load a chair` restores a save named `a chair`; a save named only `chair` does not match that phrase. If there is no matching save, an unqualified `load` can spawn a known catalog asset. `restore NAME`, `load scene NAME`, and `load room NAME` always mean a saved scene. `summon a chair` always uses the catalog. No mode downloads assets or searches a remote catalog.
 
 ## Offline vocabulary
 
@@ -66,7 +79,7 @@ Unity keeps up to 32 prior scene states in memory. Successful spawn, duplicate, 
 
 History contains scene objects and transforms, not selection or PC files. If undo removes the selected object, selection clears; redo does not automatically select it again. Saving a file is not undoable. Restarting the runtime or replacing its room clears history; PC scene saves remain available separately.
 
-## Configure a model provider
+## Configure an alternative compatible API provider
 
 Start the PC service with these environment variables already set:
 
@@ -76,7 +89,7 @@ Start the PC service with these environment variables already set:
 | `SANDBOX_AI_MODEL` | Exact model name available to that provider/account |
 | `SANDBOX_AI_KEY` | Provider API key, kept only in the service process environment |
 
-Explicit `SANDBOX_AI_*` values take precedence. Otherwise, `OPENAI_API_KEY` plus `OPENAI_MODEL` are recognized, with optional `OPENAI_BASE_URL`; or `OPENROUTER_API_KEY` plus `OPENROUTER_MODEL`. A key alone does not select a paid model. Local OpenAI-compatible servers may use an HTTP loopback URL and omit a key; remote providers require HTTPS and a key. Redirects are rejected rather than forwarding authorization to another endpoint.
+Select `SANDBOX_AI_MODE=openai-compatible` for this route. Explicit provider values above take precedence. Otherwise, `OPENAI_API_KEY` plus `OPENAI_MODEL` are recognized, with optional `OPENAI_BASE_URL`; or `OPENROUTER_API_KEY` plus `OPENROUTER_MODEL`. A key alone does not select a paid model. Local OpenAI-compatible servers may use an HTTP loopback URL and omit a key; remote providers require HTTPS and a key. Redirects are rejected rather than forwarding authorization to another endpoint.
 
 Do not put API keys in Unity assets, scene saves, request text, the web page, or this document. The adapter does not load browser sessions or treat a Codex subscription login as an API key. It does not silently switch to the offline parser if a configured provider request fails. Select **offline-rules** explicitly to use the local parser.
 
@@ -114,6 +127,6 @@ From the repository root, run:
 python -W error::ResourceWarning -m unittest discover -s ControlService -v
 ```
 
-All 99 PC service and adapter tests passed after integrating the current main branch. Coverage includes selection and placement, duplicate capacity, stale scene/selection proposals, saved-name load precedence, catalog scale, strict operation shapes, bounds, save/clear/restore, the retained learning adapter, and the actual provider HTTP transport against a local mock. Ordinary rejected or expired scene loads are checked not to block white-room editing behind optional learning recovery. Tests also check that keys are excluded from prompts/results/status, HTTP errors do not expose response bodies, redirects are blocked, and provider refusal/truncation/malformed JSON fails explicitly.
+All **136 PC service and adapter tests passed** in [codex-service-tests.txt](../Validation/codex-service-tests.txt), including Codex CLI boundary tests and the existing HTTP-provider, command, persistence, stale-proposal and learning-recovery coverage. Keys remain excluded from prompts/results/status; provider errors, redirects, refusal, truncation and malformed output fail explicitly.
 
-These are PC service and mocked-provider results. They do not establish a live model connection or headset behavior. Unity runtime checks and desktop/headset validation are recorded separately in the [progress log](Progress-Log.md) and [validation report](../Validation/White-Room-Validation.md).
+The unit suite is separate from the live Codex/Quest attempt: its first spawn completed, then HTTP 409 stopped the resize proposal and recovery restored the original scene. The recovery scene showed the new chair at yaw 45 despite the reviewed spawn requesting yaw 0. This supports stale-scene rejection, but the HTTP error body was not captured and the rotation's source is unknown; the exact rejection cause is unconfirmed. No successful full AI loop, live HTTP-provider run, voice, or MRUK hardware result is claimed. See the [session record](../Validation/Quest-Pro-Session.md).

@@ -16,6 +16,8 @@ import urllib.error
 import urllib.parse
 import urllib.request
 
+from codex_provider import CodexConfig, CodexProviderError, plan_codex
+
 MAX_BODY = 1024 * 1024
 MAX_BATCH = 20
 MAX_OBJECTS = 100
@@ -288,43 +290,65 @@ class Planner:
         self.allow_offline = allow_offline
 
     def _configured(self):
-        return self.config if self.config is not None else ProviderConfig.from_environment()
+        if self.config is not None:
+            return self.config
+        mode = os.environ.get("SANDBOX_AI_MODE", "").strip()
+        _require(mode in ("", "openai-compatible", "codex-cli"), "Invalid SANDBOX_AI_MODE", 503)
+        return CodexConfig.from_environment() if mode == "codex-cli" else ProviderConfig.from_environment()
 
     def public_status(self):
         try:
             config = self._configured()
             if config is not None:
                 config.validate()
-            return {"mode": "openai-compatible" if config else "offline-rules",
+            configured_mode = "codex-cli" if isinstance(config, CodexConfig) else "openai-compatible"
+            return {"mode": configured_mode if config else "offline-rules",
                     "provider": config.provider if config else "Offline command parser (not an AI model)",
                     "model": config.model if config else None, "configured": config is not None,
-                    "availableModes": (["openai-compatible"] if config else []) + (["offline-rules"] if self.allow_offline else [])}
-        except PlannerError as error:
+                    "availableModes": ([configured_mode] if config else []) + (["offline-rules"] if self.allow_offline else [])}
+        except (PlannerError, CodexProviderError) as error:
             return {"mode": "unavailable", "provider": "Configuration error", "model": None,
                     "configured": False, "availableModes": ["offline-rules"] if self.allow_offline else [], "error": str(error)}
 
     def plan(self, text, snapshot, selection=None, saved_scenes=None, mode=None):
         prompt = _text(text, "request", limit=4000).strip()
         _require(bool(prompt), "Enter a scene request")
-        _require(mode in (None, "openai-compatible", "offline-rules"), "Unknown planner mode")
+        _require(mode in (None, "openai-compatible", "codex-cli", "offline-rules"), "Unknown planner mode")
         clean, _, _, _, _ = _context(snapshot, selection)
         saved = _saved_names(saved_scenes)
-        config = None if mode == "offline-rules" else self._configured()
-        if mode == "openai-compatible" and config is None:
-            raise PlannerError("No compatible AI provider/model is configured", 503)
+        try:
+            config = None if mode == "offline-rules" else self._configured()
+        except CodexProviderError as error:
+            raise PlannerError(str(error), 503) from None
+        if mode in ("openai-compatible", "codex-cli"):
+            configured_mode = "codex-cli" if isinstance(config, CodexConfig) else "openai-compatible"
+            _require(config is not None and mode == configured_mode, "Requested AI provider is not configured", 503)
+        inference = None
         if config is None:
             _require(self.allow_offline, "AI planning is not configured", 503)
             proposed = _offline_plan(prompt, clean, saved)
             used_mode, provider = "offline-rules", "Offline command parser (not an AI model)"
         else:
-            config.validate()
-            proposed = self._remote_plan(config, prompt, clean, saved)
-            used_mode, provider = "openai-compatible", config.provider
+            try:
+                config.validate()
+                if isinstance(config, CodexConfig):
+                    response = plan_codex(config, SYSTEM_PROMPT, prompt, clean, saved)
+                    proposed, inference = response["proposal"], response["receipt"]
+                    used_mode = "codex-cli"
+                else:
+                    proposed = self._remote_plan(config, prompt, clean, saved)
+                    used_mode = "openai-compatible"
+            except CodexProviderError as error:
+                raise PlannerError(str(error), error.status) from None
+            provider = config.provider
         _require(isinstance(proposed, dict) and set(proposed) <= {"commands", "summary"}, "Invalid planner response", 502)
         commands = validate_commands(proposed.get("commands"), clean, saved)
         summary = _text(proposed.get("summary", "Review the proposed scene commands."), "planner summary", limit=800)
-        return {"commands": commands, "summary": summary, "provider": provider,
-                "mode": used_mode, "requiresApply": True}
+        result = {"commands": commands, "summary": summary, "provider": provider,
+                  "mode": used_mode, "requiresApply": True}
+        if inference is not None:
+            result["inference"] = inference
+        return result
 
     @staticmethod
     def _remote_plan(config, prompt, snapshot, saved):
