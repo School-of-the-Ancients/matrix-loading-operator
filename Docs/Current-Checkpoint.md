@@ -1,6 +1,6 @@
 # Working Quest AI composition checkpoint
 
-Latest extension: **push-to-talk and Codex model/reasoning selectors** are implemented; both players are built and the Quest update is installed. Start with [Voice-And-Codex-Controls.md](Voice-And-Codex-Controls.md) for controls and setup. The real audio-to-AI-to-Windows-player loop passed 24 checks; new headset microphone/controller checks still require separate wearer evidence. The recovery checkpoint below remains intact. The pre-install 40-object layout is also saved as `BeforeVoiceInstall_20260920`.
+Latest extension: **push-to-talk and Codex model/reasoning selectors** are implemented, pushed and installed. Start with [Voice-And-Codex-Controls.md](Voice-And-Codex-Controls.md). The real audio-to-AI-to-Windows-player loop passed 24 checks. The Quest then supplied real microphone speech, received a real Codex proposal, acknowledged four edits and returned to its exact original 40-object scene through observed undo changes: 12 device/network checks passed in `Validation/voice-headset-results.json`. Separate wearer confirmation of physical buttons and HUD readability is pending. The earlier recovery checkpoint below remains intact; the pre-install layout is also saved as `BeforeVoiceInstall_20260920`.
 
 Checkpoint: **2026-09-20 16:07:37 America/Denver**. The wearer confirmed **“it works”** and requested commit, push and a complete checkpoint.
 

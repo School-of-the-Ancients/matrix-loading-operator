@@ -100,10 +100,13 @@ invalid audio, and unavailable Codex produce no executable proposal.
   runtime, exercised undo/redo, then saved, cleared and restored exact object
   IDs and transforms. See `Validation/voice-desktop-results.json`. This does
   not establish headset microphone quality or physical controller input.
-- **Headset:** microphone permission, hold/release capture, Y review/apply,
-  grip undo, HUD readability, and point-and-say remain wearer checks until
-  separately recorded. Earlier working typed-AI headset tests do not validate
-  these new controls.
+- **Headset:** 12 device/network checks passed after installation: granted
+  microphone permission, a live speech transcript, real Codex inference using
+  the selected table ID, four successful runtime transform acknowledgements,
+  and observed undo transitions restoring the exact 40-object scene. See
+  `Validation/voice-headset-results.json`. Physical button identity and HUD
+  readability still await separate wearer confirmation; telemetry alone does
+  not establish comfort or the full focus/tracking checklist.
 
 Native MRUK/passthrough remains a separate pending milestone with its documented
 Meta assembly blocker. This update does not claim room-aware AR hardware success.
