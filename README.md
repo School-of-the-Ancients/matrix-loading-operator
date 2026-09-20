@@ -4,11 +4,11 @@ The current prototype is a **fully virtual white room**: summon bundled props, s
 
 Start here: **[White-room build, controls and demo](Docs/White-Room.md)** · **[Validation evidence](Validation/White-Room-Validation.md)** · **[Progress and continuation](Docs/Progress-Log.md)**.
 
-The catalog contains chairs, tables, walls, pedestals, blocks, orbs and columns. Furniture starts at life size. Education/mentor systems, downloaded catalogs and physical-room scanning are deferred. No VaM integration is required.
+The catalog contains chairs, tables, walls, pedestals, blocks, orbs and columns. Furniture starts at life size. The next milestone is sequential: validate this virtual room on Quest Pro, connect a real PC-side AI provider, then use manually configured MRUK room targets with the same editing and persistence system. Education/mentor systems, voice and downloaded catalogs are deferred. No VaM integration is required.
 
 Build with `./Build-WhiteRoom.ps1 -Target Desktop` or `-Target Quest`. This creates a separate Unity-only project for each target under `.white-room-fixture/`; virtual mode uses standard Unity OpenXR and needs no MRUK room data or Meta Core. It preserves the original MR project and makes no antivirus changes. Run `./Start-ControlService.ps1`, launch `Builds/WhiteRoomDesktop/MatrixOperator.exe`, then open <http://127.0.0.1:8765/>. For an authorized USB-connected Quest, `./Install-WhiteRoom.ps1` installs and launches the white-room APK.
 
-The natural-language demonstration uses an explicitly labeled offline parser. An optional configured AI adapter is available and mock-tested; live model access and voice are not assumed. No headset was connected during development, so hardware behavior remains unverified. See the validation report for exact build and runtime evidence.
+The previously tested natural-language demonstration uses an explicitly labeled offline parser. An optional configured AI adapter is available and mock-tested; live model access is not assumed. Hardware behavior remains unverified. See the [current Quest Pro session](Validation/Quest-Pro-Session.md) and [installed Meta Building Blocks review](Docs/Meta-Building-Blocks-Review.md) for the next-stage evidence and reuse decisions.
 
 ![Unity-rendered gallery of the seven bundled white-room props](Validation/white-room-preview.png)
 

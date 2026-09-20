@@ -1,0 +1,26 @@
+{
+  "status": "blocked",
+  "startedUtc": "2026-09-20T20:49:17.777081+00:00",
+  "scope": "Connected app process and existing executor HTTP loop; no synthetic client snapshots",
+  "mode": "read-only-preflight",
+  "deviceProcessObserved": false,
+  "runtimeExecutionObserved": false,
+  "wearerVisualCheck": "Not performed by this harness",
+  "trackingAndControllerInputTested": false,
+  "languageModelUsed": false,
+  "commandPath": "Typed commands through the existing executor; no natural-language parser",
+  "runtimeAttribution": "Operator must confirm this service is paired with the selected headset; the bridge exposes no device identity",
+  "operatorConfirmedPairing": false,
+  "deviceSerialRecorded": false,
+  "package": "com.matt.matrixoperator.whiteroom",
+  "pretestSceneRestored": null,
+  "undoHistoryRestored": false,
+  "error": "Expected app is not running on the selected headset; open Matrix Operator from Unknown Sources",
+  "checks": [
+    "ADB executable is available",
+    "Exactly one authorized device is required; use --serial when several are connected"
+  ],
+  "passed": 2,
+  "failed": 1,
+  "completedUtc": "2026-09-20T20:49:17.923080+00:00"
+}

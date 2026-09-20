@@ -2,6 +2,8 @@
 
 This report concerns the fully virtual Matrix Operator. Earlier prototype reports concern separate MRUK/simulation paths.
 
+The later [Quest Pro continuation session](Quest-Pro-Session.md) records successful device installation, the launch blocker and an attach-only test runner. The build/player results below are the existing baseline, not fresh headset runtime evidence.
+
 | Evidence | Result | Boundary |
 | --- | --- | --- |
 | Unity desktop core/application checks | **129 passed, 0 failed** | Real Unity Editor execution, including wire deserialization and history |
@@ -11,8 +13,8 @@ This report concerns the fully virtual Matrix Operator. Earlier prototype report
 | Browser controls | Passed the flows below | Real page and actual Windows player |
 | Arranged Editor gallery preview | Rendered and visually inspected | Seven actual prefabs, floor contact and camera bounds checked; startup scene remains empty |
 | Desktop build | Produced `Builds/WhiteRoomDesktop/MatrixOperator.exe` | Desktop control visuals and physical input are not covered by headless integration tests |
-| Quest build | Produced ARM64 `Builds/WhiteRoomQuest/MatrixOperator.apk` | APK metadata checked; not installed or headset-tested |
-| Quest hardware / Touch Pro / tracking | **Not tested** | ADB lists no connected devices |
+| Quest build | Produced ARM64 `Builds/WhiteRoomQuest/MatrixOperator.apk` | Metadata checked; subsequently installed successfully on the actual Quest Pro |
+| Quest runtime / Touch Pro / tracking | **Not tested** | Device now authorized; app launch pending, PC runtime still offline |
 | Live AI / voice | **Not tested / not implemented** | Offline parser is explicit; no invented credentials |
 
 ## Real application loop

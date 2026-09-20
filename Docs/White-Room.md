@@ -1,6 +1,6 @@
 # Matrix Operator: the virtual white room
 
-The current priority is an empty virtual room with useful Operator abilities. Education, mentors, curriculum, downloaded catalogs and physical-room scanning are separate later work. Quest Pro is the hardware target; Quest 3 is optional.
+The immediate priority is validating the virtual room's Operator abilities on the actual Quest Pro. The next passes connect a real PC-side AI provider, then the existing MRUK path with manually configured room surfaces. Education, mentors, curriculum, voice and downloaded catalogs are separate later work. Quest 3 is optional.
 
 The room loads automatically with a fixed floor at y=0. Its stable `white-room-v1` / `white-floor` coordinate frame allows a saved arrangement to survive an application restart without a physical room scan. All units are metres. Headset recentering can change where the viewer stands in this virtual scene; this mode does not promise alignment with real furniture.
 
@@ -62,6 +62,15 @@ Install Unity Android Build Support, SDK/NDK and OpenJDK, then run:
 ```
 
 The installer requires one USB-connected, ADB-authorized headset, installs `Builds/WhiteRoomQuest/MatrixOperator.apk`, forwards the PC service port with `adb reverse`, and launches `com.matt.matrixoperator.whiteroom`. Keep the PC service running. Close the desktop player before pairing the headset: the service leases one active runtime at a time, with a 15-second disconnect timeout.
+
+After installation, a repeatable device check is available:
+
+```powershell
+python Validation/Run-Headset-Loop.py
+python Validation/Run-Headset-Loop.py --run
+```
+
+The first command only inspects the connected app and service. Run the second after confirming that the headset owns the PC connection, with controller and browser editing paused. It saves the existing arrangement under a unique PC backup name, spawns and edits a chair through the existing executor, saves/clears/restores it, then restores the original arrangement. In-memory undo history is changed by these edits and cannot be restored from the scene save. The report records acknowledgements and exact object/anchor identities separately from wearer observations. It does not invoke a language parser or model. If recovery cannot complete, retain the named backup and follow the report's recovery instruction. These controls cannot prove visual rendering, floor height or physical input; the wearer must check those. See the [current hardware session](../Validation/Quest-Pro-Session.md).
 
 The isolated Quest project lives at `.white-room-fixture/Quest`; its scene is `Assets/Sandbox/WhiteRoom/Scenes/WhiteRoomQuest.unity`. This fully virtual build uses Unity OpenXR, XR Management and Input System with Quest Pro/Quest 3 device profiles. It does not import Meta Core or MRUK and does not modify antivirus settings or quarantined files. The original passthrough/MRUK path remains available separately under the existing build scripts and documentation.
 
