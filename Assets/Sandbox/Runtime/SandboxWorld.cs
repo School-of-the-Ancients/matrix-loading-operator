@@ -100,7 +100,12 @@ namespace ArSandbox
                 {
                     anchorId = target.anchorId,
                     displayName = target.displayName ?? target.anchorId,
-                    origin = target.origin
+                    origin = target.origin,
+                    source = target.source,
+                    semanticLabels = Clone(target.semanticLabels),
+                    surface = Clone(target.surface),
+                    roomPose = target.roomPose == null ? null : Clone(target.roomPose),
+                    surfaceValidator = target.surfaceValidator
                 });
             }
         }
@@ -114,6 +119,9 @@ namespace ArSandbox
                 if (command == null)
                     throw new ArgumentException("A command is required.");
                 ValidateRequestId(command.requestId);
+                if (!string.IsNullOrEmpty(command.placement) &&
+                    (command.placement != "surface" || (command.op != "spawn" && command.op != "set_transform")))
+                    throw new ArgumentException("placement accepts only 'surface' on spawn or set_transform.");
                 SceneData before = IsMutation(command.op) ? Capture().scene : null;
 
                 switch (command.op)
@@ -196,7 +204,9 @@ namespace ArSandbox
 
             var anchorInfos = new List<AnchorInfo>(targets.Count);
             foreach (RoomTarget target in targets.Values)
-                anchorInfos.Add(new AnchorInfo { anchorId = target.anchorId, displayName = target.displayName });
+                anchorInfos.Add(new AnchorInfo { anchorId = target.anchorId, displayName = target.displayName,
+                    source = target.source, semanticLabels = Clone(target.semanticLabels), surface = Clone(target.surface),
+                    roomPose = target.roomPose == null ? null : Clone(target.roomPose) });
             anchorInfos.Sort((a, b) => string.CompareOrdinal(a.anchorId, b.anchorId));
 
             return new SandboxSnapshot { scene = scene, assets = assetInfos, anchors = anchorInfos };
@@ -209,6 +219,31 @@ namespace ArSandbox
                 return false;
             value = instance.gameObject;
             return true;
+        }
+
+        // Pointer queries avoid building full snapshots every frame. Returned target
+        // metadata belongs to this world and must be treated as read-only by adapters.
+        public bool TryGetTarget(string id, out RoomTarget target)
+        {
+            target = null;
+            return !disposed && id != null && targets.TryGetValue(id, out target) &&
+                target.origin != null && target.origin.gameObject.activeInHierarchy;
+        }
+
+        public bool TryGetObjectId(Transform hit, out string objectId)
+        {
+            objectId = null;
+            if (disposed || hit == null) return false;
+            foreach (var entry in instances)
+            {
+                GameObject value = entry.Value.gameObject;
+                if (value != null && value.activeInHierarchy && (hit == value.transform || hit.IsChildOf(value.transform)))
+                {
+                    objectId = entry.Key;
+                    return true;
+                }
+            }
+            return false;
         }
 
         public void Dispose()
@@ -246,7 +281,7 @@ namespace ArSandbox
                 objectId = Guid.NewGuid().ToString("N"),
                 assetId = command.assetId,
                 anchorId = command.anchorId,
-                transform = Clone(command.transform)
+                transform = ResolvePlacement(asset.assetId, target, command.transform, command.placement)
             };
             Instance instance = CreateInactive(data, asset, target, null);
             try
@@ -353,7 +388,7 @@ namespace ArSandbox
             string anchorId = string.IsNullOrEmpty(command.anchorId) ? instance.data.anchorId : command.anchorId;
             RoomTarget target = RequireTarget(anchorId);
             ValidateTransform(command.transform);
-            TransformData transform = Clone(command.transform);
+            TransformData transform = ResolvePlacement(instance.data.assetId, target, command.transform, command.placement);
 
             Apply(instance.gameObject.transform, target.origin, transform);
             instance.data.anchorId = anchorId;
@@ -432,8 +467,11 @@ namespace ArSandbox
                 if (!seen.Add(data.objectId))
                     throw new ArgumentException("Duplicate objectId '" + data.objectId + "'.");
                 RequireAsset(data.assetId);
-                RequireTarget(data.anchorId);
+                RoomTarget target = RequireTarget(data.anchorId);
                 ValidateTransform(data.transform);
+                // Saved transforms have already had their surface clearance resolved.
+                // Revalidate them against current geometry without shifting them again.
+                ResolvePlacement(data.assetId, target, data.transform, null);
                 result.Add(Clone(data));
             }
             return result;
@@ -490,6 +528,176 @@ namespace ArSandbox
             if (target.origin == null || !target.origin.gameObject.activeInHierarchy)
                 throw new InvalidOperationException("Anchor '" + anchorId + "' is unavailable. Reacquire the room before placing or restoring objects.");
             return target;
+        }
+
+        private TransformData ResolvePlacement(string assetId, RoomTarget target, TransformData requested, string placement)
+        {
+            TransformData pose = Clone(requested);
+            bool physical = target.source == "mruk";
+            if (!physical)
+            {
+                if (!string.IsNullOrEmpty(placement))
+                    throw new ArgumentException("Surface placement requires a physical room support target.");
+                return pose;
+            }
+            if (target.surface == null || target.surface.kind != "support")
+                throw new ArgumentException("Anchor '" + target.anchorId + "' is not a usable support surface. Choose a floor or furniture top.");
+            BoundsData bounds = assetBounds[assetId];
+            if (bounds == null)
+                throw new ArgumentException("Asset '" + assetId + "' has no known static bounds for physical room placement.");
+            if (target.surfaceValidator == null)
+                throw new InvalidOperationException("Anchor '" + target.anchorId + "' cannot validate its current MRUK surface. Reload room data.");
+            List<Vector2> boundary = ReadSupportBoundary(target.surface);
+            var rotation = Quaternion.Euler(ToVector3(pose.rotation));
+            Vector3 scale = ToVector3(pose.scale);
+            Vector3 center = ToVector3(bounds.center);
+            Vector3 extent = ToVector3(bounds.size) * .5f;
+            var corners = new Vector3[8];
+            int index = 0;
+            float minimumY = float.PositiveInfinity;
+            for (int x = -1; x <= 1; x += 2)
+                for (int y = -1; y <= 1; y += 2)
+                    for (int z = -1; z <= 1; z += 2)
+                    {
+                        Vector3 point = rotation * Vector3.Scale(center + Vector3.Scale(extent, new Vector3(x, y, z)), scale);
+                        if (!Finite(point))
+                            throw new ArgumentException("The transformed prefab bounds are not finite.");
+                        corners[index++] = point;
+                        minimumY = Mathf.Min(minimumY, point.y);
+                    }
+            if (placement == "surface")
+            {
+                if (pose.position.y < 0f)
+                    throw new ArgumentException("Surface placement clearance must be zero or positive.");
+                pose.position.y -= minimumY;
+                ValidateTransform(pose);
+            }
+            if (minimumY + pose.position.y < -.005f)
+                throw new ArgumentException("The object would extend below its room support surface. Use surface placement or raise it.");
+
+            Vector3 offset = ToVector3(pose.position);
+            var footprint = new List<Vector2>(8);
+            Vector3 projectedCenter = Vector3.zero;
+            foreach (Vector3 corner in corners)
+            {
+                Vector3 point = corner + offset;
+                point.y = 0f;
+                projectedCenter += point / corners.Length;
+                var planar = new Vector2(point.x, point.z);
+                if (!InsideOrOnBoundary(planar, boundary))
+                    throw new ArgumentException("The object's footprint extends beyond anchor '" + target.anchorId + "'. Use a smaller object or another position.");
+                if (!target.surfaceValidator(point))
+                    throw new ArgumentException("MRUK could not confirm the object's footprint on anchor '" + target.anchorId + "'. Reload or choose a valid surface point.");
+                if (!footprint.Exists(value => (value - planar).sqrMagnitude < 1e-10f)) footprint.Add(planar);
+            }
+            if (!InsideOrOnBoundary(new Vector2(projectedCenter.x, projectedCenter.z), boundary) || !target.surfaceValidator(projectedCenter))
+                throw new ArgumentException("The object's center is outside the current MRUK support surface.");
+            // The projected render bounds form a convex footprint. Checking every
+            // corner pair includes its entire outer hull, even for a tilted object.
+            // Split each segment at polygon edges: corner-only tests miss concave
+            // notches, and a single midpoint can miss narrow gaps near an endpoint.
+            for (int a = 0; a < footprint.Count; a++)
+                for (int b = a + 1; b < footprint.Count; b++)
+                    if (!SegmentInsideBoundary(footprint[a], footprint[b], boundary))
+                        throw new ArgumentException("The object's footprint crosses an edge of the room surface. Choose a position fully supported by the anchor.");
+            return pose;
+        }
+
+        private static List<Vector2> ReadSupportBoundary(RoomSurfaceData surface)
+        {
+            BoundsData bounds = surface.localBounds;
+            if (bounds == null || bounds.center == null || bounds.size == null ||
+                !Finite(ToVector3(bounds.center)) || !Finite(ToVector3(bounds.size)) ||
+                bounds.size.x <= 0f || bounds.size.y < 0f || bounds.size.z <= 0f ||
+                surface.boundary == null || surface.boundary.Count < 3 || surface.boundary.Count > 512)
+                throw new ArgumentException("The room support surface has missing or invalid geometry. Reload room data.");
+            var polygon = new List<Vector2>(surface.boundary.Count);
+            foreach (Float3 raw in surface.boundary)
+            {
+                if (raw == null || !Finite(ToVector3(raw)) || Mathf.Abs(raw.y) > .005f)
+                    throw new ArgumentException("The room support boundary must contain finite points on its local surface plane.");
+                var point = new Vector2(raw.x, raw.z);
+                if (polygon.Count == 0 || (polygon[polygon.Count - 1] - point).sqrMagnitude > 1e-10f)
+                    polygon.Add(point);
+            }
+            if (polygon.Count > 1 && (polygon[0] - polygon[polygon.Count - 1]).sqrMagnitude <= 1e-10f)
+                polygon.RemoveAt(polygon.Count - 1);
+            float area = 0f;
+            for (int i = 0; i < polygon.Count; i++) area += Cross(polygon[i], polygon[(i + 1) % polygon.Count]);
+            if (polygon.Count < 3 || !InRange(area, -float.MaxValue, float.MaxValue) || Mathf.Abs(area) <= 1e-6f)
+                throw new ArgumentException("The room support boundary has no usable area.");
+            for (int a = 0; a < polygon.Count; a++)
+            {
+                int nextA = (a + 1) % polygon.Count;
+                for (int b = a + 1; b < polygon.Count; b++)
+                {
+                    int nextB = (b + 1) % polygon.Count;
+                    if (b == nextA || nextB == a) continue;
+                    if (SegmentsIntersect(polygon[a], polygon[nextA], polygon[b], polygon[nextB]))
+                        throw new ArgumentException("The room support boundary intersects itself. Reload room data.");
+                }
+            }
+            return polygon;
+        }
+
+        private static float Cross(Vector2 a, Vector2 b) { return a.x * b.y - a.y * b.x; }
+
+        private static bool PointOnSegment(Vector2 point, Vector2 a, Vector2 b)
+        {
+            Vector2 edge = b - a;
+            float squared = edge.sqrMagnitude;
+            if (squared < 1e-10f) return (point - a).sqrMagnitude < 1e-10f;
+            float t = Mathf.Clamp01(Vector2.Dot(point - a, edge) / squared);
+            return (point - (a + edge * t)).sqrMagnitude <= 1e-10f;
+        }
+
+        private static bool InsideOrOnBoundary(Vector2 point, List<Vector2> polygon)
+        {
+            bool inside = false;
+            for (int i = 0, j = polygon.Count - 1; i < polygon.Count; j = i++)
+            {
+                Vector2 a = polygon[j], b = polygon[i];
+                if (PointOnSegment(point, a, b)) return true;
+                if ((a.y > point.y) != (b.y > point.y) &&
+                    point.x < (b.x - a.x) * (point.y - a.y) / (b.y - a.y) + a.x)
+                    inside = !inside;
+            }
+            return inside;
+        }
+
+        private static bool SegmentsIntersect(Vector2 a, Vector2 b, Vector2 c, Vector2 d)
+        {
+            if (PointOnSegment(a, c, d) || PointOnSegment(b, c, d) || PointOnSegment(c, a, b) || PointOnSegment(d, a, b)) return true;
+            float first = Cross(b - a, c - a), second = Cross(b - a, d - a);
+            float third = Cross(d - c, a - c), fourth = Cross(d - c, b - c);
+            return (first < 0f) != (second < 0f) && (third < 0f) != (fourth < 0f);
+        }
+
+        private static bool SegmentInsideBoundary(Vector2 a, Vector2 b, List<Vector2> polygon)
+        {
+            Vector2 direction = b - a;
+            var cuts = new List<float> { 0f, 1f };
+            for (int i = 0; i < polygon.Count; i++)
+            {
+                Vector2 c = polygon[i], edge = polygon[(i + 1) % polygon.Count] - c;
+                float divisor = Cross(direction, edge);
+                if (Mathf.Abs(divisor) > 1e-8f)
+                {
+                    float t = Cross(c - a, edge) / divisor;
+                    float u = Cross(c - a, direction) / divisor;
+                    if (t > 0f && t < 1f && u >= 0f && u <= 1f) cuts.Add(t);
+                }
+                else if (Mathf.Abs(Cross(c - a, direction)) <= 1e-8f)
+                {
+                    cuts.Add(Mathf.Clamp01(Vector2.Dot(c - a, direction) / direction.sqrMagnitude));
+                    cuts.Add(Mathf.Clamp01(Vector2.Dot(c + edge - a, direction) / direction.sqrMagnitude));
+                }
+            }
+            cuts.Sort();
+            for (int i = 1; i < cuts.Count; i++)
+                if (cuts[i] - cuts[i - 1] > 1e-7f && !InsideOrOnBoundary(a + direction * ((cuts[i] + cuts[i - 1]) * .5f), polygon))
+                    return false;
+            return true;
         }
 
         private static void Apply(Transform instance, Transform origin, TransformData data)
@@ -631,12 +839,29 @@ namespace ArSandbox
 
         private static Float3 Clone(Float3 value)
         {
-            return new Float3(value.x, value.y, value.z);
+            return value == null ? null : new Float3(value.x, value.y, value.z);
         }
 
         private static BoundsData Clone(BoundsData value)
         {
             return value == null ? null : new BoundsData { center = Clone(value.center), size = Clone(value.size) };
+        }
+
+        private static string[] Clone(string[] value)
+        {
+            return value == null ? null : (string[])value.Clone();
+        }
+
+        private static RoomSurfaceData Clone(RoomSurfaceData value)
+        {
+            if (value == null) return null;
+            List<Float3> boundary = null;
+            if (value.boundary != null)
+            {
+                boundary = new List<Float3>(value.boundary.Count);
+                foreach (Float3 point in value.boundary) boundary.Add(point == null ? null : Clone(point));
+            }
+            return new RoomSurfaceData { kind = value.kind, boundary = boundary, localBounds = Clone(value.localBounds) };
         }
 
         private static TransformData Clone(TransformData value)

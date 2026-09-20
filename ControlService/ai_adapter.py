@@ -133,6 +133,74 @@ def validate_local_bounds(value):
     return result
 
 
+def validate_anchor_metadata(value):
+    """Optional, measured MRUK geometry; legacy virtual anchors remain unchanged.
+
+    The runtime owns coordinate conversion and final surface queries. This only
+    validates the data crossing the PC boundary; it does not synthesize a room.
+    """
+    source = value.get("source")
+    if source in (None, ""):
+        return {}
+    _require(source == "mruk", "Unknown room anchor source")
+    labels = value.get("semanticLabels")
+    _require(isinstance(labels, list) and 0 < len(labels) <= 32, "Invalid room semantic labels")
+    labels = [_text(label, "room semantic label", limit=64) for label in labels]
+    _require(len(set(labels)) == len(labels), "Duplicate room semantic label")
+    surface = value.get("surface")
+    _require(isinstance(surface, dict) and set(surface) <= {"kind", "boundary", "localBounds"},
+             "Invalid room surface")
+    kind = surface.get("kind")
+    _require(isinstance(kind, str) and kind in {"support", "wall", "other"}, "Invalid room surface kind")
+    boundary = surface.get("boundary")
+    _require(isinstance(boundary, list) and len(boundary) <= 256, "Invalid room surface boundary")
+    points = [_vector(point, "position") for point in boundary]
+    if kind == "support":
+        _require(len(points) >= 3 and all(abs(point["y"]) <= .001 for point in points),
+                 "Support boundary must contain an anchor-local XZ polygon at Y=0")
+        area = sum(a["x"] * b["z"] - b["x"] * a["z"]
+                   for a, b in zip(points, points[1:] + points[:1]))
+        _require(abs(area) > 1e-6, "Support boundary has no usable area")
+    clean_surface = {"kind": kind, "boundary": points}
+    bounds = surface.get("localBounds")
+    if bounds is not None:
+        _require(isinstance(bounds, dict) and set(bounds) == {"center", "size"}, "Invalid room localBounds")
+        center, size = _vector(bounds["center"], "position"), _vector(bounds["size"], "position")
+        _require(all(n >= 0 for n in size.values()), "Room bounds size must be nonnegative")
+        # JsonUtility may materialize a missing inline class as all-zero data.
+        if any(n != 0 for vector in (center, size) for n in vector.values()):
+            _require(any(n > 0 for n in size.values()), "Room bounds have no extent")
+            clean_surface["localBounds"] = {"center": center, "size": size}
+    result = {"source": source, "semanticLabels": labels, "surface": clean_surface}
+    pose = value.get("roomPose")
+    if pose is not None:
+        pose = _transform(pose)
+        _require(all(n == 1 for n in pose["scale"].values()), "Room anchor pose scale must be one")
+        result["roomPose"] = pose
+    return result
+
+
+def validate_room_context(value):
+    """Room availability and the wearer's alignment confirmation, not a saved pose."""
+    if value is None:
+        return None
+    _require(isinstance(value, dict) and set(value) <= {"mode", "state", "message", "alignmentVerified"},
+             "Invalid room context")
+    # Older Unity scenes can serialize an unused inline class with empty strings.
+    if value.get("mode") in (None, "") and value.get("state") in (None, ""):
+        _require(not value.get("message") and not value.get("alignmentVerified"), "Invalid empty room context")
+        return None
+    _require(isinstance(value.get("mode"), str) and value["mode"] in {"ar", "white-room"}, "Invalid room mode")
+    _require(isinstance(value.get("state"), str) and value["state"] in {"ready", "loading", "missing", "error"}, "Invalid room state")
+    result = {"mode": value["mode"], "state": value["state"],
+              "message": _text("" if value.get("message") is None else value["message"],
+                               "room message", limit=500, empty=True)}
+    if "alignmentVerified" in value:
+        _require(type(value["alignmentVerified"]) is bool, "Invalid room alignment confirmation")
+        result["alignmentVerified"] = value["alignmentVerified"]
+    return result
+
+
 def validate_viewer(value, anchor_ids):
     """Ephemeral tracked viewpoint, expressed in known horizontal-anchor frames."""
     if value is None:
@@ -142,7 +210,8 @@ def validate_viewer(value, anchor_ids):
     _require(isinstance(frames, list) and len(frames) <= 128, "Invalid viewer frames")
     result, seen = [], set()
     for frame in frames:
-        _require(isinstance(frame, dict) and set(frame) == {"anchorId", "position", "forward"}, "Invalid viewer frame")
+        _require(isinstance(frame, dict) and {"anchorId", "position", "forward"} <= set(frame)
+                 and set(frame) <= {"anchorId", "position", "forward", "lookDirection"}, "Invalid viewer frame")
         anchor_id = _text(frame["anchorId"], "viewer anchorId")
         _require(anchor_id in anchor_ids and anchor_id not in seen, "Unknown or duplicate viewer anchorId")
         seen.add(anchor_id)
@@ -156,8 +225,49 @@ def validate_viewer(value, anchor_ids):
         forward = clean["forward"]
         _require(forward["y"] == 0 and 0.99 <= math.hypot(forward["x"], forward["z"]) <= 1.01,
                  "Viewer forward must be a horizontal unit vector")
+        if frame.get("lookDirection") is not None:
+            look = _direction(frame["lookDirection"], "viewer lookDirection", allow_zero=True)
+            if look is not None:
+                clean["lookDirection"] = look
         result.append(clean)
     return {"frames": result} if result else None
+
+
+def _direction(value, label, allow_zero=False):
+    _require(isinstance(value, dict) and set(value) == {"x", "y", "z"}, "Invalid " + label)
+    _require(all(type(n) in (int, float) and abs(n) <= 1.01 and math.isfinite(n) for n in value.values()), "Invalid " + label)
+    length = math.hypot(*value.values())
+    if allow_zero and length == 0:
+        return None
+    _require(.99 <= length <= 1.01, label + " must be a unit vector")
+    return dict(value)
+
+
+def validate_pointing(value, anchors, objects):
+    """Ephemeral controller ray and hit in one known anchor frame."""
+    if value is None:
+        return None
+    _require(isinstance(value, dict), "Invalid pointing context")
+    anchor_id = value.get("anchorId")
+    if anchor_id in (None, ""):
+        return None  # No tracked hit; handles Unity's empty inline object.
+    _require(set(value) <= {"anchorId", "objectId", "position", "normal", "origin", "direction"},
+             "Invalid pointing fields")
+    anchor_id = _text(anchor_id, "pointing anchorId")
+    _require(anchor_id in anchors, "Pointed room target is unavailable", 409)
+    object_id = _text("" if value.get("objectId") is None else value["objectId"], "pointing objectId", empty=True)
+    _require(not object_id or object_id in objects, "Pointed object is unavailable", 409)
+    if object_id and isinstance(objects, dict):
+        _require(objects[object_id]["anchorId"] == anchor_id, "Pointed object uses a different anchor", 409)
+    result = {"anchorId": anchor_id, "objectId": object_id, "position": _vector(value.get("position"), "position"),
+              "normal": _direction(value.get("normal"), "pointing normal"),
+              "direction": _direction(value.get("direction"), "pointing direction")}
+    origin = value.get("origin")
+    _require(isinstance(origin, dict) and set(origin) == {"x", "y", "z"}
+             and all(type(n) in (int, float) and math.isfinite(n) and abs(n) <= 10000 for n in origin.values()),
+             "Invalid pointing origin")
+    result["origin"] = dict(origin)
+    return result
 
 
 def _catalog(values, key, limit):
@@ -178,6 +288,8 @@ def _catalog(values, key, limit):
             bounds = validate_local_bounds(value["localBounds"])
             if bounds is not None:
                 result[identifier]["localBounds"] = bounds
+        if key == "anchorId":
+            result[identifier].update(validate_anchor_metadata(value))
     return result
 
 
@@ -216,6 +328,12 @@ def _context(snapshot, selection=None):
     viewer = validate_viewer(snapshot.get("viewer"), anchors)
     if viewer is not None:
         clean["viewer"] = viewer
+    pointing = validate_pointing(snapshot.get("pointing"), anchors, objects)
+    if pointing is not None:
+        clean["pointing"] = pointing
+    room = validate_room_context(snapshot.get("roomContext"))
+    if room is not None:
+        clean["roomContext"] = room
     return clean, assets, anchors, objects, selected
 
 
@@ -236,7 +354,7 @@ def _saved_names(values):
 
 def validate_commands(commands, snapshot, saved_scenes=None, selection=None):
     """Revalidate on apply with a fresh snapshot; do not trust a provider's JSON."""
-    _, assets, anchors, objects, _ = _context(snapshot, selection)
+    clean, assets, anchors, objects, _ = _context(snapshot, selection)
     saved = _saved_names(saved_scenes)
     _require(isinstance(commands, list) and 0 < len(commands) <= MAX_BATCH,
              "Planner needs a clearer request or a selected object/room target")
@@ -255,9 +373,9 @@ def validate_commands(commands, snapshot, saved_scenes=None, selection=None):
             continue
         allowed = {"op"}
         if op == "spawn":
-            allowed |= {"assetId", "anchorId", "transform"}
+            allowed |= {"assetId", "anchorId", "transform", "placement"}
         elif op == "set_transform":
-            allowed |= {"objectId", "anchorId", "transform"}
+            allowed |= {"objectId", "anchorId", "transform", "placement"}
         elif op in {"select", "duplicate", "delete"}:
             allowed.add("objectId")
         else:
@@ -270,6 +388,7 @@ def validate_commands(commands, snapshot, saved_scenes=None, selection=None):
             _require(isinstance(value.get("assetId"), str) and value["assetId"] in assets, "Planner proposed an unknown asset")
             _require(isinstance(value.get("anchorId"), str) and value["anchorId"] in anchors, "Planner proposed an unknown room target")
             result.update(assetId=value["assetId"], anchorId=value["anchorId"], transform=_transform(value.get("transform")))
+            _validate_surface_placement(value, result, anchors[result["anchorId"]], assets[result["assetId"]], clean)
             object_count += 1
             _require(object_count <= MAX_OBJECTS, "Scene object limit would be exceeded")
         elif op in {"set_transform", "select", "duplicate", "delete"}:
@@ -289,11 +408,34 @@ def validate_commands(commands, snapshot, saved_scenes=None, selection=None):
                     _require(isinstance(value["anchorId"], str) and value["anchorId"] in anchors,
                              "Planner proposed an unknown room target")
                     result["anchorId"] = value["anchorId"]
+                anchor_id = result.get("anchorId", objects[identifier]["anchorId"])
+                _validate_surface_placement(value, result, anchors[anchor_id], assets[objects[identifier]["assetId"]], clean)
+                objects[identifier].update(anchorId=anchor_id, transform=copy.deepcopy(result["transform"]))
         elif op == "clear":
             objects.clear()
             object_count = 0
         checked.append(result)
     return checked
+
+
+def _validate_surface_placement(value, result, anchor, asset, snapshot):
+    """Keep final geometry resolution in the runtime's measured MRUK frame."""
+    physical = anchor.get("source") == "mruk"
+    if physical:
+        _require(anchor["surface"]["kind"] == "support",
+                 "This room anchor is for context and outlines only; select a measured support surface")
+        room = snapshot.get("roomContext", {})
+        _require(room.get("mode") == "ar" and room.get("state") == "ready",
+                 "Real room data is unavailable; load the configured room first", 409)
+        _require(room.get("alignmentVerified") is True,
+                 "Verify that the labeled room outlines align with reality before editing", 409)
+    if "placement" in value:
+        _require(value["placement"] == "surface", "Unknown placement mode")
+        _require(physical and anchor["surface"]["kind"] == "support",
+                 "Surface placement needs a measured MRUK support target")
+        _require(asset.get("localBounds") is not None, "Surface placement needs measured prefab bounds")
+        _require(result["transform"]["position"]["y"] >= 0, "Surface clearance cannot be negative")
+        result["placement"] = "surface"
 
 
 class NoRedirect(urllib.request.HTTPRedirectHandler):
@@ -330,7 +472,8 @@ Use an asset's optional description to understand its orientation and function (
 Missing bounds mean unknown geometry: simple single-prop edits can still use spawnScale, but do not invent exact
 measurements for a geometry-dependent construction. Ask for a runtime with geometry metadata if that prevents the design.
 Allowed runtime commands:
-spawn: {op:'spawn',assetId,anchorId,transform}; set_transform: {op:'set_transform',objectId,transform,optional anchorId};
+spawn: {op:'spawn',assetId,anchorId,transform,optional placement:'surface'};
+set_transform: {op:'set_transform',objectId,transform,optional anchorId,optional placement:'surface'};
 select: {op:'select',objectId}; duplicate: {op:'duplicate',objectId}; delete: {op:'delete',objectId};
 undo: {op:'undo'}; redo: {op:'redo'}; clear: {op:'clear'}; get_scene, list_assets, list_targets: {op:...}.
 Undo/redo must be separate single-command proposals. Their resulting scene and history availability are not supplied.
@@ -343,7 +486,8 @@ Do not build large floor structures on a selected table target. Ask when no suit
 Return an empty commands array ONLY when an essential reference is missing/ambiguous or the requested result cannot be
 represented with available pieces/commands. Then summary must explain the blocker or ask one concrete question.
 Do not substitute get_scene/list_assets/list_targets for a requested construction: you already have that context.
-Transform is {position:{x,y,z},rotation:{x,y,z},scale:{x,y,z}}. Position is metres in the anchor's local frame (+Y up).
+Transform is {position:{x,y,z},rotation:{x,y,z},scale:{x,y,z}}. Position is metres in the anchor's local frame.
+Virtual anchors and physical support anchors use +Y up. Other physical frames may use +Y as their surface normal.
 Position components must be [-100,100], rotation Euler degrees [-36000,36000], and scale multipliers [0.01,20].
 Use a single new prop's catalog spawnScale uniformly on x/y/z, defaulting to 0.2 if absent, unless the user requests another size.
 For a composition, choose each piece's scale from its geometry and the design; nonuniform scaling is explicitly allowed.
@@ -359,6 +503,41 @@ Choose an appropriate floor anchor for furniture. A viewer frame only identifies
 State that placement uses the user's viewpoint at request time. Subsequent head motion does not move the arrangement.
 If an explicitly viewer-relative request has no matching tracked viewer frame, return no commands and explain that
 the headset must be awake with tracking (or the updated runtime must be installed). Do not substitute a selected point.
+PHYSICAL ROOM CONTEXT:
+An anchor with source:'mruk' is a measured physical room target. Its anchorId is the actual room-anchor identity,
+semanticLabels are measured labels, and surface describes measured geometry in that anchor's own coordinates.
+Never confuse a physical TABLE anchor with a table asset or virtual table object: 'my table', 'the real table', and
+'my room' refer to measured room geometry. Do not spawn replacement physical furniture or invent a room anchor.
+If there is exactly one matching physical support, use it. If several match, use the controller-selected matching
+anchor/point, or the matching captured pointing target; otherwise ask the user to point at the intended surface.
+Never choose the first of ambiguous tables. Optional snapshot.pointing contains the tracked controller ray origin,
+unit direction, hit position and unit hit normal, all in its anchorId frame; objectId is present only for an object hit.
+Use it to identify a physical surface, not to override selection.objectId for 'this object'.
+If no matching physical surface exists, return no commands and ask for manual Space Setup or room reload.
+snapshot.roomContext reports room mode, loading/missing/error/ready state and alignmentVerified. Real-room edits
+require mode:'ar', state:'ready', alignmentVerified:true. Otherwise explain the status and ask the user to first
+load the room or confirm the labeled outlines align. Do not substitute a white-room floor for missing real data.
+surface.kind:'support' means its local XZ boundary at Y=0 supports placement. Walls and other kinds are context
+and debug geometry only in this milestone; do not spawn or move objects onto those anchors. surface.localBounds
+may include volume below a furniture top and zero extent along one axis for a plane. Optional roomPose gives this
+anchor's frame relative to the room at binding, for comparing geometry; command transforms still use anchor-local
+coordinates, never roomPose coordinates. A boundary may be concave; do not assume it is a rectangle.
+For 'on my table', 'on the real floor', and moving an object along its physical support, use placement:'surface'.
+Choose X/Z inside the measured boundary with room for the prefab's scaled, rotated footprint. With this hint Y is
+nonnegative clearance above the surface, not a pivot height: use Y=0 for contact, including moving along its top.
+The existing runtime resolves the prefab pivot's resting height and checks the full footprint against MRUK;
+it may reject an oversized or unsupported placement. Do not claim success before the executor acknowledges it.
+Surface placement requires known prefab localBounds. Use another suitable known piece or explain missing bounds.
+For an explicit lift or floating placement, omit placement and give the desired final anchor-local pivot position;
+preserve that object's stable objectId and anchorId unless the user explicitly asks to transfer it to another surface.
+For 'move it', the selected object's ID identifies the edit. Keep unrequested scale/rotation and use that object's
+anchor coordinates. For an ordinary horizontal move along a real support, resolve contact again with placement:'surface'.
+For 'here', selection.anchorId and selection.position are the controller-selected point; a captured pointing target
+also identifies the currently aimed-at surface. Preserve the chosen point's X/Z, and use surface placement for a
+measured support. A viewer frame is measured head pose, not a surface label. Optional viewer lookDirection is the
+full 3D gaze heading including pitch; forward remains its horizontal projection for floor-relative positioning.
+Room and anchor IDs persist with object transforms. If room data or saved anchors are missing after reconfiguration,
+explain that restoration must wait for the matching room; never silently rebind saved objects to another anchor.
 PC persistence commands: {op:'save_scene',name} or {op:'load_scene',name}. Load names must occur in savedScenes.
 For 'load NAME', an exact case-insensitive saved-scene name takes priority over an asset name.
 Otherwise 'load a chair' or 'summon a chair' means spawn only a known catalog asset at the selected point.

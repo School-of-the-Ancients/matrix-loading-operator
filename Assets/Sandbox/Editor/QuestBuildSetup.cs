@@ -116,7 +116,7 @@ namespace ArSandbox
             config.anchorSupport = OVRProjectConfig.AnchorSupport.Enabled;
             config.handTrackingSupport = OVRProjectConfig.HandTrackingSupport.ControllersOnly;
             OVRProjectConfig.CommitProjectConfig(config);
-            OVRManifestPreprocessor.GenerateOrUpdateAndroidManifest(false);
+            OVRManifestPreprocessor.GenerateOrUpdateAndroidManifest(Application.isBatchMode);
             EditorUtility.SetDirty(allSettings);
             EditorUtility.SetDirty(general);
             EditorUtility.SetDirty(general.Manager);

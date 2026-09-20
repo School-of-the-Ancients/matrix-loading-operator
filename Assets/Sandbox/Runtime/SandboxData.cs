@@ -74,6 +74,35 @@ namespace ArSandbox
     {
         public string anchorId;
         public string displayName;
+        public string source;
+        public string[] semanticLabels;
+        public RoomSurfaceData surface;
+        public TransformData roomPose;
+    }
+
+    [Serializable]
+    public sealed class RoomSurfaceData
+    {
+        public string kind; // support, wall or other; only supports accept props.
+        public List<Float3> boundary;
+        public BoundsData localBounds;
+    }
+
+    [Serializable]
+    public sealed class RoomContextData
+    {
+        public string mode;
+        public string state;
+        public string message;
+        public bool alignmentVerified;
+    }
+
+    [Serializable]
+    public sealed class PointingData
+    {
+        public string anchorId;
+        public string objectId;
+        public Float3 position, normal, origin, direction;
     }
 
     [Serializable]
@@ -84,6 +113,7 @@ namespace ArSandbox
         public Float3 position;
         // Horizontal, normalized direction in the same frame; y is always zero.
         public Float3 forward;
+        public Float3 lookDirection; // Optional full gaze direction, including pitch.
     }
 
     [Serializable]
@@ -95,12 +125,17 @@ namespace ArSandbox
     [Serializable]
     public sealed class SandboxSnapshot
     {
+        // A retained AR scene may be saved or explicitly cleared after anchors
+        // become unavailable. It must never be used for new placement or restore.
+        public bool readOnly;
         public SceneData scene;
         public List<AssetInfo> assets;
         public List<AnchorInfo> anchors;
         public SelectionData selection;
         // Live context only. Never part of SceneData or a source for restoring viewer pose.
         public ViewerData viewer;
+        public PointingData pointing;
+        public RoomContextData roomContext;
     }
 
     [Serializable]
@@ -137,6 +172,7 @@ namespace ArSandbox
         public string anchorId;
         public TransformData transform;
         public SceneData scene;
+        public string placement; // Optional "surface": position.y is clearance, resolve prefab pivot.
     }
 
     [Serializable]
@@ -164,5 +200,10 @@ namespace ArSandbox
         public string anchorId;
         public string displayName;
         public Transform origin;
+        public string source;
+        public string[] semanticLabels;
+        public RoomSurfaceData surface;
+        public TransformData roomPose;
+        [NonSerialized] public Func<Vector3, bool> surfaceValidator;
     }
 }

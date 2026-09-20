@@ -1,0 +1,138 @@
+{
+  "timestampUtc": "2026-09-20T22:46:04.107927+00:00",
+  "evidence": "real Codex provider with synthetic MRUK room fixtures",
+  "hardwareTested": false,
+  "runtimeCommandsExecuted": false,
+  "tests": [
+    {
+      "name": "unique-table",
+      "prompt": "put an orb on my table",
+      "passed": true,
+      "result": {
+        "commands": [
+          {
+            "op": "spawn",
+            "assetId": "orb",
+            "anchorId": "table-uuid-1",
+            "transform": {
+              "position": {
+                "x": 0.2,
+                "y": 0,
+                "z": 0.1
+              },
+              "rotation": {
+                "x": 0,
+                "y": 0,
+                "z": 0
+              },
+              "scale": {
+                "x": 0.2,
+                "y": 0.2,
+                "z": 0.2
+              }
+            },
+            "placement": "surface"
+          }
+        ],
+        "summary": "Proposes placing a second orb, approximately 0.2 m in diameter, on the measured table at the selected surface point. Placement remains subject to runtime support validation after Apply.",
+        "provider": "Codex CLI (ChatGPT login)",
+        "mode": "codex-cli",
+        "requiresApply": true,
+        "assumptions": [
+          "The selected point identifies the intended location on the only measured table.",
+          "The existing orb should remain unchanged."
+        ],
+        "status": "ready",
+        "inference": {
+          "transport": "codex-cli",
+          "completedTurn": true,
+          "usage": {
+            "input_tokens": 13019,
+            "cached_input_tokens": 0,
+            "output_tokens": 236,
+            "reasoning_output_tokens": 78
+          },
+          "toolCallCount": 0
+        }
+      }
+    },
+    {
+      "name": "ambiguous-tables",
+      "prompt": "put an orb on my table",
+      "passed": true,
+      "result": {
+        "commands": [],
+        "summary": "Two measured tables match \u201cmy table,\u201d and neither is selected or currently pointed at. Please point at the intended table and repeat the request.",
+        "provider": "Codex CLI (ChatGPT login)",
+        "mode": "codex-cli",
+        "requiresApply": false,
+        "assumptions": [],
+        "status": "needs_clarification",
+        "inference": {
+          "transport": "codex-cli",
+          "completedTurn": true,
+          "usage": {
+            "input_tokens": 13117,
+            "cached_input_tokens": 0,
+            "output_tokens": 83,
+            "reasoning_output_tokens": 32
+          },
+          "toolCallCount": 0
+        }
+      }
+    },
+    {
+      "name": "move-selected-orb",
+      "prompt": "move it 20 cm left",
+      "passed": true,
+      "result": {
+        "commands": [
+          {
+            "op": "set_transform",
+            "objectId": "orb-object",
+            "transform": {
+              "position": {
+                "x": -0.2,
+                "y": 0,
+                "z": 0
+              },
+              "rotation": {
+                "x": 0,
+                "y": 0,
+                "z": 0
+              },
+              "scale": {
+                "x": 0.2,
+                "y": 0.2,
+                "z": 0.2
+              }
+            },
+            "anchorId": "table-uuid-1",
+            "placement": "surface"
+          }
+        ],
+        "summary": "Moves the selected orb 20 cm left along the measured table surface, preserving its rotation and scale. The orb remains approximately 0.2 m in diameter. Change occurs only after Apply.",
+        "provider": "Codex CLI (ChatGPT login)",
+        "mode": "codex-cli",
+        "requiresApply": true,
+        "assumptions": [
+          "\u201cLeft\u201d means negative anchor-local X because no viewer-relative wording was used.",
+          "Surface placement will resolve the orb\u2019s resting pivot height on the table."
+        ],
+        "status": "ready",
+        "inference": {
+          "transport": "codex-cli",
+          "completedTurn": true,
+          "usage": {
+            "input_tokens": 13021,
+            "cached_input_tokens": 0,
+            "output_tokens": 212,
+            "reasoning_output_tokens": 41
+          },
+          "toolCallCount": 0
+        }
+      }
+    }
+  ],
+  "passed": true
+}

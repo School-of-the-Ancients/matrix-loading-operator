@@ -11,7 +11,7 @@ namespace ArSandbox
     public sealed class PcBridge : MonoBehaviour
     {
         [Serializable] public sealed class Settings { public string url = "http://127.0.0.1:8765"; public string token = ""; }
-        [Serializable] private sealed class Exchange { public string clientId; public SandboxSnapshot snapshot; public List<CommandResult> results; }
+        [Serializable] private sealed class Exchange { public string clientId; public SandboxSnapshot snapshot; public RoomContextData runtime; public List<CommandResult> results; }
         [Serializable] private sealed class Incoming { public List<SandboxCommand> commands; public LessonGuideData lesson; }
         public SandboxApp app;
         public string ConnectionStatus { get; private set; } = "PC service not connected.";
@@ -45,12 +45,9 @@ namespace ArSandbox
             var pause = new WaitForSecondsRealtime(0.25f);
             while (true)
             {
-                if (app.World == null || app.RoomReloading) { IsConnected = false; yield return pause; continue; }
-                var snapshot = app.World.Capture();
-                snapshot.selection = new SelectionData { anchorId = app.SelectedAnchorId, objectId = app.SelectedObjectId, position = SandboxApp.Vec(app.Placement) };
-                // Explicit empty frames avoid JsonUtility's inline-null class/list defaults.
-                snapshot.viewer = app.CaptureViewer() ?? new ViewerData();
-                var body = JsonUtility.ToJson(new Exchange { clientId = clientId, snapshot = snapshot, results = new List<CommandResult>(pendingResults) });
+                if ((app.World == null || app.RoomReloading) && app.RoomContext?.mode != "ar") { IsConnected = false; yield return pause; continue; }
+                var snapshot = app.CaptureSnapshot();
+                var body = JsonUtility.ToJson(new Exchange { clientId = clientId, snapshot = snapshot, runtime = app.RoomContext, results = new List<CommandResult>(pendingResults) });
                 using (var request = new UnityWebRequest(settings.url.TrimEnd('/') + "/api/exchange", "POST"))
                 {
                     activeRequest = request;
@@ -74,7 +71,7 @@ namespace ArSandbox
                         IsConnected = incoming != null;
                         if (incoming != null)
                         {
-                            ConnectionStatus = "PC connected — scene state synchronized.";
+                            ConnectionStatus = snapshot == null ? "PC connected — waiting for configured room data." : "PC connected — scene state synchronized.";
                             ReceiveGuide(incoming.lesson);
                             if (incoming.commands != null) foreach (var command in incoming.commands)
                             {
