@@ -1,6 +1,6 @@
 {
   "milestone": "Live runtime Rotate and Bob behaviors",
-  "recordedUtc": "2026-09-20T23:47:35.706868+00:00",
+  "recordedUtc": "2026-09-20T23:55:27.361021+00:00",
   "implemented": [
     "Bounded rotate and upward bob",
     "Independent enable, pause, resume and removal",
@@ -74,8 +74,19 @@
       "recordAudioPermission": true,
       "systemMicrophoneMute": true,
       "pcVoiceJobCreated": false,
-      "resolution": "Wearer reports Quick Settings already unmuted; explicit off/on retry pending. Root cause not confirmed."
-    }
+      "resolution": "After restart wearer sees room-loading voice status. USB debugging became unauthorized, preventing fresh room/audio inspection and PC reconnection. Await current device prompt; no source fix or successful post-restart voice test claimed.",
+      "systemMuteObservedDuringCapture": true,
+      "activeCaptureSamples": 8,
+      "activeCaptureSecondsApprox": 5,
+      "recordingClientSilenced": false,
+      "systemMuteSources": {
+        "switch": false,
+        "restrictions": false,
+        "api": false
+      }
+    },
+    "postRestartRoomAndVoiceVerified": false,
+    "staleVoiceStatusObservedInCode": true
   },
   "preservation": {
     "baseCommit": "6962eaf",
@@ -87,7 +98,9 @@
     "preVoiceRetestObjects": 2,
     "unityHubExportsSourceVerified": true,
     "localBehaviorCheckpoint": "../checkpoints/RuntimeBehaviors_20260920",
-    "desktopFullCloneAndBuildsSynchronized": true
+    "desktopFullCloneAndBuildsSynchronized": true,
+    "latestBeforeAppRestartSave": "BeforeVoiceRestart_20260920_175100",
+    "latestBeforeAppRestartObjects": 1
   },
   "limitations": [
     "Only rotate and bob are implemented; general programs, interaction triggers and physics remain proposed",
