@@ -2,20 +2,23 @@
 
 This report concerns the fully virtual Matrix Operator. Earlier prototype reports concern separate MRUK/simulation paths.
 
-The later [Quest Pro continuation session](Quest-Pro-Session.md) records successful device installation, the launch blocker and an attach-only test runner. The build/player results below are the existing baseline, not fresh headset runtime evidence.
+The [Quest Pro continuation session](Quest-Pro-Session.md) records **21 actual-device command/persistence checks** after manual launch and USB-forwarding recovery. The wearer confirms restored objects and selection. Live Codex subsequently completed one acknowledged spawn, but the next resize proposal returned HTTP 409; that partial run safely restored its original scene. Build/player, wearer and model evidence remain separate below.
 
 | Evidence | Result | Boundary |
 | --- | --- | --- |
 | Unity desktop core/application checks | **129 passed, 0 failed** | Real Unity Editor execution, including wire deserialization and history |
 | Unity Android core/application checks | **129 passed, 0 failed** | Executed during the final Android build |
 | Windows player integration | **95 passed, 0 failed** | Actual Unity players use the production service CLI; optional learning core unavailable |
-| PC HTTP service + language/learning adapters | **99 passed, 0 failed** | Includes mock-provider transport and restore recovery; no live model claim |
+| PC HTTP service + language/learning adapters | **136 passed, 0 failed** | Includes Codex CLI boundary tests, mock HTTP provider and restore recovery; separate from live inference |
 | Browser controls | Passed the flows below | Real page and actual Windows player |
 | Arranged Editor gallery preview | Rendered and visually inspected | Seven actual prefabs, floor contact and camera bounds checked; startup scene remains empty |
 | Desktop build | Produced `Builds/WhiteRoomDesktop/MatrixOperator.exe` | Desktop control visuals and physical input are not covered by headless integration tests |
 | Quest build | Produced ARM64 `Builds/WhiteRoomQuest/MatrixOperator.apk` | Metadata checked; subsequently installed successfully on the actual Quest Pro |
-| Quest runtime / Touch Pro / tracking | **Not tested** | Device now authorized; app launch pending, PC runtime still offline |
-| Live AI / voice | **Not tested / not implemented** | Offline parser is explicit; no invented credentials |
+| Quest runtime command/persistence loop | **21 passed, 0 failed** | Actual authorized Quest Pro app; same-ID edits and exact save/clear/restore; all 17 original objects restored afterward |
+| Headset visuals / Touch Pro / tracking | White room, restored objects and selection work, **wearer-reported** | Full button/stick, floor-height, tracking/recenter and comfort checklist remains pending |
+| Live Codex CLI + actual Quest | **27 passed, 1 failed** | Spawn reviewed/applied/acknowledged; resize proposal HTTP 409; original three objects restored |
+| Unity Hub source exports | **103 Quest + 90 Desktop files SHA-256 verified** | Complete Assets/Packages/ProjectSettings copies; not opened or rebuilt at Desktop destinations |
+| Full live AI loop / MRUK hardware / voice | **Unfinished / untested / unimplemented** | Partial live spawn does not establish these outcomes |
 
 ## Real application loop
 
@@ -34,7 +37,13 @@ python Validation/Run-WhiteRoom-Loop.py
 ./Build-WhiteRoom.ps1 -Target Quest
 ```
 
-Reports: `white-room-desktop-core-results.json`, `white-room-quest-core-results.json`, `white-room-loop-results.json`, `white-room-service-tests.txt`. Raw Unity logs stay local and ignored. Published paths in core reports are redacted.
+Reports: `white-room-desktop-core-results.json`, `white-room-quest-core-results.json`, `white-room-loop-results.json`; the latest PC suite is `codex-service-tests.txt` (136 tests), superseding the earlier 99-test `white-room-service-tests.txt` run. Raw logs stay local and ignored. Published paths in core reports are redacted.
+
+## Live Codex and Desktop export evidence
+
+The user selected subscription access; native `codex.exe login status` reported ChatGPT sign-in. `Start-CodexControlService.ps1` starts that mode while leaving credentials under Codex management. [codex-headset-loop-results.json](codex-headset-loop-results.json) records one completed model proposal with zero tool calls, explicit review/Apply and actual headset spawn acknowledgement. A subsequent resize proposal returned HTTP 409. The recovery scene's new chair had yaw 45 rather than the requested yaw 0, supporting stale-context rejection. The HTTP error body was not captured and the rotation's source is unknown, so the exact cause is unconfirmed. All three original objects were restored. No full live AI save/clear/restore success is claimed.
+
+[unity-hub-export.json](unity-hub-export.json) verifies Unity 6000.6.0f1 source copies at Desktop → Game Design → **Matrix White Room Quest** and **Matrix White Room Desktop**. Each has its generated scene, metadata and README; no caches, credentials, Meta Core/MRUK packages or source-machine path references were copied. The full **Matrix Loading Operator** Desktop checkout and copied local builds/saves are covered by the separate [repository export report](desktop-repository-export.json) and [Desktop guide](../Docs/Desktop-Unity-Hub.md). These source exports add no compile/build evidence.
 
 ## Browser observations
 
@@ -61,4 +70,4 @@ APK metadata: `com.matt.matrixoperator.whiteroom`, ARM64, target SDK 34, UnityPl
 
 Source inspection of Unity's installed OpenXR provider confirms that enabled interaction profiles create and attach the controller action maps used by the direct Input System controls. This supports the implementation choice but does not establish physical-controller behavior.
 
-When a Quest Pro is connected and authorized, run `Install-WhiteRoom.ps1`, then validate opaque white-room rendering, floor height, head pose, Touch Pro ray/button mappings, one-edit-per-stick-deflection behavior, loss/recovery of tracking, physical boundary/recenter comfort, USB PC connection, and the same save/restore loop on-device. Record those as new hardware evidence; do not infer them from this APK build.
+The APK above is already installed and remains unchanged. Use `Connect-QuestControl.ps1` after USB reconnects; open Matrix Operator manually from Unknown Sources if needed. Actual command/save/restore acknowledgements and wearer-confirmed selection are now recorded. Continue the remaining floor-height, head pose, full Touch Pro mappings, one-edit-per-stick-deflection, tracking/focus recovery and boundary/recenter comfort checks without inferring them from the build or JSON results.

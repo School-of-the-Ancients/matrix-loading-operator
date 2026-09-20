@@ -1,6 +1,6 @@
 # Matrix Operator: the virtual white room
 
-The immediate priority is validating the virtual room's Operator abilities on the actual Quest Pro. The next passes connect a real PC-side AI provider, then the existing MRUK path with manually configured room surfaces. Education, mentors, curriculum, voice and downloaded catalogs are separate later work. Quest 3 is optional.
+The virtual room has passed 21 command/persistence checks on the actual Quest Pro; the wearer confirms restored objects and selection work. The current pass uses the user's ChatGPT/Codex subscription through the PC CLI: a live spawn succeeded, but HTTP 409 stopped the next resize proposal. Finish that AI loop before the existing MRUK path with manually configured room surfaces. Education, mentors, curriculum, voice and downloaded catalogs are separate later work. Quest 3 is optional.
 
 The room loads automatically with a fixed floor at y=0. Its stable `white-room-v1` / `white-floor` coordinate frame allows a saved arrangement to survive an application restart without a physical room scan. All units are metres. Headset recentering can change where the viewer stands in this virtual scene; this mode does not promise alignment with real furniture.
 
@@ -24,6 +24,19 @@ Open <http://127.0.0.1:8765/>. The page reports **WHITE ROOM CONNECTED** when th
 The previously merged learning activity remains on the separate optional <http://127.0.0.1:8765/learning> page, also linked under Connection settings. Ordinary white-room editing and scene-only save/load require no learning-core process. If you explicitly load a save containing a learning checkpoint, use that page for its learning-core connection and checkpoint recovery controls.
 
 The build script generates an independent Unity project under `.white-room-fixture/Desktop` using an explicit list of this repository's authored sources. It preserves the existing MRUK project. To open the white-room scene in Unity, open this generated project and `Assets/Sandbox/WhiteRoom/Scenes/WhiteRoomDesktop.unity`. **Sandbox → White room → Generate desktop scene** regenerates that generated scene and bundled props.
+
+## Open the Desktop exports in Unity Hub
+
+In Unity Hub choose **Add project from disk**, then select one of these folders under **Desktop → Game Design**. Use Unity **6000.6.0f1**:
+
+| Project folder | Scene to open |
+| --- | --- |
+| Matrix White Room Quest | `Assets/Sandbox/WhiteRoom/Scenes/WhiteRoomQuest.unity` |
+| Matrix White Room Desktop | `Assets/Sandbox/WhiteRoom/Scenes/WhiteRoomDesktop.unity` |
+
+These complete Unity source copies contain Assets, Packages and ProjectSettings, with all metadata. The Quest copy's 103 files and Desktop copy's 90 files match their generated sources by SHA-256. Neither export was opened or rebuilt at its new location. Unity creates caches on first import; the Quest target also needs Android Build Support. No Meta Core/MRUK packages or credentials were copied. [Export evidence](../Validation/unity-hub-export.json).
+
+The sibling **Matrix Loading Operator** full repository copy also contains the copied builds and local saves. Make authoritative source changes there and regenerate with `Build-WhiteRoom.ps1`; changes made only in a generated Hub copy do not flow back automatically. Follow the [Desktop guide](Desktop-Unity-Hub.md) when switching the running PC service to that checkout.
 
 ## Operator loop
 
@@ -61,7 +74,9 @@ Install Unity Android Build Support, SDK/NDK and OpenJDK, then run:
 ./Install-WhiteRoom.ps1
 ```
 
-The installer requires one USB-connected, ADB-authorized headset, installs `Builds/WhiteRoomQuest/MatrixOperator.apk`, forwards the PC service port with `adb reverse`, and launches `com.matt.matrixoperator.whiteroom`. Keep the PC service running. Close the desktop player before pairing the headset: the service leases one active runtime at a time, with a 15-second disconnect timeout.
+The installer requires one USB-connected, ADB-authorized headset and installs `Builds/WhiteRoomQuest/MatrixOperator.apk` while preserving app data. Installation and forwarding succeeded on Quest Pro, but its implicit launch failed; open **Matrix Operator** manually from **Unknown Sources**. The installed APK remains the same validated artifact. Keep the PC service running and close the desktop player: the service leases one active runtime at a time, with a 15-second disconnect timeout.
+
+After unplugging/reconnecting USB, run `./Connect-QuestControl.ps1` to restore forwarding without reinstalling or launching anything. It verifies the exact Quest model, PC health and port mapping while preserving other reverse rules. Supply `-Serial` if several authorized devices are connected; `-Port` defaults to 8765. This repaired the observed offline connection on the actual Quest Pro.
 
 After installation, a repeatable device check is available:
 
@@ -81,10 +96,10 @@ The isolated Quest project lives at `.white-room-fixture/Quest`; its scene is `A
 - Right stick: turn 15 degrees or resize by 1.2; return sticks to neutral before another edit.
 - PC panel: natural-language proposals, precise transforms, history, save and restore.
 
-The rig requires floor-level tracking and pauses controller edits when head/controller tracking or focus is lost. Inputs must be released before editing resumes. It provides no artificial locomotion; move physically within your headset boundary. Visual comfort, Touch Pro mapping, floor height and recenter behavior need on-device validation.
+The rig requires floor-level tracking and pauses controller edits when head/controller tracking or focus is lost. Inputs must be released before editing resumes. It provides no artificial locomotion; move physically within your headset boundary. The wearer confirmed object selection; the complete button/stick, tracking recovery, floor-height, recenter and comfort checklist is still separate.
 
 ## Validation and limitations
 
 See [current validation evidence](../Validation/White-Room-Validation.md) and [durable progress log](Progress-Log.md). Compile/build, automated player tests, browser checks and hardware tests are recorded separately. Existing historical reports describe the earlier AR prototype and do not establish white-room behavior.
 
-No compatible live AI provider was available in the checked configuration. The tested natural-language loop uses the explicitly labeled offline parser. The optional provider adapter is implemented and tested with mock HTTP responses, including strict command validation; live AI interpretation and voice are not claimed. [AI configuration and vocabulary](AI-Integration.md).
+For the selected subscription mode, stop the previous PC service and run `./Start-CodexControlService.ps1`. The native Codex CLI is signed in with ChatGPT and manages its own credentials. The first live model proposal spawned a chair with a runtime acknowledgement; the next resize proposal returned HTTP 409. A changed chair rotation in recovery supports stale-context rejection, but the exact cause is unconfirmed. The run recorded 27 passed checks and one failure, then restored all three original objects. Full live AI save/clear/restore remains unfinished. The explicit offline parser and compatible API route remain available separately; voice is unimplemented. [AI configuration and vocabulary](AI-Integration.md).

@@ -345,7 +345,7 @@ def plan(state, body):
     require(isinstance(body, dict), "Expected plan object")
     prompt = text(body.get("text"), "text", limit=4000)
     mode = body.get("mode")
-    require(mode in (None, "offline-rules", "openai-compatible"), "Invalid planner mode")
+    require(mode in (None, "offline-rules", "openai-compatible", "codex-cli"), "Invalid planner mode")
     with state.lock:
         state.expire()
         require(state.online() and state.latest is not None, "Runtime is offline", 409)

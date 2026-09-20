@@ -1,0 +1,39 @@
+{
+  "exportedUtc": "2026-09-20T21:12:21.0715400Z",
+  "scope": "Unity Hub source projects only; original source and validated builds remain in the repository",
+  "copiedFolders": [
+    "Assets",
+    "Packages",
+    "ProjectSettings"
+  ],
+  "exports": [
+    {
+      "target": "Quest",
+      "destination": "<Desktop>/Game Design/Matrix White Room Quest",
+      "source": "generated Quest fixture",
+      "unityVersion": "6000.6.0f1",
+      "scene": "Assets/Sandbox/WhiteRoom/Scenes/WhiteRoomQuest.unity",
+      "sourceFiles": 103,
+      "sha256VerifiedFiles": 103,
+      "readmeAdded": true,
+      "sourcePathReferencesFound": false,
+      "reparsePointsFound": false,
+      "metaCoreOrMrukPackages": false,
+      "compiled": false
+    },
+    {
+      "target": "Desktop",
+      "destination": "<Desktop>/Game Design/Matrix White Room Desktop",
+      "source": "generated Desktop fixture",
+      "unityVersion": "6000.6.0f1",
+      "scene": "Assets/Sandbox/WhiteRoom/Scenes/WhiteRoomDesktop.unity",
+      "sourceFiles": 90,
+      "sha256VerifiedFiles": 90,
+      "readmeAdded": true,
+      "sourcePathReferencesFound": false,
+      "reparsePointsFound": false,
+      "metaCoreOrMrukPackages": false,
+      "compiled": false
+    }
+  ]
+}
