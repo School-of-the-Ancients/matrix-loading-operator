@@ -6,7 +6,7 @@ The PC service has three explicitly labeled planner modes. Each creates reviewab
 - **openai-compatible:** sends the request, asset catalog, room-target IDs, current objects/transforms, current selection, and saved scene names to the configured Chat Completions provider. The provider proposes structured operations; the service validates them before allowing Apply.
 - **codex-cli:** uses the native PC Codex CLI and its saved ChatGPT sign-in to propose scene commands. This is the subscription mode selected by the user; the service validates the output and still requires Apply and a runtime acknowledgement.
 
-The initial API-provider discovery found no compatible key/model configuration. The user subsequently selected ChatGPT/Codex subscription access, and the native CLI reported `Logged in using ChatGPT`. Codex manages that authentication itself; the project does not extract login tokens or reinterpret them as API keys. A live chair proposal was applied and acknowledged on Quest Pro. The following resize proposal returned HTTP 409; the harness recorded **27 checks passed, 1 failed** and restored its three original objects. This establishes a live spawn, not a completed AI save/clear/restore loop. See [the device report](../Validation/codex-headset-loop-results.json).
+The user selected ChatGPT/Codex subscription access, and the native CLI reported `Logged in using ChatGPT`. Codex manages that authentication itself; the project does not extract login tokens or reinterpret them as API keys. Five real model turns have now completed reviewed spawn, same-ID resize, save, clear and exact restore on Quest Pro: **61 checks passed, 0 failed**. The original table and selection were restored afterward. See [the successful device report](../Validation/codex-headset-loop-success.json). The earlier 27/1 attempt remains separate historical evidence.
 
 ## Use the selected ChatGPT/Codex mode
 
@@ -16,7 +16,15 @@ Stop any existing Operator service on port 8765, then run in the repository's Po
 ./Start-CodexControlService.ps1
 ```
 
-The launcher requires the native `codex.exe`, verifies ChatGPT sign-in, and starts the local service in `codex-cli` mode. Use `-CodexExe` if it is not on PATH; `-Model` optionally selects a model available to the account. If sign-in is missing, run `codex login` on this PC first. Keep the service terminal open, reconnect the Quest with `./Connect-QuestControl.ps1`, and open the Operator page. Review each proposal before Apply; pause controller/browser edits during inference to avoid stale proposals.
+The launcher requires the native `codex.exe`, verifies ChatGPT sign-in, and starts the local service in `codex-cli` mode. Use `-CodexExe` if it is not on PATH; `-Model` optionally selects a model available to the account. If sign-in is missing, run `codex login` on this PC first. Keep the service terminal open and reconnect the Quest with `./Connect-QuestControl.ps1`.
+
+1. Refresh <http://127.0.0.1:8765/> so it loads the current interface.
+2. Select **Codex (ChatGPT subscription)**. An old cached page may show only offline mode until refreshed.
+3. Enter a request such as `Summon a chair here`, then choose **Create proposal**.
+4. Review the proposed object/transform, choose **Apply reviewed proposal**, and wait for the runtime acknowledgement.
+5. Request `Make it twice as big` to edit that selected object, or continue with save/clear/restore below.
+
+Keep controller and other browser edits idle during inference and until Apply completes. If the scene changes, create a new proposal from its current state.
 
 OpenAI documents ChatGPT sign-in as subscription access and states that `codex exec` reuses saved CLI authentication. Usage follows the account's available access and limits. The adapter invokes noninteractive Codex for structured output; credentials remain under Codex's management on the PC. [Authentication](https://learn.chatgpt.com/docs/auth), [noninteractive mode](https://learn.chatgpt.com/docs/non-interactive-mode).
 
@@ -129,4 +137,6 @@ python -W error::ResourceWarning -m unittest discover -s ControlService -v
 
 All **136 PC service and adapter tests passed** in [codex-service-tests.txt](../Validation/codex-service-tests.txt), including Codex CLI boundary tests and the existing HTTP-provider, command, persistence, stale-proposal and learning-recovery coverage. Keys remain excluded from prompts/results/status; provider errors, redirects, refusal, truncation and malformed output fail explicitly.
 
-The unit suite is separate from the live Codex/Quest attempt: its first spawn completed, then HTTP 409 stopped the resize proposal and recovery restored the original scene. The recovery scene showed the new chair at yaw 45 despite the reviewed spawn requesting yaw 0. This supports stale-scene rejection, but the HTTP error body was not captured and the rotation's source is unknown; the exact rejection cause is unconfirmed. No successful full AI loop, live HTTP-provider run, voice, or MRUK hardware result is claimed. See the [session record](../Validation/Quest-Pro-Session.md).
+The successful live run at 21:29:28–21:30:15 UTC is separate from that existing unit suite: **61/0**, five completed Codex turns, reviewed Apply operations, actual headset acknowledgements and exact persistence. Each model turn reported zero tool calls. The pretest table and its selection were restored. No C# or PC source changes, rebuilds or unit-test reruns were needed. The wearer separately confirmed seeing the AI changes and their scene restored. That observation does not complete the broader tracking/comfort checklist.
+
+The [first attempt](../Validation/codex-headset-loop-results.json) remains **27/1**: spawn succeeded, then HTTP 409 stopped resize and recovery restored the original scene. A changed chair yaw supported stale-context rejection, but the HTTP error body and rotation source were unavailable. The successful retry supersedes its incomplete-loop status without erasing it. Live HTTP-provider, voice and MRUK hardware results remain unclaimed. See the [session record](../Validation/Quest-Pro-Session.md).

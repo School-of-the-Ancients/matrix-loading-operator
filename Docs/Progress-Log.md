@@ -1,6 +1,6 @@
 # AR Sandbox durable progress log
 
-Current continuation: PR #3 merged on September 20, 2026 at 20:51:13 UTC (`cef60be32c45cf8ff96849c5144a4c0df3394efc`). Follow-up work targets `codex/quest-pro-codex-ai`. Historical entries below retain their original state; the latest results are at the end and in [Quest-Pro-Session.md](../Validation/Quest-Pro-Session.md).
+Current continuation: PRs #3 and #4 are merged. The successful live AI validation follow-up targets `codex/quest-pro-ai-validation`. Historical entries below retain their original state; the latest results are at the end and in [Quest-Pro-Session.md](../Validation/Quest-Pro-Session.md).
 
 ## 2026-09-20 — Quest Pro prototype continuation
 
@@ -149,3 +149,11 @@ Both changes are published as linked draft pull requests: [canonical core #77](h
 - Committed the implementation and evidence as `d21203d4621020b89b12fdd64a345164dc20cadd` and pushed `codex/quest-pro-codex-ai`. Opened [draft PR #4](https://github.com/School-of-the-Ancients/matrix-loading-operator/pull/4), continuing the already merged PR #3. No merge of this follow-up was performed.
 - The standalone Desktop `Game Design/Matrix Loading Operator` clone was switched to the new branch and verified against the same remote commit, with 186 tracked files and a clean working tree. The two Unity Hub exports and local build/save copies remain alongside it. The original service process was left running; future local saves are not synchronized between checkouts.
 - This publication adds no new runtime or inference test result. Remaining work is the complete live AI loop with concurrent edits paused, then native MRUK/manual-room validation after the documented security blocker is resolved.
+
+### Live Codex and Quest loop completed — 61 checks passed
+
+- At 21:29:28.530–21:30:15.351 UTC, the actual Quest Pro package (PID 10902) passed **61 checks, 0 failures** in `Validation/codex-headset-loop-success.json`. Five real Codex turns completed reviewed chair spawn, double-scale edit on the same object ID, named PC save, clear and exact restore. Every model turn reported zero tool calls; runtime changes used normal Apply and headset acknowledgements.
+- The pretest scene contained one table. The harness restored that table and its original selection. Backup: `CodexBackup_20260920_212928_4798309c`; edited test save: `CodexLoop_20260920_212928_4798309c`. Undo history remains changed as documented. The earlier 27/1 report is retained unchanged as the first attempt.
+- The wearer confirmed: “Yes, I saw the AI changes and my scene is restored.” This establishes reported visual confirmation of the AI loop, separate from the full tracking/focus, floor-height, controller mapping and comfort checklist. MRUK/manual-room hardware validation remains pending behind the documented native-build security blocker.
+- No C# or PC source changes, APK rebuild or unit-test reruns were needed; the installed APK and earlier 136-test evidence remain unchanged. The browser was showing an older offline-only page until refreshed. It now shows **Codex (ChatGPT subscription)** selected; further UI control stopped when the user began typing.
+- AI workflow: refresh the Operator page → choose Codex → enter request → Create proposal → review → Apply → wait for acknowledgement. Keep controllers and other browser edits idle during inference. PR #4 is now merged; this validation-only follow-up targets `codex/quest-pro-ai-validation`.

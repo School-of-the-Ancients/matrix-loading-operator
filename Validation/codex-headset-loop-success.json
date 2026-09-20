@@ -1,0 +1,239 @@
+{
+  "status": "passed",
+  "startedUtc": "2026-09-20T21:29:28.530680+00:00",
+  "scope": "Live Codex CLI inference plus existing executor HTTP loop with connected headset package inspection",
+  "mode": "codex-controlled-run",
+  "deviceProcessObserved": true,
+  "runtimeExecutionObserved": true,
+  "wearerVisualCheck": "Not performed by this harness",
+  "trackingAndControllerInputTested": false,
+  "languageModelUsed": true,
+  "commandPath": "Live codex-cli proposal, narrow programmatic review, explicit Apply, runtime acknowledgement",
+  "runtimeAttribution": "Operator must confirm this service is paired with the selected headset; the bridge exposes no device identity",
+  "operatorConfirmedPairing": true,
+  "deviceSerialRecorded": false,
+  "package": "com.matt.matrixoperator.whiteroom",
+  "pretestSceneRestored": true,
+  "undoHistoryRestored": false,
+  "inferenceSteps": [
+    {
+      "prompt": "Summon one chair here at its normal catalog size with zero rotation. Make no other changes.",
+      "inference": {
+        "transport": "codex-cli",
+        "completedTurn": true,
+        "toolCallCount": 0,
+        "usage": {
+          "input_tokens": 10693,
+          "cached_input_tokens": 0,
+          "output_tokens": 105,
+          "reasoning_output_tokens": 0
+        }
+      },
+      "reviewed": true,
+      "applied": true,
+      "commands": [
+        {
+          "op": "spawn",
+          "assetId": "chair",
+          "anchorId": "white-floor",
+          "transform": {
+            "position": {
+              "x": 1.510707139968872,
+              "y": 0,
+              "z": 0.1014324352145195
+            },
+            "rotation": {
+              "x": 0,
+              "y": 0,
+              "z": 0
+            },
+            "scale": {
+              "x": 1,
+              "y": 1,
+              "z": 1
+            }
+          }
+        }
+      ]
+    },
+    {
+      "prompt": "Make it twice as big. Keep its position, rotation and anchor unchanged.",
+      "inference": {
+        "transport": "codex-cli",
+        "completedTurn": true,
+        "toolCallCount": 0,
+        "usage": {
+          "input_tokens": 10826,
+          "cached_input_tokens": 7808,
+          "output_tokens": 136,
+          "reasoning_output_tokens": 0
+        }
+      },
+      "reviewed": true,
+      "applied": true,
+      "commands": [
+        {
+          "op": "set_transform",
+          "objectId": "f346f314f87b45eea7266ef0efcea5c7",
+          "transform": {
+            "position": {
+              "x": 1.510707139968872,
+              "y": 0.0,
+              "z": 0.1014324352145195
+            },
+            "rotation": {
+              "x": 0.0,
+              "y": 0.0,
+              "z": 0.0
+            },
+            "scale": {
+              "x": 2.0,
+              "y": 2.0,
+              "z": 2.0
+            }
+          }
+        }
+      ]
+    },
+    {
+      "prompt": "Save the scene as CodexLoop_20260920_212928_4798309c.",
+      "inference": {
+        "transport": "codex-cli",
+        "completedTurn": true,
+        "toolCallCount": 0,
+        "usage": {
+          "input_tokens": 12049,
+          "cached_input_tokens": 0,
+          "output_tokens": 61,
+          "reasoning_output_tokens": 0
+        }
+      },
+      "reviewed": true,
+      "applied": true,
+      "commands": [
+        {
+          "op": "save_scene",
+          "name": "CodexLoop_20260920_212928_4798309c"
+        }
+      ]
+    },
+    {
+      "prompt": "Clear the scene.",
+      "inference": {
+        "transport": "codex-cli",
+        "completedTurn": true,
+        "toolCallCount": 0,
+        "usage": {
+          "input_tokens": 10828,
+          "cached_input_tokens": 0,
+          "output_tokens": 26,
+          "reasoning_output_tokens": 0
+        }
+      },
+      "reviewed": true,
+      "applied": true,
+      "commands": [
+        {
+          "op": "clear"
+        }
+      ]
+    },
+    {
+      "prompt": "Restore the saved scene CodexLoop_20260920_212928_4798309c.",
+      "inference": {
+        "transport": "codex-cli",
+        "completedTurn": true,
+        "toolCallCount": 0,
+        "usage": {
+          "input_tokens": 10558,
+          "cached_input_tokens": 0,
+          "output_tokens": 61,
+          "reasoning_output_tokens": 0
+        }
+      },
+      "reviewed": true,
+      "applied": true,
+      "commands": [
+        {
+          "op": "load_scene",
+          "name": "CodexLoop_20260920_212928_4798309c"
+        }
+      ]
+    }
+  ],
+  "plannedInferenceCalls": 5,
+  "recoveryTransport": "Inherited typed executor backup restore; no additional inference",
+  "appPid": 10902,
+  "roomId": "white-room-v1",
+  "pretestObjectCount": 1,
+  "pretestSceneDigest": "d6f9e1549b79f7f6d85430081fcb64bed28a8444e66b60e30653ebdcbe56e5ff",
+  "pretestBackupName": "CodexBackup_20260920_212928_4798309c",
+  "testObjectId": "f346f314f87b45eea7266ef0efcea5c7",
+  "testSaveName": "CodexLoop_20260920_212928_4798309c",
+  "checks": [
+    "ADB executable is available",
+    "Exactly one authorized device is required; use --serial when several are connected",
+    "The exact expected package is already running on the selected device",
+    "Existing PC service is healthy",
+    "No active learning session or checkpoint restore will be disturbed",
+    "Runtime uses the supported portable scene schema",
+    "Expected virtual floor anchor is present",
+    "Bundled chair prefab is available",
+    "Chair catalog scale can safely double within executor limits",
+    "The scene has capacity for one temporary test chair",
+    "Existing PC service is configured for Codex CLI; no inference runs during preflight",
+    "Runtime has a selected point on the expected virtual floor",
+    "Unique Codex validation saves will not overwrite existing saves",
+    "Original scene is saved before the first model proposal",
+    "spawn: no commands are pending before inference",
+    "spawn: proposal explicitly reports Codex mode and requires Apply",
+    "spawn: model proposal did not change the scene or selection",
+    "spawn: proposal contains exactly the intended operation",
+    "spawn: object identity and all requested fields passed programmatic review",
+    "spawn: server supplied a reviewed proposal identifier",
+    "spawn: runtime acknowledged the reviewed command",
+    "Live Codex spawn produces a new runtime-assigned object ID",
+    "Headset runtime state matches the reviewed chair pose",
+    "Model spawn preserves all pre-existing scene objects",
+    "The spawned chair is selected for the next natural-language reference",
+    "set_transform: no commands are pending before inference",
+    "set_transform: proposal explicitly reports Codex mode and requires Apply",
+    "set_transform: model proposal did not change the scene or selection",
+    "set_transform: proposal contains exactly the intended operation",
+    "set_transform: object identity and all requested fields passed programmatic review",
+    "set_transform: server supplied a reviewed proposal identifier",
+    "set_transform: runtime acknowledged the reviewed command",
+    "Live Codex resize changes the same object ID to exactly double scale",
+    "Model resize preserves all pre-existing objects",
+    "save_scene: no commands are pending before inference",
+    "save_scene: proposal explicitly reports Codex mode and requires Apply",
+    "save_scene: model proposal did not change the scene or selection",
+    "save_scene: proposal contains exactly the intended operation",
+    "save_scene: object identity and all requested fields passed programmatic review",
+    "save_scene: server supplied a reviewed proposal identifier",
+    "save_scene: PC confirmed the exact requested save",
+    "save_scene: the unique save appears in the PC catalog",
+    "clear: no commands are pending before inference",
+    "clear: proposal explicitly reports Codex mode and requires Apply",
+    "clear: model proposal did not change the scene or selection",
+    "clear: proposal contains exactly the intended operation",
+    "clear: object identity and all requested fields passed programmatic review",
+    "clear: server supplied a reviewed proposal identifier",
+    "clear: runtime acknowledged the reviewed command",
+    "Live Codex clear is acknowledged by the runtime",
+    "load_scene: no commands are pending before inference",
+    "load_scene: proposal explicitly reports Codex mode and requires Apply",
+    "load_scene: model proposal did not change the scene or selection",
+    "load_scene: proposal contains exactly the intended operation",
+    "load_scene: object identity and all requested fields passed programmatic review",
+    "load_scene: server supplied a reviewed proposal identifier",
+    "load_scene: runtime acknowledged the reviewed command",
+    "Live Codex restore preserves exact object IDs assets anchors and local transforms",
+    "Five observed Codex turns completed the reviewed spawn edit save clear restore loop",
+    "Finally restored the complete pretest scene from its PC backup",
+    "Original object selection is restored"
+  ],
+  "passed": 61,
+  "failed": 0,
+  "completedUtc": "2026-09-20T21:30:15.351234+00:00"
+}

@@ -1,6 +1,6 @@
 # Matrix Operator: the virtual white room
 
-The virtual room has passed 21 command/persistence checks on the actual Quest Pro; the wearer confirms restored objects and selection work. The current pass uses the user's ChatGPT/Codex subscription through the PC CLI: a live spawn succeeded, but HTTP 409 stopped the next resize proposal. Finish that AI loop before the existing MRUK path with manually configured room surfaces. Education, mentors, curriculum, voice and downloaded catalogs are separate later work. Quest 3 is optional.
+The virtual room has passed 21 direct command/persistence checks and 61 live Codex AI loop checks on the actual Quest Pro. Five real model turns completed spawn, same-ID resize, save, clear and exact restore; the wearer confirms seeing the AI changes and their scene restored. The next pass is the existing MRUK path with manually configured room surfaces. Education, mentors, curriculum, voice and downloaded catalogs are separate later work. Quest 3 is optional.
 
 The room loads automatically with a fixed floor at y=0. Its stable `white-room-v1` / `white-floor` coordinate frame allows a saved arrangement to survive an application restart without a physical room scan. All units are metres. Headset recentering can change where the viewer stands in this virtual scene; this mode does not promise alignment with real furniture.
 
@@ -43,6 +43,8 @@ The sibling **Matrix Loading Operator** full repository copy also contains the c
 The seven bundled assets are chair, table, wall, pedestal, block, orb and column. Furniture uses authored life-size geometry and scale 1; primitives start at scale 0.2. All have floor-aligned pivots. The catalog carries each asset's default scale, so desktop, headset, PC panel and offline commands agree.
 
 In the PC panel, enter each request, choose **Create proposal**, review it, then **Apply reviewed proposal**. Wait for the runtime confirmation before continuing:
+
+For live AI, refresh the page and select **Codex (ChatGPT subscription)** first. If only offline mode appears, the browser may still have the older page loaded. Keep controller edits idle while inference and Apply are in progress.
 
 ```text
 Summon a chair here
@@ -102,4 +104,4 @@ The rig requires floor-level tracking and pauses controller edits when head/cont
 
 See [current validation evidence](../Validation/White-Room-Validation.md) and [durable progress log](Progress-Log.md). Compile/build, automated player tests, browser checks and hardware tests are recorded separately. Existing historical reports describe the earlier AR prototype and do not establish white-room behavior.
 
-For the selected subscription mode, stop the previous PC service and run `./Start-CodexControlService.ps1`. The native Codex CLI is signed in with ChatGPT and manages its own credentials. The first live model proposal spawned a chair with a runtime acknowledgement; the next resize proposal returned HTTP 409. A changed chair rotation in recovery supports stale-context rejection, but the exact cause is unconfirmed. The run recorded 27 passed checks and one failure, then restored all three original objects. Full live AI save/clear/restore remains unfinished. The explicit offline parser and compatible API route remain available separately; voice is unimplemented. [AI configuration and vocabulary](AI-Integration.md).
+For the selected subscription mode, stop the previous PC service and run `./Start-CodexControlService.ps1`. The native Codex CLI is signed in with ChatGPT and manages its own credentials. The complete five-turn model-driven spawn/resize/save/clear/restore sequence now passes **61 checks, 0 failures**, with actual Quest acknowledgements and the original table/selection restored afterward. The wearer confirmed the visible AI changes and restored scene. The earlier 27/1 attempt is retained in the session history. MRUK hardware and the broader tracking/comfort checklist remain pending. The explicit offline parser and compatible API route remain available separately; voice is unimplemented. [AI configuration and vocabulary](AI-Integration.md).
