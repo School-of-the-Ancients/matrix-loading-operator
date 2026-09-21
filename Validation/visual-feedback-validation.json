@@ -1,0 +1,156 @@
+{
+  "status": "passed",
+  "implementationStatus": "implemented",
+  "reason": "Required bounded desktop and standalone Quest evidence recorded; limitations are listed separately.",
+  "validatedUtc": "2026-09-21T20:28:15.335775+00:00",
+  "baselineCommit": "80cf846",
+  "branch": "codex/rendered-scene-feedback",
+  "issue": 8,
+  "pythonTests": {
+    "status": "passed",
+    "count": 323,
+    "command": "python -m unittest discover -s ControlService -q"
+  },
+  "panelTests": {
+    "status": "passed",
+    "command": "node ControlService/test_operator_panel.js"
+  },
+  "builds": [
+    {
+      "target": "desktop",
+      "status": "passed",
+      "unityChecksPassed": 321,
+      "unityChecksFailed": 0,
+      "fixtureSourcesVerified": 14,
+      "artifact": "Builds/WhiteRoomDesktop/MatrixOperator.exe",
+      "bytes": 667136,
+      "sha256": "718444f6a718fa668da96eb0a58445b009673310e6129152a63dbf7a92b8de00",
+      "coreReport": "Validation/white-room-desktop-core-results.json"
+    },
+    {
+      "target": "white-room-quest",
+      "status": "passed",
+      "unityChecksPassed": 321,
+      "unityChecksFailed": 0,
+      "fixtureSourcesVerified": 14,
+      "artifact": "Builds/WhiteRoomQuest/MatrixOperator.apk",
+      "bytes": 48816637,
+      "sha256": "46497f261f0bae867c125aa03a7ad5b1e5335626a1f1364b5f32e5030d7dcea3",
+      "coreReport": "Validation/white-room-quest-core-results.json"
+    },
+    {
+      "target": "room-ar-quest",
+      "status": "passed",
+      "unityChecksPassed": 321,
+      "unityChecksFailed": 0,
+      "fixtureSourcesVerified": 17,
+      "artifact": "Builds/RoomARQuest/MatrixOperatorAR.apk",
+      "bytes": 79579965,
+      "sha256": "2aeec8451e3d21623c97b108d8eb93f635d78069e7d846a2f2bf7277cae4349a",
+      "coreReport": "Validation/room-ar-quest-core-results.json"
+    }
+  ],
+  "desktopAcceptance": {
+    "status": "passed",
+    "checks": 83,
+    "realCodexTurns": 3,
+    "imageAttachments": 2,
+    "report": "Validation/visual-feedback-desktop-results.json",
+    "visualInspection": "Codex agents viewed exported JPEGs"
+  },
+  "acceptance": [
+    {
+      "criterion": "Capture and preview viewpoint and animated visual pose",
+      "status": "passed",
+      "evidence": "Desktop JPEG/animated-pixel checks; real Quest AR previews inspected. Animated props in standalone Quest not separately exercised."
+    },
+    {
+      "criterion": "Real AI receives image and matching structured context",
+      "status": "passed",
+      "evidence": "Desktop no-image control could not determine colors; image request identified brown surfaces and dark legs. Quest image review described visible debug overlays without claiming physical passthrough."
+    },
+    {
+      "criterion": "Table/two-chair correction with Apply and Undo",
+      "status": "passed on graphical desktop",
+      "evidence": "Existing executor changed only the requested chair; Undo/save/clear/restore preserved exact scene identities and placement."
+    },
+    {
+      "criterion": "Missing/stale/oversize/unsupported feedback and explicit text-only choice",
+      "status": "passed automated tests"
+    },
+    {
+      "criterion": "White-room and AR truthful content disclosure",
+      "status": "passed desktop white-room and standalone AR captures"
+    },
+    {
+      "criterion": "Quest Pro capture latency and frame-time impact",
+      "status": "measured",
+      "samples": [
+        {
+          "label": "sample 1",
+          "capturedAtUtc": "2026-09-21T20:21:57.7033390Z",
+          "width": 960,
+          "height": 540,
+          "byteLength": 50829,
+          "renderMs": 15.2087,
+          "encodeMs": 16.4806,
+          "captureDurationMs": 31.6893,
+          "frameTimeMs": 13.886436820030212,
+          "captureFrameTimeMs": 46.8037,
+          "imageSha256": "a36bb89bc06fec9a943265b2bf1b43649bc3a93fb275d20450db0accda211766"
+        },
+        {
+          "label": "sample 2",
+          "capturedAtUtc": "2026-09-21T20:22:10.8544410Z",
+          "width": 960,
+          "height": 540,
+          "byteLength": 53478,
+          "renderMs": 7.6168000000000005,
+          "encodeMs": 16.645500000000002,
+          "captureDurationMs": 24.262300000000003,
+          "frameTimeMs": 13.8847716152668,
+          "captureFrameTimeMs": 39.1817,
+          "imageSha256": "005f49cc9f89081aa1621f643360e038008b2240476c70e9c589f1bd3f393952"
+        },
+        {
+          "label": "sample 3",
+          "capturedAtUtc": "2026-09-21T20:22:19.6314450Z",
+          "width": 960,
+          "height": 540,
+          "byteLength": 41600,
+          "renderMs": 10.639700000000001,
+          "encodeMs": 16.2894,
+          "captureDurationMs": 26.929100000000002,
+          "frameTimeMs": 13.889746740460396,
+          "captureFrameTimeMs": 41.921,
+          "imageSha256": "4a964adab3969293b066596df99039fb514b10d9e791ca6624111b43c823809f"
+        }
+      ]
+    }
+  ],
+  "limitations": [
+    "Synchronous capture stalls the Quest application for the measured intervals; no frame-budget or comfort pass is claimed.",
+    "Physical voice/button use with image opt-in and animated-object capture on standalone Quest remain untested; service/audio mocks, UI and graphical desktop cover these paths.",
+    "White-room Quest APK built but not installed in this increment; real headset capture evidence is AR only.",
+    "HTTP-compatible provider uses local transport-test evidence; live inference used Codex.",
+    "Unity frameTimeMs is reported XR cadence, not a reliable wall-clock stall measurement; captureFrameTimeMs uses monotonic Update-to-Update timestamps.",
+    "One intermediate desktop build encountered a transient Burst worker startup error; the fresh final builds passed."
+  ],
+  "preservation": "Existing service on 8765 and PC saved scenes remain available. AR APK updated without clearing app data; previous installed APK retained locally. New AR service uses 8776. Final hardware checks made no scene edits. Prior service in-memory state may reflect headset heartbeats.",
+  "headsetAcceptance": {
+    "status": "passed",
+    "report": "Validation/visual-feedback-headset-results.json",
+    "realCodexChecks": 19,
+    "timedCaptures": 3,
+    "completedRealCodexTurns": 1,
+    "verifiedImageAttachments": 1,
+    "mutationsPerformed": false
+  },
+  "voiceHudCorrection": {
+    "status": "implemented and installed; wearer confirmation pending",
+    "rootCause": "The room-loading cancellation notice had no completion transition.",
+    "fix": "A loading-owned voice phase clears on localization completion without replacing newer errors or workflows.",
+    "regressionChecks": 7,
+    "recordingControlsChanged": false
+  }
+}

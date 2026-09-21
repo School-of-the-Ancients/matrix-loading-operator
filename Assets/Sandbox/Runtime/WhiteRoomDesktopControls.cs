@@ -65,7 +65,7 @@ namespace ArSandbox
             // The desktop camera remains a valid viewpoint while the PC Operator
             // browser has focus. XR instead requires active headset tracking/focus.
             if (view != null && view.isActiveAndEnabled)
-                app.SetViewerPose(view.transform.position, view.transform.forward);
+                app.SetViewerPose(view.transform.position, view.transform.forward, view);
             else app.ClearViewerPose();
         }
 

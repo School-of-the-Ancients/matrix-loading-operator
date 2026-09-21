@@ -318,7 +318,7 @@ class ModelSelectionTests(NativeConfigTestCase):
         result = self.options()
         self.assertEqual(result["models"], [{"id": "model-a", "displayName": "Model A",
                                              "reasoningEfforts": ["low", "medium", "high"],
-                                             "defaultReasoningEffort": "medium"}])
+                                             "defaultReasoningEffort": "medium", "supportsImages": False}])
         self.assertNotIn("private", json.dumps(result))
         self.assertNotIn("secret", json.dumps(result))
 

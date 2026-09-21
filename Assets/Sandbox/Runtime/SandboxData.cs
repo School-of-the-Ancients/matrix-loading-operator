@@ -201,6 +201,46 @@ namespace ArSandbox
         public string objectId;
     }
 
+    // Ephemeral bridge data, never part of a saved scene or undo history.
+    [Serializable]
+    public sealed class SceneCaptureRequest
+    {
+        public string captureId;
+        public int revision;
+    }
+
+    [Serializable]
+    public sealed class SceneCaptureCamera
+    {
+        // World-space metres and Euler degrees of the mono center-eye camera.
+        public Float3 position, rotation, forward;
+        public float fieldOfView, aspect, nearClip, farClip;
+    }
+
+    [Serializable]
+    public sealed class SceneCaptureResult
+    {
+        public string captureId, clientId;
+        public int revision;
+        public bool ok;
+        public string error;
+        public string mimeType;
+        public string dataBase64;
+        public int width, height, byteLength;
+        public string capturedAtUtc;
+        public double capturedAtRuntimeSeconds;
+        public int frameCount;
+        public string source = "unity_center_eye";
+        public bool includesPassthrough;
+        public SceneCaptureCamera camera;
+        public double renderMs, encodeMs, frameTimeMs;
+        // Monotonic wall-clock interval between PcBridge.Update calls bracketing
+        // capture; includes other frame work and scheduling, not isolated GPU time.
+        // Zero means unavailable (for example a direct EditMode capture check).
+        public double captureFrameTimeMs;
+        public SandboxSnapshot snapshot;
+    }
+
     [Serializable]
     public sealed class PrefabEntry
     {

@@ -11,7 +11,7 @@ $fixtureRoot = [IO.Path]::GetFullPath((Join-Path $repositoryRoot ('.white-room-f
 if (-not $fixtureRoot.StartsWith($repositoryRoot + [IO.Path]::DirectorySeparatorChar, [StringComparison]::OrdinalIgnoreCase)) {
     throw 'The fixture must remain inside this repository.'
 }
-$runtimeNames = @('SandboxData', 'SandboxWorld', 'SandboxBehaviorVisual', 'SandboxApp', 'PcBridge', 'SandboxVoiceInput', 'WhiteRoomAdapter', 'WhiteRoomDesktopControls', 'WhiteRoomXrControls')
+$runtimeNames = @('SandboxData', 'SandboxWorld', 'SandboxBehaviorVisual', 'SandboxSceneCapture', 'SandboxApp', 'PcBridge', 'SandboxVoiceInput', 'WhiteRoomAdapter', 'WhiteRoomDesktopControls', 'WhiteRoomXrControls')
 $editorNames = @('WhiteRoomSceneSetup', 'WhiteRoomXrSetup', 'WhiteRoomPreview', 'SandboxCoreChecks')
 $authoredFiles = @($runtimeNames | ForEach-Object { 'Assets\Sandbox\Runtime\' + $_ + '.cs' }) +
                  @($editorNames | ForEach-Object { 'Assets\Sandbox\Editor\' + $_ + '.cs' })
@@ -52,6 +52,7 @@ $dependencies = [ordered]@{
     'com.unity.modules.animation' = '1.0.0'
     'com.unity.modules.audio' = '1.0.0'
     'com.unity.modules.imgui' = '1.0.0'
+    'com.unity.modules.imageconversion' = '1.0.0'
     'com.unity.modules.jsonserialize' = '1.0.0'
     'com.unity.modules.physics' = '1.0.0'
     'com.unity.modules.ui' = '1.0.0'

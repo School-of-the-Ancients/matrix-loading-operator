@@ -11,7 +11,7 @@ $fixtureRoot = [IO.Path]::GetFullPath((Join-Path $repositoryRoot '.room-ar-fixtu
 if (-not $fixtureRoot.StartsWith($repositoryRoot + [IO.Path]::DirectorySeparatorChar, [StringComparison]::OrdinalIgnoreCase)) {
     throw 'The room AR fixture must remain inside this repository.'
 }
-$runtimeNames = @('SandboxData', 'SandboxWorld', 'SandboxBehaviorVisual', 'SandboxApp', 'PcBridge', 'SandboxVoiceInput',
+$runtimeNames = @('SandboxData', 'SandboxWorld', 'SandboxBehaviorVisual', 'SandboxSceneCapture', 'SandboxApp', 'PcBridge', 'SandboxVoiceInput',
     'WhiteRoomAdapter', 'WhiteRoomDesktopControls', 'WhiteRoomXrControls', 'QuestRoomAdapter', 'RoomDebugOutlines')
 $editorNames = @('WhiteRoomSceneSetup', 'WhiteRoomXrSetup', 'SandboxCoreChecks', 'QuestBuildSetup', 'RoomArSceneSetup')
 $authoredFiles = @($runtimeNames | ForEach-Object { 'Assets\Sandbox\Runtime\' + $_ + '.cs' }) +

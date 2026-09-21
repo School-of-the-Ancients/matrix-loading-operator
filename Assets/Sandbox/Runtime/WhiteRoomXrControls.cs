@@ -190,7 +190,7 @@ namespace ArSandbox
             // Viewer context depends on tracked head pose, never on controller availability.
             if (floorReady && Application.isFocused && headCamera != null && headCamera.isActiveAndEnabled &&
                 Tracked(InputSystem.GetDevice<XRHMD>()))
-                app.SetViewerPose(headCamera.transform.position, headCamera.transform.forward);
+                app.SetViewerPose(headCamera.transform.position, headCamera.transform.forward, headCamera);
             else app.ClearViewerPose();
         }
 

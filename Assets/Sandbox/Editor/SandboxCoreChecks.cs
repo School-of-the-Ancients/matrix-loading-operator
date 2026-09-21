@@ -203,6 +203,7 @@ namespace ArSandbox
             Group("Bundled prefab geometry", CheckBundledBounds);
             Group("Live viewer context", CheckViewerContext);
             Group("Bounded voice audio encoding", CheckVoiceAudio);
+            Group("Room loading voice presentation lifecycle", CheckVoiceRoomLoading);
             Group("Unity JSON wire command compatibility", CheckWireCommands);
             Group("Physical support placement and persistence", CheckSurfacePlacement);
             Group("Physical support footprint and rejection", CheckSurfaceRejection);
@@ -213,6 +214,7 @@ namespace ArSandbox
             Group("Behavior rejection and atomic scene loading", CheckBehaviorRejection);
             Group("Behavior history and backward-compatible persistence", CheckBehaviorPersistence);
             Group("Behavior presentation composition and stable placement", CheckBehaviorAnimation);
+            Group("On-demand rendered scene and camera lifecycle", CheckRenderedScene);
 
             report.completedUtc = DateTime.UtcNow.ToString("O");
             Directory.CreateDirectory(Path.GetDirectoryName(outputPath));
@@ -1030,6 +1032,39 @@ namespace ArSandbox
                 RejectsAudio(() => SandboxVoiceInput.EncodePcm16Wave(new float[1], 1, 192001, 1)));
         }
 
+        private static void CheckVoiceRoomLoading()
+        {
+            var root = new GameObject("Voice room lifecycle validation");
+            try
+            {
+                var voice = root.AddComponent<SandboxVoiceInput>();
+                string ready = voice.Status;
+                voice.BeginRoomLoading();
+                Check("room loading owns an explicit voice presentation phase", voice.Phase == "room_loading" && voice.Status.Contains("Room loading"));
+                voice.SetInputReady(false);
+                Check("unavailable input does not erase pending room loading notice", voice.Phase == "room_loading");
+                voice.EndRoomLoading(true);
+                Check("localized room clears stale loading and restores voice instructions", voice.Phase == "idle" && voice.Status == ready && !voice.HudText.Contains("Room loading"));
+                voice.BeginRoomLoading();
+                voice.EndRoomLoading(false);
+                Check("failed room load replaces loading with actionable room guidance", voice.Phase == "idle" && voice.Status.Contains("localized room") && !voice.Status.Contains("Room loading"));
+                voice.BeginRoomLoading();
+                voice.BeginRecording(); // Missing input produces the normal public error path.
+                string error = voice.Status;
+                voice.EndRoomLoading(true);
+                Check("room completion preserves a newer voice error", voice.Phase == "error" && voice.Status == error);
+                voice.BeginRoomLoading();
+                voice.Cancel("Voice cancelled by the wearer.");
+                voice.EndRoomLoading(true);
+                Check("room completion preserves a newer cancellation notice", voice.Status == "Voice cancelled by the wearer.");
+                voice.BeginRoomLoading();
+                voice.EndRoomLoading(true);
+                voice.EndRoomLoading(false);
+                Check("repeated reload recovers and duplicate completion cannot overwrite readiness", voice.Phase == "idle" && voice.Status == ready);
+            }
+            finally { Object.DestroyImmediate(root); }
+        }
+
         private static bool RejectsAudio(Action action)
         {
             try { action(); return false; }
@@ -1502,6 +1537,92 @@ namespace ArSandbox
                 visual.Tick(.5f);
                 Check("removed then readded rotation starts a fresh signed phase", Quaternion.Angle(child.localRotation, Quaternion.Euler(-45f,0f,0f)) < .001f);
                 Check("animated collider descendant still resolves the stable placed identity", fixture.world.TryGetObjectId(child, out string pointed) && pointed == id);
+            }
+        }
+
+        private static void CheckRenderedScene()
+        {
+            using (var fixture = new Fixture())
+            {
+                var appObject = new GameObject("Rendered scene validation");
+                appObject.transform.SetParent(fixture.root.transform, false);
+                var app = appObject.AddComponent<SandboxApp>();
+                app.prefabs = new[] { new PrefabEntry { assetId = "cube", prefab = fixture.source } };
+                app.InitializeWorld("capture-room", new[] { new RoomTarget { anchorId = "floor", origin = fixture.anchor } });
+                var request = new SceneCaptureRequest { captureId = "capture-check", revision = 17 };
+                SceneCaptureResult unavailable = new SandboxSceneCapture().Capture(app, request, "runtime-check");
+                Check("capture without current camera fails explicitly", !unavailable.ok && !string.IsNullOrEmpty(unavailable.error) && unavailable.dataBase64 == null);
+                var camera = new GameObject("Capture source camera").AddComponent<Camera>();
+                camera.transform.SetParent(fixture.root.transform, false);
+                camera.transform.position = new Vector3(0, 0, -4);
+                camera.transform.rotation = Quaternion.identity;
+                camera.clearFlags = CameraClearFlags.SolidColor;
+                camera.backgroundColor = Color.blue;
+                camera.cullingMask = 1 << 30;
+                camera.fieldOfView = 45;
+                camera.aspect = 1.25f;
+                app.SetViewerPose(camera.transform.position, Vector3.down, camera);
+                Check("vertical gaze remains capturable without horizontal placement context", app.CaptureCamera == camera && app.CaptureViewer() == null);
+                // Simulate an XR pose refinement after the controls' LateUpdate.
+                app.SetViewerPose(new Vector3(2, 0, -4), Vector3.left, camera);
+                var capture = new SandboxSceneCapture();
+                RenderTexture activeBefore = RenderTexture.active;
+                int camerasBefore = Resources.FindObjectsOfTypeAll<Camera>().Length;
+                SceneCaptureResult result = capture.Capture(app, request, "runtime-check");
+                if (SystemInfo.graphicsDeviceType == UnityEngine.Rendering.GraphicsDeviceType.Null)
+                    Check("headless graphics fails without fabricating pixels", !result.ok && result.error.Contains("graphics device"));
+                else
+                {
+                    Check("render succeeds with session revision and paired scene", result.ok && result.clientId == "runtime-check" && result.captureId == request.captureId &&
+                        result.revision == 17 && JsonUtility.ToJson(result.snapshot.scene) == JsonUtility.ToJson(app.World.Capture().scene));
+                    byte[] jpeg = Convert.FromBase64String(result.dataBase64);
+                    Check("capture is a bounded JPEG", result.mimeType == "image/jpeg" && jpeg.Length > 4 && jpeg[0] == 0xff && jpeg[1] == 0xd8 &&
+                        jpeg.Length == result.byteLength && jpeg.Length <= SandboxSceneCapture.MaximumBytes && result.width <= 1280 && result.height <= 1280);
+                    Check("capture identifies virtual center eye with finite timing", !result.includesPassthrough && result.source == "unity_center_eye" &&
+                        DateTime.TryParse(result.capturedAtUtc, out _) && result.renderMs >= 0 && result.encodeMs >= 0 &&
+                        result.camera.position.z == -4 && result.camera.fieldOfView == 45);
+                    ViewerFrame capturedViewer = result.snapshot.viewer.frames.Find(frame => frame.anchorId == "floor");
+                    Check("paired viewer context uses final render pose after XR refinement", capturedViewer != null &&
+                        capturedViewer.position.x == 0 && capturedViewer.position.z == -4 && capturedViewer.forward.z == 1);
+                    Check("render restores source camera and active render target", camera.targetTexture == null && camera.aspect == 1.25f &&
+                        camera.stereoTargetEye == StereoTargetEyeMask.Both && RenderTexture.active == activeBefore &&
+                        Resources.FindObjectsOfTypeAll<Camera>().Length == camerasBefore);
+                    var prop = GameObject.CreatePrimitive(PrimitiveType.Cube);
+                    prop.transform.SetParent(fixture.source.transform, false);
+                    prop.layer = 30;
+                    var material = new Material(Shader.Find("Unlit/Color"));
+                    material.color = Color.red;
+                    prop.GetComponent<Renderer>().sharedMaterial = material;
+                    try
+                    {
+                        CommandResult spawn = app.Execute(new SandboxCommand { op = "spawn", assetId = "cube", anchorId = "floor", transform = SandboxWorld.DefaultTransform() });
+                        app.Execute(BehaviorCommand(spawn.objectId, new BehaviorData { kind = "bob", amplitudeMeters = .25f, frequencyHz = 1 }));
+                        app.World.TryGetObject(spawn.objectId, out GameObject instance);
+                        app.SetViewerPose(camera.transform.position, camera.transform.forward, camera);
+                        SceneCaptureResult before = new SandboxSceneCapture().Capture(app, request, "runtime-check");
+                        instance.GetComponent<SandboxBehaviorVisual>().Tick(.5f);
+                        app.SetViewerPose(camera.transform.position, camera.transform.forward, camera);
+                        SceneCaptureResult after = new SandboxSceneCapture().Capture(app, request, "runtime-check");
+                        Check("rendered pixels include current behavior offsets while saved placement stays stable", before.ok && after.ok &&
+                            before.dataBase64 != after.dataBase64 && JsonUtility.ToJson(before.snapshot.scene) == JsonUtility.ToJson(after.snapshot.scene));
+                    }
+                    finally { Object.DestroyImmediate(material); }
+                }
+                // Use a fast failed attempt so slow first-time shader compilation
+                // cannot make this timing assertion depend on the test machine.
+                var limiter = new SandboxSceneCapture();
+                limiter.Capture(null, request, "runtime-check");
+                SceneCaptureResult limited = limiter.Capture(null, new SceneCaptureRequest { captureId = "second", revision = 17 }, "runtime-check");
+                Check("repeated captures are rate bounded", !limited.ok && limited.error.Contains("two seconds"));
+                app.ClearViewerPose();
+                Check("tracking clear also invalidates capture camera", app.CaptureCamera == null);
+                app.SetViewerPose(camera.transform.position, camera.transform.forward, camera);
+                camera.enabled = false;
+                Check("disabled camera cannot supply capture", app.CaptureCamera == null);
+                camera.enabled = true;
+                app.RoomReloading = true;
+                Check("room reload prevents stale capture", !new SandboxSceneCapture().Capture(app, request, "runtime-check").ok);
+                Check("capture receipt JSON preserves snapshot and explicit passthrough absence", JsonUtility.FromJson<SceneCaptureResult>(JsonUtility.ToJson(result)).includesPassthrough == false);
             }
         }
 

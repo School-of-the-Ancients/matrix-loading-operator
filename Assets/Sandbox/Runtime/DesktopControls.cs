@@ -13,6 +13,19 @@ namespace ArSandbox
         private GUIStyle guideTitle, guideBody, guidePrompt, guideCaption;
         private string guideSession;
         private int guideRevision = -1;
+        private Camera viewerCamera;
+
+        private void Start() { viewerCamera = Camera.main; }
+
+        private void LateUpdate()
+        {
+            if (app == null) return;
+            if (viewerCamera != null && viewerCamera.isActiveAndEnabled)
+                app.SetViewerPose(viewerCamera.transform.position, viewerCamera.transform.forward, viewerCamera);
+            else app.ClearViewerPose();
+        }
+
+        private void OnDisable() { if (app != null) app.ClearViewerPose(); }
 
         private Rect GuideRect => new Rect(340f, 12f, Mathf.Max(140f, Mathf.Min(460f, Screen.width - 352f)), Mathf.Min(660f, Screen.height - 24f));
 

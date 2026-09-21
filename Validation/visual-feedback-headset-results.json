@@ -1,0 +1,99 @@
+{
+  "status": "passed",
+  "device": "Quest Pro",
+  "package": "com.matt.arsandbox",
+  "captureApkSha256": "98a9545e74a2907edea4f16c3f3fb88446bbf5855ac4ed049fed86d4bd5d541c",
+  "finalBuildApkSha256": "2aeec8451e3d21623c97b108d8eb93f635d78069e7d846a2f2bf7277cae4349a",
+  "captures": [
+    {
+      "label": "sample 1",
+      "capturedAtUtc": "2026-09-21T20:21:57.7033390Z",
+      "width": 960,
+      "height": 540,
+      "byteLength": 50829,
+      "renderMs": 15.2087,
+      "encodeMs": 16.4806,
+      "captureDurationMs": 31.6893,
+      "frameTimeMs": 13.886436820030212,
+      "captureFrameTimeMs": 46.8037,
+      "imageSha256": "a36bb89bc06fec9a943265b2bf1b43649bc3a93fb275d20450db0accda211766"
+    },
+    {
+      "label": "sample 2",
+      "capturedAtUtc": "2026-09-21T20:22:10.8544410Z",
+      "width": 960,
+      "height": 540,
+      "byteLength": 53478,
+      "renderMs": 7.6168000000000005,
+      "encodeMs": 16.645500000000002,
+      "captureDurationMs": 24.262300000000003,
+      "frameTimeMs": 13.8847716152668,
+      "captureFrameTimeMs": 39.1817,
+      "imageSha256": "005f49cc9f89081aa1621f643360e038008b2240476c70e9c589f1bd3f393952"
+    },
+    {
+      "label": "sample 3",
+      "capturedAtUtc": "2026-09-21T20:22:19.6314450Z",
+      "width": 960,
+      "height": 540,
+      "byteLength": 41600,
+      "renderMs": 10.639700000000001,
+      "encodeMs": 16.2894,
+      "captureDurationMs": 26.929100000000002,
+      "frameTimeMs": 13.889746740460396,
+      "captureFrameTimeMs": 41.921,
+      "imageSha256": "4a964adab3969293b066596df99039fb514b10d9e791ca6624111b43c823809f"
+    }
+  ],
+  "realAiChecksPassed": 19,
+  "realAiChecksFailed": 0,
+  "checks": [
+    "ADB executable is available",
+    "Exactly one authorized device is required; use --serial when several are connected",
+    "The exact expected package is already running on the selected device",
+    "PC service is healthy",
+    "Live runtime reports ready AR room data",
+    "Live AR room is available for capture",
+    "Connected headset advertises rendered capture support",
+    "PC service uses the real Codex CLI provider",
+    "Explicit model and reasoning are locally advertised with image input",
+    "Received the exact requested headset frame",
+    "Headset capture discloses virtual rendering without physical passthrough",
+    "AR capture carries the physical-camera exclusion label",
+    "Headset supplied a JPEG preview",
+    "Actual headset JPEG meets the transport byte cap",
+    "Capture preserves the complete stable scene; tracked viewer pose may change",
+    "Real Codex inference received one headset image",
+    "Codex result is tied to the captured headset frame",
+    "Headset image assessment is review-only and cannot execute edits",
+    "Inspection and real AI assessment preserve the exact starting scene"
+  ],
+  "realInference": {
+    "transport": "codex-cli",
+    "completedTurn": true,
+    "toolCallCount": 0,
+    "usage": {
+      "input_tokens": 33088,
+      "cached_input_tokens": 0,
+      "output_tokens": 414,
+      "reasoning_output_tokens": 182
+    },
+    "imageCount": 1,
+    "requestedModel": "gpt-5.6-sol",
+    "requestedReasoningEffort": "medium"
+  },
+  "laterAttempt": {
+    "status": "rejected",
+    "httpStatus": 409,
+    "captureChecksPassed": 16,
+    "detail": "The third timed capture succeeded; a subsequent AI proposal request was rejected while the wearer was actively using voice/operator controls. No scene command was applied by the harness. The earlier completed 19-check AI test is reported separately."
+  },
+  "modelObservation": "Correctly described the virtual debug overlays and empty object inventory; no physical passthrough claim or scene command.",
+  "userObservation": "Wearer confirmed the real-room outlines lined up before the final instrumentation-only APK update.",
+  "finalSceneObjectCount": 0,
+  "sceneMutationsPerformed": false,
+  "content": "Unity virtual content and rendered MRUK geometry; no physical-camera passthrough.",
+  "privacy": "Device serials, room identifiers, camera poses, full snapshots and room images omitted from repository evidence; raw artifacts remain local.",
+  "timingScope": "Stopwatch render/readback plus encode/base64 stages and complete Update-to-Update capture-frame wall interval. Three observations, not a sustained performance benchmark.",
+  "instrumentationCorrection": "An initial attempt using Unity unscaledDeltaTime reported predicted XR cadence despite stalls; final samples use monotonic wall time and assert it covers rendering plus encoding."
+}

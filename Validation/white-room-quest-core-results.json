@@ -1,9 +1,9 @@
 {
-  "startedUtc": "2026-09-20T23:34:55.6622411Z",
-  "completedUtc": "2026-09-20T23:34:56.9609630Z",
+  "startedUtc": "2026-09-21T20:24:57.3730999Z",
+  "completedUtc": "2026-09-21T20:24:58.7819485Z",
   "unityVersion": "6000.6.0f1",
   "projectPath": "<isolated-white-room-quest-fixture>",
-  "passed": 301,
+  "passed": 321,
   "failed": 0,
   "checks": [
     {
@@ -892,6 +892,41 @@
       "detail": ""
     },
     {
+      "name": "room loading owns an explicit voice presentation phase",
+      "passed": true,
+      "detail": ""
+    },
+    {
+      "name": "unavailable input does not erase pending room loading notice",
+      "passed": true,
+      "detail": ""
+    },
+    {
+      "name": "localized room clears stale loading and restores voice instructions",
+      "passed": true,
+      "detail": ""
+    },
+    {
+      "name": "failed room load replaces loading with actionable room guidance",
+      "passed": true,
+      "detail": ""
+    },
+    {
+      "name": "room completion preserves a newer voice error",
+      "passed": true,
+      "detail": ""
+    },
+    {
+      "name": "room completion preserves a newer cancellation notice",
+      "passed": true,
+      "detail": ""
+    },
+    {
+      "name": "repeated reload recovers and duplicate completion cannot overwrite readiness",
+      "passed": true,
+      "detail": ""
+    },
+    {
       "name": "wire select accepts Unity defaults for omitted fields",
       "passed": true,
       "detail": ""
@@ -1508,6 +1543,71 @@
     },
     {
       "name": "animated collider descendant still resolves the stable placed identity",
+      "passed": true,
+      "detail": ""
+    },
+    {
+      "name": "capture without current camera fails explicitly",
+      "passed": true,
+      "detail": ""
+    },
+    {
+      "name": "vertical gaze remains capturable without horizontal placement context",
+      "passed": true,
+      "detail": ""
+    },
+    {
+      "name": "render succeeds with session revision and paired scene",
+      "passed": true,
+      "detail": ""
+    },
+    {
+      "name": "capture is a bounded JPEG",
+      "passed": true,
+      "detail": ""
+    },
+    {
+      "name": "capture identifies virtual center eye with finite timing",
+      "passed": true,
+      "detail": ""
+    },
+    {
+      "name": "paired viewer context uses final render pose after XR refinement",
+      "passed": true,
+      "detail": ""
+    },
+    {
+      "name": "render restores source camera and active render target",
+      "passed": true,
+      "detail": ""
+    },
+    {
+      "name": "rendered pixels include current behavior offsets while saved placement stays stable",
+      "passed": true,
+      "detail": ""
+    },
+    {
+      "name": "repeated captures are rate bounded",
+      "passed": true,
+      "detail": ""
+    },
+    {
+      "name": "tracking clear also invalidates capture camera",
+      "passed": true,
+      "detail": ""
+    },
+    {
+      "name": "disabled camera cannot supply capture",
+      "passed": true,
+      "detail": ""
+    },
+    {
+      "name": "room reload prevents stale capture",
+      "passed": true,
+      "detail": ""
+    },
+    {
+      "name": "capture receipt JSON preserves snapshot and explicit passthrough absence",
       "passed": true,
       "detail": ""
     }

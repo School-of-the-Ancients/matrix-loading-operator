@@ -34,7 +34,7 @@ foreach ($relativeDirectory in @('Assets\Sandbox\Runtime', 'Assets\Sandbox\Edito
     [void](New-Item -ItemType Directory -Path (Join-Path $fixtureRoot $relativeDirectory) -Force)
 }
 [IO.File]::WriteAllText($markerPath, ('AR Sandbox authored desktop simulation fixture.' + [Environment]::NewLine), $utf8)
-$runtimeFiles = @('DesktopControls.cs', 'PcBridge.cs', 'SandboxApp.cs', 'SandboxData.cs', 'SandboxWorld.cs', 'SandboxBehaviorVisual.cs')
+$runtimeFiles = @('DesktopControls.cs', 'PcBridge.cs', 'SandboxApp.cs', 'SandboxData.cs', 'SandboxWorld.cs', 'SandboxBehaviorVisual.cs', 'SandboxSceneCapture.cs')
 $editorFiles = @('SandboxCoreChecks.cs', 'SandboxProjectSetup.cs', 'LessonGuideChecks.cs', 'DesktopValidationBuild.cs')
 foreach ($group in @(
     @{ Directory = 'Assets\Sandbox\Runtime'; Files = $runtimeFiles },
@@ -78,6 +78,7 @@ PlayerSettings:
     "com.unity.modules.audio": "1.0.0",
     "com.unity.modules.cloth": "1.0.0",
     "com.unity.modules.imgui": "1.0.0",
+    "com.unity.modules.imageconversion": "1.0.0",
     "com.unity.modules.jsonserialize": "1.0.0",
     "com.unity.modules.particlesystem": "1.0.0",
     "com.unity.modules.physics": "1.0.0",

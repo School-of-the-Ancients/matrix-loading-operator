@@ -121,3 +121,6 @@ InitTestScene*.unity*
 /.speech-venv/
 /.speech-models/
 /Validation/desktop-fixture-core-results.json
+
+# Headset capture reports and private room previews default here.
+/work/
