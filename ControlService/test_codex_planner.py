@@ -15,7 +15,7 @@ from unittest.mock import patch
 import urllib.error
 import urllib.request
 
-from ai_adapter import Planner, PlannerError, ProviderConfig, SYSTEM_PROMPT
+from ai_adapter import Planner, PlannerError, ProviderConfig, SYSTEM_PROMPT, runtime_skill_catalog
 from codex_provider import CodexConfig, CodexProviderError
 from server import LEASE_SECONDS, Server, State
 
@@ -101,7 +101,8 @@ class CodexPlannerTests(unittest.TestCase):
     def test_codex_uses_transport_with_live_context_and_preserves_receipt(self):
         result = self.codex_plan(saved_scenes=["Demo"])
         self.plan_codex.assert_called_once_with(
-            self.config, SYSTEM_PROMPT, "Please make a second seat beside this one", SNAPSHOT, ["Demo"])
+            self.config, SYSTEM_PROMPT, "Please make a second seat beside this one",
+            {**SNAPSHOT, "runtimeSkillCatalog": runtime_skill_catalog(SNAPSHOT)}, ["Demo"])
         self.assertEqual(result["commands"], [{"op": "duplicate", "objectId": "chair-1"}])
         self.assertEqual(result["mode"], "codex-cli")
         self.assertEqual(result["inference"], RECEIPT)
@@ -308,7 +309,8 @@ class CodexPlannerHttpTests(unittest.TestCase):
         proposal = self.propose()
         self.assertEqual(self.state.pending, {})
         self.assertEqual(self.exchange(), (200, {"commands": []}))
-        self.assertEqual(self.plan_codex.call_args.args[3], SNAPSHOT)
+        self.assertEqual(self.plan_codex.call_args.args[3],
+                         {**SNAPSHOT, "runtimeSkillCatalog": runtime_skill_catalog(SNAPSHOT)})
         self.assertEqual(self.plan_codex.call_args.args[4], ["Existing"])
         code, queued = self.request("/api/apply_plan", {"planId": proposal["planId"]})
         self.assertEqual(code, 200)

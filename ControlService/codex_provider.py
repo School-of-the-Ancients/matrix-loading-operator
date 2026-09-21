@@ -154,6 +154,12 @@ def _schema():
     transform = _object({name: vector for name in ("position", "rotation", "scale")})
     identifier = {"type": "string"}
     surface_placement = {"type": "string", "enum": ["surface"]}
+    behavior = _object({"kind": {"type": "string", "enum": ["rotate", "bob"]},
+                        "enabled": {"type": "boolean"}, "paused": {"type": "boolean"},
+                        "axis": {"type": "string", "enum": ["x", "y", "z"]},
+                        "speedDegreesPerSecond": {"type": "number", "minimum": -180, "maximum": 180},
+                        "amplitudeMeters": {"type": "number", "minimum": 0, "maximum": .25},
+                        "frequencyHz": {"type": "number", "minimum": .05, "maximum": 2}})
     variants = []
     for op, fields in (
         ("spawn", {"assetId": identifier, "anchorId": identifier, "transform": transform}),
@@ -162,6 +168,8 @@ def _schema():
         ("set_transform", {"objectId": identifier, "transform": transform, "placement": surface_placement}),
         ("set_transform", {"objectId": identifier, "anchorId": identifier, "transform": transform}),
         ("set_transform", {"objectId": identifier, "anchorId": identifier, "transform": transform, "placement": surface_placement}),
+        ("set_behavior", {"objectId": identifier, "behavior": behavior}),
+        ("remove_behavior", {"objectId": identifier, "behaviorKind": {"type": "string", "enum": ["rotate", "bob", "all"]}}),
         *((op, {"objectId": identifier}) for op in ("select", "duplicate", "delete")),
         *((op, {}) for op in ("undo", "redo", "clear", "get_scene", "list_assets", "list_targets")),
         *((op, {"name": identifier}) for op in ("save_scene", "load_scene")),

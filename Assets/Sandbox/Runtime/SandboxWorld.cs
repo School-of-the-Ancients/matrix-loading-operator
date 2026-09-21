@@ -24,6 +24,7 @@ namespace ArSandbox
         {
             public SceneObjectData data;
             public GameObject gameObject;
+            public SandboxBehaviorVisual behaviorVisual;
         }
 
         private readonly string roomId;
@@ -122,6 +123,10 @@ namespace ArSandbox
                 if (!string.IsNullOrEmpty(command.placement) &&
                     (command.placement != "surface" || (command.op != "spawn" && command.op != "set_transform")))
                     throw new ArgumentException("placement accepts only 'surface' on spawn or set_transform.");
+                if (command.op != "set_behavior" && HasBehaviorPayload(command.behavior))
+                    throw new ArgumentException("behavior is accepted only by set_behavior.");
+                if (command.op != "remove_behavior" && !string.IsNullOrEmpty(command.behaviorKind))
+                    throw new ArgumentException("behaviorKind is accepted only by remove_behavior.");
                 SceneData before = IsMutation(command.op) ? Capture().scene : null;
 
                 switch (command.op)
@@ -147,6 +152,14 @@ namespace ArSandbox
                         SetTransform(command);
                         result.objectId = command.objectId;
                         break;
+                    case "set_behavior":
+                        SetBehavior(command);
+                        result.objectId = command.objectId;
+                        break;
+                    case "remove_behavior":
+                        RemoveBehavior(command);
+                        result.objectId = command.objectId;
+                        break;
                     case "delete":
                         Delete(command.objectId);
                         result.objectId = command.objectId;
@@ -166,7 +179,7 @@ namespace ArSandbox
                         Replay(redoHistory, undoHistory, "redo");
                         break;
                     default:
-                        throw new ArgumentException("Unknown operation. Allowed: get_scene, list_assets, list_targets, spawn, select, duplicate, set_transform, delete, clear, load, undo, redo.");
+                        throw new ArgumentException("Unknown operation. Allowed: get_scene, list_assets, list_targets, spawn, select, duplicate, set_transform, set_behavior, remove_behavior, delete, clear, load, undo, redo.");
                 }
                 if (before != null)
                 {
@@ -266,7 +279,7 @@ namespace ArSandbox
             };
         }
 
-        private string Spawn(SandboxCommand command)
+        private string Spawn(SandboxCommand command, List<BehaviorData> behaviors = null)
         {
             if (!string.IsNullOrEmpty(command.objectId))
                 throw new ArgumentException("spawn assigns objectId; omit objectId from the command.");
@@ -275,13 +288,15 @@ namespace ArSandbox
             PrefabEntry asset = RequireAsset(command.assetId);
             RoomTarget target = RequireTarget(command.anchorId);
             ValidateTransform(command.transform);
+            ValidateBehaviors(behaviors);
 
             var data = new SceneObjectData
             {
                 objectId = Guid.NewGuid().ToString("N"),
                 assetId = command.assetId,
                 anchorId = command.anchorId,
-                transform = ResolvePlacement(asset.assetId, target, command.transform, command.placement)
+                transform = ResolvePlacement(asset.assetId, target, command.transform, command.placement),
+                behaviors = Clone(behaviors)
             };
             Instance instance = CreateInactive(data, asset, target, null);
             try
@@ -308,7 +323,7 @@ namespace ArSandbox
                 assetId = original.data.assetId,
                 anchorId = original.data.anchorId,
                 transform = pose
-            });
+            }, original.data.behaviors);
         }
 
         private Instance RequireInstance(string objectId)
@@ -324,6 +339,7 @@ namespace ArSandbox
         private static bool IsMutation(string operation)
         {
             return operation == "spawn" || operation == "duplicate" || operation == "set_transform" ||
+                operation == "set_behavior" || operation == "remove_behavior" ||
                 operation == "delete" || operation == "clear" || operation == "load";
         }
 
@@ -358,6 +374,76 @@ namespace ArSandbox
         {
             return value != null && (!string.IsNullOrEmpty(value.roomId) || (value.objects != null && value.objects.Count > 0) ||
                 (value.schemaVersion != 0 && value.schemaVersion != 1));
+        }
+
+        private static bool HasBehaviorPayload(BehaviorData value)
+        {
+            if (value == null) return false;
+            // JsonUtility materializes an omitted inline DTO using field initializers
+            // on some supported versions and all-zero values on others. Neither is
+            // distinguishable from absence here; HTTP validation checks field presence.
+            // A kind or any non-default payload remains an invalid foreign field.
+            if (!string.IsNullOrEmpty(value.kind) || value.paused) return true;
+            bool zero = !value.enabled && string.IsNullOrEmpty(value.axis) &&
+                value.speedDegreesPerSecond == 0f && value.amplitudeMeters == 0f && value.frequencyHz == 0f;
+            bool defaults = value.enabled && value.axis == "y" && value.speedDegreesPerSecond == 30f &&
+                value.amplitudeMeters == .05f && value.frequencyHz == .5f;
+            return !zero && !defaults;
+        }
+
+        private static void ValidateBehaviors(List<BehaviorData> values)
+        {
+            if (values == null) return;
+            if (values.Count > 2) throw new ArgumentException("At most two behaviors are supported, one rotate and one bob.");
+            var kinds = new HashSet<string>(StringComparer.Ordinal);
+            foreach (BehaviorData value in values)
+            {
+                ValidateBehavior(value);
+                if (!kinds.Add(value.kind)) throw new ArgumentException("Duplicate behavior kind '" + value.kind + "'.");
+            }
+        }
+
+        private static void ValidateBehavior(BehaviorData value)
+        {
+            if (value == null || (value.kind != "rotate" && value.kind != "bob"))
+                throw new ArgumentException("behavior.kind must be rotate or bob.");
+            if (value.axis != "x" && value.axis != "y" && value.axis != "z")
+                throw new ArgumentException("behavior.axis must be x, y, or z.");
+            if (!InRange(value.speedDegreesPerSecond, -180f, 180f))
+                throw new ArgumentException("behavior.speedDegreesPerSecond must be finite and between -180 and 180.");
+            if (!InRange(value.amplitudeMeters, 0f, .25f))
+                throw new ArgumentException("behavior.amplitudeMeters must be finite and between 0 and 0.25.");
+            if (!InRange(value.frequencyHz, .05f, 2f))
+                throw new ArgumentException("behavior.frequencyHz must be finite and between 0.05 and 2.");
+        }
+
+        private void SetBehavior(SandboxCommand command)
+        {
+            ValidateObjectOnlyCommand(command);
+            Instance instance = RequireInstance(command.objectId);
+            RequireTarget(instance.data.anchorId);
+            ValidateBehavior(command.behavior);
+            List<BehaviorData> next = Clone(instance.data.behaviors);
+            int index = next.FindIndex(value => value.kind == command.behavior.kind);
+            if (index < 0) next.Add(Clone(command.behavior));
+            else next[index] = Clone(command.behavior);
+            ValidateBehaviors(next);
+            instance.behaviorVisual.Configure(next);
+            instance.data.behaviors = next;
+        }
+
+        private void RemoveBehavior(SandboxCommand command)
+        {
+            ValidateObjectOnlyCommand(command);
+            Instance instance = RequireInstance(command.objectId);
+            RequireTarget(instance.data.anchorId);
+            if (command.behaviorKind != "rotate" && command.behaviorKind != "bob" && command.behaviorKind != "all")
+                throw new ArgumentException("behaviorKind must be rotate, bob, or all.");
+            List<BehaviorData> next = Clone(instance.data.behaviors);
+            if (command.behaviorKind == "all") next.Clear();
+            else next.RemoveAll(value => value.kind == command.behaviorKind);
+            instance.behaviorVisual.Configure(next);
+            instance.data.behaviors = next;
         }
 
         private static void PushHistory(List<SceneData> history, SceneData scene)
@@ -469,6 +555,7 @@ namespace ArSandbox
                 RequireAsset(data.assetId);
                 RoomTarget target = RequireTarget(data.anchorId);
                 ValidateTransform(data.transform);
+                ValidateBehaviors(data.behaviors);
                 // Saved transforms have already had their surface clearance resolved.
                 // Revalidate them against current geometry without shifting them again.
                 ResolvePlacement(data.assetId, target, data.transform, null);
@@ -493,11 +580,19 @@ namespace ArSandbox
                     temporaryStaging.transform.SetParent(objectRoot, false);
                     staging = temporaryStaging.transform;
                 }
-                instance = Object.Instantiate(asset.prefab, staging, false);
+                instance = new GameObject(asset.displayName + " [" + data.objectId + "]");
                 instance.SetActive(false);
-                instance.name = asset.displayName + " [" + data.objectId + "]";
+                instance.transform.SetParent(staging, false);
+                GameObject visual = Object.Instantiate(asset.prefab, instance.transform, false);
+                visual.name = "Visual";
+                visual.transform.localPosition = Vector3.zero;
+                visual.transform.localRotation = Quaternion.identity;
+                visual.transform.localScale = Vector3.one;
+                visual.SetActive(true);
+                SandboxBehaviorVisual behaviorVisual = instance.AddComponent<SandboxBehaviorVisual>();
+                behaviorVisual.Configure(visual.transform, data.behaviors);
                 Apply(instance.transform, target.origin, data.transform);
-                return new Instance { data = data, gameObject = instance };
+                return new Instance { data = data, gameObject = instance, behaviorVisual = behaviorVisual };
             }
             catch
             {
@@ -876,8 +971,23 @@ namespace ArSandbox
                 objectId = value.objectId,
                 assetId = value.assetId,
                 anchorId = value.anchorId,
-                transform = Clone(value.transform)
+                transform = Clone(value.transform),
+                behaviors = Clone(value.behaviors)
             };
+        }
+
+        private static BehaviorData Clone(BehaviorData value)
+        {
+            return new BehaviorData { kind = value.kind, enabled = value.enabled, paused = value.paused,
+                axis = value.axis, speedDegreesPerSecond = value.speedDegreesPerSecond,
+                amplitudeMeters = value.amplitudeMeters, frequencyHz = value.frequencyHz };
+        }
+
+        private static List<BehaviorData> Clone(List<BehaviorData> values)
+        {
+            var result = new List<BehaviorData>(values == null ? 0 : values.Count);
+            if (values != null) foreach (BehaviorData value in values) result.Add(Clone(value));
+            return result;
         }
     }
 }

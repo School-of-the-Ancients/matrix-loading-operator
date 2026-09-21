@@ -284,7 +284,7 @@ class PlanningTests(NativeConfigTestCase):
         self.assertEqual(assumptions["items"], {"type": "string", "minLength": 1, "maxLength": 200})
         variants = schema["properties"]["commands"]["items"]["anyOf"]
         self.assertEqual({entry["properties"]["op"]["enum"][0] for entry in variants},
-                         {"spawn", "set_transform", "select", "duplicate", "delete", "clear", "undo", "redo",
+                     {"spawn", "set_transform", "set_behavior", "remove_behavior", "select", "duplicate", "delete", "clear", "undo", "redo",
                           "get_scene", "list_assets", "list_targets", "save_scene", "load_scene"})
         self.assertTrue(all(entry["additionalProperties"] is False for entry in variants))
 

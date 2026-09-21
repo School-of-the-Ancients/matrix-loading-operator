@@ -23,11 +23,12 @@ const info={mode:'codex-cli',provider:'Codex CLI',configured:true,model:null,ava
 const ready={mode:'codex-cli',provider:'Codex CLI',status:'ready',phase:'ready',planId:'voice-plan',requiresApply:true,
   commands:[{op:'duplicate',objectId:'chair-1'}],summary:'Duplicate the selected chair.',transcript:'Copy this chair',assumptions:[]};
 const calls=[];let rejectPreferences=false;
-const context=vm.createContext({document:{getElementById:id=>elements.get(id),createElement:tag=>new Element(tag),querySelectorAll:()=>[]},
+const pageHeading=new Element('h1');
+const context=vm.createContext({document:{getElementById:id=>elements.get(id),createElement:tag=>new Element(tag),querySelector:selector=>selector==='h1'?pageHeading:null,querySelectorAll:()=>[]},
   console,Map,JSON,Number,Date,Error,setInterval:()=>0,clearInterval:()=>{},fetch:async(url,options)=>{
     const body=options.body?JSON.parse(options.body):undefined;calls.push({url,body});
     if(url==='/api/planner')return {ok:true,json:async()=>structuredClone(info)};
-    if(url==='/api/state')return {ok:true,json:async()=>({online:true,pendingCount:0,snapshot:null,voice:null})};
+    if(url==='/api/state')return {ok:true,json:async()=>({online:true,pendingCount:0,snapshot:{scene:{roomId:'white-room-v1',objects:[]},assets:[],anchors:[]},voice:null})};
     if(url==='/api/scenes')return {ok:true,json:async()=>({scenes:[]})};
     if(url==='/api/planner_preferences')return {ok:!rejectPreferences,json:async()=>rejectPreferences?{error:'Unsupported model'}:{codex:body.codex}};
     if(url==='/api/plan')return {ok:true,json:async()=>structuredClone(ready)};
@@ -63,6 +64,17 @@ async function run(){
   assert.equal(element('reviewVoice').disabled,true);
   element('mode').value='offline-rules';element('mode').onchange();
   assert.equal(element('codexSettings').hidden,true);assert.equal(element('apply').disabled,true);
-  console.log('Operator panel interaction checks passed (model/effort validation, failed preference rollback, text payload, voice review, Apply gate).');
+  vm.runInContext('renderBehaviors()',context);
+  assert.match(element('behaviorStatus').textContent,/needs the behavior update/);
+  context.behaviorObject={objectId:'orb-1',assetId:'orb',behaviors:[
+    {kind:'rotate',axis:'y',speedDegreesPerSecond:20,enabled:true,paused:false},
+    {kind:'bob',amplitudeMeters:.05,frequencyHz:.5,enabled:true,paused:true}]};
+  element('object').value='orb-1';
+  vm.runInContext("latest.snapshot.behaviorKinds=['rotate','bob'];latest.snapshot.scene.objects=[behaviorObject];renderBehaviors();",context);
+  assert.match(element('behaviorStatus').textContent,/Rotate Y.*20.*running/);
+  assert.match(element('behaviorStatus').textContent,/Bob.*5 cm.*paused/);
+  vm.runInContext('behaviorObject.behaviors=[];renderBehaviors()',context);
+  assert.match(element('behaviorStatus').textContent,/No animations/);
+  console.log('Operator panel interaction checks passed (model/effort validation, preference rollback, text payload, voice review, Apply gate, behavior state).');
 }
 run().catch(error=>{console.error(error);process.exitCode=1;});

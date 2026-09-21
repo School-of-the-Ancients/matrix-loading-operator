@@ -21,7 +21,8 @@ import urllib.request
 import uuid
 
 from ai_adapter import (Planner, PlannerError, validate_local_bounds, validate_viewer,
-                        validate_anchor_metadata, validate_room_context, validate_pointing)
+                        validate_anchor_metadata, validate_room_context, validate_pointing,
+                        validate_behavior, validate_behaviors, validate_behavior_kinds)
 from learning import LearningBridge, LearningError, identifier
 from codex_provider import CodexConfig, CodexProviderError, codex_options, select_codex_config
 import speech
@@ -33,7 +34,7 @@ MAX_BATCH = 20
 LEASE_SECONDS = 15
 NAME = re.compile(r"[A-Za-z0-9][A-Za-z0-9 _-]{0,63}\Z")
 OPS = {"spawn", "set_transform", "select", "duplicate", "delete", "undo", "redo", "clear", "load",
-       "get_scene", "list_assets", "list_targets", "confirm_room"}
+       "get_scene", "list_assets", "list_targets", "confirm_room", "set_behavior", "remove_behavior"}
 
 
 class APIError(Exception):
@@ -90,6 +91,12 @@ def scene(value):
                            "assetId": text(item.get("assetId"), "assetId"),
                            "anchorId": text(item.get("anchorId"), "anchorId"),
                            "transform": transform(item.get("transform"))})
+        try:
+            behaviors = validate_behaviors(item.get("behaviors"))
+        except PlannerError as error:
+            raise APIError(400, str(error)) from None
+        if behaviors:
+            normalized[-1]["behaviors"] = behaviors
     return {"schemaVersion": 1, "roomId": room, "objects": normalized}
 
 
@@ -139,6 +146,8 @@ def snapshot(value):
         result["selection"] = {"anchorId": anchor_id, "objectId": object_id,
                                "position": vector(selected.get("position"), "position")}
     try:
+        if value.get("behaviorKinds") is not None:
+            result["behaviorKinds"] = validate_behavior_kinds(value["behaviorKinds"])
         viewer = validate_viewer(value.get("viewer"), {a["anchorId"] for a in result["anchors"]})
         pointing = validate_pointing(value.get("pointing"),
                                      {a["anchorId"]: a for a in result["anchors"]},
@@ -172,6 +181,7 @@ def command(value):
     require(isinstance(op, str) and op in OPS, "Unknown command op")
     allowed = {"op", "requestId"}
     required = {"spawn": {"assetId", "anchorId", "transform"}, "set_transform": {"objectId", "transform"},
+                "set_behavior": {"objectId", "behavior"}, "remove_behavior": {"objectId", "behaviorKind"},
                 "select": {"objectId"}, "duplicate": {"objectId"}, "delete": {"objectId"},
                 "load": {"scene"}}.get(op, set())
     allowed |= required
@@ -192,6 +202,15 @@ def command(value):
         result["placement"] = "surface"
     if "scene" in value:
         result["scene"] = scene(value["scene"])
+    if "behavior" in value:
+        try:
+            result["behavior"] = validate_behavior(value["behavior"])
+        except PlannerError as error:
+            raise APIError(400, str(error)) from None
+    if "behaviorKind" in value:
+        require(isinstance(value["behaviorKind"], str) and value["behaviorKind"] in ("rotate", "bob", "all"),
+                "Unknown behavior kind")
+        result["behaviorKind"] = value["behaviorKind"]
     return result
 
 
@@ -319,6 +338,17 @@ class State:
             require(self.latest is not None, self.room_unavailable_message(), 409)
             room = self.runtime
             for item in checked:
+                supported = self.latest.get("behaviorKinds", [])
+                if item["op"] in {"set_behavior", "remove_behavior"}:
+                    require(bool(supported), "Connected player does not support behaviors; update the Quest app", 409)
+                    kind = item["behavior"]["kind"] if item["op"] == "set_behavior" else item["behaviorKind"]
+                    require(kind == "all" or kind in supported, "Connected player does not support this behavior", 409)
+                    require(item["objectId"] in {obj["objectId"] for obj in self.latest["scene"]["objects"]},
+                            "Behavior target object is unavailable", 409)
+                elif item["op"] == "load":
+                    require(all(behavior["kind"] in supported for obj in item["scene"]["objects"]
+                                for behavior in obj.get("behaviors", [])),
+                            "Saved behaviors need an updated Quest app; scene has not been loaded", 409)
                 if self.latest.get("readOnly"):
                     require(item["op"] in {"clear", "get_scene", "list_assets", "list_targets"},
                             "Room changed. Save the retained poses, clear objects, then reload room data and verify outlines", 409)
@@ -369,6 +399,7 @@ class State:
             saved.pop("pointing", None)
             saved.pop("roomContext", None)
             saved.pop("readOnly", None)
+            saved.pop("behaviorKinds", None)  # Capability belongs to the connected player, not the save.
             if self.learning:
                 require(not self.learning.restore, "Finish the pending lesson restore before saving", 409)
                 checkpoint = self.learning.checkpoint(self)
