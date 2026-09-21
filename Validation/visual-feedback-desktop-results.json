@@ -1,0 +1,2601 @@
+{
+  "status": "passed",
+  "startedUtc": "2026-09-21T19:55:25.354937+00:00",
+  "scope": "Owned graphical Unity desktop player, real rendered JPEGs and real Codex image turns",
+  "mode": "visual-feedback-desktop-controlled-run",
+  "deviceProcessObserved": false,
+  "runtimeExecutionObserved": true,
+  "wearerVisualCheck": "Not a Quest wearer test. Codex agent opened and inspected exported virtual JPEGs with view_image.",
+  "trackingAndControllerInputTested": false,
+  "languageModelUsed": true,
+  "commandPath": "Live codex-cli proposal, narrow programmatic review, explicit Apply, runtime acknowledgement",
+  "runtimeAttribution": "Owned player launched with a unique isolated loopback service URL",
+  "operatorConfirmedPairing": false,
+  "deviceSerialRecorded": false,
+  "package": null,
+  "pretestSceneRestored": true,
+  "undoHistoryRestored": false,
+  "inferenceSteps": [
+    {
+      "prompt": "Using only available evidence, what colors are the table top, chair seats/backrests, and furniture legs? Do not infer colors from object names or common furniture conventions. If visual color evidence is absent say it cannot be determined. Do not propose edits.",
+      "inference": {
+        "transport": "codex-cli",
+        "completedTurn": true,
+        "toolCallCount": 0,
+        "usage": {
+          "input_tokens": 15337,
+          "cached_input_tokens": 0,
+          "output_tokens": 67,
+          "reasoning_output_tokens": 0
+        },
+        "requestedModel": "gpt-5.6-sol",
+        "requestedReasoningEffort": "medium"
+      },
+      "summary": "The table top, chair seats/backrests, and furniture leg colors cannot be determined from the supplied evidence. The snapshot provides geometry, transforms, names, and orientation metadata, but no visual, material, texture, or color data.",
+      "commands": [],
+      "status": "needs_clarification",
+      "reviewed": false,
+      "applied": false,
+      "captureId": null
+    },
+    {
+      "prompt": "Inspect the attached rendered view. Report the visibly observed colors of the table top, chair seats/backrests, and furniture legs. Distinguish visible facts from uncertainty. Do not propose edits.",
+      "inference": {
+        "transport": "codex-cli",
+        "completedTurn": true,
+        "toolCallCount": 0,
+        "usage": {
+          "input_tokens": 16585,
+          "cached_input_tokens": 0,
+          "output_tokens": 98,
+          "reasoning_output_tokens": 0
+        },
+        "requestedModel": "gpt-5.6-sol",
+        "requestedReasoningEffort": "medium",
+        "imageCount": 1
+      },
+      "summary": "Visible facts: the table top appears medium warm brown. Both visible chair seats and backrests also appear warm brown, broadly matching the tabletop. The furniture legs appear very dark charcoal gray to nearly black. Uncertainty: lighting, distance, JPEG rendering, and shaded or partially occluded surfaces make exact hues and whether every brown component uses the identical color impossible to confirm from this image alone.",
+      "commands": [],
+      "status": "review_only",
+      "reviewed": false,
+      "applied": false,
+      "captureId": "79270db6f17b4035922e5157ddc408d0"
+    },
+    {
+      "prompt": "Inspect the furniture arrangement in the attached view and describe any visible tight spacing around the selected chair. Propose exactly one set_transform to move only the selected chair 0.6 metres directly away from the table across the floor in its current anchor frame. Preserve its height, rotation and scale, and preserve the other chair and table. Explain the visual evidence without claiming the edit is already applied.",
+      "inference": {
+        "transport": "codex-cli",
+        "completedTurn": true,
+        "toolCallCount": 0,
+        "usage": {
+          "input_tokens": 16625,
+          "cached_input_tokens": 0,
+          "output_tokens": 348,
+          "reasoning_output_tokens": 120
+        },
+        "requestedModel": "gpt-5.6-sol",
+        "requestedReasoningEffort": "medium",
+        "imageCount": 1
+      },
+      "summary": "The selected chair appears tightly tucked against the near side of the table, with little visible clearance and their catalog bounds slightly overlapping. This proposal moves only that chair 0.6 m directly away from the table along anchor-local -Z, while preserving its height, rotation, scale, the table, and the other chair. The edit is proposed and has not yet been applied.",
+      "commands": [
+        {
+          "op": "set_transform",
+          "objectId": "efd4760efffc49b6919bfb2253bbff09",
+          "anchorId": "white-floor",
+          "transform": {
+            "position": {
+              "x": 0,
+              "y": 0,
+              "z": 0.7999999761581421
+            },
+            "rotation": {
+              "x": 0,
+              "y": 180,
+              "z": 0
+            },
+            "scale": {
+              "x": 1,
+              "y": 1,
+              "z": 1
+            }
+          }
+        }
+      ],
+      "status": "ready",
+      "reviewed": true,
+      "applied": true,
+      "captureId": "77af81d479a2464fa0aa3cc81bdbcda1"
+    }
+  ],
+  "plannedInferenceCalls": 3,
+  "recoveryTransport": "Inherited typed executor backup restore; no additional inference",
+  "architecturalQualityAssessed": false,
+  "collisionClearanceAssessed": false,
+  "compositionReviewScope": "Known upright pieces, bounded geometry, furniture placement and exact executor/persistence state; no visual or room-enclosure assessment",
+  "platform": "Windows desktop player, not Quest",
+  "desktopProcessObserved": true,
+  "isolatedStorage": true,
+  "graphicalPlayer": true,
+  "playerBatchmode": false,
+  "playerNographics": false,
+  "screenshots": [
+    {
+      "label": "before",
+      "file": "visual-feedback-before.jpg",
+      "sha256": "59360922bdd729f9fbae2ed24ff3720db5ab0a80a793484ea53dfc5dc02dcbee",
+      "metadata": {
+        "supported": true,
+        "status": "ready",
+        "voiceCaptureId": null,
+        "captureId": "79270db6f17b4035922e5157ddc408d0",
+        "revision": 10,
+        "ageSeconds": 0.622,
+        "error": "",
+        "mimeType": "image/jpeg",
+        "width": 960,
+        "height": 540,
+        "byteLength": 12808,
+        "capturedAtUtc": "2026-09-21T19:55:43.2180923Z",
+        "camera": {
+          "position": {
+            "x": 3.0,
+            "y": 2.200000047683716,
+            "z": -4.0
+          },
+          "rotation": {
+            "x": 13.415197372436523,
+            "y": 333.4349365234375,
+            "z": 0.0
+          },
+          "forward": {
+            "x": -0.4350111186504364,
+            "y": -0.23200592398643494,
+            "z": 0.870022177696228
+          },
+          "coordinateFrame": "unity_world; use snapshot.viewer frames for anchor-relative placement",
+          "fieldOfView": 60.0,
+          "aspect": 1.7777777910232544,
+          "nearClip": 0.05000000074505806,
+          "farClip": 100.0
+        },
+        "source": "unity_center_eye",
+        "includesPassthrough": false,
+        "renderMs": 101.33850000000001,
+        "encodeMs": 9.2743,
+        "frameTimeMs": 0.07509920396842062,
+        "captureDurationMs": 110.61280000000001,
+        "frameCount": 132924,
+        "capturedAtRuntimeSeconds": 15.208370506235829,
+        "clientId": "8b408f5f0fae4f0992ce907a2be67e08",
+        "content": "Virtual scene rendered from the current camera viewpoint. No physical-camera image or passthrough is included."
+      },
+      "snapshot": {
+        "scene": {
+          "schemaVersion": 1,
+          "roomId": "white-room-v1",
+          "objects": [
+            {
+              "objectId": "5bfa18cbcfdd4c7b8c6ccea9846b59fc",
+              "assetId": "table",
+              "anchorId": "white-floor",
+              "transform": {
+                "position": {
+                  "x": 0.0,
+                  "y": 0.0,
+                  "z": 2.0
+                },
+                "rotation": {
+                  "x": 0.0,
+                  "y": 0.0,
+                  "z": 0.0
+                },
+                "scale": {
+                  "x": 1.0,
+                  "y": 1.0,
+                  "z": 1.0
+                }
+              }
+            },
+            {
+              "objectId": "6f9b66422a014d7e98dde26b9435aaee",
+              "assetId": "chair",
+              "anchorId": "white-floor",
+              "transform": {
+                "position": {
+                  "x": 1.25,
+                  "y": 0.0,
+                  "z": 2.0
+                },
+                "rotation": {
+                  "x": 0.0,
+                  "y": 90.0,
+                  "z": 0.0
+                },
+                "scale": {
+                  "x": 1.0,
+                  "y": 1.0,
+                  "z": 1.0
+                }
+              }
+            },
+            {
+              "objectId": "efd4760efffc49b6919bfb2253bbff09",
+              "assetId": "chair",
+              "anchorId": "white-floor",
+              "transform": {
+                "position": {
+                  "x": 0.0,
+                  "y": 0.0,
+                  "z": 1.399999976158142
+                },
+                "rotation": {
+                  "x": 0.0,
+                  "y": 180.0,
+                  "z": 0.0
+                },
+                "scale": {
+                  "x": 1.0,
+                  "y": 1.0,
+                  "z": 1.0
+                }
+              }
+            }
+          ]
+        },
+        "assets": [
+          {
+            "assetId": "block",
+            "displayName": "Terracotta block",
+            "spawnScale": 0.20000000298023224,
+            "localBounds": {
+              "center": {
+                "x": 0.0,
+                "y": 0.5,
+                "z": 0.0
+              },
+              "size": {
+                "x": 1.0,
+                "y": 1.0,
+                "z": 1.0
+              }
+            }
+          },
+          {
+            "assetId": "chair",
+            "displayName": "Chair",
+            "description": "Seat faces local -Z; backrest is on local +Z.",
+            "spawnScale": 1.0,
+            "localBounds": {
+              "center": {
+                "x": 0.0,
+                "y": 0.5199999809265137,
+                "z": 0.0
+              },
+              "size": {
+                "x": 0.5,
+                "y": 1.0399999618530273,
+                "z": 0.5
+              }
+            }
+          },
+          {
+            "assetId": "column",
+            "displayName": "Stone column",
+            "spawnScale": 0.20000000298023224,
+            "localBounds": {
+              "center": {
+                "x": 2.9802322387695312e-08,
+                "y": 0.5,
+                "z": -5.960464477539063e-08
+              },
+              "size": {
+                "x": 0.5500000715255737,
+                "y": 1.0,
+                "z": 0.5500001311302185
+              }
+            }
+          },
+          {
+            "assetId": "orb",
+            "displayName": "Jade orb",
+            "spawnScale": 0.20000000298023224,
+            "localBounds": {
+              "center": {
+                "x": 0.0,
+                "y": 0.5,
+                "z": 0.0
+              },
+              "size": {
+                "x": 1.0,
+                "y": 1.0,
+                "z": 1.0
+              }
+            }
+          },
+          {
+            "assetId": "pedestal",
+            "displayName": "Pedestal",
+            "spawnScale": 1.0,
+            "localBounds": {
+              "center": {
+                "x": 0.0,
+                "y": 0.5,
+                "z": 0.0
+              },
+              "size": {
+                "x": 0.6499999761581421,
+                "y": 1.0,
+                "z": 0.6499999761581421
+              }
+            }
+          },
+          {
+            "assetId": "table",
+            "displayName": "Table",
+            "spawnScale": 1.0,
+            "localBounds": {
+              "center": {
+                "x": 0.0,
+                "y": 0.39500001072883606,
+                "z": 0.0
+              },
+              "size": {
+                "x": 1.399999976158142,
+                "y": 0.7900000214576721,
+                "z": 0.800000011920929
+              }
+            }
+          },
+          {
+            "assetId": "wall",
+            "displayName": "Wall",
+            "spawnScale": 1.0,
+            "localBounds": {
+              "center": {
+                "x": 0.0,
+                "y": 1.25,
+                "z": 0.0
+              },
+              "size": {
+                "x": 2.5,
+                "y": 2.5,
+                "z": 0.11999999731779099
+              }
+            }
+          }
+        ],
+        "anchors": [
+          {
+            "anchorId": "white-floor",
+            "displayName": "White room floor"
+          }
+        ],
+        "selection": {
+          "anchorId": "white-floor",
+          "objectId": "efd4760efffc49b6919bfb2253bbff09",
+          "position": {
+            "x": 0.0,
+            "y": 0.0,
+            "z": 2.0
+          }
+        },
+        "behaviorKinds": [
+          "rotate",
+          "bob"
+        ],
+        "viewer": {
+          "frames": [
+            {
+              "anchorId": "white-floor",
+              "position": {
+                "x": 3.0,
+                "y": 2.200000047683716,
+                "z": -4.0
+              },
+              "forward": {
+                "x": -0.44721364974975586,
+                "y": 0.0,
+                "z": 0.8944271802902222
+              },
+              "lookDirection": {
+                "x": -0.4350111186504364,
+                "y": -0.23200592398643494,
+                "z": 0.870022177696228
+              }
+            }
+          ]
+        }
+      }
+    },
+    {
+      "label": "correction-request",
+      "file": "visual-feedback-correction-request.jpg",
+      "sha256": "59360922bdd729f9fbae2ed24ff3720db5ab0a80a793484ea53dfc5dc02dcbee",
+      "metadata": {
+        "supported": true,
+        "status": "ready",
+        "voiceCaptureId": null,
+        "captureId": "77af81d479a2464fa0aa3cc81bdbcda1",
+        "revision": 10,
+        "ageSeconds": 0.626,
+        "error": "",
+        "mimeType": "image/jpeg",
+        "width": 960,
+        "height": 540,
+        "byteLength": 12808,
+        "capturedAtUtc": "2026-09-21T19:55:55.0826826Z",
+        "camera": {
+          "position": {
+            "x": 3.0,
+            "y": 2.200000047683716,
+            "z": -4.0
+          },
+          "rotation": {
+            "x": 13.415197372436523,
+            "y": 333.4349365234375,
+            "z": 0.0
+          },
+          "forward": {
+            "x": -0.4350111186504364,
+            "y": -0.23200592398643494,
+            "z": 0.870022177696228
+          },
+          "coordinateFrame": "unity_world; use snapshot.viewer frames for anchor-relative placement",
+          "fieldOfView": 60.0,
+          "aspect": 1.7777777910232544,
+          "nearClip": 0.05000000074505806,
+          "farClip": 100.0
+        },
+        "source": "unity_center_eye",
+        "includesPassthrough": false,
+        "renderMs": 8.807400000000001,
+        "encodeMs": 4.2289,
+        "frameTimeMs": 0.0911989773157984,
+        "captureDurationMs": 13.0363,
+        "frameCount": 260972,
+        "capturedAtRuntimeSeconds": 27.067360306235827,
+        "clientId": "8b408f5f0fae4f0992ce907a2be67e08",
+        "content": "Virtual scene rendered from the current camera viewpoint. No physical-camera image or passthrough is included."
+      },
+      "snapshot": {
+        "scene": {
+          "schemaVersion": 1,
+          "roomId": "white-room-v1",
+          "objects": [
+            {
+              "objectId": "5bfa18cbcfdd4c7b8c6ccea9846b59fc",
+              "assetId": "table",
+              "anchorId": "white-floor",
+              "transform": {
+                "position": {
+                  "x": 0.0,
+                  "y": 0.0,
+                  "z": 2.0
+                },
+                "rotation": {
+                  "x": 0.0,
+                  "y": 0.0,
+                  "z": 0.0
+                },
+                "scale": {
+                  "x": 1.0,
+                  "y": 1.0,
+                  "z": 1.0
+                }
+              }
+            },
+            {
+              "objectId": "6f9b66422a014d7e98dde26b9435aaee",
+              "assetId": "chair",
+              "anchorId": "white-floor",
+              "transform": {
+                "position": {
+                  "x": 1.25,
+                  "y": 0.0,
+                  "z": 2.0
+                },
+                "rotation": {
+                  "x": 0.0,
+                  "y": 90.0,
+                  "z": 0.0
+                },
+                "scale": {
+                  "x": 1.0,
+                  "y": 1.0,
+                  "z": 1.0
+                }
+              }
+            },
+            {
+              "objectId": "efd4760efffc49b6919bfb2253bbff09",
+              "assetId": "chair",
+              "anchorId": "white-floor",
+              "transform": {
+                "position": {
+                  "x": 0.0,
+                  "y": 0.0,
+                  "z": 1.399999976158142
+                },
+                "rotation": {
+                  "x": 0.0,
+                  "y": 180.0,
+                  "z": 0.0
+                },
+                "scale": {
+                  "x": 1.0,
+                  "y": 1.0,
+                  "z": 1.0
+                }
+              }
+            }
+          ]
+        },
+        "assets": [
+          {
+            "assetId": "block",
+            "displayName": "Terracotta block",
+            "spawnScale": 0.20000000298023224,
+            "localBounds": {
+              "center": {
+                "x": 0.0,
+                "y": 0.5,
+                "z": 0.0
+              },
+              "size": {
+                "x": 1.0,
+                "y": 1.0,
+                "z": 1.0
+              }
+            }
+          },
+          {
+            "assetId": "chair",
+            "displayName": "Chair",
+            "description": "Seat faces local -Z; backrest is on local +Z.",
+            "spawnScale": 1.0,
+            "localBounds": {
+              "center": {
+                "x": 0.0,
+                "y": 0.5199999809265137,
+                "z": 0.0
+              },
+              "size": {
+                "x": 0.5,
+                "y": 1.0399999618530273,
+                "z": 0.5
+              }
+            }
+          },
+          {
+            "assetId": "column",
+            "displayName": "Stone column",
+            "spawnScale": 0.20000000298023224,
+            "localBounds": {
+              "center": {
+                "x": 2.9802322387695312e-08,
+                "y": 0.5,
+                "z": -5.960464477539063e-08
+              },
+              "size": {
+                "x": 0.5500000715255737,
+                "y": 1.0,
+                "z": 0.5500001311302185
+              }
+            }
+          },
+          {
+            "assetId": "orb",
+            "displayName": "Jade orb",
+            "spawnScale": 0.20000000298023224,
+            "localBounds": {
+              "center": {
+                "x": 0.0,
+                "y": 0.5,
+                "z": 0.0
+              },
+              "size": {
+                "x": 1.0,
+                "y": 1.0,
+                "z": 1.0
+              }
+            }
+          },
+          {
+            "assetId": "pedestal",
+            "displayName": "Pedestal",
+            "spawnScale": 1.0,
+            "localBounds": {
+              "center": {
+                "x": 0.0,
+                "y": 0.5,
+                "z": 0.0
+              },
+              "size": {
+                "x": 0.6499999761581421,
+                "y": 1.0,
+                "z": 0.6499999761581421
+              }
+            }
+          },
+          {
+            "assetId": "table",
+            "displayName": "Table",
+            "spawnScale": 1.0,
+            "localBounds": {
+              "center": {
+                "x": 0.0,
+                "y": 0.39500001072883606,
+                "z": 0.0
+              },
+              "size": {
+                "x": 1.399999976158142,
+                "y": 0.7900000214576721,
+                "z": 0.800000011920929
+              }
+            }
+          },
+          {
+            "assetId": "wall",
+            "displayName": "Wall",
+            "spawnScale": 1.0,
+            "localBounds": {
+              "center": {
+                "x": 0.0,
+                "y": 1.25,
+                "z": 0.0
+              },
+              "size": {
+                "x": 2.5,
+                "y": 2.5,
+                "z": 0.11999999731779099
+              }
+            }
+          }
+        ],
+        "anchors": [
+          {
+            "anchorId": "white-floor",
+            "displayName": "White room floor"
+          }
+        ],
+        "selection": {
+          "anchorId": "white-floor",
+          "objectId": "efd4760efffc49b6919bfb2253bbff09",
+          "position": {
+            "x": 0.0,
+            "y": 0.0,
+            "z": 2.0
+          }
+        },
+        "behaviorKinds": [
+          "rotate",
+          "bob"
+        ],
+        "viewer": {
+          "frames": [
+            {
+              "anchorId": "white-floor",
+              "position": {
+                "x": 3.0,
+                "y": 2.200000047683716,
+                "z": -4.0
+              },
+              "forward": {
+                "x": -0.44721364974975586,
+                "y": 0.0,
+                "z": 0.8944271802902222
+              },
+              "lookDirection": {
+                "x": -0.4350111186504364,
+                "y": -0.23200592398643494,
+                "z": 0.870022177696228
+              }
+            }
+          ]
+        }
+      }
+    },
+    {
+      "label": "corrected",
+      "file": "visual-feedback-corrected.jpg",
+      "sha256": "b00d869c42abcf84209ffa85453884ecafe54f48684d9231e460316b1899af2c",
+      "metadata": {
+        "supported": true,
+        "status": "ready",
+        "voiceCaptureId": null,
+        "captureId": "3090618c30aa4f088d865b2880c0e650",
+        "revision": 12,
+        "ageSeconds": 0.61,
+        "error": "",
+        "mimeType": "image/jpeg",
+        "width": 960,
+        "height": 540,
+        "byteLength": 13074,
+        "capturedAtUtc": "2026-09-21T19:56:16.3657676Z",
+        "camera": {
+          "position": {
+            "x": 3.0,
+            "y": 2.200000047683716,
+            "z": -4.0
+          },
+          "rotation": {
+            "x": 13.415197372436523,
+            "y": 333.4349365234375,
+            "z": 0.0
+          },
+          "forward": {
+            "x": -0.4350111186504364,
+            "y": -0.23200592398643494,
+            "z": 0.870022177696228
+          },
+          "coordinateFrame": "unity_world; use snapshot.viewer frames for anchor-relative placement",
+          "fieldOfView": 60.0,
+          "aspect": 1.7777777910232544,
+          "nearClip": 0.05000000074505806,
+          "farClip": 100.0
+        },
+        "source": "unity_center_eye",
+        "includesPassthrough": false,
+        "renderMs": 23.883300000000002,
+        "encodeMs": 4.8604,
+        "frameTimeMs": 0.10059523629024625,
+        "captureDurationMs": 28.743700000000004,
+        "frameCount": 486256,
+        "capturedAtRuntimeSeconds": 48.35114520623583,
+        "clientId": "8b408f5f0fae4f0992ce907a2be67e08",
+        "content": "Virtual scene rendered from the current camera viewpoint. No physical-camera image or passthrough is included."
+      },
+      "snapshot": {
+        "scene": {
+          "schemaVersion": 1,
+          "roomId": "white-room-v1",
+          "objects": [
+            {
+              "objectId": "5bfa18cbcfdd4c7b8c6ccea9846b59fc",
+              "assetId": "table",
+              "anchorId": "white-floor",
+              "transform": {
+                "position": {
+                  "x": 0.0,
+                  "y": 0.0,
+                  "z": 2.0
+                },
+                "rotation": {
+                  "x": 0.0,
+                  "y": 0.0,
+                  "z": 0.0
+                },
+                "scale": {
+                  "x": 1.0,
+                  "y": 1.0,
+                  "z": 1.0
+                }
+              }
+            },
+            {
+              "objectId": "6f9b66422a014d7e98dde26b9435aaee",
+              "assetId": "chair",
+              "anchorId": "white-floor",
+              "transform": {
+                "position": {
+                  "x": 1.25,
+                  "y": 0.0,
+                  "z": 2.0
+                },
+                "rotation": {
+                  "x": 0.0,
+                  "y": 90.0,
+                  "z": 0.0
+                },
+                "scale": {
+                  "x": 1.0,
+                  "y": 1.0,
+                  "z": 1.0
+                }
+              }
+            },
+            {
+              "objectId": "efd4760efffc49b6919bfb2253bbff09",
+              "assetId": "chair",
+              "anchorId": "white-floor",
+              "transform": {
+                "position": {
+                  "x": 0.0,
+                  "y": 0.0,
+                  "z": 0.7999999523162842
+                },
+                "rotation": {
+                  "x": 0.0,
+                  "y": 180.0,
+                  "z": 0.0
+                },
+                "scale": {
+                  "x": 1.0,
+                  "y": 1.0,
+                  "z": 1.0
+                }
+              }
+            }
+          ]
+        },
+        "assets": [
+          {
+            "assetId": "block",
+            "displayName": "Terracotta block",
+            "spawnScale": 0.20000000298023224,
+            "localBounds": {
+              "center": {
+                "x": 0.0,
+                "y": 0.5,
+                "z": 0.0
+              },
+              "size": {
+                "x": 1.0,
+                "y": 1.0,
+                "z": 1.0
+              }
+            }
+          },
+          {
+            "assetId": "chair",
+            "displayName": "Chair",
+            "description": "Seat faces local -Z; backrest is on local +Z.",
+            "spawnScale": 1.0,
+            "localBounds": {
+              "center": {
+                "x": 0.0,
+                "y": 0.5199999809265137,
+                "z": 0.0
+              },
+              "size": {
+                "x": 0.5,
+                "y": 1.0399999618530273,
+                "z": 0.5
+              }
+            }
+          },
+          {
+            "assetId": "column",
+            "displayName": "Stone column",
+            "spawnScale": 0.20000000298023224,
+            "localBounds": {
+              "center": {
+                "x": 2.9802322387695312e-08,
+                "y": 0.5,
+                "z": -5.960464477539063e-08
+              },
+              "size": {
+                "x": 0.5500000715255737,
+                "y": 1.0,
+                "z": 0.5500001311302185
+              }
+            }
+          },
+          {
+            "assetId": "orb",
+            "displayName": "Jade orb",
+            "spawnScale": 0.20000000298023224,
+            "localBounds": {
+              "center": {
+                "x": 0.0,
+                "y": 0.5,
+                "z": 0.0
+              },
+              "size": {
+                "x": 1.0,
+                "y": 1.0,
+                "z": 1.0
+              }
+            }
+          },
+          {
+            "assetId": "pedestal",
+            "displayName": "Pedestal",
+            "spawnScale": 1.0,
+            "localBounds": {
+              "center": {
+                "x": 0.0,
+                "y": 0.5,
+                "z": 0.0
+              },
+              "size": {
+                "x": 0.6499999761581421,
+                "y": 1.0,
+                "z": 0.6499999761581421
+              }
+            }
+          },
+          {
+            "assetId": "table",
+            "displayName": "Table",
+            "spawnScale": 1.0,
+            "localBounds": {
+              "center": {
+                "x": 0.0,
+                "y": 0.39500001072883606,
+                "z": 0.0
+              },
+              "size": {
+                "x": 1.399999976158142,
+                "y": 0.7900000214576721,
+                "z": 0.800000011920929
+              }
+            }
+          },
+          {
+            "assetId": "wall",
+            "displayName": "Wall",
+            "spawnScale": 1.0,
+            "localBounds": {
+              "center": {
+                "x": 0.0,
+                "y": 1.25,
+                "z": 0.0
+              },
+              "size": {
+                "x": 2.5,
+                "y": 2.5,
+                "z": 0.11999999731779099
+              }
+            }
+          }
+        ],
+        "anchors": [
+          {
+            "anchorId": "white-floor",
+            "displayName": "White room floor"
+          }
+        ],
+        "selection": {
+          "anchorId": "white-floor",
+          "objectId": "efd4760efffc49b6919bfb2253bbff09",
+          "position": {
+            "x": 0.0,
+            "y": 0.0,
+            "z": 2.0
+          }
+        },
+        "behaviorKinds": [
+          "rotate",
+          "bob"
+        ],
+        "viewer": {
+          "frames": [
+            {
+              "anchorId": "white-floor",
+              "position": {
+                "x": 3.0,
+                "y": 2.200000047683716,
+                "z": -4.0
+              },
+              "forward": {
+                "x": -0.44721364974975586,
+                "y": 0.0,
+                "z": 0.8944271802902222
+              },
+              "lookDirection": {
+                "x": -0.4350111186504364,
+                "y": -0.23200592398643494,
+                "z": 0.870022177696228
+              }
+            }
+          ]
+        }
+      }
+    },
+    {
+      "label": "undone",
+      "file": "visual-feedback-undone.jpg",
+      "sha256": "59360922bdd729f9fbae2ed24ff3720db5ab0a80a793484ea53dfc5dc02dcbee",
+      "metadata": {
+        "supported": true,
+        "status": "ready",
+        "voiceCaptureId": null,
+        "captureId": "a8f72f4db2294f6584db5a9ad230bfd0",
+        "revision": 14,
+        "ageSeconds": 0.613,
+        "error": "",
+        "mimeType": "image/jpeg",
+        "width": 960,
+        "height": 540,
+        "byteLength": 12808,
+        "capturedAtUtc": "2026-09-21T19:56:18.4525434Z",
+        "camera": {
+          "position": {
+            "x": 3.0,
+            "y": 2.200000047683716,
+            "z": -4.0
+          },
+          "rotation": {
+            "x": 13.415197372436523,
+            "y": 333.4349365234375,
+            "z": 0.0
+          },
+          "forward": {
+            "x": -0.4350111186504364,
+            "y": -0.23200592398643494,
+            "z": 0.870022177696228
+          },
+          "coordinateFrame": "unity_world; use snapshot.viewer frames for anchor-relative placement",
+          "fieldOfView": 60.0,
+          "aspect": 1.7777777910232544,
+          "nearClip": 0.05000000074505806,
+          "farClip": 100.0
+        },
+        "source": "unity_center_eye",
+        "includesPassthrough": false,
+        "renderMs": 23.0764,
+        "encodeMs": 4.8921,
+        "frameTimeMs": 0.09949687955668196,
+        "captureDurationMs": 27.9685,
+        "frameCount": 504940,
+        "capturedAtRuntimeSeconds": 50.43767160623583,
+        "clientId": "8b408f5f0fae4f0992ce907a2be67e08",
+        "content": "Virtual scene rendered from the current camera viewpoint. No physical-camera image or passthrough is included."
+      },
+      "snapshot": {
+        "scene": {
+          "schemaVersion": 1,
+          "roomId": "white-room-v1",
+          "objects": [
+            {
+              "objectId": "5bfa18cbcfdd4c7b8c6ccea9846b59fc",
+              "assetId": "table",
+              "anchorId": "white-floor",
+              "transform": {
+                "position": {
+                  "x": 0.0,
+                  "y": 0.0,
+                  "z": 2.0
+                },
+                "rotation": {
+                  "x": 0.0,
+                  "y": 0.0,
+                  "z": 0.0
+                },
+                "scale": {
+                  "x": 1.0,
+                  "y": 1.0,
+                  "z": 1.0
+                }
+              }
+            },
+            {
+              "objectId": "6f9b66422a014d7e98dde26b9435aaee",
+              "assetId": "chair",
+              "anchorId": "white-floor",
+              "transform": {
+                "position": {
+                  "x": 1.25,
+                  "y": 0.0,
+                  "z": 2.0
+                },
+                "rotation": {
+                  "x": 0.0,
+                  "y": 90.0,
+                  "z": 0.0
+                },
+                "scale": {
+                  "x": 1.0,
+                  "y": 1.0,
+                  "z": 1.0
+                }
+              }
+            },
+            {
+              "objectId": "efd4760efffc49b6919bfb2253bbff09",
+              "assetId": "chair",
+              "anchorId": "white-floor",
+              "transform": {
+                "position": {
+                  "x": 0.0,
+                  "y": 0.0,
+                  "z": 1.399999976158142
+                },
+                "rotation": {
+                  "x": 0.0,
+                  "y": 180.0,
+                  "z": 0.0
+                },
+                "scale": {
+                  "x": 1.0,
+                  "y": 1.0,
+                  "z": 1.0
+                }
+              }
+            }
+          ]
+        },
+        "assets": [
+          {
+            "assetId": "block",
+            "displayName": "Terracotta block",
+            "spawnScale": 0.20000000298023224,
+            "localBounds": {
+              "center": {
+                "x": 0.0,
+                "y": 0.5,
+                "z": 0.0
+              },
+              "size": {
+                "x": 1.0,
+                "y": 1.0,
+                "z": 1.0
+              }
+            }
+          },
+          {
+            "assetId": "chair",
+            "displayName": "Chair",
+            "description": "Seat faces local -Z; backrest is on local +Z.",
+            "spawnScale": 1.0,
+            "localBounds": {
+              "center": {
+                "x": 0.0,
+                "y": 0.5199999809265137,
+                "z": 0.0
+              },
+              "size": {
+                "x": 0.5,
+                "y": 1.0399999618530273,
+                "z": 0.5
+              }
+            }
+          },
+          {
+            "assetId": "column",
+            "displayName": "Stone column",
+            "spawnScale": 0.20000000298023224,
+            "localBounds": {
+              "center": {
+                "x": 2.9802322387695312e-08,
+                "y": 0.5,
+                "z": -5.960464477539063e-08
+              },
+              "size": {
+                "x": 0.5500000715255737,
+                "y": 1.0,
+                "z": 0.5500001311302185
+              }
+            }
+          },
+          {
+            "assetId": "orb",
+            "displayName": "Jade orb",
+            "spawnScale": 0.20000000298023224,
+            "localBounds": {
+              "center": {
+                "x": 0.0,
+                "y": 0.5,
+                "z": 0.0
+              },
+              "size": {
+                "x": 1.0,
+                "y": 1.0,
+                "z": 1.0
+              }
+            }
+          },
+          {
+            "assetId": "pedestal",
+            "displayName": "Pedestal",
+            "spawnScale": 1.0,
+            "localBounds": {
+              "center": {
+                "x": 0.0,
+                "y": 0.5,
+                "z": 0.0
+              },
+              "size": {
+                "x": 0.6499999761581421,
+                "y": 1.0,
+                "z": 0.6499999761581421
+              }
+            }
+          },
+          {
+            "assetId": "table",
+            "displayName": "Table",
+            "spawnScale": 1.0,
+            "localBounds": {
+              "center": {
+                "x": 0.0,
+                "y": 0.39500001072883606,
+                "z": 0.0
+              },
+              "size": {
+                "x": 1.399999976158142,
+                "y": 0.7900000214576721,
+                "z": 0.800000011920929
+              }
+            }
+          },
+          {
+            "assetId": "wall",
+            "displayName": "Wall",
+            "spawnScale": 1.0,
+            "localBounds": {
+              "center": {
+                "x": 0.0,
+                "y": 1.25,
+                "z": 0.0
+              },
+              "size": {
+                "x": 2.5,
+                "y": 2.5,
+                "z": 0.11999999731779099
+              }
+            }
+          }
+        ],
+        "anchors": [
+          {
+            "anchorId": "white-floor",
+            "displayName": "White room floor"
+          }
+        ],
+        "selection": {
+          "anchorId": "white-floor",
+          "objectId": "efd4760efffc49b6919bfb2253bbff09",
+          "position": {
+            "x": 0.0,
+            "y": 0.0,
+            "z": 2.0
+          }
+        },
+        "behaviorKinds": [
+          "rotate",
+          "bob"
+        ],
+        "viewer": {
+          "frames": [
+            {
+              "anchorId": "white-floor",
+              "position": {
+                "x": 3.0,
+                "y": 2.200000047683716,
+                "z": -4.0
+              },
+              "forward": {
+                "x": -0.44721364974975586,
+                "y": 0.0,
+                "z": 0.8944271802902222
+              },
+              "lookDirection": {
+                "x": -0.4350111186504364,
+                "y": -0.23200592398643494,
+                "z": 0.870022177696228
+              }
+            }
+          ]
+        }
+      }
+    },
+    {
+      "label": "cleared",
+      "file": "visual-feedback-cleared.jpg",
+      "sha256": "5854d48b3d406467b984e80fde923ff4979c537dc6d88478b9cbec2eae1b3e01",
+      "metadata": {
+        "supported": true,
+        "status": "ready",
+        "voiceCaptureId": null,
+        "captureId": "019210db3fb24ede935c454efa38739a",
+        "revision": 16,
+        "ageSeconds": 0.446,
+        "error": "",
+        "mimeType": "image/jpeg",
+        "width": 960,
+        "height": 540,
+        "byteLength": 9494,
+        "capturedAtUtc": "2026-09-21T19:56:20.5299226Z",
+        "camera": {
+          "position": {
+            "x": 3.0,
+            "y": 2.200000047683716,
+            "z": -4.0
+          },
+          "rotation": {
+            "x": 13.415197372436523,
+            "y": 333.4349365234375,
+            "z": 0.0
+          },
+          "forward": {
+            "x": -0.4350111186504364,
+            "y": -0.23200592398643494,
+            "z": 0.870022177696228
+          },
+          "coordinateFrame": "unity_world; use snapshot.viewer frames for anchor-relative placement",
+          "fieldOfView": 60.0,
+          "aspect": 1.7777777910232544,
+          "nearClip": 0.05000000074505806,
+          "farClip": 100.0
+        },
+        "source": "unity_center_eye",
+        "includesPassthrough": false,
+        "renderMs": 17.210800000000003,
+        "encodeMs": 4.3392,
+        "frameTimeMs": 0.08549461199436337,
+        "captureDurationMs": 21.550000000000004,
+        "frameCount": 526038,
+        "capturedAtRuntimeSeconds": 52.514528406235826,
+        "clientId": "8b408f5f0fae4f0992ce907a2be67e08",
+        "content": "Virtual scene rendered from the current camera viewpoint. No physical-camera image or passthrough is included."
+      },
+      "snapshot": {
+        "scene": {
+          "schemaVersion": 1,
+          "roomId": "white-room-v1",
+          "objects": []
+        },
+        "assets": [
+          {
+            "assetId": "block",
+            "displayName": "Terracotta block",
+            "spawnScale": 0.20000000298023224,
+            "localBounds": {
+              "center": {
+                "x": 0.0,
+                "y": 0.5,
+                "z": 0.0
+              },
+              "size": {
+                "x": 1.0,
+                "y": 1.0,
+                "z": 1.0
+              }
+            }
+          },
+          {
+            "assetId": "chair",
+            "displayName": "Chair",
+            "description": "Seat faces local -Z; backrest is on local +Z.",
+            "spawnScale": 1.0,
+            "localBounds": {
+              "center": {
+                "x": 0.0,
+                "y": 0.5199999809265137,
+                "z": 0.0
+              },
+              "size": {
+                "x": 0.5,
+                "y": 1.0399999618530273,
+                "z": 0.5
+              }
+            }
+          },
+          {
+            "assetId": "column",
+            "displayName": "Stone column",
+            "spawnScale": 0.20000000298023224,
+            "localBounds": {
+              "center": {
+                "x": 2.9802322387695312e-08,
+                "y": 0.5,
+                "z": -5.960464477539063e-08
+              },
+              "size": {
+                "x": 0.5500000715255737,
+                "y": 1.0,
+                "z": 0.5500001311302185
+              }
+            }
+          },
+          {
+            "assetId": "orb",
+            "displayName": "Jade orb",
+            "spawnScale": 0.20000000298023224,
+            "localBounds": {
+              "center": {
+                "x": 0.0,
+                "y": 0.5,
+                "z": 0.0
+              },
+              "size": {
+                "x": 1.0,
+                "y": 1.0,
+                "z": 1.0
+              }
+            }
+          },
+          {
+            "assetId": "pedestal",
+            "displayName": "Pedestal",
+            "spawnScale": 1.0,
+            "localBounds": {
+              "center": {
+                "x": 0.0,
+                "y": 0.5,
+                "z": 0.0
+              },
+              "size": {
+                "x": 0.6499999761581421,
+                "y": 1.0,
+                "z": 0.6499999761581421
+              }
+            }
+          },
+          {
+            "assetId": "table",
+            "displayName": "Table",
+            "spawnScale": 1.0,
+            "localBounds": {
+              "center": {
+                "x": 0.0,
+                "y": 0.39500001072883606,
+                "z": 0.0
+              },
+              "size": {
+                "x": 1.399999976158142,
+                "y": 0.7900000214576721,
+                "z": 0.800000011920929
+              }
+            }
+          },
+          {
+            "assetId": "wall",
+            "displayName": "Wall",
+            "spawnScale": 1.0,
+            "localBounds": {
+              "center": {
+                "x": 0.0,
+                "y": 1.25,
+                "z": 0.0
+              },
+              "size": {
+                "x": 2.5,
+                "y": 2.5,
+                "z": 0.11999999731779099
+              }
+            }
+          }
+        ],
+        "anchors": [
+          {
+            "anchorId": "white-floor",
+            "displayName": "White room floor"
+          }
+        ],
+        "selection": {
+          "anchorId": "white-floor",
+          "objectId": "",
+          "position": {
+            "x": 0.0,
+            "y": 0.0,
+            "z": 2.0
+          }
+        },
+        "behaviorKinds": [
+          "rotate",
+          "bob"
+        ],
+        "viewer": {
+          "frames": [
+            {
+              "anchorId": "white-floor",
+              "position": {
+                "x": 3.0,
+                "y": 2.200000047683716,
+                "z": -4.0
+              },
+              "forward": {
+                "x": -0.44721364974975586,
+                "y": 0.0,
+                "z": 0.8944271802902222
+              },
+              "lookDirection": {
+                "x": -0.4350111186504364,
+                "y": -0.23200592398643494,
+                "z": 0.870022177696228
+              }
+            }
+          ]
+        }
+      }
+    },
+    {
+      "label": "restored",
+      "file": "visual-feedback-restored.jpg",
+      "sha256": "59360922bdd729f9fbae2ed24ff3720db5ab0a80a793484ea53dfc5dc02dcbee",
+      "metadata": {
+        "supported": true,
+        "status": "ready",
+        "voiceCaptureId": null,
+        "captureId": "07189bd320404be29c5fb117e4866de8",
+        "revision": 18,
+        "ageSeconds": 0.418,
+        "error": "",
+        "mimeType": "image/jpeg",
+        "width": 960,
+        "height": 540,
+        "byteLength": 12808,
+        "capturedAtUtc": "2026-09-21T19:56:22.6012444Z",
+        "camera": {
+          "position": {
+            "x": 3.0,
+            "y": 2.200000047683716,
+            "z": -4.0
+          },
+          "rotation": {
+            "x": 13.415197372436523,
+            "y": 333.4349365234375,
+            "z": 0.0
+          },
+          "forward": {
+            "x": -0.4350111186504364,
+            "y": -0.23200592398643494,
+            "z": 0.870022177696228
+          },
+          "coordinateFrame": "unity_world; use snapshot.viewer frames for anchor-relative placement",
+          "fieldOfView": 60.0,
+          "aspect": 1.7777777910232544,
+          "nearClip": 0.05000000074505806,
+          "farClip": 100.0
+        },
+        "source": "unity_center_eye",
+        "includesPassthrough": false,
+        "renderMs": 16.881800000000002,
+        "encodeMs": 4.544700000000001,
+        "frameTimeMs": 0.0924036285141483,
+        "captureDurationMs": 21.426500000000004,
+        "frameCount": 547864,
+        "capturedAtRuntimeSeconds": 54.58657300623583,
+        "clientId": "8b408f5f0fae4f0992ce907a2be67e08",
+        "content": "Virtual scene rendered from the current camera viewpoint. No physical-camera image or passthrough is included."
+      },
+      "snapshot": {
+        "scene": {
+          "schemaVersion": 1,
+          "roomId": "white-room-v1",
+          "objects": [
+            {
+              "objectId": "5bfa18cbcfdd4c7b8c6ccea9846b59fc",
+              "assetId": "table",
+              "anchorId": "white-floor",
+              "transform": {
+                "position": {
+                  "x": 0.0,
+                  "y": 0.0,
+                  "z": 2.0
+                },
+                "rotation": {
+                  "x": 0.0,
+                  "y": 0.0,
+                  "z": 0.0
+                },
+                "scale": {
+                  "x": 1.0,
+                  "y": 1.0,
+                  "z": 1.0
+                }
+              }
+            },
+            {
+              "objectId": "6f9b66422a014d7e98dde26b9435aaee",
+              "assetId": "chair",
+              "anchorId": "white-floor",
+              "transform": {
+                "position": {
+                  "x": 1.25,
+                  "y": 0.0,
+                  "z": 2.0
+                },
+                "rotation": {
+                  "x": 0.0,
+                  "y": 90.0,
+                  "z": 0.0
+                },
+                "scale": {
+                  "x": 1.0,
+                  "y": 1.0,
+                  "z": 1.0
+                }
+              }
+            },
+            {
+              "objectId": "efd4760efffc49b6919bfb2253bbff09",
+              "assetId": "chair",
+              "anchorId": "white-floor",
+              "transform": {
+                "position": {
+                  "x": 0.0,
+                  "y": 0.0,
+                  "z": 1.399999976158142
+                },
+                "rotation": {
+                  "x": 0.0,
+                  "y": 180.0,
+                  "z": 0.0
+                },
+                "scale": {
+                  "x": 1.0,
+                  "y": 1.0,
+                  "z": 1.0
+                }
+              }
+            }
+          ]
+        },
+        "assets": [
+          {
+            "assetId": "block",
+            "displayName": "Terracotta block",
+            "spawnScale": 0.20000000298023224,
+            "localBounds": {
+              "center": {
+                "x": 0.0,
+                "y": 0.5,
+                "z": 0.0
+              },
+              "size": {
+                "x": 1.0,
+                "y": 1.0,
+                "z": 1.0
+              }
+            }
+          },
+          {
+            "assetId": "chair",
+            "displayName": "Chair",
+            "description": "Seat faces local -Z; backrest is on local +Z.",
+            "spawnScale": 1.0,
+            "localBounds": {
+              "center": {
+                "x": 0.0,
+                "y": 0.5199999809265137,
+                "z": 0.0
+              },
+              "size": {
+                "x": 0.5,
+                "y": 1.0399999618530273,
+                "z": 0.5
+              }
+            }
+          },
+          {
+            "assetId": "column",
+            "displayName": "Stone column",
+            "spawnScale": 0.20000000298023224,
+            "localBounds": {
+              "center": {
+                "x": 2.9802322387695312e-08,
+                "y": 0.5,
+                "z": -5.960464477539063e-08
+              },
+              "size": {
+                "x": 0.5500000715255737,
+                "y": 1.0,
+                "z": 0.5500001311302185
+              }
+            }
+          },
+          {
+            "assetId": "orb",
+            "displayName": "Jade orb",
+            "spawnScale": 0.20000000298023224,
+            "localBounds": {
+              "center": {
+                "x": 0.0,
+                "y": 0.5,
+                "z": 0.0
+              },
+              "size": {
+                "x": 1.0,
+                "y": 1.0,
+                "z": 1.0
+              }
+            }
+          },
+          {
+            "assetId": "pedestal",
+            "displayName": "Pedestal",
+            "spawnScale": 1.0,
+            "localBounds": {
+              "center": {
+                "x": 0.0,
+                "y": 0.5,
+                "z": 0.0
+              },
+              "size": {
+                "x": 0.6499999761581421,
+                "y": 1.0,
+                "z": 0.6499999761581421
+              }
+            }
+          },
+          {
+            "assetId": "table",
+            "displayName": "Table",
+            "spawnScale": 1.0,
+            "localBounds": {
+              "center": {
+                "x": 0.0,
+                "y": 0.39500001072883606,
+                "z": 0.0
+              },
+              "size": {
+                "x": 1.399999976158142,
+                "y": 0.7900000214576721,
+                "z": 0.800000011920929
+              }
+            }
+          },
+          {
+            "assetId": "wall",
+            "displayName": "Wall",
+            "spawnScale": 1.0,
+            "localBounds": {
+              "center": {
+                "x": 0.0,
+                "y": 1.25,
+                "z": 0.0
+              },
+              "size": {
+                "x": 2.5,
+                "y": 2.5,
+                "z": 0.11999999731779099
+              }
+            }
+          }
+        ],
+        "anchors": [
+          {
+            "anchorId": "white-floor",
+            "displayName": "White room floor"
+          }
+        ],
+        "selection": {
+          "anchorId": "white-floor",
+          "objectId": "",
+          "position": {
+            "x": 0.0,
+            "y": 0.0,
+            "z": 2.0
+          }
+        },
+        "behaviorKinds": [
+          "rotate",
+          "bob"
+        ],
+        "viewer": {
+          "frames": [
+            {
+              "anchorId": "white-floor",
+              "position": {
+                "x": 3.0,
+                "y": 2.200000047683716,
+                "z": -4.0
+              },
+              "forward": {
+                "x": -0.44721364974975586,
+                "y": 0.0,
+                "z": 0.8944271802902222
+              },
+              "lookDirection": {
+                "x": -0.4350111186504364,
+                "y": -0.23200592398643494,
+                "z": 0.870022177696228
+              }
+            }
+          ]
+        }
+      }
+    },
+    {
+      "label": "behavior-phase-one",
+      "file": "visual-feedback-behavior-phase-one.jpg",
+      "sha256": "c0ff88fb03bb83193ee5c457201c4317aea69bf08fbcc60d02ddb29d62aa3d26",
+      "metadata": {
+        "supported": true,
+        "status": "ready",
+        "voiceCaptureId": null,
+        "captureId": "40174afc297c4ea5aa58d3519011e6a4",
+        "revision": 22,
+        "ageSeconds": 0.407,
+        "error": "",
+        "mimeType": "image/jpeg",
+        "width": 960,
+        "height": 540,
+        "byteLength": 12784,
+        "capturedAtUtc": "2026-09-21T19:56:24.6837683Z",
+        "camera": {
+          "position": {
+            "x": 3.0,
+            "y": 2.200000047683716,
+            "z": -4.0
+          },
+          "rotation": {
+            "x": 13.415197372436523,
+            "y": 333.4349365234375,
+            "z": 0.0
+          },
+          "forward": {
+            "x": -0.4350111186504364,
+            "y": -0.23200592398643494,
+            "z": 0.870022177696228
+          },
+          "coordinateFrame": "unity_world; use snapshot.viewer frames for anchor-relative placement",
+          "fieldOfView": 60.0,
+          "aspect": 1.7777777910232544,
+          "nearClip": 0.05000000074505806,
+          "farClip": 100.0
+        },
+        "source": "unity_center_eye",
+        "includesPassthrough": false,
+        "renderMs": 9.8339,
+        "encodeMs": 4.710100000000001,
+        "frameTimeMs": 0.1856009039329365,
+        "captureDurationMs": 14.544,
+        "frameCount": 563192,
+        "capturedAtRuntimeSeconds": 56.66860240623583,
+        "clientId": "8b408f5f0fae4f0992ce907a2be67e08",
+        "content": "Virtual scene rendered from the current camera viewpoint. No physical-camera image or passthrough is included."
+      },
+      "snapshot": {
+        "scene": {
+          "schemaVersion": 1,
+          "roomId": "white-room-v1",
+          "objects": [
+            {
+              "objectId": "5bfa18cbcfdd4c7b8c6ccea9846b59fc",
+              "assetId": "table",
+              "anchorId": "white-floor",
+              "transform": {
+                "position": {
+                  "x": 0.0,
+                  "y": 0.0,
+                  "z": 2.0
+                },
+                "rotation": {
+                  "x": 0.0,
+                  "y": 0.0,
+                  "z": 0.0
+                },
+                "scale": {
+                  "x": 1.0,
+                  "y": 1.0,
+                  "z": 1.0
+                }
+              }
+            },
+            {
+              "objectId": "6f9b66422a014d7e98dde26b9435aaee",
+              "assetId": "chair",
+              "anchorId": "white-floor",
+              "transform": {
+                "position": {
+                  "x": 1.25,
+                  "y": 0.0,
+                  "z": 2.0
+                },
+                "rotation": {
+                  "x": 0.0,
+                  "y": 90.0,
+                  "z": 0.0
+                },
+                "scale": {
+                  "x": 1.0,
+                  "y": 1.0,
+                  "z": 1.0
+                }
+              }
+            },
+            {
+              "objectId": "efd4760efffc49b6919bfb2253bbff09",
+              "assetId": "chair",
+              "anchorId": "white-floor",
+              "transform": {
+                "position": {
+                  "x": 0.0,
+                  "y": 0.0,
+                  "z": 1.399999976158142
+                },
+                "rotation": {
+                  "x": 0.0,
+                  "y": 180.0,
+                  "z": 0.0
+                },
+                "scale": {
+                  "x": 1.0,
+                  "y": 1.0,
+                  "z": 1.0
+                }
+              },
+              "behaviors": [
+                {
+                  "kind": "rotate",
+                  "enabled": true,
+                  "paused": false,
+                  "axis": "y",
+                  "speedDegreesPerSecond": 40.0,
+                  "amplitudeMeters": 0.05000000074505806,
+                  "frequencyHz": 0.5
+                },
+                {
+                  "kind": "bob",
+                  "enabled": true,
+                  "paused": false,
+                  "axis": "y",
+                  "speedDegreesPerSecond": 30.0,
+                  "amplitudeMeters": 0.20000000298023224,
+                  "frequencyHz": 0.30000001192092896
+                }
+              ]
+            }
+          ]
+        },
+        "assets": [
+          {
+            "assetId": "block",
+            "displayName": "Terracotta block",
+            "spawnScale": 0.20000000298023224,
+            "localBounds": {
+              "center": {
+                "x": 0.0,
+                "y": 0.5,
+                "z": 0.0
+              },
+              "size": {
+                "x": 1.0,
+                "y": 1.0,
+                "z": 1.0
+              }
+            }
+          },
+          {
+            "assetId": "chair",
+            "displayName": "Chair",
+            "description": "Seat faces local -Z; backrest is on local +Z.",
+            "spawnScale": 1.0,
+            "localBounds": {
+              "center": {
+                "x": 0.0,
+                "y": 0.5199999809265137,
+                "z": 0.0
+              },
+              "size": {
+                "x": 0.5,
+                "y": 1.0399999618530273,
+                "z": 0.5
+              }
+            }
+          },
+          {
+            "assetId": "column",
+            "displayName": "Stone column",
+            "spawnScale": 0.20000000298023224,
+            "localBounds": {
+              "center": {
+                "x": 2.9802322387695312e-08,
+                "y": 0.5,
+                "z": -5.960464477539063e-08
+              },
+              "size": {
+                "x": 0.5500000715255737,
+                "y": 1.0,
+                "z": 0.5500001311302185
+              }
+            }
+          },
+          {
+            "assetId": "orb",
+            "displayName": "Jade orb",
+            "spawnScale": 0.20000000298023224,
+            "localBounds": {
+              "center": {
+                "x": 0.0,
+                "y": 0.5,
+                "z": 0.0
+              },
+              "size": {
+                "x": 1.0,
+                "y": 1.0,
+                "z": 1.0
+              }
+            }
+          },
+          {
+            "assetId": "pedestal",
+            "displayName": "Pedestal",
+            "spawnScale": 1.0,
+            "localBounds": {
+              "center": {
+                "x": 0.0,
+                "y": 0.5,
+                "z": 0.0
+              },
+              "size": {
+                "x": 0.6499999761581421,
+                "y": 1.0,
+                "z": 0.6499999761581421
+              }
+            }
+          },
+          {
+            "assetId": "table",
+            "displayName": "Table",
+            "spawnScale": 1.0,
+            "localBounds": {
+              "center": {
+                "x": 0.0,
+                "y": 0.39500001072883606,
+                "z": 0.0
+              },
+              "size": {
+                "x": 1.399999976158142,
+                "y": 0.7900000214576721,
+                "z": 0.800000011920929
+              }
+            }
+          },
+          {
+            "assetId": "wall",
+            "displayName": "Wall",
+            "spawnScale": 1.0,
+            "localBounds": {
+              "center": {
+                "x": 0.0,
+                "y": 1.25,
+                "z": 0.0
+              },
+              "size": {
+                "x": 2.5,
+                "y": 2.5,
+                "z": 0.11999999731779099
+              }
+            }
+          }
+        ],
+        "anchors": [
+          {
+            "anchorId": "white-floor",
+            "displayName": "White room floor"
+          }
+        ],
+        "selection": {
+          "anchorId": "white-floor",
+          "objectId": "efd4760efffc49b6919bfb2253bbff09",
+          "position": {
+            "x": 0.0,
+            "y": 0.0,
+            "z": 2.0
+          }
+        },
+        "behaviorKinds": [
+          "rotate",
+          "bob"
+        ],
+        "viewer": {
+          "frames": [
+            {
+              "anchorId": "white-floor",
+              "position": {
+                "x": 3.0,
+                "y": 2.200000047683716,
+                "z": -4.0
+              },
+              "forward": {
+                "x": -0.44721364974975586,
+                "y": 0.0,
+                "z": 0.8944271802902222
+              },
+              "lookDirection": {
+                "x": -0.4350111186504364,
+                "y": -0.23200592398643494,
+                "z": 0.870022177696228
+              }
+            }
+          ]
+        }
+      }
+    },
+    {
+      "label": "behavior-phase-two",
+      "file": "visual-feedback-behavior-phase-two.jpg",
+      "sha256": "7f80c529a2927c2356091eca475eaf40cace2443ab5ea8afa24f271b13cbad24",
+      "metadata": {
+        "supported": true,
+        "status": "ready",
+        "voiceCaptureId": null,
+        "captureId": "18e5501702a944d1a81b8fc3844a1bb1",
+        "revision": 22,
+        "ageSeconds": 0.61,
+        "error": "",
+        "mimeType": "image/jpeg",
+        "width": 960,
+        "height": 540,
+        "byteLength": 12648,
+        "capturedAtUtc": "2026-09-21T19:56:27.0003086Z",
+        "camera": {
+          "position": {
+            "x": 3.0,
+            "y": 2.200000047683716,
+            "z": -4.0
+          },
+          "rotation": {
+            "x": 13.415197372436523,
+            "y": 333.4349365234375,
+            "z": 0.0
+          },
+          "forward": {
+            "x": -0.4350111186504364,
+            "y": -0.23200592398643494,
+            "z": 0.870022177696228
+          },
+          "coordinateFrame": "unity_world; use snapshot.viewer frames for anchor-relative placement",
+          "fieldOfView": 60.0,
+          "aspect": 1.7777777910232544,
+          "nearClip": 0.05000000074505806,
+          "farClip": 100.0
+        },
+        "source": "unity_center_eye",
+        "includesPassthrough": false,
+        "renderMs": 11.770800000000001,
+        "encodeMs": 4.8116,
+        "frameTimeMs": 0.10899943299591541,
+        "captureDurationMs": 16.5824,
+        "frameCount": 581843,
+        "capturedAtRuntimeSeconds": 58.985450206235825,
+        "clientId": "8b408f5f0fae4f0992ce907a2be67e08",
+        "content": "Virtual scene rendered from the current camera viewpoint. No physical-camera image or passthrough is included."
+      },
+      "snapshot": {
+        "scene": {
+          "schemaVersion": 1,
+          "roomId": "white-room-v1",
+          "objects": [
+            {
+              "objectId": "5bfa18cbcfdd4c7b8c6ccea9846b59fc",
+              "assetId": "table",
+              "anchorId": "white-floor",
+              "transform": {
+                "position": {
+                  "x": 0.0,
+                  "y": 0.0,
+                  "z": 2.0
+                },
+                "rotation": {
+                  "x": 0.0,
+                  "y": 0.0,
+                  "z": 0.0
+                },
+                "scale": {
+                  "x": 1.0,
+                  "y": 1.0,
+                  "z": 1.0
+                }
+              }
+            },
+            {
+              "objectId": "6f9b66422a014d7e98dde26b9435aaee",
+              "assetId": "chair",
+              "anchorId": "white-floor",
+              "transform": {
+                "position": {
+                  "x": 1.25,
+                  "y": 0.0,
+                  "z": 2.0
+                },
+                "rotation": {
+                  "x": 0.0,
+                  "y": 90.0,
+                  "z": 0.0
+                },
+                "scale": {
+                  "x": 1.0,
+                  "y": 1.0,
+                  "z": 1.0
+                }
+              }
+            },
+            {
+              "objectId": "efd4760efffc49b6919bfb2253bbff09",
+              "assetId": "chair",
+              "anchorId": "white-floor",
+              "transform": {
+                "position": {
+                  "x": 0.0,
+                  "y": 0.0,
+                  "z": 1.399999976158142
+                },
+                "rotation": {
+                  "x": 0.0,
+                  "y": 180.0,
+                  "z": 0.0
+                },
+                "scale": {
+                  "x": 1.0,
+                  "y": 1.0,
+                  "z": 1.0
+                }
+              },
+              "behaviors": [
+                {
+                  "kind": "rotate",
+                  "enabled": true,
+                  "paused": false,
+                  "axis": "y",
+                  "speedDegreesPerSecond": 40.0,
+                  "amplitudeMeters": 0.05000000074505806,
+                  "frequencyHz": 0.5
+                },
+                {
+                  "kind": "bob",
+                  "enabled": true,
+                  "paused": false,
+                  "axis": "y",
+                  "speedDegreesPerSecond": 30.0,
+                  "amplitudeMeters": 0.20000000298023224,
+                  "frequencyHz": 0.30000001192092896
+                }
+              ]
+            }
+          ]
+        },
+        "assets": [
+          {
+            "assetId": "block",
+            "displayName": "Terracotta block",
+            "spawnScale": 0.20000000298023224,
+            "localBounds": {
+              "center": {
+                "x": 0.0,
+                "y": 0.5,
+                "z": 0.0
+              },
+              "size": {
+                "x": 1.0,
+                "y": 1.0,
+                "z": 1.0
+              }
+            }
+          },
+          {
+            "assetId": "chair",
+            "displayName": "Chair",
+            "description": "Seat faces local -Z; backrest is on local +Z.",
+            "spawnScale": 1.0,
+            "localBounds": {
+              "center": {
+                "x": 0.0,
+                "y": 0.5199999809265137,
+                "z": 0.0
+              },
+              "size": {
+                "x": 0.5,
+                "y": 1.0399999618530273,
+                "z": 0.5
+              }
+            }
+          },
+          {
+            "assetId": "column",
+            "displayName": "Stone column",
+            "spawnScale": 0.20000000298023224,
+            "localBounds": {
+              "center": {
+                "x": 2.9802322387695312e-08,
+                "y": 0.5,
+                "z": -5.960464477539063e-08
+              },
+              "size": {
+                "x": 0.5500000715255737,
+                "y": 1.0,
+                "z": 0.5500001311302185
+              }
+            }
+          },
+          {
+            "assetId": "orb",
+            "displayName": "Jade orb",
+            "spawnScale": 0.20000000298023224,
+            "localBounds": {
+              "center": {
+                "x": 0.0,
+                "y": 0.5,
+                "z": 0.0
+              },
+              "size": {
+                "x": 1.0,
+                "y": 1.0,
+                "z": 1.0
+              }
+            }
+          },
+          {
+            "assetId": "pedestal",
+            "displayName": "Pedestal",
+            "spawnScale": 1.0,
+            "localBounds": {
+              "center": {
+                "x": 0.0,
+                "y": 0.5,
+                "z": 0.0
+              },
+              "size": {
+                "x": 0.6499999761581421,
+                "y": 1.0,
+                "z": 0.6499999761581421
+              }
+            }
+          },
+          {
+            "assetId": "table",
+            "displayName": "Table",
+            "spawnScale": 1.0,
+            "localBounds": {
+              "center": {
+                "x": 0.0,
+                "y": 0.39500001072883606,
+                "z": 0.0
+              },
+              "size": {
+                "x": 1.399999976158142,
+                "y": 0.7900000214576721,
+                "z": 0.800000011920929
+              }
+            }
+          },
+          {
+            "assetId": "wall",
+            "displayName": "Wall",
+            "spawnScale": 1.0,
+            "localBounds": {
+              "center": {
+                "x": 0.0,
+                "y": 1.25,
+                "z": 0.0
+              },
+              "size": {
+                "x": 2.5,
+                "y": 2.5,
+                "z": 0.11999999731779099
+              }
+            }
+          }
+        ],
+        "anchors": [
+          {
+            "anchorId": "white-floor",
+            "displayName": "White room floor"
+          }
+        ],
+        "selection": {
+          "anchorId": "white-floor",
+          "objectId": "efd4760efffc49b6919bfb2253bbff09",
+          "position": {
+            "x": 0.0,
+            "y": 0.0,
+            "z": 2.0
+          }
+        },
+        "behaviorKinds": [
+          "rotate",
+          "bob"
+        ],
+        "viewer": {
+          "frames": [
+            {
+              "anchorId": "white-floor",
+              "position": {
+                "x": 3.0,
+                "y": 2.200000047683716,
+                "z": -4.0
+              },
+              "forward": {
+                "x": -0.44721364974975586,
+                "y": 0.0,
+                "z": 0.8944271802902222
+              },
+              "lookDirection": {
+                "x": -0.4350111186504364,
+                "y": -0.23200592398643494,
+                "z": 0.870022177696228
+              }
+            }
+          ]
+        }
+      }
+    }
+  ],
+  "materialColorsSentInContext": false,
+  "hardwareHeadsetTested": false,
+  "appPid": 49108,
+  "roomId": "white-room-v1",
+  "pretestObjectCount": 0,
+  "pretestSceneDigest": "1d6cf2c27784efd9074f0aa13a3876091af81ebfb633effbf0476160ffd4d2e2",
+  "requestedModel": "gpt-5.6-sol",
+  "requestedReasoningEffort": "medium",
+  "initialCaptureStatus": {
+    "supported": true,
+    "status": "none",
+    "voiceCaptureId": null
+  },
+  "pretestBackupName": "VisualFeedbackBackup_20260921_195531",
+  "imageOnlyDetail": {
+    "question": "Visible furniture surface and leg colors",
+    "furnitureCatalogActuallySent": [
+      {
+        "assetId": "chair",
+        "displayName": "Chair",
+        "description": "Seat faces local -Z; backrest is on local +Z.",
+        "spawnScale": 1.0,
+        "localBounds": {
+          "center": {
+            "x": 0.0,
+            "y": 0.5199999809265137,
+            "z": 0.0
+          },
+          "size": {
+            "x": 0.5,
+            "y": 1.0399999618530273,
+            "z": 0.5
+          }
+        }
+      },
+      {
+        "assetId": "table",
+        "displayName": "Table",
+        "spawnScale": 1.0,
+        "localBounds": {
+          "center": {
+            "x": 0.0,
+            "y": 0.39500001072883606,
+            "z": 0.0
+          },
+          "size": {
+            "x": 1.399999976158142,
+            "y": 0.7900000214576721,
+            "z": 0.800000011920929
+          }
+        }
+      }
+    ],
+    "expectedFromAuthoredMaterials": {
+      "topSeatBack": "brown wood",
+      "legs": "dark graphite"
+    },
+    "expectationsSentToModel": false,
+    "source": "Assets/Sandbox/Editor/WhiteRoomSceneSetup.cs Furniture materials",
+    "textOnlyAnswer": "The table top, chair seats/backrests, and furniture leg colors cannot be determined from the supplied evidence. The snapshot provides geometry, transforms, names, and orientation metadata, but no visual, material, texture, or color data.",
+    "imageAnswer": "Visible facts: the table top appears medium warm brown. Both visible chair seats and backrests also appear warm brown, broadly matching the tabletop. The furniture legs appear very dark charcoal gray to nearly black. Uncertainty: lighting, distance, JPEG rendering, and shaded or partially occluded surfaces make exact hues and whether every brown component uses the identical color impossible to confirm from this image alone.",
+    "imageInspection": {
+      "status": "observed",
+      "observer": "Implementation and parent Codex agents independently using view_image",
+      "screenshot": "visual-feedback-before.jpg",
+      "observation": "The rendered table top and both chair seats/backrests are brown, and the furniture legs are dark gray/black. This matches the real image-model response and differs from the text-only control, which said color cannot be determined.",
+      "materialColorEvidenceMissingFromStructuredFurnitureContext": true,
+      "independentParentConfirmation": "Parent agent also opened visual-feedback-before.jpg and confirmed brown surfaces with dark legs."
+    }
+  },
+  "behaviorCaptureObserved": true,
+  "persistenceRoundtripObserved": true,
+  "correctionApplyUndoObserved": true,
+  "basePosePreservedDuringAnimation": true,
+  "cameraMovementTested": false,
+  "questGraphicsTested": false,
+  "checks": [
+    "The actual owned Windows player is running",
+    "Existing PC service is healthy",
+    "No active learning session or checkpoint restore will be disturbed",
+    "Runtime uses the supported portable scene schema",
+    "Expected virtual floor anchor is present",
+    "Bundled chair prefab is available",
+    "Chair catalog scale can safely double within executor limits",
+    "The scene has capacity for one temporary test chair",
+    "Existing PC service is configured for Codex CLI; no inference runs during preflight",
+    "Runtime has a selected point on the expected virtual floor",
+    "Desktop runtime supplies measured prefab geometry",
+    "Desktop runtime supplies a tracked viewer frame for the expected floor",
+    "Room remains within object budget for temporary compositions",
+    "Graphical player advertises rendered capture support",
+    "Exact configured Codex model advertises image input",
+    "Isolated service uses the explicitly requested model",
+    "Furniture catalog exposes geometry and orientation, without its material colors",
+    "Real model inference leaves scene state unchanged until Apply",
+    "Text-only color control produces no scene edits",
+    "Capture response matches the requested frame",
+    "Capture honestly reports a Unity view without physical passthrough",
+    "Rendered camera pose matches the structured floor-relative viewer",
+    "Preview exposes the captured JPEG",
+    "Captured JPEG meets byte bounds",
+    "Taking a screenshot does not mutate stable scene state",
+    "Real Codex transport reports one attached image",
+    "Inference receipt is tied to the requested rendered frame",
+    "Real model inference leaves scene state unchanged until Apply",
+    "Screenshot color assessment is a review-only response without an executable plan",
+    "Capture response matches the requested frame",
+    "Capture honestly reports a Unity view without physical passthrough",
+    "Rendered camera pose matches the structured floor-relative viewer",
+    "Preview exposes the captured JPEG",
+    "Captured JPEG meets byte bounds",
+    "Taking a screenshot does not mutate stable scene state",
+    "Real Codex transport reports one attached image",
+    "Inference receipt is tied to the requested rendered frame",
+    "Real model inference leaves scene state unchanged until Apply",
+    "Image correction proposes only the selected chair's supported transform command",
+    "Reviewed correction preserves height rotation scale and moves the requested 0.6 metres away",
+    "Existing executor acknowledges the image-assisted correction",
+    "Capture response matches the requested frame",
+    "Capture honestly reports a Unity view without physical passthrough",
+    "Rendered camera pose matches the structured floor-relative viewer",
+    "Preview exposes the captured JPEG",
+    "Captured JPEG meets byte bounds",
+    "Taking a screenshot does not mutate stable scene state",
+    "Undo restores the entire scene from before the image correction",
+    "Capture response matches the requested frame",
+    "Capture honestly reports a Unity view without physical passthrough",
+    "Rendered camera pose matches the structured floor-relative viewer",
+    "Preview exposes the captured JPEG",
+    "Captured JPEG meets byte bounds",
+    "Taking a screenshot does not mutate stable scene state",
+    "Clear removes the scene through the same executor",
+    "Capture response matches the requested frame",
+    "Capture honestly reports a Unity view without physical passthrough",
+    "Rendered camera pose matches the structured floor-relative viewer",
+    "Preview exposes the captured JPEG",
+    "Captured JPEG meets byte bounds",
+    "Taking a screenshot does not mutate stable scene state",
+    "Save clear restore preserves exact IDs transforms and anchors",
+    "Capture response matches the requested frame",
+    "Capture honestly reports a Unity view without physical passthrough",
+    "Rendered camera pose matches the structured floor-relative viewer",
+    "Preview exposes the captured JPEG",
+    "Captured JPEG meets byte bounds",
+    "Taking a screenshot does not mutate stable scene state",
+    "Capture response matches the requested frame",
+    "Capture honestly reports a Unity view without physical passthrough",
+    "Rendered camera pose matches the structured floor-relative viewer",
+    "Preview exposes the captured JPEG",
+    "Captured JPEG meets byte bounds",
+    "Taking a screenshot does not mutate stable scene state",
+    "Capture response matches the requested frame",
+    "Capture honestly reports a Unity view without physical passthrough",
+    "Rendered camera pose matches the structured floor-relative viewer",
+    "Preview exposes the captured JPEG",
+    "Captured JPEG meets byte bounds",
+    "Taking a screenshot does not mutate stable scene state",
+    "Live rotate and bob leave the portable base transform unchanged",
+    "Live behavior phases produce distinct rendered frame pixels",
+    "Finally restored the complete pretest scene from its PC backup"
+  ],
+  "passed": 83,
+  "failed": 0,
+  "completedUtc": "2026-09-21T19:56:29.271671+00:00",
+  "ownedProcessesStopped": true,
+  "isolatedFilesRetained": false,
+  "exportedVisualReview": {
+    "observer": "Implementation Codex agent; parent Codex agent independently confirmed before-image colors",
+    "beforeAndCorrected": "The near chair is visibly farther from the table after the reviewed correction; the other furniture stays in place.",
+    "behaviorFrames": "The selected chair visibly has different orientations in the two animation captures.",
+    "bobAmplitudeVisuallyMeasured": false,
+    "physicalPassthroughInspected": false,
+    "humanWearerInspection": false
+  },
+  "restoredPixelsMatchBaseline": true,
+  "runNotes": {
+    "liveHarnessAttempts": 1,
+    "harnessRetries": 0,
+    "productionFailuresObserved": 0,
+    "failureLogsCreated": false,
+    "successLogsRemovedWithOwnedTemporaryWorkspace": true
+  },
+  "capturePerformance": {
+    "scope": "Graphical Windows desktop only; unthrottled hidden fixture, not Quest frame-rate validation",
+    "imageSize": [
+      960,
+      540
+    ],
+    "firstCaptureRenderMs": 101.339,
+    "firstCaptureEncodeMs": 9.274,
+    "laterRenderMsRange": [
+      8.807,
+      23.883
+    ],
+    "laterEncodeMsRange": [
+      4.229,
+      4.892
+    ],
+    "questPerformanceMeasured": false
+  }
+}

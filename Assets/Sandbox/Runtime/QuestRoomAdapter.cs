@@ -27,6 +27,7 @@ namespace ArSandbox
         private GameObject guidePanel;
         private Text guideText;
         private PcBridge bridge;
+        private Camera viewerCamera;
         private SandboxVoiceInput voice;
         private GameObject hudObject;
         private bool loading;
@@ -50,6 +51,7 @@ namespace ArSandbox
                 return;
             }
             bridge = app.GetComponent<PcBridge>();
+            viewerCamera = rig.centerEyeAnchor.GetComponent<Camera>();
             voice = app.GetComponent<SandboxVoiceInput>();
             if (voice == null) voice = app.gameObject.AddComponent<SandboxVoiceInput>();
             voice.app = app; voice.bridge = bridge;
@@ -74,7 +76,7 @@ namespace ArSandbox
             }
             loading = true;
             app.RoomReloading = true;
-            voice?.Cancel("Room loading. Voice will be available after room localization.");
+            voice?.BeginRoomLoading();
             try
             {
                 ReportRoom("loading", "Loading device room. Allow spatial data access; use manual Space Setup on Quest Pro.");
@@ -159,7 +161,11 @@ namespace ArSandbox
             {
                 permissionRequest = null;
                 loading = false;
-                if (!destroyed && app != null) app.RoomReloading = false;
+                if (!destroyed && app != null)
+                {
+                    app.RoomReloading = false;
+                    voice?.EndRoomLoading(app.RoomContext?.state == "ready");
+                }
             }
         }
 
@@ -472,7 +478,7 @@ namespace ArSandbox
         {
             if (app == null) return;
             if (rig != null && HeadTracked() && !loading && room != null && app.RoomContext?.state == "ready")
-                app.SetViewerPose(rig.centerEyeAnchor.position, rig.centerEyeAnchor.forward);
+                app.SetViewerPose(rig.centerEyeAnchor.position, rig.centerEyeAnchor.forward, viewerCamera);
             else app.ClearViewerPose();
         }
 

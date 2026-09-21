@@ -31,7 +31,7 @@ namespace ArSandbox
         public PcBridge bridge;
         public string Phase { get; private set; } = "idle";
         public string Transcript { get; private set; } = "";
-        public string Status { get; private set; } = "Hold left trigger to speak. Point and select first to edit ‘this’.";
+        public string Status { get; private set; } = ReadyInstructions;
         public bool IsRecording => Phase == "listening";
         public bool IsBusy => IsRecording || Phase == "transcribing" || Phase == "planning" || Phase == "applying";
         public bool HasProposal => Phase == "ready" && !string.IsNullOrEmpty(planId);
@@ -39,6 +39,9 @@ namespace ArSandbox
             (HasProposal && !string.IsNullOrEmpty(summary) ? "\n" + PlainText(summary, 200) : "");
         public const int SampleRate = 16000;
         public const int MaximumSeconds = 15;
+        private const string ReadyInstructions = "Hold left trigger to speak. Point and select first to edit ‘this’.";
+        private const string PendingExecutionWarning = " Commands may already be queued; check PC results before retrying.";
+        private bool roomLoadInterruptedApply;
         private bool inputReady;
         private AudioClip recording;
         private string microphoneDevice, jobId, planId, summary;
@@ -54,6 +57,24 @@ namespace ArSandbox
         {
             inputReady = ready;
             if (!ready && (IsBusy || HasProposal)) Cancel("Voice cancelled: tracking or PC connection unavailable. Hold left trigger to retry.");
+        }
+
+        public void BeginRoomLoading()
+        {
+            roomLoadInterruptedApply = Phase == "applying";
+            Cancel("Room loading. Voice will be available after room localization.");
+            Phase = "room_loading";
+        }
+
+        public void EndRoomLoading(bool roomReady)
+        {
+            // Room completion owns only its loading notice. A later microphone
+            // error, permission response, cancellation or voice workflow wins.
+            if (Phase != "room_loading") return;
+            Phase = "idle";
+            Status = (roomReady ? ReadyInstructions : "Voice needs a localized room. Check the room status above and reload when ready.") +
+                (roomLoadInterruptedApply ? PendingExecutionWarning : "");
+            roomLoadInterruptedApply = false;
         }
 
         public void BeginRecording()
@@ -144,7 +165,7 @@ namespace ArSandbox
             capturedSnapshot = null;
             Phase = "idle";
             if (!string.IsNullOrEmpty(message)) Status = message +
-                (executionWasPending ? " Commands may already be queued; check PC results before retrying." : "");
+                (executionWasPending ? PendingExecutionWarning : "");
             // Best effort invalidation is independent of the stopped workflow. No scene
             // edit is submitted by cancellation; unapplied server proposals also expire.
             if (!string.IsNullOrEmpty(cancelledJob) && bridge != null && bridge.settings != null)
@@ -182,6 +203,8 @@ namespace ArSandbox
                 if (job.phase == "planning") { Phase = "planning"; Status = "AI is planning against your captured selection…"; continue; }
                 if (job.phase == "needs_clarification")
                 { Phase = "needs_clarification"; Status = string.IsNullOrEmpty(summary) ? "The AI needs more detail. Hold left trigger and clarify." : summary; yield break; }
+                if (job.phase == "review_only")
+                { Phase = "review_only"; Status = string.IsNullOrEmpty(summary) ? "Image review complete. No changes proposed." : summary; workflow = null; yield break; }
                 if (job.phase == "error") { Fail(string.IsNullOrEmpty(job.error) ? "Voice planning failed. Check the PC operator panel." : job.error); yield break; }
                 if (job.phase != "ready" || !job.requiresApply || !ValidId(job.planId) || job.commands == null || job.commands.Count == 0)
                 { Fail("PC did not return a reviewable voice proposal."); yield break; }

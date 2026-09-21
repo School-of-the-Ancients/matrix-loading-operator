@@ -26,8 +26,10 @@ from ai_adapter import (Planner, PlannerError, validate_local_bounds, validate_v
 from learning import LearningBridge, LearningError, identifier
 from codex_provider import CodexConfig, CodexProviderError, codex_options, select_codex_config
 import speech
+import scene_capture
 
 MAX_BODY = 1024 * 1024
+MAX_EXCHANGE_BODY = 3 * 1024 * 1024  # two bounded snapshots plus a base64 JPEG
 MAX_OBJECTS = 100
 MAX_PENDING = 64
 MAX_BATCH = 20
@@ -250,6 +252,10 @@ class State:
         self.codex_preferences = None
         self.voice_jobs = collections.OrderedDict()
         self.voice_worker = threading.Lock()
+        self.capture_supported = False
+        self.capture = None
+        self.last_capture_request = -float("inf")
+        self.voice_capture_id = None
 
     def online(self):
         return self.client_id is not None and self.clock() - self.last_seen < LEASE_SECONDS
@@ -267,6 +273,7 @@ class State:
     def exchange(self, body):
         require(isinstance(body, dict), "Expected exchange object")
         client_id = text(body.get("clientId"), "clientId")
+        require(type(body.get("captureSupported", False)) is bool, "Invalid capture capability")
         try:
             runtime = validate_room_context(body.get("runtime"))
         except PlannerError as error:
@@ -319,13 +326,104 @@ class State:
                 self.revision += 1
             self.latest = current
             self.runtime = runtime
+            self.capture_supported = body.get("captureSupported", False)
+            self.receive_capture(body.get("capture"))
             response = {"commands": copy.deepcopy(list(self.pending.values()))}
+            if self.capture_status()["status"] == "pending":
+                response["capture"] = {"captureId": self.capture["captureId"], "revision": self.capture["revision"]}
             if self.learning:
                 self.learning.restore_after_ack(self)
                 guide = self.learning.guide(self)
                 if guide is not None:
                     response["lesson"] = guide
             return response
+
+    def capture_status(self, include_image=False):
+        with self.lock:
+            self.expire()
+            result = {"supported": self.capture_supported, "status": "none", "voiceCaptureId": self.voice_capture_id}
+            capture = self.capture
+            if capture is None:
+                return result
+            age = max(0, self.clock() - capture["requested"])
+            status, error = capture["status"], capture.get("error", "")
+            if status == "pending" and age > scene_capture.CAPTURE_TIMEOUT:
+                capture.update(status="error", error="Capture timed out. Keep the runtime awake and try again.")
+                status, error = capture["status"], capture["error"]
+            if status in ("pending", "ready"):
+                if (not self.online() or self.client_id != capture["clientId"] or self.revision != capture["revision"]
+                        or self.latest is None or self.latest.get("readOnly") or self.pending):
+                    status, error = "stale", "Runtime, scene, or selection changed. Capture the current view again."
+                elif age > scene_capture.CAPTURE_MAX_AGE:
+                    status, error = "stale", "Image is older than 30 seconds. Capture the current view again."
+            result.update(captureId=capture["captureId"], revision=capture["revision"], status=status,
+                          ageSeconds=round(age, 3), error=error)
+            if "image" in capture:
+                result.update({key: copy.deepcopy(value) for key, value in capture["image"].items() if key != "dataBase64"})
+                if include_image:
+                    result["imageDataUrl"] = "data:image/jpeg;base64," + capture["image"]["dataBase64"]
+            return result
+
+    def request_capture(self, body):
+        require(body == {}, "Expected an empty capture request")
+        with self.lock:
+            self.expire()
+            require(self.online() and self.latest is not None, self.room_unavailable_message(), 409)
+            require(self.capture_supported, "Connected player does not support rendered captures; update the app", 409)
+            require(not self.latest.get("readOnly"), "Reload room data before capturing", 409)
+            require(not self.pending, "Wait for queued commands before capturing", 409)
+            require(self.capture_status()["status"] != "pending", "A capture is already pending", 409)
+            require(self.clock() - self.last_capture_request >= scene_capture.CAPTURE_INTERVAL,
+                    "Wait two seconds between captures", 429)
+            self.last_capture_request = self.clock()
+            self.capture = {"captureId": uuid.uuid4().hex, "clientId": self.client_id,
+                            "revision": self.revision, "requested": self.clock(), "status": "pending"}
+            self.voice_capture_id = None
+            return self.capture_status()
+
+    def receive_capture(self, value):
+        # JsonUtility represents an absent inline field as a zero-filled object.
+        if value is None or isinstance(value, dict) and not value.get("captureId"):
+            return
+        require(isinstance(value, dict), "Invalid capture result")
+        capture = self.capture
+        # A superseded upload or retry must never replace the selected capture.
+        if not capture or value.get("captureId") != capture["captureId"] or capture["status"] != "pending":
+            return
+        try:
+            require(value.get("clientId") == capture["clientId"] == self.client_id,
+                    "Capture belongs to a different runtime session", 409)
+            require(type(value.get("revision")) is int and value["revision"] == capture["revision"] == self.revision,
+                    "Scene changed during capture; capture again", 409)
+            require(self.clock() - capture["requested"] <= scene_capture.CAPTURE_TIMEOUT,
+                    "Capture arrived after the timeout; capture again", 409)
+            require(type(value.get("ok")) is bool, "Invalid capture result status")
+            require(value["ok"], text(value.get("error") or "Runtime could not capture this view", "capture error", limit=2048), 409)
+            captured = snapshot(value.get("snapshot"))
+            require(scene_revision_data(captured) == scene_revision_data(self.latest),
+                    "Image and scene snapshot do not match; capture again", 409)
+            validated = scene_capture.image(value)
+            validated.update(captureId=capture["captureId"], clientId=capture["clientId"], revision=capture["revision"],
+                             content=scene_capture.content_description(captured))
+            capture.update(status="ready", image=validated, snapshot=captured)
+        except (APIError, scene_capture.CaptureError) as error:
+            # A bad image should be acknowledged and surfaced without breaking text heartbeats.
+            capture.update(status="error", error=str(error))
+
+    def selected_capture(self, capture_id):
+        text(capture_id, "captureId")
+        status = self.capture_status()
+        require(status.get("captureId") == capture_id, "Requested image is unavailable; capture again", 409)
+        require(status["status"] == "ready", status.get("error") or "Image is not ready; capture and preview it first", 409)
+        return copy.deepcopy(self.capture["image"]), copy.deepcopy(self.capture["snapshot"])
+
+    def arm_voice_capture(self, body):
+        require(set(body) == {"captureId"}, "Expected captureId for the next voice request")
+        with self.lock:
+            if body["captureId"] is not None:
+                self.selected_capture(body["captureId"])
+            self.voice_capture_id = body["captureId"]
+            return self.capture_status()
 
     def queue(self, raw_commands):
         require(isinstance(raw_commands, list) and 0 < len(raw_commands) <= MAX_BATCH,
@@ -371,6 +469,7 @@ class State:
             return {"online": self.online(), "clientId": self.client_id, "snapshot": copy.deepcopy(self.latest),
                     "runtime": copy.deepcopy(self.runtime),
                     "pendingCount": len(self.pending), "results": copy.deepcopy(list(self.results)),
+                    "capture": self.capture_status(),
                     "voice": voice_status(self) if self.voice_jobs else None}
 
     def room_unavailable_message(self):
@@ -493,15 +592,22 @@ def plan(state, body, request_context=None):
             require((client_id, revision) == request_context[:2], "Scene or selection changed during voice input; speak again", 409)
             current = copy.deepcopy(request_context[2])
         codex = copy.deepcopy(body.get("codex", state.codex_preferences))
+        screenshot = None
+        if "captureId" in body:
+            screenshot, current = state.selected_capture(body["captureId"])
     try:
         options = {"codex": codex} if codex is not None else {}
+        if screenshot is not None:
+            options["screenshot"] = screenshot
         proposed = Planner().plan(prompt, current, saved_scenes=saved_names, mode=mode, **options)
     except PlannerError as error:
         raise APIError(error.status, str(error)) from None
     values = proposed.get("commands")
+    if screenshot is not None:
+        proposed["screenshot"] = {key: value for key, value in screenshot.items() if key != "dataBase64"}
     require(isinstance(values, list) and len(values) <= MAX_BATCH, "Invalid proposal", 502)
     if not values:
-        require(proposed.get("requiresApply") is False and proposed.get("status") == "needs_clarification",
+        require(proposed.get("requiresApply") is False and proposed.get("status") in ("needs_clarification", "review_only"),
                 "Invalid empty proposal", 502)
         with state.lock:
             state.expire()
@@ -600,9 +706,16 @@ def start_voice(state, body):
         require(not state.pending, "Wait for queued commands before speaking", 409)
         require(scene_revision_data(captured) == scene_revision_data(state.latest),
                 "Scene or selection changed while recording; point and speak again", 409)
+        voice_capture_id = state.voice_capture_id
+        voice_screenshot = None
+        if voice_capture_id is not None:
+            voice_screenshot, _ = state.selected_capture(voice_capture_id)
         require(state.voice_worker.acquire(blocking=False), "Speech recognition is still busy; try again shortly", 409)
+        state.voice_capture_id = None
         job_id = uuid.uuid4().hex
         public = {"jobId": job_id, "phase": "transcribing", "transcript": "", "requiresApply": False}
+        if voice_screenshot is not None:
+            public["screenshot"] = {key: value for key, value in voice_screenshot.items() if key != "dataBase64"}
         job = {"public": public, "clientId": client_id, "revision": state.revision, "cancelled": False}
         state.voice_jobs[job_id] = job
         while len(state.voice_jobs) > 4:
@@ -618,13 +731,16 @@ def start_voice(state, body):
                 if job["cancelled"]:
                     return
                 public.update(phase="planning", transcript=transcript)
-            result = plan(state, {"text": transcript, "mode": "codex-cli", "codex": preferences}, request_context=context)
+            request = {"text": transcript, "mode": "codex-cli", "codex": preferences}
+            if voice_capture_id is not None:
+                request["captureId"] = voice_capture_id
+            result = plan(state, request, request_context=context)
             with state.lock:
                 if job["cancelled"]:
                     state.proposals.pop(result.get("planId"), None)
                     return
                 public.update(result)
-                public["phase"] = "ready" if result.get("requiresApply") else "needs_clarification"
+                public["phase"] = "ready" if result.get("requiresApply") else result.get("status", "needs_clarification")
         except (APIError, speech.SpeechError, PlannerError) as error:
             with state.lock:
                 if not job["cancelled"]:
@@ -671,7 +787,7 @@ class Handler(BaseHTTPRequestHandler):
         self.send_header("Content-Length", str(len(raw)))
         self.send_header("Cache-Control", "no-store")
         self.send_header("X-Content-Type-Options", "nosniff")
-        self.send_header("Content-Security-Policy", "default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; frame-ancestors 'none'")
+        self.send_header("Content-Security-Policy", "default-src 'self'; img-src 'self' data:; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; frame-ancestors 'none'")
         self.end_headers()
         self.wfile.write(raw)
 
@@ -707,6 +823,8 @@ class Handler(BaseHTTPRequestHandler):
             self.authenticate()
             if path == "/api/state":
                 data = self.server.state.status()
+            elif path == "/api/capture":
+                data = self.server.state.capture_status(include_image=True)
             elif path == "/api/scenes":
                 data = self.server.state.scenes()
             elif path == "/api/planner":
@@ -746,7 +864,9 @@ class Handler(BaseHTTPRequestHandler):
                 size = int(self.headers.get("Content-Length", "-1"))
             except ValueError:
                 raise APIError(400, "Invalid Content-Length") from None
-            require(0 < size <= MAX_BODY, "Body must be 1 byte to 1 MiB", 413)
+            path = urllib.parse.urlsplit(self.path).path
+            limit = MAX_EXCHANGE_BODY if path == "/api/exchange" else MAX_BODY
+            require(0 < size <= limit, f"Body must be 1 byte to {limit // (1024 * 1024)} MiB", 413)
             raw = self.rfile.read(size)
             require(len(raw) == size, "Incomplete request body")
             body = parse_json(raw)
@@ -763,6 +883,10 @@ class Handler(BaseHTTPRequestHandler):
                 data = state.load(body.get("name"), body.get("requestId"))
             elif path == "/api/plan":
                 data = plan(state, body)
+            elif path == "/api/capture":
+                data = state.request_capture(body)
+            elif path == "/api/capture/voice":
+                data = state.arm_voice_capture(body)
             elif path == "/api/planner_preferences":
                 data = planner_preferences(state, body)
             elif path == "/api/voice":

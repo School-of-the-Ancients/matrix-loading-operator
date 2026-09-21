@@ -32,6 +32,7 @@ namespace ArSandbox
         private PointingData pointing;
         private double pointingTime;
         private double viewerPoseTime;
+        private Camera viewerCamera;
         private const double ViewerPoseLifetime = 1.0;
 
         private void Start()
@@ -157,21 +158,35 @@ namespace ArSandbox
 
         public void CycleAsset() { if (prefabs != null && prefabs.Length > 0) assetIndex = (assetIndex + 1) % prefabs.Length; }
 
-        public void SetViewerPose(Vector3 worldPosition, Vector3 worldForward)
+        public void SetViewerPose(Vector3 worldPosition, Vector3 worldForward, Camera camera = null)
         {
             if (World == null || RoomReloading || !isActiveAndEnabled || !Finite(worldPosition) || !Finite(worldForward))
             { ClearViewerPose(); return; }
-            if (!TryHorizontalDirection(worldForward, out Vector3 direction)) { ClearViewerPose(); return; }
+            // A vertical gaze cannot ground horizontal placement, but remains a valid
+            // tracked camera for an explicit rendered-scene capture.
+            bool horizontal = TryHorizontalDirection(worldForward, out Vector3 direction);
             viewerPosition = worldPosition;
             viewerForward = direction;
             viewerLookDirection = worldForward.normalized;
             viewerPoseTime = Time.realtimeSinceStartupAsDouble;
-            hasViewerPose = true;
+            hasViewerPose = horizontal;
+            viewerCamera = camera;
+        }
+
+        public Camera CaptureCamera
+        {
+            get
+            {
+                double age = Time.realtimeSinceStartupAsDouble - viewerPoseTime;
+                return isActiveAndEnabled && World != null && !RoomReloading && age >= 0 && age < ViewerPoseLifetime &&
+                    viewerCamera != null && viewerCamera.isActiveAndEnabled ? viewerCamera : null;
+            }
         }
 
         public void ClearViewerPose()
         {
             hasViewerPose = false;
+            viewerCamera = null;
             viewerPosition = viewerForward = viewerLookDirection = Vector3.zero;
             viewerPoseTime = 0;
         }
