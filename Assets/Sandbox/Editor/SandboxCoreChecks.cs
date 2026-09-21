@@ -215,6 +215,7 @@ namespace ArSandbox
             Group("Behavior history and backward-compatible persistence", CheckBehaviorPersistence);
             Group("Behavior presentation composition and stable placement", CheckBehaviorAnimation);
             Group("On-demand rendered scene and camera lifecycle", CheckRenderedScene);
+            Group("Runtime content packs", () => SandboxContentChecks.Run(Check));
 
             report.completedUtc = DateTime.UtcNow.ToString("O");
             Directory.CreateDirectory(Path.GetDirectoryName(outputPath));

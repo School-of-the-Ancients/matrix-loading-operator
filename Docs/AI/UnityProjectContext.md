@@ -1,6 +1,6 @@
 # AR Sandbox project context
 
-Created 2026-09-20 as a separate project at the user's request. Updated target: Quest Pro with manually configured Space Setup floor/table data. Quest 3 is optional. This supersedes earlier Quest 3 decisions. See ../Progress-Log.md for the current continuation state.
+Created 2026-09-20 as a separate project at the user's request. Validated target: Quest Pro with manually configured Space Setup floor/table data. The current expansion also prepares Quest 3/3S calibrated physical-camera capture; this requires separate hardware acceptance. See ../Progress-Log.md for the current continuation state.
 
 ## Contract
 
@@ -22,16 +22,23 @@ The OMEN PC has an RTX 3080 and a running Meta PC runtime. Initial ADB inspectio
 
 ## Current implementation context (2026-09-21)
 
-Analyzed baseline: `80cf846` on `main` (merged runtime behaviors). The earlier initial-evidence paragraphs above describe project creation and are historical; current merged checkpoints include standalone Quest Pro room alignment, speech, behaviors, and persistence evidence in `Docs/Current-Checkpoint.md`.
+Current expansion baseline: `67e3ffe` on `main` (merged visual feedback and versioned release documentation). The earlier initial-evidence paragraphs above describe project creation and are historical; current merged checkpoints include standalone Quest Pro room alignment, speech, behaviors, and persistence evidence in `Docs/Current-Checkpoint.md`.
 
 - Unity 6000.6.0f1, built-in rendering, Input System 1.20.0, OpenXR 1.18.0; native AR uses Meta Core/MRUK 205.0.0. No Unity Editor MCP is connected. Batch fixtures and actual player runs provide validation.
 - Runtime code under `Assets/Sandbox/Runtime` is MonoBehaviour/command oriented. `SandboxApp` owns selection and current room/viewer context; `SandboxWorld` validates commands and owns authoritative placement/history. `SandboxBehaviorVisual` animates child visuals without changing saved placement. `PcBridge` exchanges state and idempotent command receipts with the PC.
 - `ControlService/server.py` owns the active session lease, revisions, proposal review/apply, voice jobs, and JSON persistence. `ai_adapter.py` builds bounded structured context and validates planner output. `codex_provider.py` owns the PC-only native CLI invocation. `index.html` is the Operator panel.
 - No first-party assembly definitions or multiplayer framework. Editor generation/checks live under `Assets/Sandbox/Editor`; do not mix these with runtime dependencies. Native scene is `QuestSandbox.unity`; generated white-room/AR fixtures have separate scene/build setup and use explicitly enumerated source files.
-- `Build-WhiteRoom.ps1` makes independent Desktop/Quest fixtures; `Build-RoomAR.ps1` makes the native Meta fixture. New runtime source files must be added to applicable source lists. Image encoding needs the built-in `com.unity.modules.imageconversion` module.
+- `Build-WhiteRoom.ps1` makes independent Desktop/Quest fixtures; `Build-RoomAR.ps1` makes the native Meta fixture. New runtime source files must be added to applicable source lists. Image encoding needs the built-in `com.unity.modules.imageconversion` module; downloadable packs need `com.unity.modules.assetbundle`.
 - Rendered captures are transient data outside `SceneData`: a separate exchange request/receipt, matched to a PC revision and contemporaneous snapshot. The optional JPEG supplements existing provider context; it never authorizes an edit or changes undo/save formats. See `Docs/Visual-Feedback.md`.
 - Tests use Python `unittest`, a dependency-free Node panel harness, Unity batch-run `SandboxCoreChecks`, and real Windows-player acceptance runners. Headless runs cannot validate screenshot rendering. New screenshot hardware evidence must be collected independently of the earlier completed milestones.
 
 ### Original architecture reference
 
 VaM local samples demonstrated stable object lookup, typed parameter dispatch, explicit persistence, and lifecycle-safe reference resolution. No VaM code, assets, schema, or host API was copied. Detailed local installation notes are not published. No VaM code or assets are distributed here.
+
+### Spatial capture and content expansion
+
+- `QuestCameraCapture` negotiates Quest 3/3S camera capability and obtains a bounded on-demand frame, exposure pose, intrinsics and projection. Default virtual capture stays available on Quest Pro. Mixed captures disclose physical pixels, MRUK provenance and absent depth occlusion; no Quest 3 hardware acceptance is implied.
+- `SandboxContentLoader` retrieves a matching trusted AssetBundle from the PC service, verifies its hash, validates allowed components, and registers immutable namespaced assets without resetting scene/history. Optional `source` records retain exact provenance in schema-1 saves. Reinstall the cached pack after player restart before restoring dependent scenes.
+- PC `content_catalog.py` owns configured catalogs, verified cache, import queue and ComfyUI workflows; `content_service.py` coordinates cancellable PC preparation and lease-bound runtime acknowledgement. `/content` is the operator UI. Provider credentials/configuration stay on the PC. Newly compiled behaviors still require a player rebuild.
+- `comfy_workflow.py` converts only its reviewed Krea workflow subset against actual node metadata; arbitrary UI workflows and video graphs need a separate reviewed API export. The real local image test is recorded in `Validation/comfy-content-validation.json`.

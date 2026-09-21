@@ -29,7 +29,8 @@ MAX_MODEL_CACHE = 4 * 1024 * 1024
 MAX_SCREENSHOT_BYTES = 512 * 1024
 SCREENSHOT_METADATA = {"mimeType", "captureId", "clientId", "revision", "capturedAtUtc", "width", "height",
                        "content", "camera", "renderMs", "encodeMs", "frameTimeMs", "byteLength", "source",
-                       "includesPassthrough", "captureDurationMs", "captureFrameTimeMs", "frameCount", "capturedAtRuntimeSeconds"}
+                       "includesPassthrough", "captureDurationMs", "captureFrameTimeMs", "frameCount", "capturedAtRuntimeSeconds",
+                       "mode", "physicalCamera", "spatialProvenance"}
 REASONING_EFFORTS = ("none", "minimal", "low", "medium", "high", "xhigh", "max", "ultra")
 MODEL_ID = re.compile(r"[A-Za-z0-9][A-Za-z0-9._:-]{0,159}\Z")
 DISABLED_FEATURES = ("shell_tool", "unified_exec", "apps", "plugins", "multi_agent", "hooks", "shell_snapshot")

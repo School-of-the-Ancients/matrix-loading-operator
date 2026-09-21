@@ -22,11 +22,13 @@ import uuid
 
 from ai_adapter import (Planner, PlannerError, validate_local_bounds, validate_viewer,
                         validate_anchor_metadata, validate_room_context, validate_pointing,
-                        validate_behavior, validate_behaviors, validate_behavior_kinds)
+                        validate_behavior, validate_behaviors, validate_behavior_kinds, validate_content_source)
 from learning import LearningBridge, LearningError, identifier
 from codex_provider import CodexConfig, CodexProviderError, codex_options, select_codex_config
 import speech
 import scene_capture
+from content_service import ContentBridge, runtime_capabilities
+from content_catalog import ContentError
 
 MAX_BODY = 1024 * 1024
 MAX_EXCHANGE_BODY = 3 * 1024 * 1024  # two bounded snapshots plus a base64 JPEG
@@ -94,6 +96,9 @@ def scene(value):
                            "anchorId": text(item.get("anchorId"), "anchorId"),
                            "transform": transform(item.get("transform"))})
         try:
+            source = validate_content_source(item.get("source"), normalized[-1]["assetId"])
+            if source:
+                normalized[-1]["source"] = source
             behaviors = validate_behaviors(item.get("behaviors"))
         except PlannerError as error:
             raise APIError(400, str(error)) from None
@@ -111,6 +116,13 @@ def catalog(value, key, limit):
         require(identifier not in ids, f"Duplicate {key}")
         ids.add(identifier)
         entry = {key: identifier, "displayName": text(item.get("displayName"), "displayName")}
+        if key == "assetId":
+            try:
+                source = validate_content_source(item.get("source"), identifier)
+            except PlannerError as error:
+                raise APIError(400, str(error)) from None
+            if source:
+                entry["source"] = source
         if key == "assetId" and item.get("description"):
             entry["description"] = text(item["description"], "asset description", limit=500)
         if key == "assetId" and "spawnScale" in item:
@@ -253,15 +265,20 @@ class State:
         self.voice_jobs = collections.OrderedDict()
         self.voice_worker = threading.Lock()
         self.capture_supported = False
+        self.capture_capabilities = scene_capture.capabilities(None)
         self.capture = None
         self.last_capture_request = -float("inf")
         self.voice_capture_id = None
+        self.content = ContentBridge(self)
 
     def online(self):
         return self.client_id is not None and self.clock() - self.last_seen < LEASE_SECONDS
 
     def expire(self):
         if self.client_id is not None and not self.online():
+            # Retire lease-bound installs before exchange can renew the same
+            # client ID. A returning heartbeat must not revive an old request.
+            self.content.expire()
             for request_id in self.pending:
                 self.results.append({"requestId": request_id, "ok": False,
                                      "error": "Client lease expired; command outcome unknown", "objectId": ""})
@@ -271,9 +288,14 @@ class State:
             self.client_id = None
 
     def exchange(self, body):
+        content_capabilities = runtime_capabilities(body.get("contentCapabilities"))
         require(isinstance(body, dict), "Expected exchange object")
         client_id = text(body.get("clientId"), "clientId")
         require(type(body.get("captureSupported", False)) is bool, "Invalid capture capability")
+        try:
+            capture_capabilities = scene_capture.capabilities(body.get("captureCapabilities"), body.get("captureSupported", False))
+        except scene_capture.CaptureError as error:
+            raise APIError(error.status, str(error)) from None
         try:
             runtime = validate_room_context(body.get("runtime"))
         except PlannerError as error:
@@ -327,10 +349,16 @@ class State:
             self.latest = current
             self.runtime = runtime
             self.capture_supported = body.get("captureSupported", False)
+            self.capture_capabilities = capture_capabilities
             self.receive_capture(body.get("capture"))
+            content_request = self.content.exchange(content_capabilities, body.get("contentReceipt"))
             response = {"commands": copy.deepcopy(list(self.pending.values()))}
+            if content_request is not None:
+                response["contentInstall"] = content_request
             if self.capture_status()["status"] == "pending":
                 response["capture"] = {"captureId": self.capture["captureId"], "revision": self.capture["revision"]}
+                if self.capture.get("mode") == "mixed":
+                    response["capture"]["mode"] = "mixed"
             if self.learning:
                 self.learning.restore_after_ack(self)
                 guide = self.learning.guide(self)
@@ -341,23 +369,25 @@ class State:
     def capture_status(self, include_image=False):
         with self.lock:
             self.expire()
-            result = {"supported": self.capture_supported, "status": "none", "voiceCaptureId": self.voice_capture_id}
+            result = {"supported": self.capture_supported, "status": "none", "voiceCaptureId": self.voice_capture_id,
+                      "capabilities": copy.deepcopy(self.capture_capabilities)}
             capture = self.capture
             if capture is None:
                 return result
-            age = max(0, self.clock() - capture["requested"])
+            age = max(0, self.clock() - capture.get("received", capture["requested"]))
             status, error = capture["status"], capture.get("error", "")
-            if status == "pending" and age > scene_capture.CAPTURE_TIMEOUT:
+            timeout = scene_capture.MIXED_CAPTURE_TIMEOUT if capture.get("mode") == "mixed" else scene_capture.CAPTURE_TIMEOUT
+            if status == "pending" and age > timeout:
                 capture.update(status="error", error="Capture timed out. Keep the runtime awake and try again.")
                 status, error = capture["status"], capture["error"]
             if status in ("pending", "ready"):
                 if (not self.online() or self.client_id != capture["clientId"] or self.revision != capture["revision"]
                         or self.latest is None or self.latest.get("readOnly") or self.pending):
                     status, error = "stale", "Runtime, scene, or selection changed. Capture the current view again."
-                elif age > scene_capture.CAPTURE_MAX_AGE:
+                elif status == "ready" and age > scene_capture.CAPTURE_MAX_AGE:
                     status, error = "stale", "Image is older than 30 seconds. Capture the current view again."
             result.update(captureId=capture["captureId"], revision=capture["revision"], status=status,
-                          ageSeconds=round(age, 3), error=error)
+                          ageSeconds=round(age, 3), error=error, mode=capture.get("mode", "virtual"))
             if "image" in capture:
                 result.update({key: copy.deepcopy(value) for key, value in capture["image"].items() if key != "dataBase64"})
                 if include_image:
@@ -365,19 +395,24 @@ class State:
             return result
 
     def request_capture(self, body):
-        require(body == {}, "Expected an empty capture request")
+        require(set(body) <= {"mode"} and body.get("mode", "virtual") in ("virtual", "mixed"), "Expected capture mode virtual or mixed")
+        mode = body.get("mode", "virtual")
         with self.lock:
             self.expire()
             require(self.online() and self.latest is not None, self.room_unavailable_message(), 409)
             require(self.capture_supported, "Connected player does not support rendered captures; update the app", 409)
+            require(mode in self.capture_capabilities["modes"], self.capture_capabilities["reason"] or "Capture mode unavailable", 409)
+            if mode == "mixed":
+                require((self.latest.get("roomContext") or {}).get("mode") == "ar", "Physical imagery requires the AR runtime", 409)
             require(not self.latest.get("readOnly"), "Reload room data before capturing", 409)
             require(not self.pending, "Wait for queued commands before capturing", 409)
+            require(not self.content.busy(), "Wait for content installation before capturing", 409)
             require(self.capture_status()["status"] != "pending", "A capture is already pending", 409)
             require(self.clock() - self.last_capture_request >= scene_capture.CAPTURE_INTERVAL,
                     "Wait two seconds between captures", 429)
             self.last_capture_request = self.clock()
             self.capture = {"captureId": uuid.uuid4().hex, "clientId": self.client_id,
-                            "revision": self.revision, "requested": self.clock(), "status": "pending"}
+                            "revision": self.revision, "requested": self.clock(), "status": "pending", "mode": mode}
             self.voice_capture_id = None
             return self.capture_status()
 
@@ -395,7 +430,8 @@ class State:
                     "Capture belongs to a different runtime session", 409)
             require(type(value.get("revision")) is int and value["revision"] == capture["revision"] == self.revision,
                     "Scene changed during capture; capture again", 409)
-            require(self.clock() - capture["requested"] <= scene_capture.CAPTURE_TIMEOUT,
+            timeout = scene_capture.MIXED_CAPTURE_TIMEOUT if capture.get("mode") == "mixed" else scene_capture.CAPTURE_TIMEOUT
+            require(self.clock() - capture["requested"] <= timeout,
                     "Capture arrived after the timeout; capture again", 409)
             require(type(value.get("ok")) is bool, "Invalid capture result status")
             require(value["ok"], text(value.get("error") or "Runtime could not capture this view", "capture error", limit=2048), 409)
@@ -403,9 +439,23 @@ class State:
             require(scene_revision_data(captured) == scene_revision_data(self.latest),
                     "Image and scene snapshot do not match; capture again", 409)
             validated = scene_capture.image(value)
+            require((validated["source"] == "quest_camera_composite") == (capture.get("mode") == "mixed"),
+                    "Capture did not match the requested image source; no fallback is allowed", 409)
+            if validated.get("spatialProvenance"):
+                provenance = validated["spatialProvenance"]
+                require(provenance["roomId"] == captured["scene"]["roomId"]
+                        and provenance["anchorCount"] == len(captured["anchors"]), "Spatial provenance does not match the paired room", 409)
+                room = captured.get("roomContext") or {}
+                measured = any(anchor.get("source") == "mruk" for anchor in captured["anchors"])
+                require(provenance["source"] == ("mruk_scene_model_v1" if measured else "virtual")
+                        and (not measured or room.get("mode") == "ar")
+                        and provenance["alignmentVerified"] == (measured and room.get("alignmentVerified") is True),
+                        "Spatial provenance does not match the paired room source or alignment", 409)
+                require(validated["source"] != "quest_camera_composite" or room.get("mode") == "ar",
+                        "Mixed capture requires an AR room snapshot", 409)
             validated.update(captureId=capture["captureId"], clientId=capture["clientId"], revision=capture["revision"],
-                             content=scene_capture.content_description(captured))
-            capture.update(status="ready", image=validated, snapshot=captured)
+                             content=scene_capture.content_description(captured, validated))
+            capture.update(status="ready", image=validated, snapshot=captured, received=self.clock())
         except (APIError, scene_capture.CaptureError) as error:
             # A bad image should be acknowledged and surfaced without breaking text heartbeats.
             capture.update(status="error", error=str(error))
@@ -434,6 +484,7 @@ class State:
             require(not self.learning or not self.learning.restore, "Finish the pending lesson restore before editing", 409)
             require(self.online(), "Headset client is offline", 409)
             require(self.latest is not None, self.room_unavailable_message(), 409)
+            require(not self.content.busy(), "Wait for content installation before editing", 409)
             room = self.runtime
             for item in checked:
                 supported = self.latest.get("behaviorKinds", [])
@@ -466,7 +517,7 @@ class State:
     def status(self):
         with self.lock:
             self.expire()
-            return {"online": self.online(), "clientId": self.client_id, "snapshot": copy.deepcopy(self.latest),
+            return {"online": self.online(), "clientId": self.client_id, "contentLibrary": True, "snapshot": copy.deepcopy(self.latest),
                     "runtime": copy.deepcopy(self.runtime),
                     "pendingCount": len(self.pending), "results": copy.deepcopy(list(self.results)),
                     "capture": self.capture_status(),
@@ -585,6 +636,7 @@ def plan(state, body, request_context=None):
         require(state.online() and state.latest is not None, state.room_unavailable_message(), 409)
         require(not state.latest.get("readOnly"), state.room_unavailable_message(), 409)
         require(not state.pending, "Wait for queued commands before creating a proposal", 409)
+        require(not state.content.busy(), "Wait for content installation before creating a proposal", 409)
         current = copy.deepcopy(state.latest)
         client_id, revision = state.client_id, state.revision
         saved_names = state.scenes()["scenes"]
@@ -597,6 +649,9 @@ def plan(state, body, request_context=None):
             screenshot, current = state.selected_capture(body["captureId"])
     try:
         options = {"codex": codex} if codex is not None else {}
+        candidates = state.content.planner_context()
+        if candidates:
+            options["catalog_context"] = candidates
         if screenshot is not None:
             options["screenshot"] = screenshot
         proposed = Planner().plan(prompt, current, saved_scenes=saved_names, mode=mode, **options)
@@ -813,8 +868,8 @@ class Handler(BaseHTTPRequestHandler):
         try:
             self.validate_host()
             path = urllib.parse.urlsplit(self.path).path
-            if path in ("/", "/learning") and loopback(self.client_address[0]):
-                page = "index.html" if path == "/" else "learning.html"
+            if path in ("/", "/learning", "/content") and loopback(self.client_address[0]):
+                page = "index.html" if path == "/" else "content.html" if path == "/content" else "learning.html"
                 self.send_data(200, Path(__file__).with_name(page).read_bytes(), "text/html; charset=utf-8")
                 return
             if path == "/learning-ui.js" and loopback(self.client_address[0]):
@@ -823,6 +878,20 @@ class Handler(BaseHTTPRequestHandler):
             self.authenticate()
             if path == "/api/state":
                 data = self.server.state.status()
+            elif path == "/api/content":
+                data = self.server.state.content.status()
+            elif path.startswith("/api/content/files/"):
+                asset = self.server.state.content.catalog.cached_file(path.rsplit("/", 1)[1])
+                self.send_response(200)
+                self.send_header("Content-Type", "application/octet-stream")
+                self.send_header("Content-Length", str(asset.stat().st_size))
+                self.send_header("X-Content-Type-Options", "nosniff")
+                self.send_header("Cache-Control", "no-store")
+                self.end_headers()
+                with asset.open("rb") as source:
+                    while chunk := source.read(128 * 1024):
+                        self.wfile.write(chunk)
+                return
             elif path == "/api/capture":
                 data = self.server.state.capture_status(include_image=True)
             elif path == "/api/scenes":
@@ -845,7 +914,7 @@ class Handler(BaseHTTPRequestHandler):
             else:
                 raise APIError(404, "Not found")
             self.send_data(200, data)
-        except (APIError, LearningError) as error:
+        except (APIError, LearningError, ContentError) as error:
             self.send_data(error.status, {"error": str(error)})
         except PlannerError as error:
             self.send_data(error.status, {"error": str(error)})
@@ -875,6 +944,8 @@ class Handler(BaseHTTPRequestHandler):
             state = self.server.state
             if path == "/api/exchange":
                 data = state.exchange(body)
+            elif path.startswith("/api/content/"):
+                data = state.content.post(path, body)
             elif path == "/api/command":
                 data = state.queue(body["commands"] if set(body) == {"commands"} else [body])
             elif path == "/api/save":
@@ -913,7 +984,7 @@ class Handler(BaseHTTPRequestHandler):
             else:
                 raise APIError(404, "Not found")
             self.send_data(200, data)
-        except (APIError, LearningError, speech.SpeechError, CodexProviderError) as error:
+        except (APIError, LearningError, speech.SpeechError, CodexProviderError, ContentError) as error:
             self.send_data(error.status, {"error": str(error)})
         except (OSError, ValueError, RecursionError):
             self.send_data(500, {"error": "Service I/O error"})

@@ -68,6 +68,24 @@ namespace ArSandbox
 
         public void ReportStatus(string message) { Status = message; }
 
+        public void RegisterContentAssets(PrefabEntry[] additions)
+        {
+            if (World == null || RoomReloading) throw new InvalidOperationException("Wait for room localization before installing content; the current room is unavailable.");
+            if (additions == null) throw new ArgumentNullException(nameof(additions));
+            var combined = new PrefabEntry[(prefabs?.Length ?? 0) + additions.Length];
+            if (prefabs != null) Array.Copy(prefabs, combined, prefabs.Length);
+            for (int i = 0; i < additions.Length; i++)
+            {
+                PrefabEntry item = additions[i];
+                if (item == null) throw new ArgumentException("Content registry contains a null entry.");
+                combined[(prefabs?.Length ?? 0) + i] = new PrefabEntry { assetId = item.assetId, displayName = item.displayName,
+                    description = item.description, spawnScale = item.spawnScale, prefab = item.prefab, source = SandboxContentRules.Clone(item.source) };
+            }
+            World.RegisterAssets(additions);
+            prefabs = combined;
+            // Keep selection, placed instances, undo/redo and anchor ownership unchanged.
+        }
+
         public void SetRoomContext(string state, string message, bool verified = false)
         {
             RoomContext = new RoomContextData { mode = "ar", state = state, message = message, alignmentVerified = verified && state == "ready" };
