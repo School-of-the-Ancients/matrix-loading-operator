@@ -1,6 +1,6 @@
 {
   "milestone": "Live runtime Rotate and Bob behaviors",
-  "recordedUtc": "2026-09-20T23:55:27.361021+00:00",
+  "recordedUtc": "2026-09-21T00:12:30.974011+00:00",
   "implemented": [
     "Bounded rotate and upward bob",
     "Independent enable, pause, resume and removal",
@@ -66,15 +66,15 @@
     ],
     "wearerVerifiedOutlinesAfterUpdate": true,
     "originalOrbRestoredExactlyAndSelected": true,
-    "voiceBehaviorApplied": false,
-    "wearerSawBobbing": false,
-    "behaviorSaveRestore": false,
+    "voiceBehaviorApplied": true,
+    "wearerSawBobbing": true,
+    "behaviorSaveRestore": true,
     "voiceDiagnostic": {
       "observed": "Listening then no audible speech captured",
       "recordAudioPermission": true,
       "systemMicrophoneMute": true,
       "pcVoiceJobCreated": false,
-      "resolution": "After restart wearer sees room-loading voice status. USB debugging became unauthorized, preventing fresh room/audio inspection and PC reconnection. Await current device prompt; no source fix or successful post-restart voice test claimed.",
+      "resolution": "Recovered after the user-reported restart and USB/developer authorization recovery. ADB became authorized, port 8765 was restored, current system microphone mute was false, and actual headset speech completed transcription, real Codex planning and both behavior commands. No microphone code or silence threshold was changed; the original OS/HAL mute policy remains unidentified.",
       "systemMuteObservedDuringCapture": true,
       "activeCaptureSamples": 8,
       "activeCaptureSecondsApprox": 5,
@@ -83,10 +83,17 @@
         "switch": false,
         "restrictions": false,
         "api": false
-      }
+      },
+      "systemMicrophoneMuteAfterRecovery": false
     },
-    "postRestartRoomAndVoiceVerified": false,
-    "staleVoiceStatusObservedInCode": true
+    "postRestartRoomAndVoiceVerified": true,
+    "staleVoiceStatusObservedInCode": true,
+    "wearerVerifiedRestoredBehaviorAlignment": true,
+    "actualQuestChecksPassed": 30,
+    "actualQuestChecksFailed": 0,
+    "headsetReceipt": "behavior-headset-results.json",
+    "visibleRotationVerified": false,
+    "postRestartRoomRestoreScope": "Same manually configured room and saved anchor IDs; wearer verified outlines, and the saved orb restored exactly. No recreated or deleted native-anchor recovery test."
   },
   "preservation": {
     "baseCommit": "6962eaf",
@@ -100,13 +107,18 @@
     "localBehaviorCheckpoint": "../checkpoints/RuntimeBehaviors_20260920",
     "desktopFullCloneAndBuildsSynchronized": true,
     "latestBeforeAppRestartSave": "BeforeVoiceRestart_20260920_175100",
-    "latestBeforeAppRestartObjects": 1
+    "latestBeforeAppRestartObjects": 1,
+    "animatedSceneSave": "AnimatedRoomBehavior_20260920_181054",
+    "originalPretestSceneRestoredExactly": true,
+    "originalOrbReselected": true,
+    "liveSceneAtEnd": "One original orb without behaviors; animated version remains available as a separate save"
   },
   "limitations": [
     "Only rotate and bob are implemented; general programs, interaction triggers and physics remain proposed",
     "Animation phase is not persisted; restored paused behavior starts at baseline phase",
     "Animated swept volumes are not collision checked; rotation may intersect physical surfaces",
     "Nonuniformly scaled parents can deform rotating visuals",
-    "No arbitrary generated C# execution, autonomous navigation or artificial AR locomotion"
+    "No arbitrary generated C# execution, autonomous navigation or artificial AR locomotion",
+    "The voice room-loading status can remain after room readiness; current room state and outlines must be checked. This cosmetic status issue is documented but not changed in the installed build."
   ]
 }

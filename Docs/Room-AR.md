@@ -2,7 +2,9 @@
 
 Implementation and headset evidence, 2026-09-20. The acceptance loop is: **place an orb on the real table by voice, move it by voice, save, clear, and restore it on the same table**.
 
-## Current status
+The subsequent [runtime behavior milestone](Runtime-Behaviors.md) adds Rotate/Bob and includes actual Quest voice, animation and behavior save/restore evidence. Its newer build/test results and one successful same-room restore after a reported restart are in [the current checkpoint](Current-Checkpoint.md). The section below records the original room-placement acceptance.
+
+## Initial room-AR acceptance
 
 The source contains the native passthrough scene, MRUK Scene Model V1 loading, labeled outlines, room context, surface placement checks, and the existing voice, Codex selector, editing, undo, and PC persistence integration. The room is loaded from the headset's manually configured Space Setup data; missing data is reported explicitly.
 
@@ -12,7 +14,7 @@ The connected room supplied 28 anchors and seven supported surfaces. Actual Ques
 
 Both the native AR build and white-room Quest regression build passed 236 Unity core checks each; the PC suite passed 266 tests. Three further real Codex checks used synthetic room geometry. The ARM64 AR APK declares scene, microphone, internet and passthrough access. Earlier imports encountered a Meta AIBlocks quarantine; after the wearer reported restoring that output, an ordinary unchanged-package build succeeded. No protection settings were changed by Codex.
 
-The persistence check covers one app session with unchanged manual room setup. App restart/relocalization, recreated anchors and physically induced tracking-loss recovery have not been tested on hardware. Missing-anchor rejection and recovery have automated coverage. The local PC save is `RoomARAcceptance_20260920_171926`; private room geometry and raw device observations are excluded from Git.
+This initial persistence check covered one app session with unchanged manual room setup. The later behavior milestone also restored the same saved room after a reported restart, with wearer-verified outlines. Recreated anchors and physically induced tracking-loss recovery remain hardware-unverified. Missing-anchor rejection and recovery have automated coverage. The initial local PC save is `RoomARAcceptance_20260920_171926`; private room geometry and raw device observations are excluded from Git.
 
 The two device apps are separate so the working white room remains available:
 

@@ -39,7 +39,13 @@ These are decorative procedural behaviors, not a physics solver or obstacle-avoi
 
 ## Validation and continuation
 
-`Validation/behavior-validation.json` records current builds and hardware status. `Validation/behavior-desktop-results.json` records actual Windows-player acknowledgements with four real Codex requests. It does not certify Quest microphone/display behavior. Unity checks directly inspect the animated child, stable wrapper, pause/resume/removal, repeated ticks, history and restored configurations.
+Automated validation passed **292 Python tests** and **301 Unity checks in each of three builds**. The actual Windows player passed **46 checks with four real Codex requests**. Unity checks directly inspect the animated child, stable wrapper, pause/resume/removal, repeated ticks, history and restored configurations. These results are recorded separately from hardware in `Validation/behavior-validation.json` and `Validation/behavior-desktop-results.json`.
+
+**Quest Pro acceptance passed:** actual speech “Make this orb rotate slowly and float gently above the table” reached real Codex (`gpt-5.6-sol`, `xhigh`). The same orb received two successful runtime acknowledgements for Y rotation at 15 degrees/second and upward bob at 0.03 meters / 0.5 Hz. The wearer confirmed visible bobbing. **30 actual-device checks** covered a baseline move/undo, pause/resume, Bob removal/undo, and exact PC save/clear/restore of IDs, anchor-relative placement, and configurations. The wearer confirmed the restored orb returned to the same real table spot and kept bobbing. See `Validation/behavior-headset-results.json`. Rotation was acknowledged but not separately visually verified on the uniform orb.
+
+The animated scene is preserved as **`AnimatedRoomBehavior_20260920_181054`**. After testing, the pretest static scene **`BeforeVoiceRestart_20260920_175100`** was restored exactly and its orb reselected; the active scene was not left animated.
+
+An earlier silent-capture problem recovered after restart/reconnection and USB authorization recovery, with system microphone mute then false. No microphone code or threshold changed; the original OS/HAL cause is unknown. One post-restart restore used the same manually configured room and saved anchors, with wearer-verified alignment. Recreated/deleted anchor recovery remains hardware-untested. A known cosmetic “Room loading” voice status may persist after room readiness; check actual room status and PC connection, then use the trigger normally. This status issue is not fixed in the installed build.
 
 The starting AR scene was saved as `BeforeBehaviors_20260920_172929`; its working APK and save are preserved in the local sibling checkpoint `RoomARBeforeBehaviors_20260920`. Personal saves and raw room/device logs remain outside Git.
 
