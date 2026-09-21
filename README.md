@@ -1,5 +1,7 @@
 # Matrix Loading Operator
 
+**Versioned downloads:** [GitHub Releases](https://github.com/School-of-the-Ancients/matrix-loading-operator/releases) preserves milestone APKs with matching PC services, source tags and checksums. See [versions and submission snapshots](Docs/Versions-And-Submissions.md) to run an earlier build or freeze a coursework version.
+
 Matrix Loading Operator builds and edits scenes from seven bundled prefabs using a PC-hosted Codex provider. The **virtual white room** and **room-aware AR** share controller selection, push-to-talk, model/reasoning selection, reviewed edits, undo/redo, and PC save/load. The latest increment adds live **Rotate** and **Bob** configurations to existing props. Quest Pro is the hardware target; Quest 3 is optional.
 
 **Rendered scene feedback:** the Operator can now capture and preview the current virtual view and explicitly attach it to a typed request or the next headset voice request. Real Codex image input supplements the matching structured scene snapshot; read-only reviews, supported corrections, Apply, and Undo share the existing workflow. AR previews exclude physical passthrough. The graphical desktop run passed **83 checks with three real Codex turns**, including an image-only color observation and edit/undo/save/restore. **Quest Pro AR capture, a real AI image review, and capture-frame timings are recorded separately.** Start with the [visual feedback guide](Docs/Visual-Feedback.md) and [recorded evidence](Validation/visual-feedback-validation.json).
