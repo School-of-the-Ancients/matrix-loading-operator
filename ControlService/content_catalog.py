@@ -204,6 +204,7 @@ class ContentCatalog:
         self.cache_dir.mkdir(parents=True, exist_ok=True)
         self.lock = threading.RLock()
         self.reserved_bytes = 0
+        self.pending_generations = set()
         self.providers = {}
         self.config_error = ""
         self.state_path = self.cache_dir / "state.json"
@@ -428,6 +429,11 @@ class ContentCatalog:
         matches = [asset for asset in self._assets(provider) if asset["assetId"] == asset_id
                    and (version is None or asset["version"] == version)
                    and (target_platform is None or asset["targetPlatform"] in (target_platform, "Any"))]
+        if target_platform is not None:
+            # Prefer the exact platform within each version, without choosing a version.
+            exact_versions = {asset["version"] for asset in matches if asset["targetPlatform"] == target_platform}
+            matches = [asset for asset in matches if asset["targetPlatform"] == target_platform
+                       or asset["version"] not in exact_versions]
         require(bool(matches), "Content asset/version/platform not found", 404)
         require(len(matches) == 1, "Choose an exact asset version and target platform", 409)
         asset = matches[0]
@@ -513,17 +519,27 @@ class ContentCatalog:
             node = graph.get(workflow["promptNode"])
             require(node is not None and workflow["promptInput"] in node["inputs"], "Configured workflow does not expose this prompt input")
             node["inputs"][workflow["promptInput"]] = prompt
+        job_id = uuid.uuid4().hex
         with self.lock:
-            require(len(self.state["generations"]) < MAX_QUEUE, "Generation history is full", 409)
-        response = self._json_request(provider, provider["baseUrl"] + "/prompt", {"prompt": graph, "client_id": "matrix-" + uuid.uuid4().hex})
-        require(isinstance(response, dict) and isinstance(response.get("prompt_id"), str) and not response.get("error"), "ComfyUI rejected the workflow", 502)
-        prompt_id = identifier(response["prompt_id"], "ComfyUI prompt id")
-        job = {"id": uuid.uuid4().hex, "providerId": provider_id, "workflowId": workflow_id,
-               "promptId": prompt_id, "status": "queued", "createdAt": time.time(), "outputs": []}
-        with self.lock:
-            self.state["generations"].append(job)
-            atomic_json(self.state_path, self.state)
-        return copy.deepcopy(job)
+            require(len(self.state["generations"]) + len(self.pending_generations) < MAX_QUEUE,
+                    "Generation history is full", 409)
+            self.pending_generations.add(job_id)
+        try:
+            # Reserve capacity before provider I/O without holding the catalog lock.
+            response = self._json_request(provider, provider["baseUrl"] + "/prompt", {"prompt": graph, "client_id": "matrix-" + uuid.uuid4().hex})
+            require(isinstance(response, dict) and isinstance(response.get("prompt_id"), str) and not response.get("error"), "ComfyUI rejected the workflow", 502)
+            prompt_id = identifier(response["prompt_id"], "ComfyUI prompt id")
+            job = {"id": job_id, "providerId": provider_id, "workflowId": workflow_id,
+                   "promptId": prompt_id, "status": "queued", "createdAt": time.time(), "outputs": []}
+            with self.lock:
+                # Transfer the slot to history atomically so it is never counted twice.
+                self.pending_generations.remove(job_id)
+                self.state["generations"].append(job)
+                atomic_json(self.state_path, self.state)
+            return copy.deepcopy(job)
+        finally:
+            with self.lock:
+                self.pending_generations.discard(job_id)
 
     def generations(self):
         with self.lock:

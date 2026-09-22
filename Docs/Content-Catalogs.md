@@ -40,8 +40,11 @@ The service supports 32 configured providers, 1,000 entries per catalog, 128 MiB
 per artifact, and a 2 GiB content cache. Full caches return a clear error. Archive
 unneeded cache files manually on the PC; the service does not silently evict packs
 that saved scenes might need. Each artifact has an immutable version and checksum.
-Different versions or platforms require an explicit choice. A failed provider
-appears as a per-provider error while other catalog results remain usable.
+Different versions or platforms require an explicit choice. For each version, an
+explicitly selected platform takes precedence over `Any`; `Any` is a fallback
+when that platform has no exact entry. Multiple compatible versions still require
+an explicit version. A failed provider appears as a per-provider error while other
+catalog results remain usable.
 
 See [Content packs](Content-Packs.md) for the Unity Editor export menu, JSON
 specification, exact build target requirements, and fixture export command.
@@ -114,7 +117,10 @@ requires an explicit approval flag; merely searching or planning a scene never
 submits a generation request.
 
 Generation is asynchronous. The UI can poll only its recorded job and retrieve
-bounded final outputs into the verified PC cache. Cancelling removes only that
+bounded final outputs into the verified PC cache. Generation history is limited
+to 200 jobs, including submissions awaiting a provider response. A full history
+rejects new submissions before contacting the worker; failed submissions release
+their reserved capacity. Cancelling removes only that
 queued prompt id. It does not interrupt a running job on a shared GPU worker.
 Missing queue/history entries are reported as `missing`, rather than pretending
 the worker is still processing them. Generated media still needs review and a

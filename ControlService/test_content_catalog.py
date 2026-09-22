@@ -200,6 +200,32 @@ class CatalogTests(unittest.TestCase):
         self.assert_error(409, lambda: self.catalog.prepare("local-pack", "demo-orb"))
         self.assertEqual("Android", self.catalog.prepare("local-pack", "demo-orb", target_platform="Android")["targetPlatform"])
 
+    def test_explicit_platform_prefers_exact_variant_over_any(self):
+        variants = [asset(), asset(targetPlatform="Android"), asset(targetPlatform="StandaloneWindows64")]
+        for rows in (variants, list(reversed(variants))):
+            with self.subTest(platforms=[row["targetPlatform"] for row in rows]):
+                self.write_manifest(rows)
+                for platform in ("Android", "StandaloneWindows64", "Any"):
+                    prepared = self.catalog.prepare("local-pack", "demo-orb", "1.0.0", platform)
+                    self.assertEqual(platform, prepared["targetPlatform"])
+                self.assertEqual("Android", self.catalog.prepare("local-pack", "demo-orb", target_platform="Android")["targetPlatform"])
+                self.assert_error(409, lambda: self.catalog.prepare("local-pack", "demo-orb", "1.0.0"))
+
+    def test_explicit_platform_falls_back_to_any(self):
+        self.write_manifest([asset(), asset(targetPlatform="StandaloneWindows64")])
+        prepared = self.catalog.prepare("local-pack", "demo-orb", "1.0.0", "Android")
+        self.assertEqual("Any", prepared["targetPlatform"])
+        self.write_manifest([asset(targetPlatform="StandaloneWindows64")])
+        self.assert_error(404, lambda: self.catalog.prepare("local-pack", "demo-orb", "1.0.0", "Android"))
+
+    def test_platform_preference_preserves_version_ambiguity(self):
+        for any_version, android_version in (("1.0.0", "2.0.0"), ("2.0.0", "1.0.0")):
+            with self.subTest(any_version=any_version, android_version=android_version):
+                self.write_manifest([asset(version=any_version), asset(version=android_version, targetPlatform="Android")])
+                self.assert_error(409, lambda: self.catalog.prepare("local-pack", "demo-orb", target_platform="Android"))
+                self.assertEqual("Any", self.catalog.prepare("local-pack", "demo-orb", any_version, "Android")["targetPlatform"])
+                self.assertEqual("Android", self.catalog.prepare("local-pack", "demo-orb", android_version, "Android")["targetPlatform"])
+
     def test_assetbundle_metadata_matches_binary_and_version(self):
         pack = {"schemaVersion": 1, "packId": "starter", "providerId": "local-pack", "version": "1.0.0", "platform": "Android",
                 "unityVersion": "6000.6.0f1", "sha256": DIGEST, "byteLength": len(DATA),

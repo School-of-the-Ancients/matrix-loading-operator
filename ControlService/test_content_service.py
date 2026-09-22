@@ -196,7 +196,7 @@ class ContentHttpTests(unittest.TestCase):
         self.assertIs(self.request("/api/state")[1]["contentLibrary"], True)
         code, html = self.request("/content")
         self.assertEqual(code, 200)
-        self.assertIn(b"Unity import queue", html)
+        self.assertIn(b"Unity asset preparation checklist", html)
         self.server.token = "t" * 24
         self.assertEqual(self.request("/api/content")[0], 401)
         headers = {"Authorization": "Bearer " + self.server.token}
