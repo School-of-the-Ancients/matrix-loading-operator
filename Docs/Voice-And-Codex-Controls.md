@@ -1,6 +1,6 @@
 # Voice and Codex controls
 
-Virtual white room voice/model-selection update, 2026-09-20.
+Voice and model controls are available in the virtual white room and room-aware AR. The validation section below records the original September 20, 2026 white-room voice milestone; later evidence is linked from the [current checkpoint](Current-Checkpoint.md).
 
 ## Start or resume
 
@@ -15,8 +15,11 @@ From that checkout in PowerShell:
 
 Speech setup is needed once per checkout. Keep the service terminal open. In a
 second terminal run `.\Connect-QuestControl.ps1`, then open **Matrix Operator**
-in the headset. Open the PC panel at <http://127.0.0.1:8765/> and confirm the
-runtime is connected. The installed Quest app must include this voice update.
+for the virtual room or **Matrix Operator AR** for your physical room. Open the
+PC panel at <http://127.0.0.1:8765/> and confirm the runtime is connected. Port
+8765 is the default: match the actual service port, retained headset URL, and
+USB reverse port if using an override. The installed Quest app must include
+voice support. In AR, first [verify the outlines and confirm alignment](Room-AR.md#configure-and-verify-the-physical-room-first).
 
 Pre-voice recovery: commit `6e20899`, tag
 `checkpoint/2026-09-20-160737`. The local PC save
@@ -28,11 +31,11 @@ the current scene. Personal saves, builds, and model weights are not Git source.
 
 | Control | Action |
 | --- | --- |
-| Right trigger while pointing | Select an existing object or a floor placement point. |
+| Right trigger while pointing | Select an existing object or a supported placement point (floor or, in AR, furniture top). |
 | Hold left trigger | Record speech, up to 15 seconds. |
 | Release left trigger | Send the recording to the PC for transcription and AI planning. |
 | Y, after reading the proposal | Apply the reviewed voice proposal once. |
-| Left grip | Undo one runtime edit. A proposal containing several edits may need several undo presses. |
+| Left grip | Undo one runtime edit; AR triggers Undo on release. A proposal containing several edits may need several undo presses. |
 
 On the first recording attempt, accept **microphone access** inside the headset.
 Then release and hold the left trigger again; accepting permission does not
@@ -86,7 +89,7 @@ For permission denial, enable microphone access in headset app permissions.
 For stale selection, select again and repeat. Silence, very short recordings,
 invalid audio, and unavailable Codex produce no executable proposal.
 
-## Validation boundary
+## Original voice milestone validation
 
 - **Automated:** 214 Python tests passed, including 31 mocked voice/context
   tests. Unity core validation passed **181 checks in each build target**.
@@ -108,5 +111,8 @@ invalid audio, and unavailable Codex produce no executable proposal.
   readability still await separate wearer confirmation; telemetry alone does
   not establish comfort or the full focus/tracking checklist.
 
-Native MRUK/passthrough remains a separate pending milestone with its documented
-Meta assembly blocker. This update does not claim room-aware AR hardware success.
+At this original voice milestone, native MRUK/passthrough validation was still
+pending. The later [room-AR milestone](Room-AR.md) completed Quest Pro placement,
+voice editing, and save/clear/restore; the earlier Meta assembly blocker is
+historical. These later results do not retroactively change the scope of the
+white-room checks above.

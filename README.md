@@ -1,110 +1,246 @@
 # Matrix Loading Operator
 
-**Versioned downloads:** [GitHub Releases](https://github.com/School-of-the-Ancients/matrix-loading-operator/releases) preserves milestone APKs with matching PC services, source tags and checksums. See [versions and submission snapshots](Docs/Versions-And-Submissions.md) to run an earlier build or freeze a coursework version.
+Build and edit scenes by typing or speaking: **“Put an orb here. Make it larger. Float it above the table.”** Review the proposed changes, apply them, then use Undo or save the scene for later.
 
-Matrix Loading Operator builds and edits scenes from bundled and installed prefabs using a PC-hosted Codex provider. The **virtual white room** and **room-aware AR** share controller selection, push-to-talk, model/reasoning selection, reviewed edits, undo/redo, and PC save/load. Props support live **Rotate** and **Bob** configurations. Quest Pro remains the validated AR device; the current expansion prepares Quest 3/3S camera access.
+Matrix runs as a **Windows virtual room**, a **Quest virtual room**, or **room-aware Quest AR**. A Python service on your PC connects the app to the browser Operator and an optional AI provider. Compatible prefab packs add props to an installed app without rebuilding its APK.
 
-**Rendered scene feedback:** the Operator can now capture and preview the current virtual view and explicitly attach it to a typed request or the next headset voice request. Real Codex image input supplements the matching structured scene snapshot; read-only reviews, supported corrections, Apply, and Undo share the existing workflow. Default AR previews exclude physical passthrough. The new opt-in Quest 3 mixed mode uses SDK camera intrinsics to combine a physical frame with virtual rendering; hardware alignment validation is pending. The earlier graphical desktop run passed **83 checks with three real Codex turns**, including an image-only color observation and edit/undo/save/restore. **Quest Pro AR capture, a real AI image review, and capture-frame timings are recorded separately.** Start with the [visual feedback guide](Docs/Visual-Feedback.md) and [recorded evidence](Validation/visual-feedback-validation.json).
+**[Download a version](https://github.com/School-of-the-Ancients/matrix-loading-operator/releases)** · **[Latest validated checkpoint](Docs/Current-Checkpoint.md)** · **[Content library guide](Docs/Content-Library-User-Guide.md)** · **[Issues](https://github.com/School-of-the-Ancients/matrix-loading-operator/issues)**
 
-**Content library:** start with the [user guide](Docs/Content-Library-User-Guide.md) for rebuild requirements, manual preparation statuses, and AI usage. Open `/content` on the PC Operator service to search configured local/HTTP catalogs, install matching Unity prefab packs, track Asset Store preparation, and generate images with a reviewed local ComfyUI workflow. Newly installed props join the AI catalog and retain exact source/version references through scene saves. See the [connector guide](Docs/Content-Catalogs.md), [prefab pack exporter](Docs/Content-Packs.md), and [spatial/content validation](Validation/Spatial-Content-Validation.md). New scripts require a player build; animation/video/background-specific loaders remain future work.
+These instructions describe this source checkout. Historical releases have different capabilities: use the APK and PC service from the **same release**, and read its included instructions. The [version guide](Docs/Versions-And-Submissions.md) maps preserved builds to their features.
 
-Start here: **[Runtime behaviors](Docs/Runtime-Behaviors.md)** · **[Quest Pro room AR](Docs/Room-AR.md)** · **[Voice and model controls](Docs/Voice-And-Codex-Controls.md)** · **[Current checkpoint](Docs/Current-Checkpoint.md)**.
+![Unity-rendered gallery of the seven bundled props: chair, table, wall, pedestal, block, orb and column](Validation/white-room-preview.png)
 
-The new room-AR path uses passthrough and manually configured MRUK room data, first showing labeled outlines for wearer verification. Physical placement uses anchor-local geometry, measured prefab bounds and MRUK contact checks through the same executor and persistence system. Significant room changes retain read-only poses for save/clear/recovery; missing anchors reject restoration explicitly. See the room-AR guide for current build and hardware evidence. White-room headset results do not establish physical alignment. The first downloadable content path now supports trusted static prefab packs; broader animation, media and interactive content support remains incremental.
+*An arranged Unity Editor preview. The app starts with an empty scene.*
 
-Build with `./Build-WhiteRoom.ps1 -Target Desktop` or `-Target Quest`. This creates a separate Unity-only project for each target under `.white-room-fixture/`; virtual mode uses standard Unity OpenXR and needs no MRUK room data or Meta Core. It preserves the original MR project and makes no antivirus changes. Run `./Start-ControlService.ps1` for offline commands, or `./Start-CodexControlService.ps1` for the selected ChatGPT/Codex subscription mode, then open <http://127.0.0.1:8765/>. Run `Builds/WhiteRoomDesktop/MatrixOperator.exe` for desktop use. For the already installed Quest app, run `./Connect-QuestControl.ps1` after reconnecting USB and open **Matrix Operator** manually from **Unknown Sources**. The installer succeeds at installation/forwarding but its implicit launch failed on the tested Quest OS.
+## Find the right guide
 
-The behavior increment passes **292 Python tests**, **301 Unity checks in each of the desktop, white-room Quest, and room-AR Quest builds**, and **46 actual Windows-player checks with four real Codex requests**. Rotate/Bob can coexist, pause, resume, and be removed; their configurations survive undo and save/load while animated visual offsets leave saved placement unchanged. A PC-derived skill catalog tells the AI which capabilities the connected player actually supports. General motion programs, interaction triggers, physics, and navigation remain proposed in the [LLMR runtime review](Docs/LLMR-Behavior-Runtime.md).
+| I want to… | Start here |
+| --- | --- |
+| Try it without a headset | [Desktop quick start](#desktop-quick-start) |
+| Place objects in my real room | [Quest AR quick start](#quest-ar-quick-start), then [room setup and controls](Docs/Room-AR.md) |
+| Use the fully virtual Quest app | [White-room build and controls](Docs/White-Room.md#quest-pro-build-and-controls) |
+| Speak instead of typing | [Voice setup below](#use-voice-and-choose-an-ai-model), then [voice and model controls](Docs/Voice-And-Codex-Controls.md) |
+| See what a prefab looks like and install it | [Browse, preview and use a prefab](#browse-preview-and-use-a-prefab) |
+| Bring in Unity Asset Store content | [Import walkthrough](Docs/Content-Library-User-Guide.md#bring-in-a-new-unity-asset-store-prop) and [pack exporter](Docs/Content-Packs.md) |
+| Add a catalog or ComfyUI workflow | [Provider configuration](Docs/Content-Catalogs.md) |
+| Let AI inspect the current view | [Capture how-to](#show-the-ai-a-scene-capture) and [visual feedback guide](Docs/Visual-Feedback.md) |
+| Animate, save or restore my scene | [First scene walkthrough](#make-your-first-scene), [behaviors](Docs/Runtime-Behaviors.md) and [save/restore](#save-clear-and-restore) |
+| Freeze a build for coursework | [Versions and submission snapshots](Docs/Versions-And-Submissions.md#freeze-each-submission) |
+| Develop or connect another AI provider | [Development](#development), [AI integration](Docs/AI-Integration.md) and [PC API](ControlService/README.md) |
 
-**Quest Pro acceptance passed:** actual headset speech asked the real Codex provider to rotate and float the existing orb. Both behavior commands were acknowledged; the wearer saw bobbing. **30 actual-device checks** passed across baseline movement/undo, pause/resume, removal/undo, and exact PC save/clear/restore. The wearer confirmed the restored orb remained on the same real table spot and kept bobbing. One post-restart room restoration with unchanged anchors was also verified. The original static orb is restored and selected; the animated version remains saved as **`AnimatedRoomBehavior_20260920_181054`**. Rotation was acknowledged but not separately visually verified on the uniform orb. See [headset evidence](Validation/behavior-headset-results.json), [complete behavior validation](Validation/behavior-validation.json), and [AI setup](Docs/AI-Integration.md).
+## Desktop quick start
 
-To use AI, refresh the Operator page, select **Codex (ChatGPT subscription)**, type a request, choose **Create proposal**, review it, then **Apply reviewed proposal**. Wait for the runtime acknowledgement and keep controller edits idle during inference. If only the old offline option appears, refresh the page after starting the Codex service.
+For a source build, install **Unity 6000.6.0f1** and **Python 3.10+**. Quest builds also need Unity's Android Build Support, SDK/NDK and OpenJDK. The basic PC service uses Python's standard library; voice has a separate setup step.
 
-Unity Hub copies are available under **Desktop → Game Design → Matrix White Room Quest** and **Matrix White Room Desktop**. Use Unity **6000.6.0f1** and the exact scene paths in the [Desktop project guide](Docs/Desktop-Unity-Hub.md). The sibling **Matrix Loading Operator** checkout contains the full repository, copied builds and local saves. Check the current checkpoint before assuming these copies contain the latest source. The behavior work is on `codex/runtime-prefab-behaviors` in [PR #7](https://github.com/School-of-the-Ancients/matrix-loading-operator/pull/7), starting from the completed room-AR checkpoint `6962eaf`; the preceding AR work is in [PR #6](https://github.com/School-of-the-Ancients/matrix-loading-operator/pull/6).
+Clone the repository and run these commands in PowerShell. A plain clone starts on `main`; if following an unmerged PR or a tagged milestone, switch to its branch or tag before building.
 
-![Unity-rendered gallery of the seven bundled white-room props](Validation/white-room-preview.png)
-
-The gallery is an arranged Editor preview; the app starts with an empty room.
-
-<details>
-<summary>Earlier physical-room / MRUK prototype documentation</summary>
-
-The following sections document the separate AR/MRUK path. Its Windows simulation previously passed the spawn/edit/save/restore loop. Its Meta Core APK build encountered an antivirus quarantine, described in [the historical security report](Docs/Security-Block.md). That evidence is specific to the original MR build, not the virtual white-room build above.
-
-## Connected learning layer
-
-The separately preserved **Observation and Scale** prototype is an authored, cited activity backed by the `sota-v2` lesson runtime. Its optional PC panel is at <http://127.0.0.1:8765/learning>; the root page stays focused on the white-room Operator. Predict a block's change, revise it through the existing language proposal flow, record actual runtime evidence, explain it and reflect. PC saves can link the room to a durable lesson checkpoint; restoring it preserves later original progress. Completion records participation rather than a mastery grade.
-
-Use sibling checkouts of this branch and `sota-v2`'s `codex/operator-learning-sessions` branch. With Node.js 24+, Python 3.10+ and Unity installed, run `./Build-DesktopFixture.ps1`. Start `npm run dev:operator` in the v2 checkout and `./Start-ControlService.ps1` here, then run `Builds/Desktop/AR-Sandbox.exe`. The isolated fixture builds the explicit Windows simulation without importing Meta packages; native Quest validation remains separate. See the [activity runbook](Docs/Learning-Sessions.md), [organization/research review](Docs/Organization-Review.md), and [learning-layer validation](Validation/Learning-Validation.md).
-
-## Open a fresh clone
-
-Clone this repository and add its root folder in Unity Hub. Install Unity **6000.6.0f1**; native Quest builds also require Android Build Support, SDK/NDK and OpenJDK. Unity resolves the pinned dependencies in `Packages/manifest.json` on import.
-
-This repository contains source, scenes, prefabs, settings and sanitized validation summaries. Builds, imported SDK caches, credentials, local room saves and raw logs are excluded. The MIT license applies to the authored project code; Unity and Meta dependencies retain their respective licenses and are restored through Package Manager.
-
-Open `Assets/Sandbox/Scenes/QuestSandbox.unity` for the native room application, or `DesktopFixture.unity` for the explicit simulation. Before batch-building, close the project's Editor. In PowerShell at the repository root, run `./Build-Desktop.ps1` or `./Build-Quest.ps1`; both accept `-UnityEditor` for a different editor executable location. Desktop builds from this full project also import the Meta SDK. The previously verified desktop build used an independent no-Meta fixture, so it is not proof that this full project currently imports successfully past the reported quarantine.
-
-## Run the desktop prototype after building
-
-1. In PowerShell at this project folder, run `./Start-ControlService.ps1` (Python 3.10+). Keep that terminal open.
-2. Run the generated `Builds/Desktop/AR-Sandbox.exe` (not included in Git).
-3. Open [the PC control panel](http://127.0.0.1:8765/). It explicitly identifies **DESKTOP SIMULATION**.
-4. A simulated table is selected initially. In the player, click a surface to choose “here,” or click a prop to select “it.”
-5. Enter each request below, choose **Create proposal**, inspect it, then **Apply reviewed proposal**. Wait for the runtime's acknowledgement before the next request.
-
-```text
-Put a block here
-Make it twice as big
-Move it 20 cm left
-Rotate it 45 degrees
-Put an orb here
-Delete it
-Save as Demo
-Clear the scene
-Load Demo
+```powershell
+git clone https://github.com/School-of-the-Ancients/matrix-loading-operator.git
+Set-Location matrix-loading-operator
+.\Build-WhiteRoom.ps1 -Target Desktop
+.\Start-ControlService.ps1
 ```
 
-The restored block retains its original object ID, asset, room target, size, rotation, and anchor-local position. The same app stays running throughout. Directions are relative to the chosen surface axes, not the user's gaze. Save files are JSON in `ControlService/scenes`; repeating a name replaces that save atomically. Select a restored object again before saying “it.” Close the desktop simulation before connecting the Quest; the service pairs with one running application at a time.
+Keep the service terminal open. In a second terminal at the same repository:
 
-## Quest Pro setup and native build
+```powershell
+& .\Builds\WhiteRoomDesktop\MatrixOperator.exe
+```
 
-Source project: Unity **6000.6.0f1**, Meta Core/MRUK **205.0.0**, built-in rendering, OpenXR, ARM64 IL2CPP. Android SDK/NDK/JDK support was installed on the original validation workstation; install it through Unity Hub on a fresh machine. Open `Assets/Sandbox/Scenes/QuestSandbox.unity` (or **Sandbox → Open Quest scene**). `SandboxProjectSetup.Generate` creates bundled assets and both scenes through Unity Editor APIs.
+1. Open the [Operator](http://127.0.0.1:8765/), wait for **WHITE ROOM CONNECTED**, and set **Language mode → Offline commands (limited vocabulary)**.
+2. Click a floor point in the player to choose where a prop should go.
+3. Enter **“Summon a chair here”** in the browser, choose **Create proposal**, review it, and **Apply**. Wait for the runtime acknowledgement.
+4. Click the chair to select it, then try **“Make it twice as big”** and **“Undo”** as separate proposals.
 
-After the security detection is resolved, close the project's Editor and run `./Build-Quest.ps1`. A successful build writes `Builds/Quest/AR-Sandbox.apk`; **that file does not currently exist**. `./Install-Quest.ps1` installs the APK and sets `adb reverse tcp:8765 tcp:8765` for one USB-authorized headset. Run the PC service, then launch AR Sandbox from the Quest's installed apps. No firewall changes are needed for this USB path.
+Selecting offline mode uses the deterministic **offline parser**, so no AI account is required. Use its [supported vocabulary](Docs/AI-Integration.md#offline-vocabulary). For open-ended requests, use the Codex service below.
 
-In the standalone Quest Pro, use **Space Setup** to manually outline the floor and a table, then grant the app spatial-data permission. The application requests actual device **Scene Model V1**; it does not substitute the simulation or require Quest 3 depth/high-fidelity scanning. Room and surface UUIDs identify placements. Recreating the configured room can change those IDs; mismatched saves fail explicitly instead of shifting to a guessed origin.
+Hold the right mouse button and use **WASD** to move the desktop camera; **Q/E** lowers/raises it. Release the mouse button to work in the browser. The [white-room guide](Docs/White-Room.md) covers more controls and opening the generated project in Unity.
 
-Controllers:
+Build scripts accept `-UnityEditor '<full path to Unity.exe>'` if your installation is elsewhere. Close the generated project's Editor before batch-building it.
 
-- Right trigger: select a surface point or existing object. A: add prop. B: cycle prop.
-- X: delete the selected object. Left stick: move. Right stick: rotate/resize.
-- Y: retry room loading. **Left grip + Y:** open native Space Setup, then reload.
-- Save and clear sandbox objects before room setup/reload; existing objects prevent it.
+## Quest AR quick start
 
-See [MRUK and Quest Pro details](Docs/MRUK-QuestPro.md) for setup, sample references, and the physical acceptance checklist. Real room setup must occur on-device; Link is not a substitute for this test.
+This connection walkthrough supports **Quest Pro and Quest 3** with developer mode enabled, a USB data cable, an awake headset and authorized USB debugging. Quest Pro has the recorded room-placement and content-pack walkthrough; **Quest 3 camera-composite validation still needs hardware testing**. The USB helper currently rejects Quest 3S, even though the candidate camera code targets 3/3S; its connection-helper support remains to be added.
 
-## AI and offline language commands
+1. From the repository, build the AR app:
 
-The default **Offline commands** mode is a finite English parser, **not an AI model**. The newer **codex-cli** mode uses the PC's existing ChatGPT-authenticated Codex CLI and has passed the complete reviewed spawn/edit/save/clear/restore loop on Quest Pro. Unsupported offline language produces an error; it does not invent assets or IDs.
+   ```powershell
+   .\Build-RoomAR.ps1
+   ```
 
-The replaceable AI adapter supports a configured OpenAI-compatible `/chat/completions` provider. Set `SANDBOX_AI_BASE_URL`, `SANDBOX_AI_MODEL`, and, for a remote provider, `SANDBOX_AI_KEY` in the service's environment, then restart it. It can also use explicitly configured OpenAI/OpenRouter key+model variables. No model is guessed from a key alone. Credentials stay in the PC process, outside Unity and scene saves. See [AI integration and supported phrases](Docs/AI-Integration.md).
+2. Install the resulting APK. Replace the serial with the intended device from `adb devices -l`:
 
-The provider receives the request, available props, current objects, room targets, and selection. Proposals are validated, expire after two minutes, and are bound to the current application session and scene/selection revision. Applying a stale or already-used proposal fails; create another. Save/load intents run on the PC and require prior edits to finish. Current live-Codex results are recorded above; the compatible HTTP provider route has mock evidence. Voice input is not implemented.
+   ```powershell
+   $adb = 'C:\Program Files\Unity\Hub\Editor\6000.6.0f1\Editor\Data\PlaybackEngines\AndroidPlayer\SDK\platform-tools\adb.exe'
+   & $adb devices -l
+   $questSerial = '<your connected Quest serial>'
+   & $adb -s $questSerial install -r '.\Builds\RoomARQuest\MatrixOperatorAR.apk'
+   ```
 
-## Validation and continuation
+3. Start one PC service from this checkout and leave it running. For typed offline commands use `.\Start-ControlService.ps1`; for AI use [the Codex setup below](#use-voice-and-choose-an-ai-model). In a second terminal run:
 
-| Scope | Result |
+   ```powershell
+   .\Connect-QuestControl.ps1
+   ```
+
+4. Open **Matrix Operator AR** manually in the headset's **Unknown Sources** app list. The separate **Matrix Operator** app is the fully virtual room.
+5. Complete the headset's **Space Setup** and allow **spatial data** permission. Wait for room localization and inspect the floor/table outlines against the real room.
+6. In the [Operator](http://127.0.0.1:8765/), choose **Outlines align — enable editing** after verifying alignment. Point at an open floor or tabletop patch and press **right trigger** to select it.
+7. Try **“Put an orb here”** through the proposal/review/Apply flow.
+
+After reconnecting USB, run `Connect-QuestControl.ps1` again. Only one runtime owns a service connection: quit the desktop player or other Matrix app before switching; the inactive lease expires after 15 seconds.
+
+The default port is **8765**. If using another port, the service, app URL and USB forwarding must all match. An APK update preserves app data, including a previous `control.json` URL. See [troubleshooting](#troubleshooting) and the full [room AR runbook](Docs/Room-AR.md).
+
+## Use voice and choose an AI model
+
+The Codex provider uses the native Codex CLI's existing **ChatGPT sign-in** on the PC. Install/sign in to that CLI first; the launcher checks its login state. Credentials do not need to be pasted into the Operator.
+
+From the repository, with the previous service stopped:
+
+```powershell
+# Once per checkout, if you want headset speech:
+.\Setup-LocalSpeech.ps1
+
+# Start the AI-enabled service and keep this terminal open:
+.\Start-CodexControlService.ps1
+```
+
+Refresh the Operator, choose **Codex (ChatGPT subscription)**, then select an available model and reasoning effort. If `codex.exe` is not on PATH, supply `-CodexExe '<full path to codex.exe>'`. Provider options are in [AI integration](Docs/AI-Integration.md).
+
+| Headset action | Control |
 | --- | --- |
-| Unity core/application checks | 80 passed; independent no-Meta fixture |
-| Actual Windows player + PC language/save loop | 41 passed; explicit offline parser and simulated room |
-| PC HTTP service + AI adapter | See current `Validation/service-tests.txt`; includes mock provider, stale proposals, save/load and failure handling |
-| Quest adapter Editor/Android source branches + build setup | C# metadata compilation passed; not a native APK build |
-| Android build | Blocked by antivirus quarantine during Meta assembly compilation |
-| Earlier MRUK headset + AI path | Not run; current virtual-room headset/Codex evidence is recorded above |
+| Select a prop or placement point | Point and press **right trigger** |
+| Record a request | Hold **left trigger**; release to submit |
+| Apply the voice proposal after reviewing it | **Y** |
+| Undo one edit | **Left grip**; in AR, undo happens on release |
 
-Reproduce PC tests with `python -m unittest discover -s ControlService -v`. Reproduce the actual player loop with `python Validation/Run-Prototype-Loop.py`; it uses a temporary service/save folder and terminates only its own test player. [Exact runtime evidence](Validation/prototype-loop-results.json), [core evidence](Validation/core-results.json), and the [durable progress log](Docs/Progress-Log.md) record what passed and how to resume. The [validation report](Validation/Prototype-Validation.md) separates source, simulation, build, and hardware results.
+On the first voice attempt, accept microphone permission, release the trigger, then hold it again. Speech is transcribed on the PC; the transcript and scene context go to the selected AI provider. Keep other edits idle during planning. Read the proposal and wait for an acknowledgement after Apply: transcription alone does not change the scene.
 
-Published validation reports describe the original local runs and have workstation paths redacted. Raw logs remain local. See [handoff status](Docs/Publication.md) before resuming native validation.
+See [voice controls](Docs/Voice-And-Codex-Controls.md) for cancellation, tracking and model selection, and [AR controls](Docs/Room-AR.md#controls-in-room-ar) for spawning, nudging, resizing and room reload.
 
-</details>
+## Make your first scene
+
+Start with a selected floor/table point and, in AR, confirmed room alignment. Use one request at a time: **create → review → Apply → wait for confirmation**.
+
+| Request | What to check |
+| --- | --- |
+| “Put an orb here.” | The orb appears at the selected point. |
+| “Make it twice as big.” | The same selected orb changes size. |
+| “Make this orb rotate slowly and float gently.” | With the AI provider, Rotate/Bob behavior is configured on that orb. |
+| “Stop the bobbing but keep it rotating.” | Only the requested behavior changes. |
+| “Undo.” | One successful edit reverses; a multi-command proposal may need several undos. |
+
+**“Here”** means the selected placement point; **“it”** means the selected object. Select a prop in the player or PC object list before editing it. Larger layouts such as **“Put a table in front of me with two chairs”** require the AI provider and suitable tracked room space.
+
+Rotate and Bob are built-in configurable behaviors. They are not downloaded animation clips or a physics simulation. See [behavior controls and limits](Docs/Runtime-Behaviors.md).
+
+### Save, clear and restore
+
+1. Wait for pending edits to finish. Under **Save and restore**, enter a new name such as `MyFirstRoom` and choose **Save current scene**.
+2. After the save is confirmed, choose **Clear scene**.
+3. Select that save and choose **Restore selected scene**. Check the arrangement in the player.
+
+Alternatively, request **“Save scene as MyFirstRoom”**, **“Clear the scene”**, and **“Restore MyFirstRoom”** as separate reviewed proposals. Reusing a name replaces that save. Saves live on the PC in `ControlService/scenes/` by default; Undo history lasts only while the app runs.
+
+AR restores require the same room and compatible anchors. After an app restart, reinstall required content packs before restoring their scene; cached pack bytes can be reused. A changed room or missing pack is reported instead of silently substituting content. See [room recovery](Docs/Room-AR.md#missing-anchors-and-recovery).
+
+## Browse, preview and use a prefab
+
+Open the [Content library](http://127.0.0.1:8765/content#prefabBrowser) on the **same service as your runtime**. Substitute your service's port if it differs.
+
+1. The **Prefab browser** shows the connected app's bundled and installed props. Use its name, availability and source filters.
+2. Choose **Browse available packs** to include individual prefabs from configured catalogs. A fresh checkout needs [provider configuration](Docs/Content-Catalogs.md#configure-providers-on-the-pc) before external packs appear.
+3. Choose **Preview prefab** when a matching sample exists. It shows a thumbnail and larger image without installing a pack or changing your room. The supplied samples are Unity Editor renders, not an interactive 3D viewer; providers must publish a matching image for each preview.
+4. Choose **Install pack** and wait for the running app's `ready` acknowledgement. This installs the whole pack. Quest uses **Android** bundles; a Windows bundle is a separate build.
+5. Choose **Use in Operator** on an installed prop. It selects the prop and fills an empty request; it does not call AI or spawn anything. Select a placement point, create a fresh proposal, review and Apply.
+
+The [content library user guide](Docs/Content-Library-User-Guide.md) includes a complete sci-fi beacon walkthrough, restart/restore steps and AI examples.
+
+### Can I import anything from the Unity Asset Store?
+
+The current loader supports **static mesh prefabs with supported materials and simple colliders**. Prepare them in Unity, export a platform-specific pack, configure its catalog, then install it in Matrix. Exact Unity version **6000.6.0f1** and target platform must match the player.
+
+| Change | Rebuild the APK? |
+| --- | --- |
+| Add another supported static prop | **No.** Export and install a new content pack. |
+| Change a supported prop's mesh, material or texture | **No.** Export a new pack version. |
+| Add a prefab preview image | **No.** Publish the matching catalog sample. |
+| Start from an older APK without the content loader | **Yes.** Install a loader-enabled app and matching service first. |
+| Add C# behavior, Animator playback, rigged characters or another unsupported feature | **Yes.** Implement and validate that runtime capability, then build the updated app. |
+
+The **Unity asset preparation checklist** records manual progress:
+
+| Status | Meaning |
+| --- | --- |
+| **Queued** | Recorded a package URL or staged an existing package for later work. |
+| **Acquired** | Obtained the licensed source asset. |
+| **Imported** | Imported it into a Unity Editor project. |
+| **Exported** | Built the Matrix pack and catalog files. |
+| **Failed / Cancelled** | Recorded why preparation stopped. |
+
+Changing a status does not perform those actions. **Installed / ready** is a separate result from the running app. Follow the [Asset Store walkthrough](Docs/Content-Library-User-Guide.md#bring-in-a-new-unity-asset-store-prop) and [pack authoring guide](Docs/Content-Packs.md).
+
+For a single asset in a fixed Unity scene, direct Unity authoring is simpler. Matrix's preparation pays off when you reuse the installed app to compose many scenes with new packs, reviewed AI edits, Undo and save/restore.
+
+### How does the AI know what it can use?
+
+Each proposal receives the connected app's prefab IDs, measured geometry, selection, room context and advertised behavior capabilities. The PC supplies [planner instructions and capability contracts](ControlService/ai_adapter.py); users do not need to paste a separate guide into every request.
+
+Recent catalog searches help the AI recommend a pack, but only **installed** assets can be placed. AI does not acquire Asset Store assets, run Unity imports/exports, install packs or start generation jobs on its own. Install the needed pack, then create a new proposal.
+
+**Generate with ComfyUI** is a separate, explicitly approved workflow in the library. Its image goes to the PC cache; it does not automatically create a headset background or 3D environment. Catalog categories such as animations, sounds and behaviors organize resources, and do not imply those runtime loaders exist. See [content and AI usage](Docs/Content-Library-User-Guide.md#what-can-i-ask-the-ai-to-do).
+
+## Show the AI a scene capture
+
+1. In **Scene preview**, choose an available image source and **Capture current view**.
+2. Inspect the preview and select an explicitly listed image-capable AI model.
+3. Check **Send this preview with my typed request**, or choose **Include preview in next headset voice request**.
+4. Ask a visual question or request a correction. Read-only image reviews do not need Apply; proposed edits still do.
+
+Capturing alone does not call AI. Captures expire after 30 seconds and after relevant scene/selection/session changes; recapture when needed.
+
+On **Quest Pro**, the capture contains virtual objects and visible room outlines, without physical passthrough pixels. The **Quest 3/3S** AR camera-composite path is implemented as a candidate, but permission, alignment, image quality and performance remain hardware-unverified. Physical depth/occlusion is not implemented. See [visual feedback](Docs/Visual-Feedback.md) for supported modes and evidence.
+
+## Troubleshooting
+
+| Symptom | What to check |
+| --- | --- |
+| PC service offline / runtime disconnected | Keep its terminal open, open the intended app and rerun `Connect-QuestControl.ps1` after USB reconnection. Match the app URL, service port and reverse mapping. |
+| Port already in use | Reuse the intended service or stop it before starting its replacement. Both launcher scripts accept `-Port`; USB forwarding alone does not change the app's retained URL. |
+| Another app owns the connection | Quit the other Matrix app or desktop player and allow 15 seconds for its lease to expire. |
+| Room loading / editing disabled | Check spatial permission, Space Setup and localization. Inspect and confirm outlines on the PC. Reload an empty room with **left-stick click**; **Y applies voice proposals**. See [room recovery](Docs/Room-AR.md#missing-anchors-and-recovery). |
+| Voice unavailable | Run speech setup in the service's checkout, check microphone permission and PC connection, then release/re-hold left trigger. Use matching current APK/service versions; earlier releases had a stale loading-status label. |
+| Only offline mode appears | Start the Codex service with a valid CLI sign-in, then refresh the Operator. |
+| Prefab missing / no preview button | Use **Browse available packs** and check enabled provider configuration. Previews require a matching published image. |
+| Install disabled / AI cannot use the prop | Check the app has the loader, exact Unity/platform compatibility and a fresh `ready` result. An exported checklist item is not an installation. |
+| Restore needs a pack | Reinstall its exact pack/version after app restart, then restore. Keep its catalog and exported files available. |
+| Image cannot be attached to AI | Use an advertised image-capable model and recapture a fresh view. See [visual feedback](Docs/Visual-Feedback.md). |
+
+For a configured LAN connection instead of USB forwarding, see the [PC connection guide](ControlService/README.md#connect-a-native-quest-client). Check the [current checkpoint](Docs/Current-Checkpoint.md) for known deployment gaps: a refreshed browser does not update the running service or installed APK.
+
+## Development
+
+| Location | Purpose |
+| --- | --- |
+| `Assets/Sandbox/Runtime/` | Unity state, command execution, room adapters, capture and content loading |
+| `Assets/Sandbox/Editor/` | Scene generation, pack export, preview rendering and validation |
+| `ControlService/` | Python service, browser Operator/library, provider integrations and tests |
+| `Docs/` | User guides, architecture and milestone notes |
+| `Validation/` | Validation runners and sanitized evidence |
+
+Build scripts stage isolated projects in `.white-room-fixture/` and `.room-ar-fixture/`. Change the repository's source and regenerate; edits only in generated projects do not flow back. Builds, local scenes, caches, credentials and raw room captures are excluded from Git.
+
+Run PC checks from the repository root:
+
+```powershell
+python -m unittest discover -s ControlService -v
+node ControlService/test_operator_panel.js
+node ControlService/test_content_panel.js
+```
+
+Build scripts run Unity checks. PC tests and compilation do not establish headset alignment, input or rendering. See the [current checkpoint](Docs/Current-Checkpoint.md), [spatial/content validation](Validation/Spatial-Content-Validation.md) and [Quest prefab walkthrough](Validation/content-headset-walkthrough.json) for automated results and wearer observations. Validation runners offering `--run` can invoke AI or edit a scene; read their guide before using that mode.
+
+Further reading: [architecture](Docs/AI/UnityProjectContext.md), [runtime editing](Docs/Runtime-Editing.md), [learning-session prototype](Docs/Learning-Sessions.md), [progress history](Docs/Progress-Log.md) and [submission release checklist](Docs/Versions-And-Submissions.md#freeze-each-submission).
+
+Authored code uses the [MIT license](LICENSE). Unity, Meta and imported content retain their respective licenses; preserve asset attribution and distribution terms when publishing packs.
