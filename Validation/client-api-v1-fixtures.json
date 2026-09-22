@@ -24,7 +24,32 @@
       "content.prepare": false,
       "events.stream": false,
       "hostedBrowserConnection": false,
-      "physicalMeasurements": false
+      "physicalMeasurements": false,
+      "experiment.block-scale.v1": {
+        "version": 1,
+        "kind": "block-scale",
+        "assetId": "block",
+        "supportedRoomModes": [
+          "white-room"
+        ],
+        "factorBounds": {
+          "minimum": 0.25,
+          "maximum": 4
+        },
+        "resultScaleBounds": {
+          "minimum": 0.01,
+          "maximum": 20
+        },
+        "units": "dimensionless factors relative to a captured baseline",
+        "result": "mathematical volume ratio from acknowledged transform scale; not physical volume or physics",
+        "actions": [
+          "configure",
+          "reset"
+        ],
+        "requiresOperatorApply": true,
+        "stop": "cancel-before-apply only; static changes have no running simulation to stop",
+        "identityGuarantee": "runtime builtin asset ID only; no immutable build digest is available"
+      }
     },
     "limits": {
       "pairingSeconds": 120,

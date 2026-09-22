@@ -20,7 +20,7 @@ this API after its actual deployment path is demonstrated.
 | Discovery | Loopback only; no pairing required; contains no scene or images |
 | Client authentication | One-use pairing code exchanged for a scoped bearer token |
 | Runtime binding | One exact runtime lease generation; even the same app returning after lease expiry requires a new pairing |
-| Proposal input | Existing `offline-rules` text grammar; this is not a general AI model |
+| Proposal input | Existing `offline-rules` text grammar; optional typed `experiment.block-scale.v1` intent; neither is a general AI model |
 | Apply | Human owner in Matrix's `/clients` page with the Operator service token |
 | Capture and content installation | Not exposed to clients; remain available through the existing Operator |
 | Measurement | Runtime-reported snapshots/transforms; no claim of measured physical dimensions or volume |
@@ -50,7 +50,7 @@ feature as a public control endpoint or put the service token into a hosted site
 3. Run `python Examples/matrix_client.py --url http://127.0.0.1:<port>` and enter
    the code at its hidden prompt. The sample keeps its client token in memory.
 4. The sample requests “Place a block here.” Select a valid placement point in
-   the runtime first, and ensure `cube` exists in its installed catalog. Use
+   the runtime first, and ensure `block` exists in its installed catalog. Use
    `--text` to choose another supported offline command.
 5. Review the actual commands in `/clients` and choose **Apply reviewed
    proposal**. No client request applies itself. The sample polls until a result
@@ -117,7 +117,7 @@ interpret their own conversations and use the correlation ID to connect results.
   "proposal": {
     "planId": "existing-matrix-plan-id",
     "requiresApply": true,
-    "commands": [{"op": "spawn", "assetId": "cube", "anchorId": "floor", "transform": {
+    "commands": [{"op": "spawn", "assetId": "block", "anchorId": "floor", "transform": {
       "position": {"x": 1, "y": 0, "z": 2},
       "rotation": {"x": 0, "y": 0, "z": 0},
       "scale": {"x": 0.2, "y": 0.2, "z": 0.2}
@@ -133,6 +133,15 @@ interpret their own conversations and use the correlation ID to connect results.
 
 An executable proposal always has at least one validated command. Full
 deterministic HTTP fixtures are in `Validation/client-api-v1-fixtures.json`.
+
+The optional `experiment.block-scale.v1` discovery capability adds a typed
+`block-scale` configure/reset intent to this same request envelope. It scales one
+existing built-in block relative to a service-captured baseline in a virtual
+room. Requests retain the same revision, pairing, Apply and cancellation rules.
+The additional `experiment.observationState` and `experiment.observation` fields
+distinguish verified mathematical scale ratios from merely successful command
+receipts. See [the exact experiment contract](Scale-Experiment.md) before using
+this optional capability; text requests and their result envelopes are unchanged.
 
 Offline spawn requests on a measured MRUK support include `placement:"surface"`.
 The selected point is a support-plane point, not the prefab pivot. Existing
