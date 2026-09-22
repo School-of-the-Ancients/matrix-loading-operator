@@ -11,6 +11,8 @@ import hmac
 import json
 import re
 import secrets
+import scale_experiment
+from ai_adapter import PlannerError
 
 
 PROTOCOL = "1"
@@ -65,7 +67,8 @@ class ClientAPI:
                         capabilities={"scene.read": True, "scene.propose_text": {"modes": ["offline-rules"], "requiresOperatorApply": True},
                                       "request.read": True, "request.cancel_before_apply": True,
                                       "capture": False, "content.prepare": False, "events.stream": False,
-                                      "hostedBrowserConnection": False, "physicalMeasurements": False},
+                                      "hostedBrowserConnection": False, "physicalMeasurements": False,
+                                      scale_experiment.CAPABILITY: scale_experiment.descriptor()},
                         limits={"pairingSeconds": PAIR_SECONDS, "sessionSeconds": SESSION_SECONDS,
                                 "sessionsPerServiceStart": MAX_SESSIONS, "requestsPerSession": MAX_REQUESTS,
                                 "activeRequestsPerSession": ACTIVE_LIMIT},
@@ -167,6 +170,10 @@ class ClientAPI:
     def public_request(self, session, request):
         fields = {key: copy.deepcopy(request.get(key)) for key in
                   ("requestId", "correlationId", "runtimeSessionId", "sequence", "status", "proposal", "commandIds", "receipts", "observed", "error")}
+        if request.get("experiment"):
+            fields["experiment"] = copy.deepcopy(request["experiment"])
+            fields["experiment"]["observation"] = scale_experiment.observation(request)
+            fields["experiment"]["observationState"] = "confirmed" if fields["experiment"]["observation"] is not None else "unconfirmed" if request["status"] == "succeeded" else "not-confirmed"
         return envelope(sessionId=session["sessionId"], requiresApply=request["status"] == "ready", **fields)
 
     def get_request(self, session, request_id):
@@ -187,9 +194,16 @@ class ClientAPI:
         require(isinstance(expected, dict) and set(expected) == {"runtimeSessionId", "revision"}
                 and isinstance(expected["runtimeSessionId"], str) and type(expected["revision"]) is int,
                 "invalid_request", "expected must contain runtimeSessionId and integer revision")
-        require(isinstance(intent, dict) and set(intent) == {"text", "mode"} and intent["mode"] == "offline-rules"
-                and isinstance(intent["text"], str) and 0 < len(intent["text"]) <= 4000,
-                "invalid_request", "intent must contain text and mode: offline-rules")
+        experiment = isinstance(intent, dict) and intent.get("kind") == "block-scale"
+        if experiment:
+            try:
+                scale_experiment.validate_intent(intent)
+            except PlannerError as error:
+                raise ClientError(error.status, "invalid_experiment", str(error)) from None
+        else:
+            require(isinstance(intent, dict) and set(intent) == {"text", "mode"} and intent["mode"] == "offline-rules"
+                    and isinstance(intent["text"], str) and 0 < len(intent["text"]) <= 4000,
+                    "invalid_request", "intent must contain text and mode: offline-rules")
         fingerprint = hashlib.sha256(json.dumps(body, sort_keys=True, separators=(",", ":")).encode()).hexdigest()
         with self.state.lock:
             self.state.expire()
@@ -204,6 +218,12 @@ class ClientAPI:
             require(len(session["requests"]) < MAX_REQUESTS, "request_limit", "Session request ledger is full; reconcile and pair a new session.", 429)
             require(sum(item["status"] in PRE_APPLY | {"queued", "running"} for item in session["requests"].values()) < ACTIVE_LIMIT,
                     "request_limit", "Finish active requests before proposing more work.", 429)
+            baseline = None
+            if experiment and "baselineRequestId" in intent:
+                previous = session["requests"].get(intent["baselineRequestId"])
+                require(previous is not None and previous.get("experiment") is not None and scale_experiment.observation(previous) is not None,
+                        "baseline_unconfirmed", "Reference a confirmed experiment request from this pairing.", 409)
+                baseline = copy.deepcopy(previous["experiment"])
             request = {"requestId": request_id, "fingerprint": fingerprint, "correlationId": correlation,
                        "runtimeSessionId": session["runtimeSessionId"], "sequence": 1, "status": "planning",
                        "proposal": None, "commandIds": [], "receipts": [], "observed": None, "error": None}
@@ -211,6 +231,8 @@ class ClientAPI:
             # Capture this exact revision for the existing planner's before/after
             # checks. Provider work must never hold the state exchange lock.
             context = (self.state.client_id, self.state.revision, copy.deepcopy(self.state.latest))
+            if experiment:
+                context += (baseline,)
         try:
             proposed = self.planner(self.state, intent, request_context=context)
         except Exception as error:
@@ -224,7 +246,8 @@ class ClientAPI:
             if request["status"] != "planning":
                 self.state.proposals.pop(proposed.get("planId"), None)
             else:
-                self._change(request, "ready" if proposed.get("requiresApply") else proposed.get("status", "needs_clarification"), proposal=proposed)
+                extra = {"experiment": copy.deepcopy(proposed["experiment"])} if experiment and "experiment" in proposed else {}
+                self._change(request, "ready" if proposed.get("requiresApply") else proposed.get("status", "needs_clarification"), proposal=proposed, **extra)
             return self.public_request(session, request)
 
     def cancel(self, session, request_id):

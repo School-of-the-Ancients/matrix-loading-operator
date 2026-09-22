@@ -31,6 +31,7 @@ from content_service import ContentBridge, runtime_capabilities
 from content_catalog import ContentError
 from quest_connection import QuestConnection
 from client_api import ClientAPI, ClientError
+import scale_experiment
 
 MAX_BODY = 1024 * 1024
 MAX_EXCHANGE_BODY = 3 * 1024 * 1024  # two bounded snapshots plus a base64 JPEG
@@ -642,7 +643,8 @@ class State:
 
 def plan(state, body, request_context=None):
     require(isinstance(body, dict), "Expected plan object")
-    prompt = text(body.get("text"), "text", limit=4000)
+    experiment = body.get("kind") == "block-scale"
+    prompt = None if experiment else text(body.get("text"), "text", limit=4000)
     mode = body.get("mode")
     require(mode in (None, "offline-rules", "openai-compatible", "codex-cli"), "Invalid planner mode")
     with state.lock:
@@ -668,7 +670,8 @@ def plan(state, body, request_context=None):
             options["catalog_context"] = candidates
         if screenshot is not None:
             options["screenshot"] = screenshot
-        proposed = Planner().plan(prompt, current, saved_scenes=saved_names, mode=mode, **options)
+        proposed = (scale_experiment.plan(body, current, request_context[3] if request_context is not None and len(request_context) > 3 else None)
+                    if experiment else Planner().plan(prompt, current, saved_scenes=saved_names, mode=mode, **options))
     except PlannerError as error:
         raise APIError(error.status, str(error)) from None
     values = proposed.get("commands")
