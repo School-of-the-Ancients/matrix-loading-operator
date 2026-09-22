@@ -1,0 +1,27 @@
+<!doctype html>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Matrix · Client connections</title>
+<style>
+:root{color-scheme:dark;font:16px system-ui;background:#101519;color:#ecf2f0}body{max-width:1000px;margin:auto;padding:28px}a{color:#7ee9b4}section,article{border:1px solid #43554b;border-radius:10px;padding:18px;margin:16px 0}button,input{font:inherit;background:#1e2924;color:inherit;border:1px solid #52655b;border-radius:6px;padding:10px;margin:4px}button{cursor:pointer}button:disabled{opacity:.4}p{line-height:1.5}pre{white-space:pre-wrap;overflow-wrap:anywhere;font-size:13px;background:#0a100d;padding:12px}label{display:block}#message{color:#f1ce7a;min-height:24px}.muted{color:#b1c0bc}
+</style>
+<a href="/">← Operator</a><h1>Client connections</h1>
+<p>Allow an application on this PC to read the connected scene and suggest changes. Every change still needs your review and Apply here. Pairing does not share camera images or authorize installation of content.</p>
+<p class="muted">Proposals expire after two minutes and whenever the scene or selection changes. Ask the client for a new proposal after reviewing the current scene.</p>
+<section><h2>Pair a local client</h2>
+<label for="token">Operator service token</label><input id="token" type="password" autocomplete="off" placeholder="SANDBOX_TOKEN"><button id="connect">Load connections</button>
+<p class="muted">The service must have a token of at least 24 characters. It stays in this page's memory. Client tokens have narrower permissions; do not give the service token to clients.</p>
+<label for="clientName">Client name</label><input id="clientName" maxlength="64" value="Independent sample client"><button id="pair">Create pairing code</button>
+<p id="pairingHelp">Open the intended runtime before pairing. Give the temporary code only to the client you want to connect.</p><pre id="pairingCode" hidden></pre>
+</section>
+<p id="message" role="status" aria-live="polite"></p><div id="sessions"></div>
+<script>
+const $=id=>document.getElementById(id);let working=false,polling=false;
+async function api(path,body){const controller=new AbortController(),timer=setTimeout(()=>controller.abort(),10000);try{const response=await fetch(path,{method:body===undefined?'GET':'POST',headers:{Authorization:'Bearer '+$('token').value,...(body===undefined?{}:{'Content-Type':'application/json'})},body:body===undefined?undefined:JSON.stringify(body),signal:controller.signal});const value=await response.json();if(!response.ok)throw Error(value.error||'Request failed');return value;}finally{clearTimeout(timer);}}
+function element(tag,text){const node=document.createElement(tag);if(text!==undefined)node.textContent=text;return node;}
+function button(label,action){const node=element('button',label);node.disabled=working;node.onclick=()=>act(action);return node;}
+async function act(action){if(working)return;working=true;try{await action();$('message').textContent='Action confirmed by the service.';}catch(error){$('message').textContent=error.name==='AbortError'?'The service did not reply. Reload status before retrying Apply.':error.message;}finally{working=false;await refresh();}}
+async function refresh(){if(polling||!$('token').value)return;polling=true;try{const data=await api('/api/v1/operator');const nodes=[];for(const session of data.sessions){const panel=element('section');panel.append(element('h2',session.clientName),element('p',session.status+' · '+session.sessionId));if(session.status!=='revoked')panel.append(button('Revoke client',()=>api('/api/v1/operator/sessions/'+session.sessionId+'/revoke',{})));for(const request of session.requests){const card=element('article');card.append(element('h3',request.requestId+' · '+request.status));if(request.correlationId)card.append(element('p','Correlation: '+request.correlationId));if(request.proposal){card.append(element('p',request.proposal.summary||'Review the proposed changes.'),element('pre',JSON.stringify({commands:request.proposal.commands,assumptions:request.proposal.assumptions||[]},null,2)));}if(request.error)card.append(element('p',request.error));if(request.requiresApply){card.append(button('Apply reviewed proposal',()=>api('/api/v1/operator/requests/'+session.sessionId+'/'+request.requestId+'/apply',{})),button('Cancel proposal',()=>api('/api/v1/operator/requests/'+session.sessionId+'/'+request.requestId+'/cancel',{})));}if(request.receipts.length)card.append(element('pre',JSON.stringify(request.receipts,null,2)));panel.append(card);}nodes.push(panel);}$('sessions').replaceChildren(...nodes);if(!nodes.length)$('sessions').append(element('p','No clients paired in this service session.'));}catch(error){$('message').textContent=error.name==='AbortError'?'Status request timed out. Check the service.':error.message;}finally{polling=false;}}
+$('connect').onclick=refresh;
+$('pair').onclick=()=>act(async()=>{const data=await api('/api/v1/pairings',{clientName:$('clientName').value});$('pairingCode').textContent=data.pairingCode;$('pairingCode').hidden=false;$('pairingHelp').textContent='One use; expires in '+data.expiresInSeconds+' seconds. The client gets scene read and proposal access for one hour.';});
+setInterval(()=>{if(!working)void refresh();},2000);
+</script>

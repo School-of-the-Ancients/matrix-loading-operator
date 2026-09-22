@@ -1,0 +1,339 @@
+{
+  "protocolVersion": "1",
+  "evidence": "Synthetic authenticated HTTP runtime; no headset or hosted School validation.",
+  "discovery": {
+    "protocolVersion": "1",
+    "service": "matrix-loading-operator",
+    "transport": "local-companion",
+    "supportedProtocolVersions": [
+      "1"
+    ],
+    "pairingAvailable": true,
+    "pairingReason": null,
+    "capabilities": {
+      "scene.read": true,
+      "scene.propose_text": {
+        "modes": [
+          "offline-rules"
+        ],
+        "requiresOperatorApply": true
+      },
+      "request.read": true,
+      "request.cancel_before_apply": true,
+      "capture": false,
+      "content.prepare": false,
+      "events.stream": false,
+      "hostedBrowserConnection": false,
+      "physicalMeasurements": false
+    },
+    "limits": {
+      "pairingSeconds": 120,
+      "sessionSeconds": 3600,
+      "sessionsPerServiceStart": 16,
+      "requestsPerSession": 64,
+      "activeRequestsPerSession": 4
+    },
+    "retention": "Memory only until service restart; do not replay an uncertain request after re-pairing."
+  },
+  "scene": {
+    "protocolVersion": "1",
+    "sessionId": "fixture-session",
+    "runtimeSessionId": "fixture-runtime.1",
+    "revision": 1,
+    "snapshot": {
+      "scene": {
+        "schemaVersion": 1,
+        "roomId": "fixture-room",
+        "objects": []
+      },
+      "assets": [
+        {
+          "assetId": "cube",
+          "displayName": "Cube"
+        }
+      ],
+      "anchors": [
+        {
+          "anchorId": "floor",
+          "displayName": "Floor"
+        }
+      ],
+      "selection": {
+        "anchorId": "floor",
+        "objectId": "",
+        "position": {
+          "x": 1,
+          "y": 0,
+          "z": 2
+        }
+      }
+    },
+    "runtime": null
+  },
+  "request": {
+    "requestId": "fixture-request",
+    "correlationId": "opaque-turn-1",
+    "expected": {
+      "runtimeSessionId": "fixture-runtime.1",
+      "revision": 1
+    },
+    "intent": {
+      "text": "Place a block here.",
+      "mode": "offline-rules"
+    }
+  },
+  "ready": {
+    "protocolVersion": "1",
+    "sessionId": "fixture-session",
+    "requiresApply": true,
+    "requestId": "fixture-request",
+    "correlationId": "opaque-turn-1",
+    "runtimeSessionId": "fixture-runtime.1",
+    "sequence": 2,
+    "status": "ready",
+    "proposal": {
+      "commands": [
+        {
+          "op": "spawn",
+          "assetId": "cube",
+          "anchorId": "floor",
+          "transform": {
+            "position": {
+              "x": 1,
+              "y": 0,
+              "z": 2
+            },
+            "rotation": {
+              "x": 0,
+              "y": 0,
+              "z": 0
+            },
+            "scale": {
+              "x": 0.2,
+              "y": 0.2,
+              "z": 0.2
+            }
+          }
+        }
+      ],
+      "summary": "Place Cube at the chosen room surface using its catalog size.",
+      "provider": "Offline command parser (not an AI model)",
+      "mode": "offline-rules",
+      "requiresApply": true,
+      "assumptions": [],
+      "status": "ready",
+      "planId": "fixture-plan"
+    },
+    "commandIds": [],
+    "receipts": [],
+    "observed": null,
+    "error": null
+  },
+  "queued": {
+    "protocolVersion": "1",
+    "sessionId": "fixture-session",
+    "requiresApply": false,
+    "requestId": "fixture-request",
+    "correlationId": "opaque-turn-1",
+    "runtimeSessionId": "fixture-runtime.1",
+    "sequence": 3,
+    "status": "queued",
+    "proposal": {
+      "commands": [
+        {
+          "op": "spawn",
+          "assetId": "cube",
+          "anchorId": "floor",
+          "transform": {
+            "position": {
+              "x": 1,
+              "y": 0,
+              "z": 2
+            },
+            "rotation": {
+              "x": 0,
+              "y": 0,
+              "z": 0
+            },
+            "scale": {
+              "x": 0.2,
+              "y": 0.2,
+              "z": 0.2
+            }
+          }
+        }
+      ],
+      "summary": "Place Cube at the chosen room surface using its catalog size.",
+      "provider": "Offline command parser (not an AI model)",
+      "mode": "offline-rules",
+      "requiresApply": true,
+      "assumptions": [],
+      "status": "ready",
+      "planId": "fixture-plan"
+    },
+    "commandIds": [
+      "fixture-command"
+    ],
+    "receipts": [],
+    "observed": null,
+    "error": null
+  },
+  "running": {
+    "protocolVersion": "1",
+    "sessionId": "fixture-session",
+    "requiresApply": false,
+    "requestId": "fixture-request",
+    "correlationId": "opaque-turn-1",
+    "runtimeSessionId": "fixture-runtime.1",
+    "sequence": 4,
+    "status": "running",
+    "proposal": {
+      "commands": [
+        {
+          "op": "spawn",
+          "assetId": "cube",
+          "anchorId": "floor",
+          "transform": {
+            "position": {
+              "x": 1,
+              "y": 0,
+              "z": 2
+            },
+            "rotation": {
+              "x": 0,
+              "y": 0,
+              "z": 0
+            },
+            "scale": {
+              "x": 0.2,
+              "y": 0.2,
+              "z": 0.2
+            }
+          }
+        }
+      ],
+      "summary": "Place Cube at the chosen room surface using its catalog size.",
+      "provider": "Offline command parser (not an AI model)",
+      "mode": "offline-rules",
+      "requiresApply": true,
+      "assumptions": [],
+      "status": "ready",
+      "planId": "fixture-plan"
+    },
+    "commandIds": [
+      "fixture-command"
+    ],
+    "receipts": [],
+    "observed": null,
+    "error": null
+  },
+  "succeeded": {
+    "protocolVersion": "1",
+    "sessionId": "fixture-session",
+    "requiresApply": false,
+    "requestId": "fixture-request",
+    "correlationId": "opaque-turn-1",
+    "runtimeSessionId": "fixture-runtime.1",
+    "sequence": 5,
+    "status": "succeeded",
+    "proposal": {
+      "commands": [
+        {
+          "op": "spawn",
+          "assetId": "cube",
+          "anchorId": "floor",
+          "transform": {
+            "position": {
+              "x": 1,
+              "y": 0,
+              "z": 2
+            },
+            "rotation": {
+              "x": 0,
+              "y": 0,
+              "z": 0
+            },
+            "scale": {
+              "x": 0.2,
+              "y": 0.2,
+              "z": 0.2
+            }
+          }
+        }
+      ],
+      "summary": "Place Cube at the chosen room surface using its catalog size.",
+      "provider": "Offline command parser (not an AI model)",
+      "mode": "offline-rules",
+      "requiresApply": true,
+      "assumptions": [],
+      "status": "ready",
+      "planId": "fixture-plan"
+    },
+    "commandIds": [
+      "fixture-command"
+    ],
+    "receipts": [
+      {
+        "requestId": "fixture-command",
+        "ok": true,
+        "error": "",
+        "objectId": "fixture-object"
+      }
+    ],
+    "observed": {
+      "revision": 3,
+      "snapshot": {
+        "scene": {
+          "schemaVersion": 1,
+          "roomId": "fixture-room",
+          "objects": [
+            {
+              "objectId": "fixture-object",
+              "assetId": "cube",
+              "anchorId": "floor",
+              "transform": {
+                "position": {
+                  "x": 1,
+                  "y": 0,
+                  "z": 2
+                },
+                "rotation": {
+                  "x": 0,
+                  "y": 0,
+                  "z": 0
+                },
+                "scale": {
+                  "x": 0.2,
+                  "y": 0.2,
+                  "z": 0.2
+                }
+              }
+            }
+          ]
+        },
+        "assets": [
+          {
+            "assetId": "cube",
+            "displayName": "Cube"
+          }
+        ],
+        "anchors": [
+          {
+            "anchorId": "floor",
+            "displayName": "Floor"
+          }
+        ],
+        "selection": {
+          "anchorId": "floor",
+          "objectId": "",
+          "position": {
+            "x": 1,
+            "y": 0,
+            "z": 2
+          }
+        }
+      }
+    },
+    "error": null
+  }
+}
