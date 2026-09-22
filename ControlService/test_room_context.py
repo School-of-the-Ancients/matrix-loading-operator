@@ -168,6 +168,43 @@ class PointingAndHeadPoseTests(unittest.TestCase):
 
 
 class PhysicalPlacementCommandTests(unittest.TestCase):
+    def test_offline_spawn_here_uses_runtime_surface_resolution_for_measured_support(self):
+        original = copy.deepcopy(SNAPSHOT)
+        result = Planner().plan("Place an orb here.", original, mode="offline-rules")
+        command = result["commands"][0]
+        self.assertEqual(command["placement"], "surface")
+        self.assertEqual(command["anchorId"], TABLE["anchorId"])
+        self.assertEqual(command["transform"]["position"], SNAPSHOT["selection"]["position"])
+        self.assertEqual(command["transform"]["scale"], vector(.2, .2, .2))
+        self.assertEqual(original, SNAPSHOT)
+        self.assertTrue(result["requiresApply"])
+
+    def test_offline_surface_spawn_refuses_missing_bounds_negative_clearance_or_unverified_room(self):
+        cases = []
+        no_bounds = copy.deepcopy(SNAPSHOT)
+        no_bounds["assets"][0].pop("localBounds")
+        cases.append(no_bounds)
+        negative = copy.deepcopy(SNAPSHOT)
+        negative["selection"]["position"]["y"] = -.01
+        cases.append(negative)
+        unverified = copy.deepcopy(SNAPSHOT)
+        unverified["roomContext"]["alignmentVerified"] = False
+        cases.append(unverified)
+        wall = copy.deepcopy(SNAPSHOT)
+        wall["anchors"][0]["surface"]["kind"] = "wall"
+        cases.append(wall)
+        for value in cases:
+            with self.subTest(value=value), self.assertRaises(PlannerError):
+                Planner().plan("Place an orb here.", value, mode="offline-rules")
+
+    def test_offline_virtual_spawn_keeps_direct_pose_without_surface_hint(self):
+        value = copy.deepcopy(SNAPSHOT)
+        value["anchors"] = [{"anchorId": TABLE["anchorId"], "displayName": "Virtual table"}]
+        value.pop("roomContext")
+        command = Planner().plan("Place an orb here.", value, mode="offline-rules")["commands"][0]
+        self.assertNotIn("placement", command)
+        self.assertEqual(command["transform"]["position"], value["selection"]["position"])
+
     def test_surface_hint_reaches_runtime_with_clearance_and_stable_anchor_id(self):
         command = spawn(transform=pose(.2, .05, .1))
         self.assertEqual(validate_commands([command], SNAPSHOT), [command])

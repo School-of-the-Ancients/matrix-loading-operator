@@ -134,6 +134,17 @@ interpret their own conversations and use the correlation ID to connect results.
 An executable proposal always has at least one validated command. Full
 deterministic HTTP fixtures are in `Validation/client-api-v1-fixtures.json`.
 
+Offline spawn requests on a measured MRUK support include `placement:"surface"`.
+The selected point is a support-plane point, not the prefab pivot. Existing
+validation requires a ready/aligned room, a support target, known prefab bounds
+and nonnegative clearance. Unity's existing placement resolver then adjusts the
+pivot so the prefab bottom rests above that point, and checks the full footprint
+against the real surface. For an unrotated prop, the resulting anchor-local Y is
+`requestedY - (bounds.center.y - bounds.size.y / 2) * scale.y`. Virtual-room
+placement keeps its direct transform and does not acquire a surface hint.
+This PC planner correction reuses the existing runtime implementation and needs
+no APK change; actual headset fit and alignment still require device acceptance.
+
 After Apply, `commandIds` identify the existing Matrix command acknowledgements.
 The `queued`/`running` states mean accepted for dispatch / offered to the runtime,
 not success. Each receipt contains its original `requestId`, `ok`, `error`, and

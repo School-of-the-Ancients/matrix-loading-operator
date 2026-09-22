@@ -3,7 +3,7 @@
   "scope": "Client API v1 local companion foundation; no deployment or real headset acceptance",
   "python": {
     "command": "python -m unittest discover -s ControlService -p test_*.py -q",
-    "passed": 432,
+    "passed": 435,
     "failed": 0,
     "focusedClientHttpTests": 26
   },
@@ -24,7 +24,13 @@
     "checks": ["owner token and session loading", "expired proposal has no Apply button", "review fresh command details", "explicit Apply", "queued then succeeded receipt", "revoke preserves completed result"],
     "result": "passed"
   },
-  "reviewFixes": ["room-loss pending work becomes unconfirmed", "stale session tokens expire on schedule", "partial acknowledgements survive room-loss retirement", "missing acknowledgement-time observations cannot be replaced by later snapshots"],
+  "reviewFixes": ["room-loss pending work becomes unconfirmed", "stale session tokens expire on schedule", "partial acknowledgements survive room-loss retirement", "missing acknowledgement-time observations cannot be replaced by later snapshots", "offline MRUK support spawning uses existing runtime surface placement instead of centering prefab bounds below the selected plane"],
+  "surfacePlacementRegression": {
+    "before": "New deterministic planner tests failed: surface hint absent; missing prefab bounds and negative surface clearance accepted.",
+    "after": "Three regression tests pass: measured-support placement retains the selected point and delegates pivot resolution to Unity; invalid bounds/clearance/alignment/support are rejected; virtual placement remains direct.",
+    "runtimeCodeChanged": false,
+    "headsetAcceptance": "pending"
+  },
   "limitations": ["Hosted School origin and transport acceptance pending", "Real Unity and Quest end-to-end acceptance pending", "Local loopback companion only; no CORS or public relay", "Volatile session and idempotency ledgers", "Offline-rules proposals only", "Capture and content jobs are not exposed in this slice"],
   "liveServiceChanged": false,
   "apkChanged": false

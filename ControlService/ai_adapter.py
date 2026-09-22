@@ -936,7 +936,12 @@ def _spawn_plan(reference, target, snapshot):
     anchor, position = _target(re.sub(r"^on ", "", target, flags=re.I), snapshot)
     scale = assets[0].get("spawnScale", 0.2)
     pose = {"position": position, "rotation": {"x": 0, "y": 0, "z": 0}, "scale": {"x": scale, "y": scale, "z": scale}}
-    return {"commands": [{"op": "spawn", "assetId": assets[0]["assetId"], "anchorId": anchor, "transform": pose}],
+    command = {"op": "spawn", "assetId": assets[0]["assetId"], "anchorId": anchor, "transform": pose}
+    if next(item for item in snapshot["anchors"] if item["anchorId"] == anchor).get("source") == "mruk":
+        # The selected point is on the support plane, not the prefab pivot.
+        # Existing validation requires known bounds/alignment; Unity owns the final fit.
+        command["placement"] = "surface"
+    return {"commands": [command],
             "summary": "Place " + assets[0]["displayName"] + " at the chosen room surface using its catalog size."}
 
 
