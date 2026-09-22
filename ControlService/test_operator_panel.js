@@ -24,15 +24,33 @@ const info={mode:'codex-cli',provider:'Codex CLI',configured:true,model:null,sup
 const ready={mode:'codex-cli',provider:'Codex CLI',status:'ready',phase:'ready',planId:'voice-plan',requiresApply:true,
   commands:[{op:'duplicate',objectId:'chair-1'}],summary:'Duplicate the selected chair.',transcript:'Copy this chair',assumptions:[]};
 const calls=[];let rejectPreferences=false,rejectCapturedPlan=false,rejectPreview=false;
+let runtimeOnline=true,stateError=null,reconnectReply={status:'needs_attention',message:'Keep Matrix open.'},reconnectHttpStatus=200,reconnectFailure=null,reconnectHold=null;
+let now=Date.parse('2026-09-22T12:00:00Z');
+class Clock extends Date {static now(){return now;}}
+const timers=new Map(),hungPaths=new Set(),abortedPaths=[];let timerId=0;
+const schedule=(callback,delay)=>{const id=++timerId;timers.set(id,{callback,at:now+delay});return id;};
+const cancel=id=>timers.delete(id);
+const pollers=[],navigations=[],pageUrl='http://127.0.0.1:8789/?prefab=fixture%3Abeacon';
+const location={host:'127.0.0.1:8789',search:'?prefab=fixture%3Abeacon',assign:value=>navigations.push(value),replace:value=>navigations.push(value)};
+Object.defineProperty(location,'href',{get:()=>pageUrl,set:value=>navigations.push(value)});
 let capture={supported:true,status:'none',voiceCaptureId:null};
 const screenshot={captureId:'capture-1',capturedAtUtc:'2026-09-21T18:00:00Z',content:'virtual_scene'};
 const captureReady={...capture,...screenshot,status:'ready',width:640,height:360,ageSeconds:2,captureDurationMs:14.012800000000001};
 const pageHeading=new Element('h1');
 const context=vm.createContext({document:{getElementById:id=>elements.get(id),createElement:tag=>new Element(tag),querySelector:selector=>selector==='h1'?pageHeading:null,querySelectorAll:()=>[]},
-  console,Map,JSON,Number,Date,Error,URLSearchParams,location:{search:'?prefab=fixture%3Abeacon'},setInterval:()=>0,clearInterval:()=>{},fetch:async(url,options)=>{
-    const body=options.body?JSON.parse(options.body):undefined;calls.push({url,body,headers:options.headers});
+  console,Map,JSON,Number,Date:Clock,Error,URL,URLSearchParams,AbortController,location,setTimeout:schedule,clearTimeout:cancel,setInterval:callback=>{pollers.push(callback);return pollers.length;},clearInterval:()=>{},fetch:async(url,options)=>{
+    const body=options.body?JSON.parse(options.body):undefined;calls.push({url,method:options.method,body,headers:{...options.headers}});
+    if(hungPaths.has(url))return new Promise((resolve,reject)=>{
+      assert.ok(options.signal,'Hung connection requests must have a cancellation signal');
+      options.signal.addEventListener('abort',()=>{abortedPaths.push(url);const error=Error('Aborted');error.name='AbortError';reject(error);},{once:true});
+    });
     if(url==='/api/planner')return {ok:true,json:async()=>structuredClone(info)};
-    if(url==='/api/state')return {ok:true,json:async()=>({online:true,pendingCount:0,snapshot:{scene:{roomId:'white-room-v1',objects:[]},assets:[],anchors:[]},voice:null,capture:structuredClone(capture)})};
+    if(url==='/api/state')return stateError?{ok:false,status:stateError.status,json:async()=>({error:stateError.message})}:{ok:true,json:async()=>({online:runtimeOnline,clientId:runtimeOnline?'runtime-session':null,pendingCount:0,snapshot:{scene:{roomId:'white-room-v1',objects:[]},assets:[],anchors:[]},voice:null,capture:structuredClone(capture)})};
+    if(url==='/api/runtime/reconnect'){
+      if(reconnectHold)await reconnectHold;
+      if(reconnectFailure)throw Error(reconnectFailure);
+      return {ok:reconnectHttpStatus>=200&&reconnectHttpStatus<300,status:reconnectHttpStatus,json:async()=>structuredClone(reconnectReply)};
+    }
     if(url==='/api/scenes')return {ok:true,json:async()=>({scenes:[]})};
     if(url==='/api/planner_preferences')return {ok:!rejectPreferences,json:async()=>rejectPreferences?{error:'Unsupported model'}:{codex:body.codex}};
     if(url==='/api/capture'){
@@ -45,6 +63,11 @@ const context=vm.createContext({document:{getElementById:id=>elements.get(id),cr
   }});
 const tick=()=>new Promise(resolve=>setImmediate(resolve));
 const element=id=>elements.get(id);
+async function advance(ms){
+  const end=now+ms;
+  for(;;){const due=[...timers].filter(([,timer])=>timer.at<=end).sort((a,b)=>a[1].at-b[1].at)[0];if(!due)break;now=due[1].at;timers.delete(due[0]);due[1].callback();await tick();}
+  now=end;await tick();
+}
 async function run(){
   vm.runInContext(html.match(/<script>([\s\S]*?)<\/script>/)[1],context);await tick();await tick();
   assert.equal(element('codexSettings').hidden,false);
@@ -204,6 +227,172 @@ async function run(){
   assert.match(element('voiceCaptureStatus').textContent,/Codex is not configured/);
   element('mode').value='offline-rules';element('mode').onchange();
   assert.equal(element('voiceCapture').disabled,true,'Offline typed mode does not enable an unconfigured Codex voice provider');
-  console.log('Operator panel interaction checks passed (prefab handoff, model/effort validation, capture privacy and preview auth, explicit text/voice opt-in, stale/unsupported/error gates, no image fallback, proposal metadata, Apply gate, behavior state).');
+  await reconnectChecks();
+  await reconnectTimeoutChecks();
+  console.log('Operator panel interaction checks passed (prefab handoff, model/effort validation, capture privacy and preview auth, explicit text/voice opt-in, stale/unsupported/error gates, no image fallback, proposal metadata, Apply gate, behavior state, explicit Quest reconnect, bounded heartbeat wait, safe Operator links).');
+}
+
+async function reconnectChecks(){
+  const reconnectCalls=()=>calls.filter(call=>call.url==='/api/runtime/reconnect');
+  const poll=async()=>{for(const callback of pollers)await callback();};
+  assert.equal(reconnectCalls().length,0,'Page startup and ordinary requests never invoke USB reconnection');
+  assert.equal(element('operatorAddress').textContent,'This Operator: 127.0.0.1:8789','The visible address identifies this service port');
+  assert.equal(element('reconnectQuest').disabled,true,'A confirmed online runtime needs no reconnect');
+  assert.match(html,/<button id="connect">Apply token<\/button>/,'Applying a token is not presented as connecting the Quest');
+  const libraryRow=html.split('\n').find(line=>line.includes('id="reconnectQuest"'));
+  assert.match(libraryRow,/<a\b(?=[^>]*href="\/content#prefabBrowser")(?![^>]*\bhidden\b)(?![^>]*\bid=)[^>]*>Content library<\/a>/,'The top-row library link is always visible without waiting for contentLibrary capability polling');
+  runtimeOnline=false;capture={supported:true,status:'none',voiceCaptureId:null};element('includeCapture').checked=false;
+  await poll();await poll();await element('connect').onclick();
+  assert.equal(reconnectCalls().length,0,'Polling and Apply token cannot automatically run ADB');
+  assert.equal(element('reconnectQuest').disabled,false);
+  assert.equal(element('save').disabled,true,'Retained offline scene state cannot enable editing');
+
+  element('token').value='reconnect-test-token';
+  reconnectReply={status:'forwarded',message:'USB forwarding restored. Waiting for Matrix.'};
+  let release;reconnectHold=new Promise(resolve=>{release=resolve;});
+  const attempt=element('reconnectQuest').onclick();
+  assert.equal(element('reconnectQuest').disabled,true,'Disable reconnect before its network response');
+  assert.match(element('reconnectQuest').textContent,/Checking/);
+  await element('reconnectQuest').onclick();await poll();
+  assert.equal(reconnectCalls().length,1,'Repeated clicks and polling cannot start duplicate reconnect requests');
+  assert.deepEqual(reconnectCalls()[0],{url:'/api/runtime/reconnect',method:'POST',body:{},headers:{Authorization:'Bearer reconnect-test-token','Content-Type':'application/json'}},'Reconnect sends an empty JSON body through the existing authenticated API helper');
+  release();await attempt;await tick();reconnectHold=null;
+  assert.match(element('status').textContent,/Runtime offline/,'Successful forwarding is not a runtime heartbeat');
+  assert.equal(element('save').disabled,true);
+  assert.equal(element('reconnectQuest').disabled,true,'Forwarding success waits for state polling');
+  assert.match(element('reconnectQuest').textContent,/Waiting/);
+  await element('reconnectQuest').onclick();await poll();
+  assert.equal(reconnectCalls().length,1,'The heartbeat wait never repeats ADB automatically');
+  now+=14999;await poll();
+  assert.equal(element('reconnectQuest').disabled,true,'Keep the pending state until the bounded wait expires');
+  now+=1;await poll();
+  assert.equal(element('reconnectQuest').disabled,false,'A missing heartbeat offers an explicit retry after 15 seconds');
+  assert.match(element('reconnectStatus').textContent,/has not checked in.*try again/);
+  assert.equal(reconnectCalls().length,1,'Timeout is not an automatic reconnect attempt');
+
+  reconnectReply={status:'online',message:'Runtime was online when checked.'};
+  await element('reconnectQuest').onclick();await tick();
+  assert.match(element('status').textContent,/Runtime offline/,'Even an online POST result must be confirmed by fresh state');
+  assert.equal(element('save').disabled,true);
+  runtimeOnline=true;await poll();
+  assert.match(element('status').textContent,/CONNECTED/);
+  assert.equal(element('reconnectStatus').textContent,'Matrix is connected to this Operator.');
+  assert.equal(element('reconnectQuest').disabled,true);
+  assert.equal(element('reconnectHelp').hidden,true);
+  assert.equal(element('save').disabled,false,'A fresh heartbeat restores normal controls');
+  assert.equal(element('plan').disabled,false);
+  const afterConnected=reconnectCalls().length;
+  await element('reconnectQuest').onclick();await poll();
+  assert.equal(reconnectCalls().length,afterConnected,'The connected page cannot launch redundant reconnects');
+
+  runtimeOnline=false;await poll();
+  for(const operatorUrl of ['http://127.0.0.1:8776/','http://localhost:8776/','http://[::1]:8776/']){
+    reconnectReply={status:'other_service',message:'Matrix is configured for another Operator.',operatorUrl};
+    await element('reconnectQuest').onclick();
+    assert.equal(element('matchingOperator').hidden,false,'Show an explicit link to the matching local service');
+    assert.equal(element('matchingOperator').href,operatorUrl);
+    assert.match(element('matchingOperator').textContent,/port 8776/);
+    assert.equal(element('reconnectQuest').disabled,false);
+  }
+  assert.equal(location.href,pageUrl);
+  assert.deepEqual(navigations,[],'Wrong-port discovery does not automatically navigate away from this Operator');
+  const unsafeUrls=['https://127.0.0.1:8776/','http://example.com:8776/','http://127.0.0.1.evil.test:8776/','javascript:alert(1)','//127.0.0.1:8776/','http://user@localhost:8776/','http://user:secret@127.0.0.1:8776/','http://localhost:8776/content','http://localhost:8776/?token=secret','http://localhost:8776/#fragment','not a URL','http://localhost/'+ 'a'.repeat(260),null,{}];
+  for(const operatorUrl of unsafeUrls){
+    reconnectReply={status:'other_service',message:'Matrix uses another service.',operatorUrl};
+    await element('reconnectQuest').onclick();
+    assert.equal(element('matchingOperator').hidden,true,'Suppress untrusted Operator URL: '+JSON.stringify(operatorUrl));
+    assert.equal(element('reconnectQuest').disabled,false,'An invalid link does not strand the retry button');
+  }
+  assert.deepEqual(navigations,[],'Invalid links never cause navigation');
+
+  reconnectReply={status:'needs_attention',message:'Authorize USB debugging inside the Quest.'};
+  await element('reconnectQuest').onclick();
+  assert.equal(element('reconnectStatus').textContent,reconnectReply.message);
+  assert.equal(element('reconnectQuest').disabled,false,'User-action requirements allow a later retry');
+  reconnectHttpStatus=404;reconnectReply={error:'Unknown endpoint'};
+  await element('reconnectQuest').onclick();
+  assert.match(element('reconnectStatus').textContent,/needs the reconnect update.*restart.*reload/);
+  assert.equal(element('reconnectQuest').disabled,false,'An old service does not leave a pending reconnect');
+  reconnectHttpStatus=500;reconnectReply={error:'ADB connection failed.'};
+  await element('reconnectQuest').onclick();
+  assert.equal(element('reconnectStatus').textContent,'ADB connection failed.');
+  assert.equal(element('reconnectQuest').disabled,false);
+  reconnectHttpStatus=200;reconnectFailure='Failed to fetch';
+  await element('reconnectQuest').onclick();
+  assert.equal(element('reconnectStatus').textContent,'Failed to fetch');
+  assert.equal(element('reconnectQuest').disabled,false,'A failed request can be retried explicitly');
+  reconnectFailure=null;reconnectReply={status:'forwarded',message:'USB forwarding restored.'};
+  stateError={status:503,message:'PC service temporarily unavailable'};
+  await element('reconnectQuest').onclick();await tick();
+  assert.equal(element('save').disabled,true,'A failed state refresh cannot prove the runtime connected');
+  assert.match(element('status').textContent,/temporarily unavailable/);
+  now+=15000;await poll();
+  assert.equal(element('reconnectQuest').disabled,false,'A failed state poll still releases the bounded wait');
+  stateError=null;runtimeOnline=true;await poll();
+  assert.equal(element('save').disabled,false,'Normal polling recovers when the service and runtime return');
+  const finalCount=reconnectCalls().length;await poll();await element('connect').onclick();
+  assert.equal(reconnectCalls().length,finalCount,'Recovery polling and token application stay read-only');
+}
+
+async function reconnectTimeoutChecks(){
+  const poll=async()=>{for(const callback of pollers)await callback();};
+  const reconnectCount=()=>calls.filter(call=>call.url==='/api/runtime/reconnect').length;
+  runtimeOnline=false;capture={supported:true,status:'none',voiceCaptureId:null};await poll();
+  hungPaths.add('/api/state');reconnectReply={status:'forwarded',message:'USB forwarding restored.'};
+  await element('reconnectQuest').onclick();
+  assert.equal(vm.runInContext('reconnecting',context),false,'The POST handler finishes without waiting for a stuck state refresh');
+  assert.equal(element('reconnectQuest').disabled,true);
+  const waitingTimer=[...timers.values()].find(timer=>timer.at===now+15000);
+  assert.ok(waitingTimer,'The heartbeat deadline has an independent timer');
+  const beforeWait=reconnectCount();
+  await advance(10000);
+  assert.ok(abortedPaths.includes('/api/state'),'A stuck state request aborts after ten seconds');
+  assert.equal(vm.runInContext('refreshing',context),false,'Aborting the poll releases the refresh guard');
+  assert.equal(element('reconnectQuest').disabled,true,'The heartbeat still has five seconds left');
+  const secondPoll=poll();await tick();
+  await advance(5000);
+  assert.equal(vm.runInContext('refreshing',context),true,'The second fetch remains pending at the heartbeat deadline');
+  assert.equal(element('reconnectQuest').disabled,false,'The independent deadline unlocks retry while another state fetch hangs');
+  assert.match(element('reconnectStatus').textContent,/has not checked in/);
+  assert.equal(reconnectCount(),beforeWait,'No timer or abort automatically runs another reconnect');
+  reconnectReply={status:'needs_attention',message:'Check the USB cable.'};await element('reconnectQuest').onclick();
+  waitingTimer.callback();
+  assert.equal(element('reconnectStatus').textContent,'Check the USB cable.','An expired timer cannot overwrite a newer attempt');
+  hungPaths.delete('/api/state');await advance(5000);await secondPoll;
+  runtimeOnline=true;await poll();
+  assert.equal(element('save').disabled,false,'Fresh polling recovers after a stalled fetch is aborted');
+  assert.equal(element('reconnectQuest').disabled,true);
+
+  runtimeOnline=false;await poll();hungPaths.add('/api/runtime/reconnect');
+  const stuckPost=element('reconnectQuest').onclick();await advance(29999);
+  assert.equal(element('reconnectQuest').disabled,true,'The reconnect request allows the backend its bounded work time');
+  await advance(1);await stuckPost;
+  assert.ok(abortedPaths.includes('/api/runtime/reconnect'));
+  assert.equal(element('reconnectQuest').disabled,false,'A stalled POST releases retry at thirty seconds');
+  assert.match(element('reconnectStatus').textContent,/timed out.*try again/);
+  hungPaths.delete('/api/runtime/reconnect');
+  reconnectReply={status:'forwarded',message:'USB forwarding restored.'};
+  await element('reconnectQuest').onclick();await tick();
+  const confirmedTimer=[...timers.values()].find(timer=>timer.at===now+15000);
+  assert.ok(confirmedTimer);
+  runtimeOnline=true;await poll();
+  assert.equal(timers.size,0,'Confirmed online state clears the heartbeat timer and completed request timers');
+  confirmedTimer.callback();
+  assert.equal(element('reconnectStatus').textContent,'Matrix is connected to this Operator.','A cleared timer cannot overwrite confirmed success');
+  runtimeOnline=false;await poll();
+  confirmedTimer.callback();
+  assert.match(element('reconnectStatus').textContent,/Connection lost/,'A prior timer cannot overwrite a later disconnect');
+
+  for(const path of ['/api/scenes','/api/capture']){
+    hungPaths.add(path);
+    capture=path==='/api/capture'?{...captureReady,captureId:'timeout-preview'}:{supported:true,status:'none'};
+    const stalledPoll=poll();await tick();await advance(10000);await stalledPoll;
+    assert.ok(abortedPaths.includes(path),'A stalled '+path+' request is also bounded');
+    assert.equal(vm.runInContext('refreshing',context),false,'Refresh recovers after a '+path+' timeout');
+    hungPaths.delete(path);
+  }
+  capture={supported:true,status:'none'};runtimeOnline=true;await poll();
+  assert.equal(element('save').disabled,false);
+  assert.equal(timers.size,0,'No timeout callbacks remain after all requests settle');
 }
 run().catch(error=>{console.error(error);process.exitCode=1;});

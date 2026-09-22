@@ -29,6 +29,7 @@ import speech
 import scene_capture
 from content_service import ContentBridge, runtime_capabilities
 from content_catalog import ContentError
+from quest_connection import QuestConnection
 
 MAX_BODY = 1024 * 1024
 MAX_EXCHANGE_BODY = 3 * 1024 * 1024  # two bounded snapshots plus a base64 JPEG
@@ -823,6 +824,7 @@ class Server(ThreadingHTTPServer):
         self.is_loopback = loopback(address[0])
         require(self.is_loopback or len(token) >= 24, "Non-loopback binding requires SANDBOX_TOKEN of at least 24 characters")
         self.state, self.token = state, token
+        self.quest_connection = QuestConnection()
         super().__init__(address, Handler)
 
 
@@ -944,6 +946,10 @@ class Handler(BaseHTTPRequestHandler):
             state = self.server.state
             if path == "/api/exchange":
                 data = state.exchange(body)
+            elif path == "/api/runtime/reconnect":
+                require(loopback(self.client_address[0]), "Quest reconnect is available only on this PC", 403)
+                require(not body and not urllib.parse.urlsplit(self.path).query, "Reconnect expects an empty JSON object")
+                data = self.server.quest_connection.reconnect(self.server.server_port, state.online)
             elif path.startswith("/api/content/"):
                 data = state.content.post(path, body)
             elif path == "/api/command":

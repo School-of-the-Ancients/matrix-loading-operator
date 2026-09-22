@@ -5,9 +5,12 @@
 :root{color-scheme:dark;font:15px system-ui;background:#101519;color:#ecf2f0}body{max-width:1140px;margin:auto;padding:32px}h1{margin:0;font-size:32px}h2{font-size:19px;margin:0 0 14px}p{color:#b1c0bc;line-height:1.5}.eyebrow{color:#7ee9b4;font-size:12px;letter-spacing:.15em;margin-bottom:10px}.grid{display:grid;grid-template-columns:1fr 1fr;gap:20px}section{border:1px solid #34433e;border-radius:12px;padding:22px;margin:18px 0}.grid section{margin:0}input,select,textarea,button{font:inherit;border:1px solid #52655b;border-radius:6px;padding:10px;background:#1e2924;color:inherit}input,select,textarea{box-sizing:border-box;max-width:100%}select{width:100%}textarea{width:100%;min-height:90px}button{cursor:pointer;margin:4px 4px 4px 0}button:hover{background:#304c3e}button:disabled{opacity:.4;cursor:default}.primary{background:#286849;border-color:#65b18c}label{display:block;margin:10px 0 5px}.row{display:flex;flex-wrap:wrap;gap:8px;align-items:center}.axes{display:grid;grid-template-columns:repeat(3,1fr);gap:8px}.axes label{font-size:12px;color:#b1c0bc}.axes input{width:100%;margin-top:4px}pre{white-space:pre-wrap;overflow-wrap:anywhere;max-height:350px;overflow:auto;font-size:13px;background:#0a100d;padding:12px;border-radius:6px}#status{font-weight:600;color:#7ee9b4}#message{min-height:24px;margin-top:8px;color:#f1ce7a}.muted{font-size:13px}summary{cursor:pointer;color:#b1c0bc}.pill{border:1px solid #43554b;border-radius:30px;font-size:13px;padding:5px 10px}.top{display:flex;justify-content:space-between;align-items:center;gap:20px}@media(max-width:760px){.grid{display:block}.grid section{margin:18px 0}body{padding:18px}.top{display:block}}
 </style>
 <header><div class="eyebrow">SCHOOL OF THE ANCIENTS / OPERATOR</div><div class="top"><h1>The white room</h1><span class="pill">Bundled props · live scene</span></div><p>Summon something. Shape the scene. Save it and bring it back.</p></header>
-<div id="status" role="status">Connecting…</div><div id="message" role="status" aria-live="polite"></div>
+<div class="row"><div id="status" role="status">Connecting…</div><button id="reconnectQuest">Reconnect Quest</button><a href="/content#prefabBrowser" style="color:#7ee9b4">Content library</a></div>
+<p id="operatorAddress" class="muted"></p><p id="reconnectHelp" class="muted">Keep the Quest connected by USB and Matrix open in the headset.</p>
+<p id="reconnectStatus" class="muted" role="status" aria-live="polite"></p><a id="matchingOperator" hidden></a>
+<div id="message" role="status" aria-live="polite"></div>
 <section id="roomPanel" hidden><h2>Real room alignment</h2><p id="roomStatus" role="status" aria-live="polite"></p><p id="roomTargets" class="muted"></p><p>Check the labeled floor, walls, and furniture outlines through passthrough. Confirm only when they match the physical surfaces. If they do not match, correct the headset's manual room setup and reload.</p><button id="confirmRoom" class="primary" disabled>Outlines align — enable editing</button><p class="muted">Click the left stick to reload an empty room. Hold left grip while clicking the left stick to open manual Space Setup. Click the right stick to show or hide outlines.</p></section>
-<details><summary>Connection settings</summary><label for="token">Service token</label><div class="row"><input id="token" type="password" autocomplete="off" placeholder="Only when configured"><button id="connect">Connect</button></div><p class="muted">The token stays in this page's memory. Open this panel on the PC running the service.</p><p class="muted"><a href="/learning">Optional learning activity and checkpoint recovery</a></p></details>
+<details><summary>Connection settings</summary><label for="token">Service token</label><div class="row"><input id="token" type="password" autocomplete="off" placeholder="Only when configured"><button id="connect">Apply token</button></div><p class="muted">The token stays in this page's memory. Open this panel on the PC running the service.</p><p class="muted"><a href="/learning">Optional learning activity and checkpoint recovery</a></p></details>
 <section><h2>Tell the Operator</h2><p id="plannerStatus" class="muted">Checking language mode…</p><label for="mode">Language mode</label><select id="mode"><option value="offline-rules">Offline commands (limited vocabulary)</option><option value="openai-compatible">Configured AI provider</option><option value="codex-cli">Codex (ChatGPT subscription)</option></select>
 <div id="codexSettings" hidden><div class="grid"><div><label for="codexModel">Codex model</label><select id="codexModel"><option value="">Service default</option></select></div><div><label for="codexReasoning">Reasoning effort</label><select id="codexReasoning"><option value="">Default</option></select></div></div><p id="codexSettingsStatus" class="muted" role="status">Checking available models…</p><p class="muted">These settings apply to typed requests and headset voice for this service session. Higher reasoning can take longer. Changing them never applies a proposal.</p></div>
 <fieldset style="border:1px solid #43554b;border-radius:8px;margin:18px 0;padding:14px"><legend>Scene preview (optional)</legend><p class="muted">Capture virtual content, or combine your real room with virtual objects using a supported Quest 3 camera. Captures stay on this PC until you choose to send the preview to AI.</p><label for="captureMode">Image source</label><select id="captureMode"><option value="virtual">Virtual scene only</option><option value="mixed">Quest 3 real room + virtual objects</option></select><p id="captureModeStatus" class="muted" role="status"></p><button id="captureScene" disabled>Capture current view</button><p id="captureStatus" role="status" aria-live="polite" class="muted">Checking capture support…</p><figure id="capturePreview" hidden style="margin:12px 0"><img id="captureImage" alt="Captured virtual scene from the headset camera; physical passthrough is excluded" style="display:block;max-width:100%;max-height:360px;border-radius:6px"><figcaption id="captureDetails" class="muted"></figcaption></figure><label for="includeCapture"><input id="includeCapture" type="checkbox" disabled> Send this preview with my typed request to the configured AI provider</label><p id="captureSupport" role="status" class="muted"></p><button id="voiceCapture" disabled>Include preview in next headset voice request</button><p id="voiceCaptureStatus" role="status" aria-live="polite" class="muted">No image selected for headset voice.</p></fieldset>
@@ -24,6 +27,7 @@
 const $=id=>document.getElementById(id);
 let latest=null,proposed=null,busy=false,refreshing=false,awaitedIds=[],awaitedProposal=false,plannerInfo=null,editedId='',dirty=false,shownTransform='';
 let captureBusy=false,voiceCaptureBusy=false,capturePreviewKey='',captureSelectionId=null,previewLoadedId=null,previewError='';
+let reconnecting=false,reconnectPending=false,reconnectDeadline=0,connectionWasOnline=false,reconnectTimer=null,reconnectWaitVersion=0;
 const requestedPrefab=new URLSearchParams(location.search).get('prefab')||'';
 let prefabSelectionApplied=false,prefabSelectionCancelled=false;
 for(const [group,label] of [['position','Position · metres'],['rotation','Rotation · degrees'],['scale','Scale']]){
@@ -32,7 +36,57 @@ for(const [group,label] of [['position','Position · metres'],['rotation','Rotat
   for(const axis of ['x','y','z']){const label=document.createElement('label');label.textContent=axis.toUpperCase();const input=document.createElement('input');input.id=group+'-'+axis;input.type='number';input.step=group==='rotation'?'1':'0.1';input.value=group==='scale'?'1':'0';input.setAttribute('aria-label',group+' '+axis);input.oninput=()=>{dirty=true;};label.append(input);row.append(label);}
   $('transformFields').append(row);
 }
-async function api(path,body){const headers={};if($('token').value)headers.Authorization='Bearer '+$('token').value;if(body!==undefined)headers['Content-Type']='application/json';const r=await fetch(path,{method:body===undefined?'GET':'POST',headers,body:body===undefined?undefined:JSON.stringify(body)});const data=await r.json();if(!r.ok)throw Error(data.error||'Request failed');return data;}
+async function api(path,body,timeoutMs=0){
+  const headers={};if($('token').value)headers.Authorization='Bearer '+$('token').value;if(body!==undefined)headers['Content-Type']='application/json';
+  const controller=timeoutMs?new AbortController():null,timer=controller?setTimeout(()=>controller.abort(),timeoutMs):null;
+  try{const r=await fetch(path,{method:body===undefined?'GET':'POST',headers,body:body===undefined?undefined:JSON.stringify(body),...(controller?{signal:controller.signal}:{})});const data=await r.json();if(!r.ok){const error=Error(data.error||'Request failed');error.status=r.status;throw error;}return data;}
+  catch(error){if(controller?.signal.aborted)throw Error('Request timed out. Check the PC service and try again.');throw error;}
+  finally{if(timer!==null)clearTimeout(timer);}
+}
+function clearReconnectWait(){if(reconnectTimer!==null)clearTimeout(reconnectTimer);reconnectTimer=null;reconnectPending=false;reconnectDeadline=0;reconnectWaitVersion++;}
+function expireReconnectWait(version){
+  if(!reconnectPending||version!==reconnectWaitVersion)return;
+  if(latest?.online){renderConnection();return;}
+  clearReconnectWait();$('reconnectStatus').textContent='USB connection restored, but Matrix has not checked in. Keep the headset awake and open Matrix, then try again.';reconnectControls();
+}
+function reconnectControls(){
+  $('reconnectQuest').disabled=reconnecting||reconnectPending||!!latest?.online;
+  $('reconnectQuest').textContent=reconnecting?'Checking Quest…':reconnectPending?'Waiting for Quest…':'Reconnect Quest';
+  $('reconnectHelp').hidden=!!latest?.online;
+}
+function renderConnection(){
+  $('operatorAddress').textContent='This Operator: '+(location.host||'this PC');
+  const online=!!latest?.online;
+  if(online&&(!connectionWasOnline||reconnectPending)){
+    clearReconnectWait();$('matchingOperator').hidden=true;
+    if($('reconnectStatus').textContent)$('reconnectStatus').textContent='Matrix is connected to this Operator.';
+  }else if(!online&&connectionWasOnline){$('reconnectStatus').textContent='Connection lost. Keep Matrix open and press Reconnect Quest.';$('matchingOperator').hidden=true;}
+  if(reconnectPending&&Date.now()>=reconnectDeadline)expireReconnectWait(reconnectWaitVersion);
+  connectionWasOnline=online;
+  reconnectControls();
+}
+function matchingOperatorUrl(value){
+  if(typeof value!=='string'||value.length>256)return null;
+  try{const url=new URL(value);return url.protocol==='http:'&&['127.0.0.1','localhost','[::1]'].includes(url.hostname)&&!url.username&&!url.password&&url.pathname==='/'&&!url.search&&!url.hash?url:null;}
+  catch{return null;}
+}
+async function reconnectQuest(){
+  if($('reconnectQuest').disabled||reconnecting||reconnectPending)return;
+  clearReconnectWait();
+  reconnecting=true;$('matchingOperator').hidden=true;$('reconnectStatus').textContent='Checking the Quest USB connection…';reconnectControls();
+  try{
+    const result=await api('/api/runtime/reconnect',{},30000);
+    $('reconnectStatus').textContent=result.message||'Could not confirm the connection. Try again.';
+    if(result.status==='other_service'){
+      const url=matchingOperatorUrl(result.operatorUrl);
+      if(url){$('matchingOperator').href=url.href;$('matchingOperator').textContent='Open Operator on port '+(url.port||'80');$('matchingOperator').hidden=false;}
+    }else if(result.status==='forwarded'||result.status==='online'){
+      reconnectPending=true;reconnectDeadline=Date.now()+15000;const version=reconnectWaitVersion;
+      reconnectTimer=setTimeout(()=>expireReconnectWait(version),15000);void refresh();
+    }
+  }catch(error){$('reconnectStatus').textContent=error.status===404?'This PC service needs the reconnect update. Update and restart the service, then reload this page.':error.message;}
+  finally{reconnecting=false;renderConnection();}
+}
 function options(id,items,key){const el=$(id),selected=el.value;el.replaceChildren();for(const item of items){const option=document.createElement('option');option.value=item[key];option.textContent=item.displayName||item[key];el.append(option);}if([...el.options].some(o=>o.value===selected))el.value=selected;}
 function selectedObject(){return latest?.snapshot?.scene?.objects.find(o=>o.objectId===$('object').value);}
 function applyPrefabSelection(){
@@ -106,7 +160,7 @@ async function loadCapturePreview(){
   if(key===capturePreviewKey)return;capturePreviewKey=key;
   if(!id||!['ready','stale'].includes(status)){previewLoadedId=null;$('capturePreview').hidden=true;return;}
   try{
-    const preview=await api('/api/capture');
+    const preview=await api('/api/capture',undefined,10000);
     if(capturePreviewKey!==key||latest?.capture?.captureId!==id)return;
     if(preview.captureId!==id||!['ready','stale'].includes(preview.status)||!/^data:image\/(png|jpeg|webp);base64,/.test(preview.imageDataUrl||''))throw Error('The preview is unavailable. Capture a fresh view.');
     const image=$('captureImage');previewLoadedId=null;previewError='';
@@ -122,15 +176,16 @@ function controls(){const online=!!latest?.online,waiting=!!latest?.pendingCount
 function renderRoom(){const room=latest?.runtime;$('roomPanel').hidden=room?.mode!=='ar';if(room?.mode!=='ar')return;$('roomStatus').textContent=(latest.online?'':'Last reported state (runtime offline): ')+room.state.toUpperCase()+' · '+(room.message||'')+(latest.snapshot?.readOnly?' · Retained poses are available for Save and Clear only.':'')+(room.state==='ready'?(room.alignmentVerified?' · Editing enabled.':' · Waiting for your alignment check.'):'');const anchors=latest.snapshot?.anchors||[];$('roomTargets').textContent=anchors.length+' measured anchors · '+anchors.filter(a=>a.surface?.kind==='support').length+' usable support surfaces. '+anchors.map(a=>a.displayName).join(', ');}
 function resultMessage(results,total){const failed=results.filter(r=>r.ok!==true),succeeded=results.length-failed.length;if(!failed.length)return 'Runtime confirmed all '+total+' command'+(total===1?'':'s')+'.';return succeeded+' of '+total+' commands succeeded; '+failed.length+' failed or are unconfirmed. Successful changes remain. '+failed.map(r=>r.error||'No success acknowledgement').join('; ');}
 function commandProgress(state){if(!awaitedIds.length)return;const completed=(state.results||[]).filter(r=>awaitedIds.includes(r.requestId));const done=completed.length===awaitedIds.length;const message=done?resultMessage(completed,awaitedIds.length):'Waiting for the runtime: '+completed.length+' of '+awaitedIds.length+' command responses received.';$('message').textContent=message;if(awaitedProposal)$('proposalState').textContent=message;if(done){awaitedIds=[];awaitedProposal=false;}}
-async function refresh(){if(refreshing)return;refreshing=true;try{latest=await api('/api/state');const snap=latest.snapshot;const room=snap?.scene?.roomId;const label=room==='white-room-v1'?'WHITE ROOM':room==='simulated-room-v1'?'DESKTOP SIMULATION':'ROOM RUNTIME';$('status').textContent=latest.online?label+' CONNECTED · '+(snap?.scene.objects.length||0)+' objects · '+latest.pendingCount+' pending':'Runtime offline — open Matrix Operator or Matrix Operator AR';$('state').textContent=JSON.stringify(latest,null,2);commandProgress(latest);renderVoice(latest.voice);await loadCapturePreview();
+async function refresh(){if(refreshing)return;refreshing=true;try{latest=await api('/api/state',undefined,10000);const snap=latest.snapshot;const room=snap?.scene?.roomId;const label=room==='white-room-v1'?'WHITE ROOM':room==='simulated-room-v1'?'DESKTOP SIMULATION':'ROOM RUNTIME';$('status').textContent=latest.online?label+' CONNECTED · '+(snap?.scene.objects.length||0)+' objects · '+latest.pendingCount+' pending':'Runtime offline — open Matrix Operator or Matrix Operator AR';$('state').textContent=JSON.stringify(latest,null,2);commandProgress(latest);renderVoice(latest.voice);await loadCapturePreview();
 renderRoom();$('contentLibraryLink').hidden=!latest.contentLibrary;document.querySelector('h1').textContent=latest.runtime?.mode==='ar'?'Your real room':'The white room';
 if(snap){options('asset',snap.assets,'assetId');options('anchor',snap.anchors.filter(a=>a.source!=='mruk'||a.surface?.kind==='support'),'anchorId');options('object',snap.scene.objects.map(o=>({...o,displayName:o.assetId+' · '+o.objectId.slice(0,8)})),'objectId');const selected=snap.selection;if(selected?.objectId&&snap.scene.objects.some(o=>o.objectId===selected.objectId))$('object').value=selected.objectId;else $('object').selectedIndex=-1;fillTransform();renderBehaviors();$('objectHint').textContent=selected?.objectId?'“It” refers to '+(selectedObject()?.assetId||'the selected object')+'.':'Choose an object to use “it” in commands.';$('selection').textContent=selected?.anchorId?'Placement: '+selected.anchorId+' · '+['x','y','z'].map(k=>selected.position[k].toFixed(2)).join(', ')+' m':'No placement point selected.';}
-applyPrefabSelection();const saved=await api('/api/scenes');options('scene',saved.scenes.map(name=>({name})),'name');}catch(e){latest=null;$('status').textContent=e.message;}finally{refreshing=false;controls();}}
+applyPrefabSelection();const saved=await api('/api/scenes',undefined,10000);options('scene',saved.scenes.map(name=>({name})),'name');}catch(e){latest=null;$('status').textContent=e.message;}finally{refreshing=false;renderConnection();controls();}}
 async function action(fn,fromProposal=false){busy=true;controls();$('message').textContent='';try{const result=await fn();awaitedIds=(result.commands||[]).map(c=>c.requestId);awaitedProposal=fromProposal&&awaitedIds.length>0;const message=result.saved?'Scene saved on this PC.':awaitedIds.length?awaitedIds.length+' command'+(awaitedIds.length===1?'':'s')+' queued; waiting for runtime acknowledgement.':'No runtime commands were queued.';$('message').textContent=message;if(fromProposal)$('proposalState').textContent=message;}catch(e){$('message').textContent=e.message;if(fromProposal)$('proposalState').textContent='Apply was not confirmed: '+e.message;}finally{busy=false;await refresh();controls();}}
 function command(body){return api('/api/command',body);}
 function spawn(anchorId,position){const size=latest.snapshot.assets.find(a=>a.assetId===$('asset').value)?.spawnScale??.2;const target=latest.snapshot.anchors.find(a=>a.anchorId===anchorId);const physical=target?.source==='mruk';if(physical&&target.surface?.kind!=='support')throw Error('Select a floor or furniture support surface.');return command({op:'spawn',assetId:$('asset').value,anchorId,...(physical?{placement:'surface'}:{}),transform:{position:physical?{...position,y:0}:position,rotation:{x:0,y:0,z:0},scale:{x:size,y:size,z:size}}});}
 $('confirmRoom').onclick=()=>action(()=>command({op:'confirm_room'}));
 $('connect').onclick=async()=>{capturePreviewKey='';await plannerStatus();await refresh();};
+$('reconnectQuest').onclick=reconnectQuest;
 $('captureMode').onchange=()=>captureControls();
 $('captureScene').onclick=async()=>{
   if($('captureScene').disabled)return;captureBusy=true;controls();$('message').textContent='';

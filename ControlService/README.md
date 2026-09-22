@@ -14,6 +14,10 @@ When the headset reports a selected point, **Place at headset selection** places
 
 ## Connect a native Quest client
 
+For USB, open the Operator on this PC and press **Reconnect Quest** beside the connection status. Keep the headset awake and Matrix open; accept USB debugging in the headset when requested. The button checks the connected Quest and the app's configured URL, restores this service's USB port mapping, then waits for a fresh runtime report. If the app uses another local port, follow the offered Operator link and reconnect there. The page's **This Operator** line identifies its current address; **Content library** opens the library on that same service.
+
+The reconnect action does not restart the headset app, rewrite its settings, clear scenes, or change other USB port mappings. An already-online runtime needs no reconnect. With several devices or Matrix apps, the page asks you to leave only the intended device/app connected or running. A missing Android debugging tool is reported explicitly; the service can use a trusted `MATRIX_ADB` executable path, `adb` on PATH, or the installed Unity Android SDK. The existing `Connect-QuestControl.ps1 -Port <port>` is a manual fallback. A new service version must be running for the button to work; reloading HTML cannot update Python code already in memory.
+
 For a headset on the same trusted private network, generate a token in the PowerShell session used to start the service:
 
 ```powershell
@@ -38,6 +42,7 @@ All request and response bodies use JSON, with a 1 MiB request/save limit. Inval
 | `POST /api/exchange` | Unity sends `{clientId,snapshot,results}` and receives `{commands:[...]}`. |
 | `POST /api/command` | Queue a command object, or `{commands:[...]}` containing 1–20 commands atomically. Server generates request IDs. |
 | `GET /api/state` | `{online,snapshot,pendingCount,results}`; up to 100 recent result records. |
+| `POST /api/runtime/reconnect` | Empty `{}` only, from a loopback client with normal authentication/origin checks. Checks the USB Quest and restores only this service's port mapping. Returns `{status,message,operatorUrl?}`; `forwarded` still requires a fresh online runtime report. `other_service` offers a local Operator link without changing the headset configuration. |
 | `POST /api/save` | `{name}` saves the latest snapshot only while the headset is online and all commands have been acknowledged. |
 | `POST /api/load` | `{name}` validates a saved snapshot and queues a `load` command containing its scene document. |
 | `GET /api/scenes` | `{scenes:["name",...]}`. |
