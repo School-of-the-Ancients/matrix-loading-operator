@@ -1,10 +1,12 @@
 param(
     [ValidateSet('Desktop', 'Quest')][string]$Target = 'Desktop',
     [string]$UnityEditor = 'C:\Program Files\Unity\Hub\Editor\6000.6.0f1\Editor\Unity.exe',
-    [string]$OutputPath
+    [string]$OutputPath,
+    [ValidatePattern('^[A-Za-z0-9_-]{1,48}$')][string]$ValidationId
 )
 $ErrorActionPreference = 'Stop'
 Set-StrictMode -Version Latest
+if ($ValidationId -and $Target -ne 'Desktop') { throw 'An isolated validation profile is supported only by the Desktop fixture.' }
 if (-not (Test-Path -LiteralPath $UnityEditor -PathType Leaf)) { throw "Unity Editor missing: $UnityEditor" }
 $repositoryRoot = [IO.Path]::GetFullPath($PSScriptRoot)
 $fixtureRoot = [IO.Path]::GetFullPath((Join-Path $repositoryRoot ('.white-room-fixture\' + $Target)))
@@ -89,6 +91,9 @@ $validationOutput = Join-Path $validationRoot ('white-room-' + $Target.ToLowerIn
 [IO.File]::WriteAllText($buildLog, '', $encoding)
 $arguments = @('-batchmode', '-quit', '-projectPath', ('"' + $fixtureRoot + '"'), '-buildTarget', $buildTarget,
     '-executeMethod', $method, '-sandboxBuildOutput', ('"' + $OutputPath + '"'), '-validationOutput', ('"' + $validationOutput + '"'), '-logFile', ('"' + $buildLog + '"'))
+if ($ValidationId) {
+    $arguments += @('-sandboxValidationId', $ValidationId)
+}
 Write-Host "Building $Target from the isolated Unity-only white-room fixture. Log: $buildLog"
 $process = Start-Process -FilePath $UnityEditor -ArgumentList $arguments -WindowStyle Hidden -PassThru
 $process.WaitForExit()

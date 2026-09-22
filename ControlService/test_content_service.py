@@ -84,6 +84,22 @@ class ContentServiceTests(unittest.TestCase):
         self.assertNotIn("contentInstall", self.exchange())
         self.assertEqual(self.wait()["phase"], "cancelled")
 
+    def test_saved_content_load_after_restart_does_not_require_provider_or_registered_pack(self):
+        value = copy.deepcopy(SNAPSHOT)
+        value["assets"].append(copy.deepcopy(ASSET))
+        value["scene"]["objects"].append({"objectId": "saved-content", "assetId": ASSET["assetId"],
+            "anchorId": "floor", "transform": TRANSFORM, "source": SOURCE})
+        self.exchange(value)
+        self.state.save("CachedPack")
+        self.now += 16  # Allow the old runtime's real lease contract to expire.
+        self.state.exchange({"clientId": "restarted-player", "snapshot": SNAPSHOT, "contentCapabilities": CAPS})
+        with patch.object(self.catalog, "prepare", side_effect=AssertionError("Provider must not be consulted during saved-scene restore")):
+            queued = self.state.load("CachedPack")
+        self.assertEqual(queued["commands"][0]["op"], "load")
+        self.assertEqual(queued["commands"][0]["scene"]["objects"][0]["source"], SOURCE)
+        self.assertEqual(self.state.content.jobs, {})
+        self.assertEqual(self.state.latest, snapshot(SNAPSHOT))
+
     def test_install_response_is_frozen_before_worker_mutates_job(self):
         self.catalog.gate = threading.Event()
         started = threading.Event()

@@ -43,6 +43,9 @@ namespace ArSandbox
 
         public int UndoCount => undoHistory.Count;
         public int RedoCount => redoHistory.Count;
+        // Process-local authored edits, including Undo/Redo. Registry additions and
+        // presentation animation do not invalidate an in-flight cached restore.
+        public long EditRevision { get; private set; }
 
         public SandboxWorld(string roomId, Transform objectRoot, PrefabEntry[] assets, RoomTarget[] targets)
         {
@@ -190,6 +193,7 @@ namespace ArSandbox
                     PushHistory(undoHistory, before);
                     redoHistory.Clear();
                 }
+                if (before != null || command.op == "undo" || command.op == "redo") EditRevision++;
                 result.ok = true;
             }
             catch (Exception exception)

@@ -151,7 +151,7 @@ Rotate and Bob are built-in configurable behaviors. They are not downloaded anim
 
 Alternatively, request **“Save scene as MyFirstRoom”**, **“Clear the scene”**, and **“Restore MyFirstRoom”** as separate reviewed proposals. Reusing a name replaces that save. Saves live on the PC in `ControlService/scenes/` by default; Undo history lasts only while the app runs.
 
-AR restores require the same room and compatible anchors. After an app restart, reinstall required content packs before restoring their scene; cached pack bytes can be reused. A changed room or missing pack is reported instead of silently substituting content. See [room recovery](Docs/Room-AR.md#missing-anchors-and-recovery).
+AR restores require the same room and compatible anchors. An updated player automatically reloads exact saved content packs from its verified device cache when you restore after an app restart. The PC service must remain reachable; the upstream content provider can be offline. Missing, corrupt or incompatible cached content produces an error and preserves the current scene. See [cached restore](Docs/Content-Packs.md#restore-after-restarting-the-app) and [room recovery](Docs/Room-AR.md#missing-anchors-and-recovery).
 
 ## Browse, preview and use a prefab
 
@@ -222,7 +222,7 @@ On **Quest Pro**, the capture contains virtual objects and visible room outlines
 | Only offline mode appears | Start the Codex service with a valid CLI sign-in, then refresh the Operator. |
 | Prefab missing / no preview button | Use **Browse available packs** and check enabled provider configuration. Previews require a matching published image. |
 | Install disabled / AI cannot use the prop | Check the app has the loader, exact Unity/platform compatibility and a fresh `ready` result. An exported checklist item is not an installation. |
-| Restore needs a pack | Reinstall its exact pack/version after app restart, then restore. Keep its catalog and exported files available. |
+| Restore needs a pack | Update the player for automatic cached restore. If it reports missing/corrupt/incompatible cache, reinstall the exact original pack/version, then restore again. |
 | Image cannot be attached to AI | Use an advertised image-capable model and recapture a fresh view. See [visual feedback](Docs/Visual-Feedback.md). |
 
 For a configured LAN connection instead of USB forwarding, see the [PC connection guide](ControlService/README.md#connect-a-native-quest-client). Check the [current checkpoint](Docs/Current-Checkpoint.md) for known deployment gaps: a refreshed browser does not update the running service or installed APK.

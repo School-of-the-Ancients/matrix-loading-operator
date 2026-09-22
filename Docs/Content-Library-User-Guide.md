@@ -102,11 +102,19 @@ and a configured, enabled **matrix-fixture** catalog containing the Android pack
    Once the save is confirmed, clear the scene through the normal reviewed flow,
    then separately ask **“Restore BeaconDemo.”** Review and Apply the restore.
 
-After restarting the Matrix app, **install the same pack again before restoring
-BeaconDemo**. Verified cached device bytes are reused when available, but startup
-does not automatically reload the pack into the asset registry. Keep the matching
-PC catalog available for the reinstall. A missing or conflicting pack causes an
-explicit restore error instead of silently replacing your current scene.
+After restarting an **updated Matrix app**, reconnect to the PC service, localize
+the room and confirm alignment, then restore BeaconDemo normally. Restore checks
+the saved pack versions against the device's cached manifests and bundles and
+registers them before loading the scene. The upstream catalog/provider can be
+offline; the PC service still supplies the saved scene and receives the result.
+No manual library reinstall is needed when every required pack is cached.
+
+If restore reports a missing, corrupt or incompatible dependency, your current
+scene is preserved. Make the exact original pack available, install it again,
+then retry. A new pack version does not substitute for the saved version. Older
+APKs still require manual reinstall after restarting; this change needs a player
+rebuild. Windows restart checks and pending Quest acceptance are documented in
+[content packs](Content-Packs.md#restore-after-restarting-the-app).
 
 ## Bring in a new Unity Asset Store prop
 
