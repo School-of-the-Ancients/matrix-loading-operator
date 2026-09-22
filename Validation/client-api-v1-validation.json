@@ -1,0 +1,31 @@
+{
+  "date": "2026-09-22",
+  "scope": "Client API v1 local companion foundation; no deployment or real headset acceptance",
+  "python": {
+    "command": "python -m unittest discover -s ControlService -p test_*.py -q",
+    "passed": 432,
+    "failed": 0,
+    "focusedClientHttpTests": 26
+  },
+  "node": {
+    "suites": ["ControlService/test_client_panel.js", "ControlService/test_operator_panel.js", "ControlService/test_content_panel.js"],
+    "result": "passed"
+  },
+  "crossProcessInterop": {
+    "client": "Independent School Node/TypeScript Matrix adapter",
+    "test": "tests/integration/matrix-http.test.ts in school-of-the-ancients",
+    "server": "Real isolated Matrix Python HTTP process",
+    "runtime": "Synthetic fixture, not Unity or Quest",
+    "checks": ["pairing", "no automatic Apply", "idempotent request and Apply", "owner Apply", "correlated runtime receipt and observed snapshot", "cancel", "revoke"],
+    "result": "passed"
+  },
+  "browserInteraction": {
+    "surface": "Codex in-app browser against an isolated synthetic Matrix fixture",
+    "checks": ["owner token and session loading", "expired proposal has no Apply button", "review fresh command details", "explicit Apply", "queued then succeeded receipt", "revoke preserves completed result"],
+    "result": "passed"
+  },
+  "reviewFixes": ["room-loss pending work becomes unconfirmed", "stale session tokens expire on schedule", "partial acknowledgements survive room-loss retirement", "missing acknowledgement-time observations cannot be replaced by later snapshots"],
+  "limitations": ["Hosted School origin and transport acceptance pending", "Real Unity and Quest end-to-end acceptance pending", "Local loopback companion only; no CORS or public relay", "Volatile session and idempotency ledgers", "Offline-rules proposals only", "Capture and content jobs are not exposed in this slice"],
+  "liveServiceChanged": false,
+  "apkChanged": false
+}

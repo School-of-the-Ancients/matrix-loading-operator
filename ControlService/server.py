@@ -30,6 +30,7 @@ import scene_capture
 from content_service import ContentBridge, runtime_capabilities
 from content_catalog import ContentError
 from quest_connection import QuestConnection
+from client_api import ClientAPI, ClientError
 
 MAX_BODY = 1024 * 1024
 MAX_EXCHANGE_BODY = 3 * 1024 * 1024  # two bounded snapshots plus a base64 JPEG
@@ -51,6 +52,11 @@ class APIError(Exception):
 def require(condition, message, status=400):
     if not condition:
         raise APIError(status, message)
+
+
+def client_api_path(path):
+    # /api/voice is an existing unrelated API, not a versioned client route.
+    return re.match(r"/api/v[0-9]+(?:/|$)", path) is not None
 
 
 def text(value, field, empty=False, limit=128):
@@ -254,6 +260,7 @@ class State:
         self.clock = clock
         self.lock = threading.RLock()
         self.client_id = None
+        self.runtime_generation = 0
         self.last_seen = -float("inf")
         self.latest = None
         self.runtime = None
@@ -271,6 +278,7 @@ class State:
         self.last_capture_request = -float("inf")
         self.voice_capture_id = None
         self.content = ContentBridge(self)
+        self.clients = ClientAPI(self, plan)
 
     def online(self):
         return self.client_id is not None and self.clock() - self.last_seen < LEASE_SECONDS
@@ -285,6 +293,7 @@ class State:
                                      "error": "Client lease expired; command outcome unknown", "objectId": ""})
             self.pending.clear()
             self.proposals.clear()
+            self.clients.runtime_expired()
             self.revision += 1
             self.client_id = None
 
@@ -329,12 +338,15 @@ class State:
         with self.lock:
             self.expire()
             require(self.client_id in (None, client_id), "Another client holds the active lease", 409)
+            if self.client_id != client_id:
+                self.runtime_generation += 1
             self.client_id, self.last_seen = client_id, self.clock()
             for result in checked:
                 if result["requestId"] in self.pending:
                     del self.pending[result["requestId"]]
                     self.results.append(result)
             if current is None or (current.get("readOnly") and not (self.latest or {}).get("readOnly")):
+                self.clients.commands_unconfirmed(self.pending, "Room became unavailable after dispatch; the effect is unknown. Reconcile before retrying.")
                 for request_id in self.pending:
                     self.results.append({"requestId": request_id, "ok": False, "objectId": "",
                                          "error": "Room became unavailable; command outcome unknown. " + runtime["message"]})
@@ -349,6 +361,7 @@ class State:
                 self.revision += 1
             self.latest = current
             self.runtime = runtime
+            self.clients.observe(checked)
             self.capture_supported = body.get("captureSupported", False)
             self.capture_capabilities = capture_capabilities
             self.receive_capture(body.get("capture"))
@@ -642,7 +655,7 @@ def plan(state, body, request_context=None):
         client_id, revision = state.client_id, state.revision
         saved_names = state.scenes()["scenes"]
         if request_context is not None:
-            require((client_id, revision) == request_context[:2], "Scene or selection changed during voice input; speak again", 409)
+            require((client_id, revision) == request_context[:2], "Scene or selection changed during the request; try again", 409)
             current = copy.deepcopy(request_context[2])
         codex = copy.deepcopy(body.get("codex", state.codex_preferences))
         screenshot = None
@@ -866,16 +879,70 @@ class Handler(BaseHTTPRequestHandler):
             require(hmac.compare_digest(self.headers.get("Authorization", "").encode("utf-8"),
                                         expected.encode("utf-8")), "Authentication required", 401)
 
+    def client_api(self, path, method, body=None):
+        require(loopback(self.client_address[0]), "Client API requires a companion on this PC", 403)
+        origin = self.headers.get("Origin")
+        require(origin is None or origin.lower() == "http://" + self.headers.get("Host", "").lower(),
+                "Cross-origin client API access is unsupported", 403)
+        require(not urllib.parse.urlsplit(self.path).query, "Client API does not accept query parameters")
+        if not path.startswith("/api/v1/"):
+            raise ClientError(426, "unsupported_version", "Supported client API version: 1")
+        clients = self.server.state.clients
+        configured = len(self.server.token) >= 24
+        if path == "/api/v1/discovery" and method == "GET":
+            return clients.discovery(configured)
+        if not configured:
+            raise ClientError(503, "pairing_disabled", "Configure SANDBOX_TOKEN with at least 24 characters before pairing clients.")
+        if path == "/api/v1/sessions" and method == "POST":
+            return clients.claim(body)
+        if path == "/api/v1/pairings" or path.startswith("/api/v1/operator"):
+            self.authenticate()
+            if path == "/api/v1/pairings" and method == "POST":
+                return clients.pair(body)
+            if path == "/api/v1/operator" and method == "GET":
+                return clients.operator_status()
+            parts = [urllib.parse.unquote(part) for part in path.split("/")]
+            if method == "POST":
+                require(body == {}, "Operator client actions expect an empty JSON object")
+                if len(parts) == 7 and parts[4] == "sessions" and parts[6] == "revoke":
+                    return clients.revoke(parts[5])
+                if len(parts) == 8 and parts[4] == "requests" and parts[7] in {"apply", "cancel"}:
+                    if parts[7] == "apply":
+                        return clients.apply(parts[5], parts[6])
+                    return clients.cancel(clients.operator_session(parts[5]), parts[6])
+            raise ClientError(404, "not_found", "Client API route not found")
+        session = clients.authenticate(self.headers.get("Authorization", ""))
+        if path == "/api/v1/scene" and method == "GET":
+            return clients.scene(session)
+        if path == "/api/v1/requests" and method == "POST":
+            return clients.propose(session, body)
+        parts = [urllib.parse.unquote(part) for part in path.split("/")]
+        if len(parts) == 5 and parts[3] == "requests" and method == "GET":
+            return clients.get_request(session, parts[4])
+        if len(parts) == 6 and parts[3] == "requests" and parts[5] == "cancel" and method == "POST":
+            require(body == {}, "Cancel expects an empty JSON object")
+            return clients.cancel(session, parts[4])
+        raise ClientError(404, "not_found", "Client API route not found")
+
+    def send_api_error(self, error):
+        data = {"error": str(error)}
+        if client_api_path(urllib.parse.urlsplit(self.path).path):
+            data.update(protocolVersion="1", code=getattr(error, "code", "request_rejected"))
+        self.send_data(error.status, data)
+
     def do_GET(self):
         try:
             self.validate_host()
             path = urllib.parse.urlsplit(self.path).path
-            if path in ("/", "/learning", "/content") and loopback(self.client_address[0]):
-                page = "index.html" if path == "/" else "content.html" if path == "/content" else "learning.html"
+            if path in ("/", "/learning", "/content", "/clients") and loopback(self.client_address[0]):
+                page = "index.html" if path == "/" else "content.html" if path == "/content" else "clients.html" if path == "/clients" else "learning.html"
                 self.send_data(200, Path(__file__).with_name(page).read_bytes(), "text/html; charset=utf-8")
                 return
             if path == "/learning-ui.js" and loopback(self.client_address[0]):
                 self.send_data(200, Path(__file__).with_name("learning-ui.js").read_bytes(), "text/javascript; charset=utf-8")
+                return
+            if client_api_path(path):
+                self.send_data(200, self.client_api(path, "GET"))
                 return
             self.authenticate()
             if path == "/api/state":
@@ -916,17 +983,19 @@ class Handler(BaseHTTPRequestHandler):
             else:
                 raise APIError(404, "Not found")
             self.send_data(200, data)
-        except (APIError, LearningError, ContentError) as error:
-            self.send_data(error.status, {"error": str(error)})
+        except (APIError, LearningError, ContentError, ClientError) as error:
+            self.send_api_error(error)
         except PlannerError as error:
             self.send_data(error.status, {"error": str(error)})
         except (OSError, ValueError):
-            self.send_data(500, {"error": "Service I/O error"})
+            self.send_api_error(APIError(500, "Service I/O error"))
 
     def do_POST(self):
         try:
             host = self.validate_host()
-            self.authenticate()
+            path = urllib.parse.urlsplit(self.path).path
+            if not client_api_path(path):
+                self.authenticate()
             origin = self.headers.get("Origin")
             require(origin is None or origin.lower() == "http://" + host, "Cross-origin mutation rejected", 403)
             require(self.headers.get_content_type() == "application/json", "Content-Type must be application/json", 415)
@@ -936,15 +1005,17 @@ class Handler(BaseHTTPRequestHandler):
             except ValueError:
                 raise APIError(400, "Invalid Content-Length") from None
             path = urllib.parse.urlsplit(self.path).path
-            limit = MAX_EXCHANGE_BODY if path == "/api/exchange" else MAX_BODY
-            require(0 < size <= limit, f"Body must be 1 byte to {limit // (1024 * 1024)} MiB", 413)
+            limit = MAX_EXCHANGE_BODY if path == "/api/exchange" else 16384 if client_api_path(path) else MAX_BODY
+            require(0 < size <= limit, f"Body must be 1 byte to {limit // 1024} KiB", 413)
             raw = self.rfile.read(size)
             require(len(raw) == size, "Incomplete request body")
             body = parse_json(raw)
             require(isinstance(body, dict), "Expected JSON object")
             path = urllib.parse.urlsplit(self.path).path
             state = self.server.state
-            if path == "/api/exchange":
+            if client_api_path(path):
+                data = self.client_api(path, "POST", body)
+            elif path == "/api/exchange":
                 data = state.exchange(body)
             elif path == "/api/runtime/reconnect":
                 require(loopback(self.client_address[0]), "Quest reconnect is available only on this PC", 403)
@@ -990,10 +1061,10 @@ class Handler(BaseHTTPRequestHandler):
             else:
                 raise APIError(404, "Not found")
             self.send_data(200, data)
-        except (APIError, LearningError, speech.SpeechError, CodexProviderError, ContentError) as error:
-            self.send_data(error.status, {"error": str(error)})
+        except (APIError, LearningError, speech.SpeechError, CodexProviderError, ContentError, ClientError) as error:
+            self.send_api_error(error)
         except (OSError, ValueError, RecursionError):
-            self.send_data(500, {"error": "Service I/O error"})
+            self.send_api_error(APIError(500, "Service I/O error"))
 
 
 def main():

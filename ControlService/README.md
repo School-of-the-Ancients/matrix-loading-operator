@@ -12,6 +12,8 @@ Open <http://127.0.0.1:8765/> on this PC. The default listener accepts loopback 
 
 When the headset reports a selected point, **Place at headset selection** places the bundled prefab base at that exact point. The panel shows the anchor and local coordinates so “here” is visible before a command is applied.
 
+Independent local applications can use the [versioned client API](../Docs/Client-API-v1.md) to pair with one runtime, read scene metadata, and request changes for human review in `/clients`. It reuses the existing proposals, Apply checks and runtime receipts. Pairing requires a configured owner token; scoped clients cannot directly execute commands. The included [Python sample](../Examples/matrix_client.py) works without School. Hosted website transport and real-headset acceptance are separate, pending validations.
+
 ## Connect a native Quest client
 
 For USB, open the Operator on this PC and press **Reconnect Quest** beside the connection status. Keep the headset awake and Matrix open; accept USB debugging in the headset when requested. The button checks the connected Quest and the app's configured URL, restores this service's USB port mapping, then waits for a fresh runtime report. If the app uses another local port, follow the offered Operator link and reconnect there. The page's **This Operator** line identifies its current address; **Content library** opens the library on that same service.
