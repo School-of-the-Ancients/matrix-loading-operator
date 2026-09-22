@@ -1,5 +1,10 @@
 # Spatial capture and content catalog candidate validation
 
+This is the original build-validation checkpoint. The later
+[Quest Pro walkthrough](content-headset-walkthrough.json) records the installed AR
+APK, successful Android pack registration, and the remaining hands-on checks.
+Deployment statements below describe the original checkpoint, not current device state.
+
 Candidate branch: `codex/quest3-capture-content-catalogs`, based on merged commit
 `67e3ffe5ceb6aea2387aaa0a0ceb241db09561f0`. Unity **6000.6.0f1**.
 The [machine-readable inventory](spatial-content-validation.json) contains exact

@@ -10,24 +10,50 @@ continues to use virtual-only captures; unsupported mixed capture fails explicit
 See [content catalogs](Content-Catalogs.md), [pack authoring](Content-Packs.md), and
 the [candidate validation record](../Validation/Spatial-Content-Validation.md).
 
+The library now includes an individual-prefab browser with search, availability
+and source filters, measured dimensions, exact pack provenance, and explicit
+whole-pack installation. **Use in Operator** selects an installed prop and
+prepares an empty request without automatically invoking AI or editing the scene.
+These PC page changes need no APK rebuild. **Preview prefab** shows a matching
+catalog image as a thumbnail and larger sample without changing the scene.
+The seven bundled props and beacon have actual Unity Editor studio renders;
+these are authored-prefab samples, not headset screenshots or interactive 3D.
+Start with the [user guide](Content-Library-User-Guide.md).
+
 Three player builds succeeded with **352 core checks per build**, plus **14
 camera protocol/projection checks**. Final PC source passed **378 Python tests**
 and the Node Operator checks. The actual exported Windows bundle passed
 **18 Unity Editor checks** covering registration, instantiation, provenance and
 scene recovery. One bounded real ComfyUI image-generation job completed and its
-image was inspected. These are distinct from standalone PC-to-player acceptance,
-which is pending. The validation inventory records the final Python/Node results,
-artifact hashes and remaining limits.
+image was inspected. The validation inventory records those Python/Node results,
+artifact hashes and the limits of the original candidate checks.
 
-**Deployment is pending:** no new APK was installed and no Quest 3 hardware was
-available. Automatic approval review blocked the standalone-player launch and
-restart of the existing service. Port **8776** remains the previous running
-service; port **8789** is a separate offline library preview. A manual player
-launch is needed before the actual install/AI harness can proceed. The attempted
-8789 preview restart was also blocked, so its process predates the final PC
-capability/lease/worker fixes; tested source on disk still needs a manual service
-restart. Static packs
-do not add arbitrary scripts, downloaded animation clips or runtime skyboxes.
+**Quest Pro deployment and pack registration are verified:** the updated AR APK
+is installed, and the Android sci-fi beacon pack was installed through the PC
+service and acknowledged `ready` by the runtime. The available asset count is
+now **eight**, including `matrix-fixture:scifi-props:1.0.0:beacon`. Real Codex placed
+it at a wearer-selected floor point, and the wearer confirmed its appearance and
+alignment. A second applied proposal enlarged it by 25%; Undo restored the exact
+original scene. PC save, acknowledged clear, and restore preserved the exact
+scene and pack provenance. `BeaconDemo_PR27_20260921` retains that one-beacon scene
+on the review service. The wearer also confirmed it returned to the same floor
+spot and original size after restore.
+The first AI placement attempt proposed no commands, reporting that its requested
+viewer-relative point was outside the floor boundary. Evidence is recorded in the
+[headset walkthrough](../Validation/content-headset-walkthrough.json).
+
+**The final PC service still needs a restart.** Port **8789** is serving the live
+walkthrough from the existing process. It predates the final
+`contentLibrary` capability flag and lease/worker fixes; passing source checks do
+not mean those fixes are loaded. Automatic approval review rejected its restart
+with only "blocked by policy" reported. Port
+**8776** remains the previous running service. The separate Windows player
+install/AI acceptance loop remains pending. Quest 3 camera permission, alignment,
+image quality and performance checks still require Quest 3 hardware.
+
+Static packs do not add arbitrary scripts, downloaded animation clips or runtime
+skyboxes. After an app restart, explicitly reinstall the matching pack before
+restoring a saved scene that uses it; verified cached bytes can be reused.
 
 ## Historical: rendered scene feedback before this candidate
 

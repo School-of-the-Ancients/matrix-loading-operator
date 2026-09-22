@@ -22,7 +22,9 @@ authoring tools or automatically convert every Asset Store package.
 An exported file is not proof of a successful headset install. Check the running
 app's acknowledgement, then inspect the placed prop in the headset. The original
 [candidate validation record](../Validation/Spatial-Content-Validation.md) describes
-the evidence at that checkpoint; later walkthrough evidence is recorded separately.
+the evidence at that checkpoint; the later
+[Quest Pro walkthrough](../Validation/content-headset-walkthrough.json) records
+headset installation and the remaining hands-on checks separately.
 
 ## What do the import statuses mean?
 
@@ -40,6 +42,37 @@ you have completed elsewhere; selecting a status does not perform that work.
 **Installed** is a separate runtime result under **Downloads and installation**.
 Wait for a successful `ready` result before asking the AI to place a new prop.
 Changing a queue item to **Exported** cannot produce that result.
+
+## Browse individual prefabs
+
+The **Prefab browser** at the top of the library shows the props reported by the
+connected Matrix app, including its bundled props and installed packs.
+
+1. Use **Find a prefab**, **Availability**, and **Source** to narrow the cards.
+2. Select **Browse available packs** to search your configured catalogs and see
+   individual prefabs inside their packs as well. This does not install anything.
+3. Check the card's name, description, platform, pack version, and measured
+   dimensions. **Asset details** includes the exact ID and available provenance.
+4. For a catalog prefab, **Install pack** installs its whole pack. Incompatible
+   platform or Unity versions are disabled. An Android and Windows version of
+   the same prefab are separate entries.
+5. For an installed prefab, choose **Use in Operator**. This selects the prop and
+   fills an empty request with a suggested placement request. Select a point in
+   the headset, create a proposal, review it, and Apply when satisfied. Opening
+   the link does not call the AI or place an object.
+
+After **Browse available packs**, choose **Preview prefab** on a card with a
+matching sample. It downloads the catalog's image to the PC cache, displays a
+thumbnail, and opens a larger sample above the cards. It does not install a pack,
+ask the AI, or change your room. The supplied samples are actual authored prefabs
+rendered in Unity Editor studio lighting; they are not live Quest screenshots or
+interactive 3D models. Lighting may differ in the headset. A provider must supply
+a matching sample before this button appears.
+
+Dimensions appear only when the app has measured the prefab. Offline
+cards are marked as last reported, and their Use action is disabled. A historical
+`ready` installation job alone does not mean a pack is loaded in the current app.
+The existing room-localization and alignment checks still apply in Operator.
 
 ## First try: install the prepared sci-fi beacon
 

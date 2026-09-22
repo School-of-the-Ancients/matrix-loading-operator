@@ -67,6 +67,48 @@ Example specification (the named prefab must already exist):
 }
 ```
 
+## Add visual samples to a catalog
+
+The browser can show PNG/JPEG samples using the existing catalog download cache.
+These are optional author-provided images; they never instantiate a prefab or
+change the scene. Use the same imported source that produced the published pack.
+If geometry or materials changed, export a new pack version before associating
+new samples. An Editor image is not proof of the installed bundle's appearance.
+
+`SandboxPrefabPreview` renders actual prefab meshes and materials in temporary
+Unity Editor preview scenes. It preserves the authored assets and records their
+dependency hashes. Its trusted input specification is:
+
+```json
+{"assets":[{"assetId":"my-library:scifi-props:1.0.0:beacon","prefabPath":"Assets/MyProps/Beacon.prefab"}]}
+```
+
+Run Unity with graphics enabled (omit `-nographics`):
+
+```text
+-batchmode -quit -executeMethod ArSandbox.SandboxPrefabPreview.RenderFromArguments
+-prefabPreviewSpec <absolute-spec.json> -prefabPreviewOutput <absolute-output-folder>
+```
+
+Then publish those image files into the existing catalog:
+
+```text
+python Validation/Add-Prefab-Previews.py --catalog <catalog.json> --report <output-folder/preview-report.json> --output-report <preview-inventory.json>
+```
+
+The publisher checks the PNG digest, size, dimensions, prefab path and Unity
+version, then adds separate hashed PNG entries while preserving every bundle entry.
+Its special bundled IDs are limited to Matrix's seven authored baseline props.
+For downloaded prefabs, use their exact namespaced IDs.
+
+Image associations use descriptive `metadata.tags`: `prefab-preview`,
+`prefab:<exact-runtime-id>`, `unity:<exact-version>` and either `bundled` or
+`bundle:<exact-pack-sha256>`. Downloaded-prop samples must share the pack provider
+and target platform. Images are limited to 1 MiB by the browser, fetched only on
+**Preview prefab**, and verified against the declared image hash and size.
+These associations are the publisher's declaration; they do not cryptographically
+prove that an image depicts the bundled geometry. No player rebuild is needed.
+
 ## Compatibility and limits
 
 Each manifest records `schemaVersion`, `providerId`, `packId`, `version`,

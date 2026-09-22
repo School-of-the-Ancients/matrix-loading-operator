@@ -29,7 +29,7 @@ const screenshot={captureId:'capture-1',capturedAtUtc:'2026-09-21T18:00:00Z',con
 const captureReady={...capture,...screenshot,status:'ready',width:640,height:360,ageSeconds:2,captureDurationMs:14.012800000000001};
 const pageHeading=new Element('h1');
 const context=vm.createContext({document:{getElementById:id=>elements.get(id),createElement:tag=>new Element(tag),querySelector:selector=>selector==='h1'?pageHeading:null,querySelectorAll:()=>[]},
-  console,Map,JSON,Number,Date,Error,setInterval:()=>0,clearInterval:()=>{},fetch:async(url,options)=>{
+  console,Map,JSON,Number,Date,Error,URLSearchParams,location:{search:'?prefab=fixture%3Abeacon'},setInterval:()=>0,clearInterval:()=>{},fetch:async(url,options)=>{
     const body=options.body?JSON.parse(options.body):undefined;calls.push({url,body,headers:options.headers});
     if(url==='/api/planner')return {ok:true,json:async()=>structuredClone(info)};
     if(url==='/api/state')return {ok:true,json:async()=>({online:true,pendingCount:0,snapshot:{scene:{roomId:'white-room-v1',objects:[]},assets:[],anchors:[]},voice:null,capture:structuredClone(capture)})};
@@ -51,6 +51,33 @@ async function run(){
   assert.equal(element('codexReasoning').disabled,true,'Unknown CLI default must not invent supported reasoning');
   assert.equal(element('includeCapture').checked,false,'Image inclusion starts unchecked');
   assert.equal(calls.some(call=>call.url==='/api/capture'),false,'Polling state never requests a capture automatically');
+  assert.match(element('prefabSelectionStatus').textContent,/not available/,'Unknown handoff IDs cannot become available props');
+  assert.equal(element('prompt').value,'','Unknown prefab does not populate a request');
+  context.testPrefab={assetId:'fixture:beacon',displayName:'Fixture Beacon'};
+  vm.runInContext('latest.snapshot.assets=[testPrefab];latest.online=false;applyPrefabSelection()',context);
+  assert.match(element('prefabSelectionStatus').textContent,/Reconnect/);
+  assert.equal(element('prompt').value,'','Retained offline catalog cannot populate a request');
+  element('prompt').value='Keep my existing request';
+  vm.runInContext("latest.online=true;options('asset',latest.snapshot.assets,'assetId');applyPrefabSelection()",context);
+  assert.equal(element('asset').value,'fixture:beacon');
+  assert.equal(element('prompt').value,'Keep my existing request','Choosing a prefab preserves user-entered text');
+  element('prompt').value='';
+  vm.runInContext('prefabSelectionApplied=false;busy=true;applyPrefabSelection()',context);
+  assert.equal(element('prompt').value,'','Handoff waits for an active request to finish');
+  vm.runInContext('busy=false;applyPrefabSelection()',context);
+  assert.match(element('prompt').value,/Fixture Beacon.*fixture:beacon/);
+  assert.match(element('prefabSelectionStatus').textContent,/Nothing has been placed/);
+  element('asset').value='another-prop';element('prompt').value='A later edit';
+  vm.runInContext('applyPrefabSelection()',context);
+  assert.equal(element('asset').value,'another-prop','Polling never overwrites a later selection');
+  assert.equal(element('prompt').value,'A later edit');
+  vm.runInContext('prefabSelectionApplied=false;latest.online=false;applyPrefabSelection()',context);
+  element('asset').value='manually-chosen-prop';element('asset').onchange();
+  vm.runInContext('latest.online=true;applyPrefabSelection()',context);
+  assert.equal(element('asset').value,'manually-chosen-prop','A manual choice while a handoff is deferred survives reconnection');
+  assert.equal(element('prefabSelectionStatus').hidden,true);
+  assert.equal(calls.some(call=>['/api/plan','/api/apply_plan','/api/command'].includes(call.url)),false,'Prefab handoff never invokes AI or mutates a scene');
+  element('prompt').value='';
   assert.match(element('captureSupport').textContent,/confirmed image-capable/);
   element('codexModel').value='model-a';element('codexModel').onchange();await tick();
   assert.equal(element('codexReasoning').disabled,false);
@@ -177,6 +204,6 @@ async function run(){
   assert.match(element('voiceCaptureStatus').textContent,/Codex is not configured/);
   element('mode').value='offline-rules';element('mode').onchange();
   assert.equal(element('voiceCapture').disabled,true,'Offline typed mode does not enable an unconfigured Codex voice provider');
-  console.log('Operator panel interaction checks passed (model/effort validation, capture privacy and preview auth, explicit text/voice opt-in, stale/unsupported/error gates, no image fallback, proposal metadata, Apply gate, behavior state).');
+  console.log('Operator panel interaction checks passed (prefab handoff, model/effort validation, capture privacy and preview auth, explicit text/voice opt-in, stale/unsupported/error gates, no image fallback, proposal metadata, Apply gate, behavior state).');
 }
 run().catch(error=>{console.error(error);process.exitCode=1;});
