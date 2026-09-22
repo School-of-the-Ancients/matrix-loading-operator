@@ -62,6 +62,15 @@ namespace ArSandbox
             }
             PlayerSettings.companyName = "School of the Ancients";
             PlayerSettings.productName = "Matrix Operator";
+            // A validation-only desktop product owns a separate persistent cache.
+            // This never changes the shipped application's control.json or saves.
+            var arguments = Environment.GetCommandLineArgs();
+            for (int i = 0; i + 1 < arguments.Length; i++) if (arguments[i] == "-sandboxValidationId")
+            {
+                if (quest || !System.Text.RegularExpressions.Regex.IsMatch(arguments[i + 1], "^[A-Za-z0-9_-]{1,48}$"))
+                    throw new ArgumentException("A validation profile requires Desktop and a bounded simple ID.");
+                PlayerSettings.productName = "Matrix Operator Validation " + arguments[i + 1];
+            }
             PlayerSettings.runInBackground = true;
             PlayerSettings.defaultScreenWidth = 1440; PlayerSettings.defaultScreenHeight = 900;
             PlayerSettings.fullScreenMode = FullScreenMode.Windowed;

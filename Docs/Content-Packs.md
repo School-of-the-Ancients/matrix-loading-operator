@@ -150,14 +150,50 @@ not a sandbox for hostile files; the static-component allowlist does not make
 arbitrary downloaded bundles safe. The exporter also rejects script,
 ScriptableObject and executable dependencies. No assembly or C# loader exists.
 
+Keep the application-private cached manifests unchanged. The current schema pins
+bundle bytes and source/version fields, but does not separately hash or sign the
+manifest's asset-ID-to-prefab-path mapping. A deliberately rewritten mapping
+between two valid roots in the same bundle is outside these integrity checks.
+Treat cache metadata as trusted local state; reinstall the original export if it
+has been edited. This slice does not migrate saved scenes to signed metadata.
+
+### Restore after restarting the app
+
 The device keeps verified bundles and manifests in its application-private
-`content-packs-v1` directory. **After restarting the app, install the same pack
-again through the PC library before loading a saved scene that uses it.**
-Reinstallation reuses verified device bytes when available; automatic startup
-rehydration is not part of this milestone. Missing or conflicting versions fail
-scene restoration explicitly and preserve the current scene. Schema-1 saves
-for bundled props remain compatible; downloaded props additionally retain their
-provider, pack, version, digest, platform and Unity-version reference.
+`content-packs-v1` directory. Updated players automatically register the exact
+cached dependencies **when a saved scene is loaded**. Startup does not load every
+pack. Schema-1 scenes retain their existing format: downloaded props identify
+the provider, pack, version, digest, platform and exact Unity version.
+
+1. Install the pack, place its props, and save the scene through the PC Operator.
+2. Quit and restart Matrix. Keep the PC service reachable; the upstream content
+   provider can be disabled or unavailable.
+3. In AR, reacquire the same room and confirm the labeled outlines.
+4. Restore the saved scene normally. The player checks cached metadata (at most
+   64 KiB per manifest), compatibility, size, SHA-256 and the existing static
+   prefab policy, registers required packs, then performs the ordinary atomic
+   scene load. No provider lookup or bundle download occurs in this path.
+
+Missing/corrupt bundles or manifests, changed provenance, unsupported dependencies,
+and incompatible Unity/platform versions fail explicitly. The current scene and
+Undo history remain unchanged. A verified pack already registered during a
+multi-pack restore may stay available if a later dependency fails; no partial
+scene replacement occurs. Repair by reinstalling the **exact original pack** and
+retrying. A different version is never silently substituted.
+
+While bundles load, heartbeats continue and later PC commands remain ordered.
+If the wearer edits the scene (including Undo/Redo), the room changes, or alignment
+becomes unavailable, the pending restore is rejected before scene replacement.
+Retry after reviewing the current room. Legacy scenes using bundled assets work
+as before. Existing installed APKs need a rebuild for this feature.
+
+Desktop process-restart acceptance is recorded in
+[the desktop report](../Validation/cached-content-restore-desktop.json), with
+[core/build checks](../Validation/cached-content-restore-core.json). It uses a separate validation
+product/cache and a real procedural bundle with its provider disabled, including
+missing/corrupt/incompatible-cache failures and Undo/Redo. **Quest cold-restart,
+MRUK anchor recovery, visuals and device performance remain pending**; no headset
+installation or running service was changed for this validation.
 
 ## Validation fixture
 
@@ -175,6 +211,25 @@ live object identities/history, measured bounds, provenance retention, ordinary
 edits/undo, exact save/clear/restore, and missing or conflicting version recovery.
 Actual bundle export/install and device rendering require separate runtime
 validation; merely passing these checks does not establish those results.
+
+For a reproducible cold-restart test, build a uniquely named validation player:
+
+```powershell
+./Build-WhiteRoom.ps1 -Target Desktop -ValidationId cold-restore-unique -OutputPath Builds/ColdRestore/MatrixOperator.exe
+```
+
+Export the procedural pack **after** that build using the batch method above.
+Then run (substitute that pack output directory):
+
+```powershell
+python Validation/Run-Cached-Content-Restore.py --player Builds/ColdRestore/MatrixOperator.exe --pack work/content-pack --validation-id cold-restore-unique --work work/cold-restore-unique --report Validation/cached-content-restore-desktop.json
+```
+
+The runner verifies the player's distinct product name, refuses an already-used
+cache/profile, starts a private loopback service on a free port, and stops only
+its own player processes. It preserves fixture logs/cache for inspection. Use a
+new validation ID and work directory for the next run. This is a headless Windows
+runtime test, not visual or headset acceptance.
 
 For the live Windows loop, start a separate owned service and player, point its
 provider configuration at the exported fixture, then run:

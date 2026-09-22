@@ -22,9 +22,8 @@ namespace ArSandbox
         public LessonGuideData CurrentGuide { get; private set; }
         public Settings settings = new Settings();
         private readonly string clientId = Guid.NewGuid().ToString("N");
-        private readonly List<CommandResult> pendingResults = new List<CommandResult>();
-        private readonly Dictionary<string, CommandResult> completed = new Dictionary<string, CommandResult>();
-        private readonly Queue<string> completionOrder = new Queue<string>();
+        private readonly SandboxCommandInbox inbox = new SandboxCommandInbox();
+        private bool executingCommands;
         private UnityWebRequest activeRequest;
         private readonly SandboxSceneCapture sceneCapture = new SandboxSceneCapture();
         private SceneCaptureResult pendingCapture;
@@ -66,7 +65,7 @@ namespace ArSandbox
                 if ((app.World == null || app.RoomReloading) && app.RoomContext?.mode != "ar") { IsConnected = false; yield return pause; continue; }
                 var snapshot = app.CaptureSnapshot();
                 var exchange = new Exchange { clientId = clientId, snapshot = snapshot, runtime = app.RoomContext,
-                    results = new List<CommandResult>(pendingResults), capture = pendingCapture,
+                    results = inbox.Results(), capture = pendingCapture,
                     captureCapabilities = QuestCameraCapture.GetCapabilities(app), contentReceipt = pendingContent };
                 byte[] body = Encoding.UTF8.GetBytes(JsonUtility.ToJson(exchange));
                 if (body.Length > MaximumExchangeBytes && pendingCapture != null)
@@ -97,13 +96,15 @@ namespace ArSandbox
                     }
                     else
                     {
-                        pendingResults.Clear();
                         Incoming incoming = null;
                         try { incoming = JsonUtility.FromJson<Incoming>(request.downloadHandler.text); }
                         catch (Exception) { ConnectionStatus = "PC returned invalid command data."; }
                         IsConnected = incoming != null;
                         if (incoming != null)
                         {
+                            // Async cached restore can finish while this request is
+                            // in flight. Acknowledge only receipts actually uploaded.
+                            inbox.Acknowledge(exchange.results);
                             // Keep encoded pixels across failed uploads. A successful
                             // parsed exchange acknowledges this exact capture receipt.
                             // A background physical-camera capture can finish while
@@ -114,17 +115,8 @@ namespace ArSandbox
                             contentRequest = incoming.contentInstall;
                             ConnectionStatus = snapshot == null ? "PC connected — waiting for configured room data." : "PC connected — scene state synchronized.";
                             ReceiveGuide(incoming.lesson);
-                            if (incoming.commands != null) foreach (var command in incoming.commands)
-                            {
-                                if (command == null || string.IsNullOrEmpty(command.requestId)) continue;
-                                if (!completed.TryGetValue(command.requestId, out var result))
-                                {
-                                    result = app.Execute(command);
-                                    completed.Add(command.requestId, result); completionOrder.Enqueue(command.requestId);
-                                    while (completionOrder.Count > 512) completed.Remove(completionOrder.Dequeue());
-                                }
-                                pendingResults.Add(result);
-                            }
+                            inbox.Receive(incoming.commands);
+                            if (!executingCommands && inbox.Next != null) StartCoroutine(ExecuteCommands());
                         }
                     }
                     activeRequest = null;
@@ -160,6 +152,44 @@ namespace ArSandbox
             yield return contentLoader.Install(request, settings.url, settings.token,
                 receipt => { pendingContent = lastContent = receipt; });
             activeContentId = null;
+        }
+
+        private IEnumerator ExecuteCommands()
+        {
+            executingCommands = true;
+            try
+            {
+                while (inbox.Next != null)
+                {
+                    SandboxCommand command = inbox.Next;
+                    CommandResult result = null;
+                    SandboxWorld completedWorld = null;
+                    RoomContextData completedRoom = null;
+                    long completedRevision = 0;
+                    if (command.op == "load")
+                        yield return contentLoader.Restore(command, value => {
+                            result = value ?? new CommandResult { requestId = command.requestId, error = "Cached restore returned no receipt." };
+                            // Record in the same call stack as the scene mutation.
+                            // Disable/teardown before this parent resumes must not
+                            // lose the dedup receipt for an already-applied load.
+                            inbox.Complete(result);
+                            if (!result.ok) inbox.RejectPending("Earlier restore failed. Review and submit these commands again.");
+                            completedWorld = app.World; completedRoom = app.RoomContext;
+                            completedRevision = completedWorld != null ? completedWorld.EditRevision : 0;
+                        });
+                    else { result = app.Execute(command); inbox.Complete(result); }
+                    if (result == null) inbox.Complete(new CommandResult { requestId = command.requestId,
+                        error = "Command did not finish; current scene was not confirmed restored." });
+                    // A failed restore must not release its following edits onto
+                    // another room/scene. Also guard the frame between completion
+                    // of the nested coroutine and this queue resuming.
+                    if (command.op == "load" && (result == null || !result.ok || app.World != completedWorld ||
+                        app.RoomContext != completedRoom || app.RoomReloading || !app.RoomEditingAllowed ||
+                        completedWorld == null || completedWorld.EditRevision != completedRevision))
+                        inbox.RejectPending("Earlier restore failed or the scene changed while restoring. Review and submit these commands again.");
+                }
+            }
+            finally { executingCommands = false; }
         }
 
         private IEnumerator CaptureScene(SceneCaptureRequest request)
@@ -266,6 +296,51 @@ namespace ArSandbox
             return result.ToString().TrimEnd();
         }
 
-        private void OnDisable() { IsConnected = false; activeRequest?.Abort(); StopAllCoroutines(); physicalCapture?.CancelCapture(); contentLoader?.CancelInstall(); activeContentId = null; activeCaptureId = null; captureRoutine = null; pendingCapture = lastCapture = null; }
+        private void OnDisable() { IsConnected = false; activeRequest?.Abort(); StopAllCoroutines(); inbox.CancelPending(); executingCommands = false; physicalCapture?.CancelCapture(); contentLoader?.CancelInstall(); activeContentId = null; activeCaptureId = null; captureRoutine = null; pendingCapture = lastCapture = null; }
+    }
+
+    /// <summary>Bounded ordered inbox shared by synchronous edits and asynchronous cached restore.</summary>
+    public sealed class SandboxCommandInbox
+    {
+        private readonly Queue<SandboxCommand> pending = new Queue<SandboxCommand>();
+        private readonly HashSet<string> active = new HashSet<string>(StringComparer.Ordinal);
+        private readonly Dictionary<string, CommandResult> completed = new Dictionary<string, CommandResult>(StringComparer.Ordinal);
+        private readonly Queue<string> completionOrder = new Queue<string>();
+        private readonly List<CommandResult> receipts = new List<CommandResult>();
+        public SandboxCommand Next => pending.Count == 0 ? null : pending.Peek();
+        public List<CommandResult> Results() => new List<CommandResult>(receipts);
+        public void Acknowledge(List<CommandResult> sent) { foreach (CommandResult result in sent) receipts.Remove(result); }
+        public void Receive(List<SandboxCommand> commands)
+        {
+            if (commands == null) return;
+            foreach (SandboxCommand command in commands)
+            {
+                if (command == null || string.IsNullOrEmpty(command.requestId)) continue;
+                if (completed.TryGetValue(command.requestId, out CommandResult result)) { AddReceipt(result); continue; }
+                if (active.Contains(command.requestId)) continue;
+                if (pending.Count >= 512) { Record(new CommandResult { requestId = command.requestId, error = "Runtime command queue is full." }); continue; }
+                pending.Enqueue(command); active.Add(command.requestId);
+            }
+        }
+        public void Complete(CommandResult result)
+        {
+            if (Next == null || result.requestId != Next.requestId) throw new InvalidOperationException("Command receipt is out of order.");
+            pending.Dequeue(); active.Remove(result.requestId); Record(result);
+        }
+        private void Record(CommandResult result)
+        {
+            completed.Add(result.requestId, result); completionOrder.Enqueue(result.requestId); AddReceipt(result);
+            while (completionOrder.Count > 512) completed.Remove(completionOrder.Dequeue());
+        }
+        private void AddReceipt(CommandResult result)
+        {
+            if (!receipts.Contains(result)) receipts.Add(result);
+            if (receipts.Count > 1024) receipts.RemoveAt(0);
+        }
+        public void CancelPending() { pending.Clear(); active.Clear(); }
+        public void RejectPending(string reason)
+        {
+            while (Next != null) Complete(new CommandResult { requestId = Next.requestId, error = reason });
+        }
     }
 }
