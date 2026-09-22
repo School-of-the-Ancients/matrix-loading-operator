@@ -1,0 +1,31 @@
+{
+  "unityVersion": "6000.6.0f1",
+  "sourceCommit": "9718c428816b216fb7c2e796f2ca471b4ef60ed1",
+  "copiedFiles": 115,
+  "coreChecks": {
+    "passed": 352,
+    "failed": 0
+  },
+  "androidPack": {
+    "providerId": "matrix-workshop",
+    "packId": "beacon-demo",
+    "version": "1.0.0",
+    "assetIds": [
+      "matrix-workshop:beacon-demo:1.0.0:beacon"
+    ],
+    "byteLength": 88446,
+    "sha256": "aa179b14532b0e0895902bbd8ace0001f3d9c247259eb3a14d3c64ecbf61ccd7"
+  },
+  "unityExitCode": 0,
+  "authoredFilesUnchangedAfterImport": true,
+  "warning": "Existing WhiteRoomPreview uses obsolete FindFirstObjectByType; no compilation errors.",
+  "notPerformed": [
+    "APK build",
+    "headset installation",
+    "PC service restart",
+    "catalog configuration on running service",
+    "roadmap feature implementation"
+  ],
+  "authoredFilesUnchangedAfterPackExport": true,
+  "existingDesktopLocalFilesPreserved": 11
+}

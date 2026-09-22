@@ -22,6 +22,7 @@ These instructions describe this source checkout. Historical releases have diffe
 | Speak instead of typing | [Voice setup below](#use-voice-and-choose-an-ai-model), then [voice and model controls](Docs/Voice-And-Codex-Controls.md) |
 | See what a prefab looks like and install it | [Browse, preview and use a prefab](#browse-preview-and-use-a-prefab) |
 | Bring in Unity Asset Store content | [Import walkthrough](Docs/Content-Library-User-Guide.md#bring-in-a-new-unity-asset-store-prop) and [pack exporter](Docs/Content-Packs.md) |
+| Open the current Unity project to prepare assets | [Desktop content workshop](Docs/Desktop-Unity-Hub.md) |
 | Add a catalog or ComfyUI workflow | [Provider configuration](Docs/Content-Catalogs.md) |
 | Let AI inspect the current view | [Capture how-to](#show-the-ai-a-scene-capture) and [visual feedback guide](Docs/Visual-Feedback.md) |
 | Animate, save or restore my scene | [First scene walkthrough](#make-your-first-scene), [behaviors](Docs/Runtime-Behaviors.md) and [save/restore](#save-clear-and-restore) |
