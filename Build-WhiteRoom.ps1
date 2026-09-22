@@ -11,8 +11,8 @@ $fixtureRoot = [IO.Path]::GetFullPath((Join-Path $repositoryRoot ('.white-room-f
 if (-not $fixtureRoot.StartsWith($repositoryRoot + [IO.Path]::DirectorySeparatorChar, [StringComparison]::OrdinalIgnoreCase)) {
     throw 'The fixture must remain inside this repository.'
 }
-$runtimeNames = @('SandboxData', 'SandboxWorld', 'SandboxBehaviorVisual', 'SandboxSceneCapture', 'SandboxApp', 'PcBridge', 'SandboxVoiceInput', 'WhiteRoomAdapter', 'WhiteRoomDesktopControls', 'WhiteRoomXrControls')
-$editorNames = @('WhiteRoomSceneSetup', 'WhiteRoomXrSetup', 'WhiteRoomPreview', 'SandboxCoreChecks')
+$runtimeNames = @('SandboxData', 'SandboxWorld', 'SandboxBehaviorVisual', 'SandboxSceneCapture', 'QuestCameraCapture', 'SandboxContentData', 'SandboxContentLoader', 'SandboxApp', 'PcBridge', 'SandboxVoiceInput', 'WhiteRoomAdapter', 'WhiteRoomDesktopControls', 'WhiteRoomXrControls')
+$editorNames = @('WhiteRoomSceneSetup', 'WhiteRoomXrSetup', 'WhiteRoomPreview', 'SandboxCoreChecks', 'SandboxContentChecks', 'SandboxContentPackExporter', 'SandboxPrefabPreview')
 $authoredFiles = @($runtimeNames | ForEach-Object { 'Assets\Sandbox\Runtime\' + $_ + '.cs' }) +
                  @($editorNames | ForEach-Object { 'Assets\Sandbox\Editor\' + $_ + '.cs' })
 foreach ($relative in $authoredFiles) {
@@ -51,6 +51,7 @@ $dependencies = [ordered]@{
     'com.unity.modules.androidjni' = '1.0.0'
     'com.unity.modules.animation' = '1.0.0'
     'com.unity.modules.audio' = '1.0.0'
+    'com.unity.modules.assetbundle' = '1.0.0'
     'com.unity.modules.imgui' = '1.0.0'
     'com.unity.modules.imageconversion' = '1.0.0'
     'com.unity.modules.jsonserialize' = '1.0.0'

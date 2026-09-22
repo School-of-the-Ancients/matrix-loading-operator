@@ -25,6 +25,7 @@ namespace ArSandbox
             app.simulatedRoom = false;
             app.placementMaterial = WhiteRoomSceneSetup.CreatePlacementMaterial();
             var bridge = app.gameObject.AddComponent<PcBridge>(); bridge.app = app;
+            var cameraCapture = app.gameObject.AddComponent<QuestCameraCapture>(); cameraCapture.app = app;
             var voice = app.gameObject.AddComponent<SandboxVoiceInput>(); voice.app = app; voice.bridge = bridge;
             QuestBuildSetup.CreateRig(app);
             // No virtual floor, room shell, or fake surface data is rendered in AR.
@@ -54,6 +55,7 @@ namespace ArSandbox
         {
             GenerateQuest();
             SandboxCoreChecks.Run();
+            QuestCameraCaptureChecks.Run();
             string output = "Builds/RoomARQuest/MatrixOperatorAR.apk";
             string[] args = Environment.GetCommandLineArgs();
             for (int index = 0; index + 1 < args.Length; index++)

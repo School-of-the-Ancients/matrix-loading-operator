@@ -1,0 +1,80 @@
+{
+  "unityVersion": "6000.6.0f1",
+  "previewCount": 8,
+  "catalogImageVariants": 16,
+  "bundleEntriesUnchanged": true,
+  "previews": [
+    {
+      "assetId": "block",
+      "sha256": "72c4daaaa163af324a059511b6a25275c3b3951a3d2c1fa0d6d5ca7b37aff8a8",
+      "bytes": 9486,
+      "width": 384,
+      "height": 384,
+      "sourceDependencyHash": "c86f0932d4924032722f1694b26945ad",
+      "sourcePrefab": "Assets/Sandbox/WhiteRoom/Prefabs/block.prefab"
+    },
+    {
+      "assetId": "orb",
+      "sha256": "caa8c76bc8982f7f5a579c4fdb4e0c91f10f2c03ca23f071b32370b5dd1f3149",
+      "bytes": 33123,
+      "width": 384,
+      "height": 384,
+      "sourceDependencyHash": "5912db844a5560ed7dfbfd18af1d7a1d",
+      "sourcePrefab": "Assets/Sandbox/WhiteRoom/Prefabs/orb.prefab"
+    },
+    {
+      "assetId": "column",
+      "sha256": "12c08f774064aeef04b427f08ea7a8061788f2d9232a3ff1a3de882abce1b453",
+      "bytes": 7647,
+      "width": 384,
+      "height": 384,
+      "sourceDependencyHash": "ab17c8162bba9bc393fdf5e8f74f7f9c",
+      "sourcePrefab": "Assets/Sandbox/WhiteRoom/Prefabs/column.prefab"
+    },
+    {
+      "assetId": "chair",
+      "sha256": "35d99a3c16e7201e7fcf6447b3ddf9ffba1669feef05f3060be200f0d4739d39",
+      "bytes": 6611,
+      "width": 384,
+      "height": 384,
+      "sourceDependencyHash": "89c86293f300da83f1ff17403782936b",
+      "sourcePrefab": "Assets/Sandbox/WhiteRoom/Prefabs/chair.prefab"
+    },
+    {
+      "assetId": "table",
+      "sha256": "e57510ffc7ca11f25c168998d55759fe5583ad90212ff24f1db1d2143299779c",
+      "bytes": 6898,
+      "width": 384,
+      "height": 384,
+      "sourceDependencyHash": "34c723fe90af7889fb09d806f1a588e0",
+      "sourcePrefab": "Assets/Sandbox/WhiteRoom/Prefabs/table.prefab"
+    },
+    {
+      "assetId": "wall",
+      "sha256": "26c43e6121a86758cdfae7cba68dc729a75b631c9d0e057ed62b1fbab5aa7646",
+      "bytes": 5672,
+      "width": 384,
+      "height": 384,
+      "sourceDependencyHash": "29bf50be8cf93e330f95e550dd55451d",
+      "sourcePrefab": "Assets/Sandbox/WhiteRoom/Prefabs/wall.prefab"
+    },
+    {
+      "assetId": "pedestal",
+      "sha256": "6d6d0b558e5dd059cec53c1334a6b982327f98cb1821811fb241b6152b649064",
+      "bytes": 7893,
+      "width": 384,
+      "height": 384,
+      "sourceDependencyHash": "dec734c9dcf1ad650037ef9f76885c50",
+      "sourcePrefab": "Assets/Sandbox/WhiteRoom/Prefabs/pedestal.prefab"
+    },
+    {
+      "assetId": "matrix-fixture:scifi-props:1.0.0:beacon",
+      "sha256": "7e82fdd2099069747f64a7a08e55f47bb7d7aa75f5806477b4a1240538923f80",
+      "bytes": 8618,
+      "width": 384,
+      "height": 384,
+      "sourceDependencyHash": "1f665d7f5ce0329b863240d3cdb3b64b",
+      "sourcePrefab": "Assets/MatrixContentPackFixture/Beacon.prefab"
+    }
+  ]
+}

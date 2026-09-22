@@ -1,0 +1,35 @@
+{
+  "schemaVersion": 1,
+  "providers": [
+    {
+      "id": "matrix-fixture",
+      "title": "Locally exported Unity packs",
+      "type": "local",
+      "enabled": false,
+      "manifest": "../work/content-packs/Android/catalog.json"
+    },
+    {
+      "id": "shared-library",
+      "title": "Shared HTTP content catalog",
+      "type": "http",
+      "enabled": false,
+      "manifestUrl": "https://assets.example.invalid/catalog.json",
+      "tokenEnv": "MATRIX_LIBRARY_TOKEN"
+    },
+    {
+      "id": "local-comfy",
+      "title": "Configured local ComfyUI worker",
+      "type": "comfyui",
+      "enabled": false,
+      "baseUrl": "http://127.0.0.1:8188",
+      "workflows": []
+    },
+    {
+      "id": "minimax-handoff",
+      "title": "Local MiniMax H3 workflow (pending)",
+      "type": "generation-handoff",
+      "enabled": false,
+      "reason": "Configure and validate an executable workflow and installed model files on your ComfyUI worker. The image connector does not infer video or equirectangular skybox support from a model name."
+    }
+  ]
+}

@@ -57,36 +57,7 @@ namespace ArSandbox
             this.roomId = roomId;
             this.objectRoot = objectRoot;
 
-            var boundsByPrefab = new Dictionary<GameObject, BoundsData>();
-            foreach (PrefabEntry asset in assets)
-            {
-                if (asset == null)
-                    throw new ArgumentException("The asset registry contains a null entry.", nameof(assets));
-                ValidateId(asset.assetId, "assetId");
-                if (asset.prefab == null)
-                    throw new ArgumentException("Asset '" + asset.assetId + "' has no prefab.", nameof(assets));
-                if (!InRange(asset.spawnScale, MinimumScale, MaximumScale))
-                    throw new ArgumentException("Asset '" + asset.assetId + "' spawnScale must be finite and between " +
-                        MinimumScale + " and " + MaximumScale + ".", nameof(assets));
-                if (asset.description != null && asset.description.Length > 500)
-                    throw new ArgumentException("Asset '" + asset.assetId + "' description must be at most 500 characters.", nameof(assets));
-                if (this.assets.ContainsKey(asset.assetId))
-                    throw new ArgumentException("Duplicate assetId '" + asset.assetId + "'.", nameof(assets));
-                this.assets.Add(asset.assetId, new PrefabEntry
-                {
-                    assetId = asset.assetId,
-                    displayName = asset.displayName ?? asset.assetId,
-                    description = asset.description ?? "",
-                    spawnScale = asset.spawnScale,
-                    prefab = asset.prefab
-                });
-                if (!boundsByPrefab.TryGetValue(asset.prefab, out BoundsData localBounds))
-                {
-                    localBounds = MeasureStaticBounds(asset.prefab);
-                    boundsByPrefab.Add(asset.prefab, localBounds);
-                }
-                assetBounds.Add(asset.assetId, localBounds);
-            }
+            RegisterAssets(assets);
 
             foreach (RoomTarget target in targets)
             {
@@ -109,6 +80,39 @@ namespace ArSandbox
                     surfaceValidator = target.surfaceValidator
                 });
             }
+        }
+
+        /// <summary>Add immutable registry entries atomically without replacing objects or history.</summary>
+        public void RegisterAssets(PrefabEntry[] additions)
+        {
+            ThrowIfDisposed();
+            if (additions == null) throw new ArgumentNullException(nameof(additions));
+            if (assets.Count + additions.Length > SandboxContentRules.MaximumRegisteredAssets)
+                throw new ArgumentException("The runtime asset registry is limited to 512 entries.");
+            var prepared = new Dictionary<string, PrefabEntry>(StringComparer.Ordinal);
+            var bounds = new Dictionary<string, BoundsData>(StringComparer.Ordinal);
+            foreach (PrefabEntry asset in additions)
+            {
+                if (asset == null) throw new ArgumentException("The asset registry contains a null entry.");
+                ValidateId(asset.assetId, "assetId");
+                if (assets.ContainsKey(asset.assetId) || prepared.ContainsKey(asset.assetId))
+                    throw new ArgumentException("Duplicate immutable assetId '" + asset.assetId + "'; publish a new pack version instead.");
+                if (asset.prefab == null) throw new ArgumentException("Asset '" + asset.assetId + "' has no prefab.");
+                if (!InRange(asset.spawnScale, MinimumScale, MaximumScale)) throw new ArgumentException("Asset spawnScale must be finite and between 0.01 and 20.");
+                if ((asset.description?.Length ?? 0) > 500) throw new ArgumentException("Asset description must be at most 500 characters.");
+                SandboxContentRules.ValidateSource(asset.assetId, asset.source);
+                if (SandboxContentRules.HasSource(asset.source)) SandboxContentPrefabValidator.Validate(asset.prefab);
+                prepared.Add(asset.assetId, new PrefabEntry { assetId = asset.assetId, displayName = asset.displayName ?? asset.assetId,
+                    description = asset.description ?? "", spawnScale = asset.spawnScale, prefab = asset.prefab,
+                    source = SandboxContentRules.HasSource(asset.source) ? SandboxContentRules.Clone(asset.source) : null });
+                BoundsData measured = MeasureStaticBounds(asset.prefab);
+                if (SandboxContentRules.HasSource(asset.source) && (measured == null || measured.size == null ||
+                    !InRange(measured.size.x, .00001f, 100f) || !InRange(measured.size.y, .00001f, 100f) || !InRange(measured.size.z, .00001f, 100f)))
+                    throw new ArgumentException("Content prefab needs finite positive rendered bounds of at most 100 metres per axis.");
+                bounds.Add(asset.assetId, measured);
+            }
+            // Nothing touches registry, instances, selection or history until every entry passes.
+            foreach (var pair in prepared) { assets.Add(pair.Key, pair.Value); assetBounds.Add(pair.Key, bounds[pair.Key]); }
         }
 
         public CommandResult Execute(SandboxCommand command)
@@ -212,7 +216,8 @@ namespace ArSandbox
             var assetInfos = new List<AssetInfo>(assets.Count);
             foreach (PrefabEntry asset in assets.Values)
                 assetInfos.Add(new AssetInfo { assetId = asset.assetId, displayName = asset.displayName,
-                    description = asset.description, spawnScale = asset.spawnScale, localBounds = Clone(assetBounds[asset.assetId]) });
+                    description = asset.description, spawnScale = asset.spawnScale, localBounds = Clone(assetBounds[asset.assetId]),
+                    source = SandboxContentRules.Clone(asset.source) });
             assetInfos.Sort((a, b) => string.CompareOrdinal(a.assetId, b.assetId));
 
             var anchorInfos = new List<AnchorInfo>(targets.Count);
@@ -296,7 +301,8 @@ namespace ArSandbox
                 assetId = command.assetId,
                 anchorId = command.anchorId,
                 transform = ResolvePlacement(asset.assetId, target, command.transform, command.placement),
-                behaviors = Clone(behaviors)
+                behaviors = Clone(behaviors),
+                source = SandboxContentRules.Clone(asset.source)
             };
             Instance instance = CreateInactive(data, asset, target, null);
             try
@@ -552,7 +558,9 @@ namespace ArSandbox
                 ValidateId(data.objectId, "objectId");
                 if (!seen.Add(data.objectId))
                     throw new ArgumentException("Duplicate objectId '" + data.objectId + "'.");
-                RequireAsset(data.assetId);
+                PrefabEntry asset = RequireAsset(data.assetId);
+                if (!SandboxContentRules.SameSource(data.source, asset.source))
+                    throw new ArgumentException("Saved content source/version does not match installed asset '" + data.assetId + "'. Install the exact original pack before restoring; current objects were preserved.");
                 RoomTarget target = RequireTarget(data.anchorId);
                 ValidateTransform(data.transform);
                 ValidateBehaviors(data.behaviors);
@@ -609,7 +617,7 @@ namespace ArSandbox
         {
             ValidateId(assetId, "assetId");
             if (!assets.TryGetValue(assetId, out PrefabEntry asset))
-                throw new ArgumentException("Unknown assetId '" + assetId + "'. Only registered prefabs are permitted.");
+                throw new ArgumentException("Unknown assetId '" + assetId + "'. Install its exact content pack version before spawning or restoring. Only registered prefabs are permitted; current objects were preserved.");
             if (asset.prefab == null)
                 throw new InvalidOperationException("The prefab for assetId '" + assetId + "' is unavailable.");
             return asset;
@@ -972,7 +980,8 @@ namespace ArSandbox
                 assetId = value.assetId,
                 anchorId = value.anchorId,
                 transform = Clone(value.transform),
-                behaviors = Clone(value.behaviors)
+                behaviors = Clone(value.behaviors),
+                source = SandboxContentRules.Clone(value.source)
             };
         }
 

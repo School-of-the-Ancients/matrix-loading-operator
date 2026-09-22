@@ -1,9 +1,9 @@
 {
-  "startedUtc": "2026-09-21T20:24:19.4723884Z",
-  "completedUtc": "2026-09-21T20:24:20.8653660Z",
+  "startedUtc": "2026-09-21T21:23:16.0514310Z",
+  "completedUtc": "2026-09-21T21:23:17.4481472Z",
   "unityVersion": "6000.6.0f1",
   "projectPath": "<isolated-desktop-fixture>",
-  "passed": 321,
+  "passed": 352,
   "failed": 0,
   "checks": [
     {
@@ -649,7 +649,7 @@
     {
       "name": "unknown geometry stays null or empty zero data on the actual Unity JSON wire",
       "passed": true,
-      "detail": "Actual unknown-geometry JSON: {\"assetId\":\"cube\",\"displayName\":\"Cube\",\"description\":\"\",\"spawnScale\":0.20000000298023224,\"localBounds\":{\"center\":{\"x\":0.0,\"y\":0.0,\"z\":0.0},\"size\":{\"x\":0.0,\"y\":0.0,\"z\":0.0}}}"
+      "detail": "Actual unknown-geometry JSON: {\"assetId\":\"cube\",\"displayName\":\"Cube\",\"description\":\"\",\"spawnScale\":0.20000000298023224,\"localBounds\":{\"center\":{\"x\":0.0,\"y\":0.0,\"z\":0.0},\"size\":{\"x\":0.0,\"y\":0.0,\"z\":0.0}},\"source\":{\"providerId\":\"\",\"packId\":\"\",\"version\":\"\",\"sha256\":\"\",\"platform\":\"\",\"unityVersion\":\"\"}}"
     },
     {
       "name": "legacy asset JSON without localBounds retains unknown geometry",
@@ -669,7 +669,7 @@
     {
       "name": "known bounds survive actual snapshot JSON serialization",
       "passed": true,
-      "detail": "Actual known-geometry JSON: {\"assetId\":\"geometry\",\"displayName\":\"geometry\",\"description\":\"\",\"spawnScale\":3.0,\"localBounds\":{\"center\":{\"x\":-2.384185791015625e-7,\"y\":2.499999523162842,\"z\":-3.499999761581421},\"size\":{\"x\":2.0000009536743164,\"y\":3.000000476837158,\"z\":4.000001430511475}}}"
+      "detail": "Actual known-geometry JSON: {\"assetId\":\"geometry\",\"displayName\":\"geometry\",\"description\":\"\",\"spawnScale\":3.0,\"localBounds\":{\"center\":{\"x\":-2.384185791015625e-7,\"y\":2.499999523162842,\"z\":-3.499999761581421},\"size\":{\"x\":2.0000009536743164,\"y\":3.000000476837158,\"z\":4.000001430511475}},\"source\":{\"providerId\":\"\",\"packId\":\"\",\"version\":\"\",\"sha256\":\"\",\"platform\":\"\",\"unityVersion\":\"\"}}"
     },
     {
       "name": "captured bounds vectors cannot mutate registry or another shared-prefab entry",
@@ -704,37 +704,37 @@
     {
       "name": "bundled chair exposes authored dimensions and bottom-center pivot",
       "passed": true,
-      "detail": "{\"assetId\":\"chair\",\"displayName\":\"chair\",\"description\":\"\",\"spawnScale\":1.0,\"localBounds\":{\"center\":{\"x\":0.0,\"y\":0.5199999809265137,\"z\":0.0},\"size\":{\"x\":0.5,\"y\":1.0399999618530273,\"z\":0.5}}}"
+      "detail": "{\"assetId\":\"chair\",\"displayName\":\"chair\",\"description\":\"\",\"spawnScale\":1.0,\"localBounds\":{\"center\":{\"x\":0.0,\"y\":0.5199999809265137,\"z\":0.0},\"size\":{\"x\":0.5,\"y\":1.0399999618530273,\"z\":0.5}},\"source\":{\"providerId\":\"\",\"packId\":\"\",\"version\":\"\",\"sha256\":\"\",\"platform\":\"\",\"unityVersion\":\"\"}}"
     },
     {
       "name": "bundled table exposes authored dimensions and bottom-center pivot",
       "passed": true,
-      "detail": "{\"assetId\":\"table\",\"displayName\":\"table\",\"description\":\"\",\"spawnScale\":1.0,\"localBounds\":{\"center\":{\"x\":0.0,\"y\":0.39500001072883606,\"z\":0.0},\"size\":{\"x\":1.399999976158142,\"y\":0.7900000214576721,\"z\":0.800000011920929}}}"
+      "detail": "{\"assetId\":\"table\",\"displayName\":\"table\",\"description\":\"\",\"spawnScale\":1.0,\"localBounds\":{\"center\":{\"x\":0.0,\"y\":0.39500001072883606,\"z\":0.0},\"size\":{\"x\":1.399999976158142,\"y\":0.7900000214576721,\"z\":0.800000011920929}},\"source\":{\"providerId\":\"\",\"packId\":\"\",\"version\":\"\",\"sha256\":\"\",\"platform\":\"\",\"unityVersion\":\"\"}}"
     },
     {
       "name": "bundled wall exposes authored dimensions and bottom-center pivot",
       "passed": true,
-      "detail": "{\"assetId\":\"wall\",\"displayName\":\"wall\",\"description\":\"\",\"spawnScale\":1.0,\"localBounds\":{\"center\":{\"x\":0.0,\"y\":1.25,\"z\":0.0},\"size\":{\"x\":2.5,\"y\":2.5,\"z\":0.11999999731779099}}}"
+      "detail": "{\"assetId\":\"wall\",\"displayName\":\"wall\",\"description\":\"\",\"spawnScale\":1.0,\"localBounds\":{\"center\":{\"x\":0.0,\"y\":1.25,\"z\":0.0},\"size\":{\"x\":2.5,\"y\":2.5,\"z\":0.11999999731779099}},\"source\":{\"providerId\":\"\",\"packId\":\"\",\"version\":\"\",\"sha256\":\"\",\"platform\":\"\",\"unityVersion\":\"\"}}"
     },
     {
       "name": "bundled pedestal exposes authored dimensions and bottom-center pivot",
       "passed": true,
-      "detail": "{\"assetId\":\"pedestal\",\"displayName\":\"pedestal\",\"description\":\"\",\"spawnScale\":1.0,\"localBounds\":{\"center\":{\"x\":0.0,\"y\":0.5,\"z\":0.0},\"size\":{\"x\":0.6499999761581421,\"y\":1.0,\"z\":0.6499999761581421}}}"
+      "detail": "{\"assetId\":\"pedestal\",\"displayName\":\"pedestal\",\"description\":\"\",\"spawnScale\":1.0,\"localBounds\":{\"center\":{\"x\":0.0,\"y\":0.5,\"z\":0.0},\"size\":{\"x\":0.6499999761581421,\"y\":1.0,\"z\":0.6499999761581421}},\"source\":{\"providerId\":\"\",\"packId\":\"\",\"version\":\"\",\"sha256\":\"\",\"platform\":\"\",\"unityVersion\":\"\"}}"
     },
     {
       "name": "bundled block exposes authored dimensions and bottom-center pivot",
       "passed": true,
-      "detail": "{\"assetId\":\"block\",\"displayName\":\"block\",\"description\":\"\",\"spawnScale\":0.20000000298023224,\"localBounds\":{\"center\":{\"x\":0.0,\"y\":0.5,\"z\":0.0},\"size\":{\"x\":1.0,\"y\":1.0,\"z\":1.0}}}"
+      "detail": "{\"assetId\":\"block\",\"displayName\":\"block\",\"description\":\"\",\"spawnScale\":0.20000000298023224,\"localBounds\":{\"center\":{\"x\":0.0,\"y\":0.5,\"z\":0.0},\"size\":{\"x\":1.0,\"y\":1.0,\"z\":1.0}},\"source\":{\"providerId\":\"\",\"packId\":\"\",\"version\":\"\",\"sha256\":\"\",\"platform\":\"\",\"unityVersion\":\"\"}}"
     },
     {
       "name": "bundled orb exposes authored dimensions and bottom-center pivot",
       "passed": true,
-      "detail": "{\"assetId\":\"orb\",\"displayName\":\"orb\",\"description\":\"\",\"spawnScale\":0.20000000298023224,\"localBounds\":{\"center\":{\"x\":0.0,\"y\":0.5,\"z\":0.0},\"size\":{\"x\":1.0,\"y\":1.0,\"z\":1.0}}}"
+      "detail": "{\"assetId\":\"orb\",\"displayName\":\"orb\",\"description\":\"\",\"spawnScale\":0.20000000298023224,\"localBounds\":{\"center\":{\"x\":0.0,\"y\":0.5,\"z\":0.0},\"size\":{\"x\":1.0,\"y\":1.0,\"z\":1.0}},\"source\":{\"providerId\":\"\",\"packId\":\"\",\"version\":\"\",\"sha256\":\"\",\"platform\":\"\",\"unityVersion\":\"\"}}"
     },
     {
       "name": "bundled column exposes authored dimensions and bottom-center pivot",
       "passed": true,
-      "detail": "{\"assetId\":\"column\",\"displayName\":\"column\",\"description\":\"\",\"spawnScale\":0.20000000298023224,\"localBounds\":{\"center\":{\"x\":2.9802322387695313e-8,\"y\":0.5,\"z\":-5.960464477539063e-8},\"size\":{\"x\":0.5500000715255737,\"y\":1.0,\"z\":0.5500001311302185}}}"
+      "detail": "{\"assetId\":\"column\",\"displayName\":\"column\",\"description\":\"\",\"spawnScale\":0.20000000298023224,\"localBounds\":{\"center\":{\"x\":2.9802322387695313e-8,\"y\":0.5,\"z\":-5.960464477539063e-8},\"size\":{\"x\":0.5500000715255737,\"y\":1.0,\"z\":0.5500001311302185}},\"source\":{\"providerId\":\"\",\"packId\":\"\",\"version\":\"\",\"sha256\":\"\",\"platform\":\"\",\"unityVersion\":\"\"}}"
     },
     {
       "name": "a room without a published viewer pose reports unknown viewer context",
@@ -829,7 +829,7 @@
     {
       "name": "unknown viewer is explicit empty frames on the actual bridge JSON wire",
       "passed": true,
-      "detail": "Raw null-viewer JSON: {\"behaviorKinds\":[\"rotate\",\"bob\"],\"readOnly\":false,\"scene\":{\"schemaVersion\":1,\"roomId\":\"test-room\",\"objects\":[]},\"assets\":[{\"assetId\":\"cube\",\"displayName\":\"Cube\",\"description\":\"\",\"spawnScale\":0.20000000298023224,\"localBounds\":{\"center\":{\"x\":0.0,\"y\":0.0,\"z\":0.0},\"size\":{\"x\":0.0,\"y\":0.0,\"z\":0.0}}},{\"assetId\":\"sphere\",\"displayName\":\"Sphere\",\"description\":\"\",\"spawnScale\":0.20000000298023224,\"localBounds\":{\"center\":{\"x\":0.0,\"y\":0.0,\"z\":0.0},\"size\":{\"x\":0.0,\"y\":0.0,\"z\":0.0}}}],\"anchors\":[{\"anchorId\":\"floor\",\"displayName\":\"Floor\",\"source\":\"\",\"semanticLabels\":[],\"surface\":{\"kind\":\"\",\"boundary\":[],\"localBounds\":{\"center\":{\"x\":0.0,\"y\":0.0,\"z\":0.0},\"size\":{\"x\":0.0,\"y\":0.0,\"z\":0.0}}},\"roomPose\":{\"position\":{\"x\":0.0,\"y\":0.0,\"z\":0.0},\"rotation\":{\"x\":0.0,\"y\":0.0,\"z\":0.0},\"scale\":{\"x\":0.0,\"y\":0.0,\"z\":0.0}}},{\"anchorId\":\"table\",\"displayName\":\"Table\",\"source\":\"\",\"semanticLabels\":[],\"surface\":{\"kind\":\"\",\"boundary\":[],\"localBounds\":{\"center\":{\"x\":0.0,\"y\":0.0,\"z\":0.0},\"size\":{\"x\":0.0,\"y\":0.0,\"z\":0.0}}},\"roomPose\":{\"position\":{\"x\":0.0,\"y\":0.0,\"z\":0.0},\"rotation\":{\"x\":0.0,\"y\":0.0,\"z\":0.0},\"scale\":{\"x\":0.0,\"y\":0.0,\"z\":0.0}}}],\"selection\":{\"anchorId\":\"\",\"objectId\":\"\",\"position\":{\"x\":0.0,\"y\":0.0,\"z\":0.0}},\"viewer\":{\"frames\":[]},\"pointing\":{\"anchorId\":\"\",\"objectId\":\"\",\"position\":{\"x\":0.0,\"y\":0.0,\"z\":0.0},\"normal\":{\"x\":0.0,\"y\":0.0,\"z\":0.0},\"origin\":{\"x\":0.0,\"y\":0.0,\"z\":0.0},\"direction\":{\"x\":0.0,\"y\":0.0,\"z\":0.0}},\"roomContext\":{\"mode\":\"\",\"state\":\"\",\"message\":\"\",\"alignmentVerified\":false}}\nActual bridge unknown-viewer JSON: {\"behaviorKinds\":[\"rotate\",\"bob\"],\"readOnly\":false,\"scene\":{\"schemaVersion\":1,\"roomId\":\"test-room\",\"objects\":[]},\"assets\":[{\"assetId\":\"cube\",\"displayName\":\"Cube\",\"description\":\"\",\"spawnScale\":0.20000000298023224,\"localBounds\":{\"center\":{\"x\":0.0,\"y\":0.0,\"z\":0.0},\"size\":{\"x\":0.0,\"y\":0.0,\"z\":0.0}}},{\"assetId\":\"sphere\",\"displayName\":\"Sphere\",\"description\":\"\",\"spawnScale\":0.20000000298023224,\"localBounds\":{\"center\":{\"x\":0.0,\"y\":0.0,\"z\":0.0},\"size\":{\"x\":0.0,\"y\":0.0,\"z\":0.0}}}],\"anchors\":[{\"anchorId\":\"floor\",\"displayName\":\"Floor\",\"source\":\"\",\"semanticLabels\":[],\"surface\":{\"kind\":\"\",\"boundary\":[],\"localBounds\":{\"center\":{\"x\":0.0,\"y\":0.0,\"z\":0.0},\"size\":{\"x\":0.0,\"y\":0.0,\"z\":0.0}}},\"roomPose\":{\"position\":{\"x\":0.0,\"y\":0.0,\"z\":0.0},\"rotation\":{\"x\":0.0,\"y\":0.0,\"z\":0.0},\"scale\":{\"x\":0.0,\"y\":0.0,\"z\":0.0}}},{\"anchorId\":\"table\",\"displayName\":\"Table\",\"source\":\"\",\"semanticLabels\":[],\"surface\":{\"kind\":\"\",\"boundary\":[],\"localBounds\":{\"center\":{\"x\":0.0,\"y\":0.0,\"z\":0.0},\"size\":{\"x\":0.0,\"y\":0.0,\"z\":0.0}}},\"roomPose\":{\"position\":{\"x\":0.0,\"y\":0.0,\"z\":0.0},\"rotation\":{\"x\":0.0,\"y\":0.0,\"z\":0.0},\"scale\":{\"x\":0.0,\"y\":0.0,\"z\":0.0}}}],\"selection\":{\"anchorId\":\"\",\"objectId\":\"\",\"position\":{\"x\":0.0,\"y\":0.0,\"z\":0.0}},\"viewer\":{\"frames\":[]},\"pointing\":{\"anchorId\":\"\",\"objectId\":\"\",\"position\":{\"x\":0.0,\"y\":0.0,\"z\":0.0},\"normal\":{\"x\":0.0,\"y\":0.0,\"z\":0.0},\"origin\":{\"x\":0.0,\"y\":0.0,\"z\":0.0},\"direction\":{\"x\":0.0,\"y\":0.0,\"z\":0.0}},\"roomContext\":{\"mode\":\"\",\"state\":\"\",\"message\":\"\",\"alignmentVerified\":false}}"
+      "detail": "Raw null-viewer JSON: {\"behaviorKinds\":[\"rotate\",\"bob\"],\"readOnly\":false,\"scene\":{\"schemaVersion\":1,\"roomId\":\"test-room\",\"objects\":[]},\"assets\":[{\"assetId\":\"cube\",\"displayName\":\"Cube\",\"description\":\"\",\"spawnScale\":0.20000000298023224,\"localBounds\":{\"center\":{\"x\":0.0,\"y\":0.0,\"z\":0.0},\"size\":{\"x\":0.0,\"y\":0.0,\"z\":0.0}},\"source\":{\"providerId\":\"\",\"packId\":\"\",\"version\":\"\",\"sha256\":\"\",\"platform\":\"\",\"unityVersion\":\"\"}},{\"assetId\":\"sphere\",\"displayName\":\"Sphere\",\"description\":\"\",\"spawnScale\":0.20000000298023224,\"localBounds\":{\"center\":{\"x\":0.0,\"y\":0.0,\"z\":0.0},\"size\":{\"x\":0.0,\"y\":0.0,\"z\":0.0}},\"source\":{\"providerId\":\"\",\"packId\":\"\",\"version\":\"\",\"sha256\":\"\",\"platform\":\"\",\"unityVersion\":\"\"}}],\"anchors\":[{\"anchorId\":\"floor\",\"displayName\":\"Floor\",\"source\":\"\",\"semanticLabels\":[],\"surface\":{\"kind\":\"\",\"boundary\":[],\"localBounds\":{\"center\":{\"x\":0.0,\"y\":0.0,\"z\":0.0},\"size\":{\"x\":0.0,\"y\":0.0,\"z\":0.0}}},\"roomPose\":{\"position\":{\"x\":0.0,\"y\":0.0,\"z\":0.0},\"rotation\":{\"x\":0.0,\"y\":0.0,\"z\":0.0},\"scale\":{\"x\":0.0,\"y\":0.0,\"z\":0.0}}},{\"anchorId\":\"table\",\"displayName\":\"Table\",\"source\":\"\",\"semanticLabels\":[],\"surface\":{\"kind\":\"\",\"boundary\":[],\"localBounds\":{\"center\":{\"x\":0.0,\"y\":0.0,\"z\":0.0},\"size\":{\"x\":0.0,\"y\":0.0,\"z\":0.0}}},\"roomPose\":{\"position\":{\"x\":0.0,\"y\":0.0,\"z\":0.0},\"rotation\":{\"x\":0.0,\"y\":0.0,\"z\":0.0},\"scale\":{\"x\":0.0,\"y\":0.0,\"z\":0.0}}}],\"selection\":{\"anchorId\":\"\",\"objectId\":\"\",\"position\":{\"x\":0.0,\"y\":0.0,\"z\":0.0}},\"viewer\":{\"frames\":[]},\"pointing\":{\"anchorId\":\"\",\"objectId\":\"\",\"position\":{\"x\":0.0,\"y\":0.0,\"z\":0.0},\"normal\":{\"x\":0.0,\"y\":0.0,\"z\":0.0},\"origin\":{\"x\":0.0,\"y\":0.0,\"z\":0.0},\"direction\":{\"x\":0.0,\"y\":0.0,\"z\":0.0}},\"roomContext\":{\"mode\":\"\",\"state\":\"\",\"message\":\"\",\"alignmentVerified\":false}}\nActual bridge unknown-viewer JSON: {\"behaviorKinds\":[\"rotate\",\"bob\"],\"readOnly\":false,\"scene\":{\"schemaVersion\":1,\"roomId\":\"test-room\",\"objects\":[]},\"assets\":[{\"assetId\":\"cube\",\"displayName\":\"Cube\",\"description\":\"\",\"spawnScale\":0.20000000298023224,\"localBounds\":{\"center\":{\"x\":0.0,\"y\":0.0,\"z\":0.0},\"size\":{\"x\":0.0,\"y\":0.0,\"z\":0.0}},\"source\":{\"providerId\":\"\",\"packId\":\"\",\"version\":\"\",\"sha256\":\"\",\"platform\":\"\",\"unityVersion\":\"\"}},{\"assetId\":\"sphere\",\"displayName\":\"Sphere\",\"description\":\"\",\"spawnScale\":0.20000000298023224,\"localBounds\":{\"center\":{\"x\":0.0,\"y\":0.0,\"z\":0.0},\"size\":{\"x\":0.0,\"y\":0.0,\"z\":0.0}},\"source\":{\"providerId\":\"\",\"packId\":\"\",\"version\":\"\",\"sha256\":\"\",\"platform\":\"\",\"unityVersion\":\"\"}}],\"anchors\":[{\"anchorId\":\"floor\",\"displayName\":\"Floor\",\"source\":\"\",\"semanticLabels\":[],\"surface\":{\"kind\":\"\",\"boundary\":[],\"localBounds\":{\"center\":{\"x\":0.0,\"y\":0.0,\"z\":0.0},\"size\":{\"x\":0.0,\"y\":0.0,\"z\":0.0}}},\"roomPose\":{\"position\":{\"x\":0.0,\"y\":0.0,\"z\":0.0},\"rotation\":{\"x\":0.0,\"y\":0.0,\"z\":0.0},\"scale\":{\"x\":0.0,\"y\":0.0,\"z\":0.0}}},{\"anchorId\":\"table\",\"displayName\":\"Table\",\"source\":\"\",\"semanticLabels\":[],\"surface\":{\"kind\":\"\",\"boundary\":[],\"localBounds\":{\"center\":{\"x\":0.0,\"y\":0.0,\"z\":0.0},\"size\":{\"x\":0.0,\"y\":0.0,\"z\":0.0}}},\"roomPose\":{\"position\":{\"x\":0.0,\"y\":0.0,\"z\":0.0},\"rotation\":{\"x\":0.0,\"y\":0.0,\"z\":0.0},\"scale\":{\"x\":0.0,\"y\":0.0,\"z\":0.0}}}],\"selection\":{\"anchorId\":\"\",\"objectId\":\"\",\"position\":{\"x\":0.0,\"y\":0.0,\"z\":0.0}},\"viewer\":{\"frames\":[]},\"pointing\":{\"anchorId\":\"\",\"objectId\":\"\",\"position\":{\"x\":0.0,\"y\":0.0,\"z\":0.0},\"normal\":{\"x\":0.0,\"y\":0.0,\"z\":0.0},\"origin\":{\"x\":0.0,\"y\":0.0,\"z\":0.0},\"direction\":{\"x\":0.0,\"y\":0.0,\"z\":0.0}},\"roomContext\":{\"mode\":\"\",\"state\":\"\",\"message\":\"\",\"alignmentVerified\":false}}"
     },
     {
       "name": "voice WAV uses interoperable RIFF WAVE chunk sizes",
@@ -1608,6 +1608,161 @@
     },
     {
       "name": "capture receipt JSON preserves snapshot and explicit passthrough absence",
+      "passed": true,
+      "detail": ""
+    },
+    {
+      "name": "valid namespaced content manifest accepted",
+      "passed": true,
+      "detail": ""
+    },
+    {
+      "name": "content rejects wrong target platform",
+      "passed": true,
+      "detail": ""
+    },
+    {
+      "name": "content rejects different Unity runtime version",
+      "passed": true,
+      "detail": ""
+    },
+    {
+      "name": "content rejects bundles above compressed byte limit",
+      "passed": true,
+      "detail": ""
+    },
+    {
+      "name": "content rejects external bundle dependencies",
+      "passed": true,
+      "detail": ""
+    },
+    {
+      "name": "content rejects provenance namespace mismatch",
+      "passed": true,
+      "detail": ""
+    },
+    {
+      "name": "content rejects prefab path traversal",
+      "passed": true,
+      "detail": ""
+    },
+    {
+      "name": "content rejects nonfinite spawn scale",
+      "passed": true,
+      "detail": ""
+    },
+    {
+      "name": "content rejects duplicate manifest identities",
+      "passed": true,
+      "detail": ""
+    },
+    {
+      "name": "content URL stays on existing service origin",
+      "passed": true,
+      "detail": ""
+    },
+    {
+      "name": "content rejects service credentials",
+      "passed": true,
+      "detail": ""
+    },
+    {
+      "name": "content rejects download path injection",
+      "passed": true,
+      "detail": ""
+    },
+    {
+      "name": "content registry registration failure is atomic",
+      "passed": true,
+      "detail": ""
+    },
+    {
+      "name": "failed content registration preserves object identity and history",
+      "passed": true,
+      "detail": ""
+    },
+    {
+      "name": "content registration preserves live world and undo history",
+      "passed": true,
+      "detail": ""
+    },
+    {
+      "name": "content exposes measured prefab bounds",
+      "passed": true,
+      "detail": ""
+    },
+    {
+      "name": "content duplicate identity cannot replace an installed version",
+      "passed": true,
+      "detail": ""
+    },
+    {
+      "name": "content registry clones caller-owned provenance",
+      "passed": true,
+      "detail": ""
+    },
+    {
+      "name": "downloaded asset spawns through existing command executor",
+      "passed": true,
+      "detail": ""
+    },
+    {
+      "name": "saved scene retains exact provider pack version and digest",
+      "passed": true,
+      "detail": ""
+    },
+    {
+      "name": "downloaded instance accepts ordinary transform edits",
+      "passed": true,
+      "detail": ""
+    },
+    {
+      "name": "downloaded instance undo restores its original pose",
+      "passed": true,
+      "detail": ""
+    },
+    {
+      "name": "downloaded scene clear and restore preserve exact IDs and provenance",
+      "passed": true,
+      "detail": ""
+    },
+    {
+      "name": "restore rejects a replaced bundle with same version and preserves scene",
+      "passed": true,
+      "detail": ""
+    },
+    {
+      "name": "missing content version fails restore without disturbing existing scene",
+      "passed": true,
+      "detail": ""
+    },
+    {
+      "name": "content rejects executable or nonstatic component policy before registration",
+      "passed": true,
+      "detail": ""
+    },
+    {
+      "name": "content rejects arbitrary already-compiled MonoBehaviours",
+      "passed": true,
+      "detail": ""
+    },
+    {
+      "name": "static mesh material collider prefab passes content policy",
+      "passed": true,
+      "detail": ""
+    },
+    {
+      "name": "content verifies exact downloaded bytes",
+      "passed": true,
+      "detail": ""
+    },
+    {
+      "name": "content detects same-length bundle corruption",
+      "passed": true,
+      "detail": ""
+    },
+    {
+      "name": "content detects truncated bundle",
       "passed": true,
       "detail": ""
     }

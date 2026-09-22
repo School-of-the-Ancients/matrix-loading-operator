@@ -12,8 +12,9 @@ namespace ArSandbox
     public sealed class PcBridge : MonoBehaviour
     {
         [Serializable] public sealed class Settings { public string url = "http://127.0.0.1:8765"; public string token = ""; }
-        [Serializable] private sealed class Exchange { public string clientId; public SandboxSnapshot snapshot; public RoomContextData runtime; public List<CommandResult> results; public bool captureSupported = true; public SceneCaptureResult capture; }
-        [Serializable] private sealed class Incoming { public List<SandboxCommand> commands; public LessonGuideData lesson; public SceneCaptureRequest capture; }
+        [Serializable] private sealed class ContentCapabilities { public bool supported = true; public string platform = SandboxContentRules.RuntimePlatformName; public string unityVersion = Application.unityVersion; }
+        [Serializable] private sealed class Exchange { public string clientId; public SandboxSnapshot snapshot; public RoomContextData runtime; public List<CommandResult> results; public bool captureSupported = true; public SceneCaptureCapabilities captureCapabilities; public SceneCaptureResult capture; public ContentCapabilities contentCapabilities = new ContentCapabilities(); public ContentInstallReceipt contentReceipt; }
+        [Serializable] private sealed class Incoming { public List<SandboxCommand> commands; public LessonGuideData lesson; public SceneCaptureRequest capture; public ContentInstallRequest contentInstall; }
         public SandboxApp app;
         public string ConnectionStatus { get; private set; } = "PC service not connected.";
         public bool IsConnected { get; private set; }
@@ -30,6 +31,12 @@ namespace ArSandbox
         private SceneCaptureResult lastCapture;
         private const int MaximumExchangeBytes = 3 * 1024 * 1024;
         private long frameStartTimestamp;
+        private string activeCaptureId;
+        private Coroutine captureRoutine;
+        private QuestCameraCapture physicalCapture;
+        private SandboxContentLoader contentLoader;
+        private ContentInstallReceipt pendingContent, lastContent;
+        private string activeContentId;
 
         // Use a monotonic wall clock. XR can report predicted display cadence in
         // Unity deltaTime even when synchronous capture stalls the application.
@@ -47,6 +54,7 @@ namespace ArSandbox
             for (var i = 0; i + 1 < args.Length; i++) if (args[i] == "-serviceUrl") settings.url = args[i + 1];
             if (!Uri.TryCreate(settings.url, UriKind.Absolute, out var uri) || (uri.Scheme != "http" && uri.Scheme != "https") || !string.IsNullOrEmpty(uri.UserInfo))
             { ConnectionStatus = "Invalid PC service URL."; return; }
+            contentLoader = app.GetComponent<SandboxContentLoader>() ?? app.gameObject.AddComponent<SandboxContentLoader>();
             StartCoroutine(Poll());
         }
 
@@ -58,7 +66,8 @@ namespace ArSandbox
                 if ((app.World == null || app.RoomReloading) && app.RoomContext?.mode != "ar") { IsConnected = false; yield return pause; continue; }
                 var snapshot = app.CaptureSnapshot();
                 var exchange = new Exchange { clientId = clientId, snapshot = snapshot, runtime = app.RoomContext,
-                    results = new List<CommandResult>(pendingResults), capture = pendingCapture };
+                    results = new List<CommandResult>(pendingResults), capture = pendingCapture,
+                    captureCapabilities = QuestCameraCapture.GetCapabilities(app), contentReceipt = pendingContent };
                 byte[] body = Encoding.UTF8.GetBytes(JsonUtility.ToJson(exchange));
                 if (body.Length > MaximumExchangeBytes && pendingCapture != null)
                 {
@@ -67,6 +76,7 @@ namespace ArSandbox
                     body = Encoding.UTF8.GetBytes(JsonUtility.ToJson(exchange));
                 }
                 SceneCaptureRequest captureRequest = null;
+                ContentInstallRequest contentRequest = null;
                 using (var request = new UnityWebRequest(settings.url.TrimEnd('/') + "/api/exchange", "POST"))
                 {
                     activeRequest = request;
@@ -80,7 +90,7 @@ namespace ArSandbox
                     {
                         // Older services may still enforce a smaller body cap. Retire
                         // the image, preserving a small failure receipt and live polling.
-                        if (request.responseCode == 413 && !string.IsNullOrEmpty(pendingCapture?.dataBase64))
+                        if (request.responseCode == 413 && ReferenceEquals(pendingCapture, exchange.capture) && !string.IsNullOrEmpty(pendingCapture?.dataBase64))
                             RejectPendingCapture("PC service rejected the image upload size. Update the PC service or reduce scene complexity and capture again.");
                         IsConnected = false;
                         ConnectionStatus = request.responseCode == 409 ? "PC service is paired with another running app." : "PC service offline. Quest USB: run adb reverse tcp:8765 tcp:8765.";
@@ -96,8 +106,12 @@ namespace ArSandbox
                         {
                             // Keep encoded pixels across failed uploads. A successful
                             // parsed exchange acknowledges this exact capture receipt.
-                            pendingCapture = null;
+                            // A background physical-camera capture can finish while
+                            // this HTTP request is in flight. Ack only what was sent.
+                            if (ReferenceEquals(pendingCapture, exchange.capture)) pendingCapture = null;
                             captureRequest = incoming.capture;
+                            if (ReferenceEquals(pendingContent, exchange.contentReceipt)) pendingContent = null;
+                            contentRequest = incoming.contentInstall;
                             ConnectionStatus = snapshot == null ? "PC connected — waiting for configured room data." : "PC connected — scene state synchronized.";
                             ReceiveGuide(incoming.lesson);
                             if (incoming.commands != null) foreach (var command in incoming.commands)
@@ -119,30 +133,78 @@ namespace ArSandbox
                 {
                     if (lastCapture != null && lastCapture.captureId == captureRequest.captureId)
                         pendingCapture = lastCapture;
-                    else
+                    else if (activeCaptureId != captureRequest.captureId)
                     {
-                        // LateUpdate has completed for tracked cameras and Update has
-                        // applied current rotate/bob offsets before pixels and state pair.
-                        // Headless players may never signal end-of-frame; let the
-                        // capture return its explicit graphics-unavailable receipt.
-                        if (SystemInfo.graphicsDeviceType != UnityEngine.Rendering.GraphicsDeviceType.Null)
-                            yield return new WaitForEndOfFrame();
-                        long captureFrameStart = frameStartTimestamp;
-                        pendingCapture = lastCapture = sceneCapture.Capture(app, captureRequest, clientId);
-                        if (pendingCapture.ok)
-                        {
-                            // Normal coroutines resume after Update in the next frame.
-                            // Bracket the capture frame with this component's Update
-                            // timestamps, including capture work, other frame work and
-                            // scheduling waits. Pixels, pose and snapshot stay frozen.
-                            yield return null;
-                            if (captureFrameStart > 0 && frameStartTimestamp > captureFrameStart)
-                                pendingCapture.captureFrameTimeMs = (frameStartTimestamp - captureFrameStart) *
-                                    (1000d / Stopwatch.Frequency);
-                        }
+                        if (captureRoutine != null) StopCoroutine(captureRoutine);
+                        physicalCapture?.CancelCapture();
+                        activeCaptureId = captureRequest.captureId;
+                        captureRoutine = StartCoroutine(CaptureScene(captureRequest));
+                    }
+                }
+                if (contentRequest != null && !string.IsNullOrEmpty(contentRequest.requestId))
+                {
+                    if (lastContent != null && lastContent.requestId == contentRequest.requestId) pendingContent = lastContent;
+                    else if (string.IsNullOrEmpty(activeContentId))
+                    {
+                        activeContentId = contentRequest.requestId;
+                        StartCoroutine(InstallContent(contentRequest));
                     }
                 }
                 yield return pause;
+            }
+        }
+
+        private IEnumerator InstallContent(ContentInstallRequest request)
+        {
+            // Download asynchronously while the normal heartbeat keeps its lease.
+            yield return contentLoader.Install(request, settings.url, settings.token,
+                receipt => { pendingContent = lastContent = receipt; });
+            activeContentId = null;
+        }
+
+        private IEnumerator CaptureScene(SceneCaptureRequest request)
+        {
+            SandboxSceneCapture.PhysicalFrame frame = null;
+            try
+            {
+                if (SandboxSceneCapture.Mode(request) == "mixed")
+                {
+                    physicalCapture = app != null ? app.GetComponent<QuestCameraCapture>() : null;
+                    if (physicalCapture == null)
+                    {
+                        pendingCapture = lastCapture = SandboxSceneCapture.Failure(request, clientId, QuestCameraCapture.GetCapabilities(app).reason);
+                        yield break;
+                    }
+                    string preparationError = null;
+                    yield return physicalCapture.Prepare((prepared, error) => { frame = prepared; preparationError = error; });
+                    if (preparationError != null || frame == null)
+                    {
+                        pendingCapture = lastCapture = SandboxSceneCapture.Failure(request, clientId, preparationError ?? "No physical-camera frame was acquired.");
+                        yield break;
+                    }
+                }
+                // Keep heartbeat/commands running while permission or startup waits.
+                // Render after tracked camera and behavior presentation updates.
+                if (SystemInfo.graphicsDeviceType != UnityEngine.Rendering.GraphicsDeviceType.Null)
+                    yield return new WaitForEndOfFrame();
+                long captureFrameStart = frameStartTimestamp;
+                SceneCaptureResult result = sceneCapture.Capture(app, request, clientId, frame);
+                frame?.Dispose();
+                frame = null;
+                if (result.ok)
+                {
+                    yield return null;
+                    if (captureFrameStart > 0 && frameStartTimestamp > captureFrameStart)
+                        result.captureFrameTimeMs = (frameStartTimestamp - captureFrameStart) * (1000d / Stopwatch.Frequency);
+                }
+                pendingCapture = lastCapture = result;
+            }
+            finally
+            {
+                frame?.Dispose();
+                physicalCapture?.CancelCapture();
+                activeCaptureId = null;
+                captureRoutine = null;
             }
         }
 
@@ -170,7 +232,7 @@ namespace ArSandbox
         private void RejectPendingCapture(string error)
         {
             pendingCapture = new SceneCaptureResult { captureId = pendingCapture.captureId,
-                clientId = pendingCapture.clientId, revision = pendingCapture.revision, ok = false, error = error };
+                clientId = pendingCapture.clientId, revision = pendingCapture.revision, mode = pendingCapture.mode, ok = false, error = error };
             lastCapture = pendingCapture;
         }
 
@@ -204,6 +266,6 @@ namespace ArSandbox
             return result.ToString().TrimEnd();
         }
 
-        private void OnDisable() { IsConnected = false; activeRequest?.Abort(); StopAllCoroutines(); pendingCapture = lastCapture = null; }
+        private void OnDisable() { IsConnected = false; activeRequest?.Abort(); StopAllCoroutines(); physicalCapture?.CancelCapture(); contentLoader?.CancelInstall(); activeContentId = null; activeCaptureId = null; captureRoutine = null; pendingCapture = lastCapture = null; }
     }
 }

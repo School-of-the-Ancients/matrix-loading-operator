@@ -1,0 +1,93 @@
+{
+  "schemaVersion": 1,
+  "date": "2026-09-21",
+  "pullRequest": 27,
+  "device": "Quest Pro",
+  "runtimeSourceCommit": "f061b2e3891db0dcf17373188d5663564f429cc3",
+  "guideCommit": "0e5a0e6eec7341763833f787a3d9b6d0fd64b1b1",
+  "method": "Manual browser walkthrough with actual Android runtime acknowledgements and wearer feedback; not an automated test count.",
+  "apk": {
+    "package": "com.matt.arsandbox",
+    "bytes": 84740382,
+    "sha256": "6cd39a227f7decbc040af8f4a39cfd6f51520b7725f94a11513701edc9ff93c4",
+    "installed": true,
+    "installation": "adb install -r, preserving app data",
+    "installedBaseApkHashMatched": true
+  },
+  "room": {
+    "localized": true,
+    "wearerConfirmedOutlineAlignment": true,
+    "pcAlignmentCommandAcknowledged": true
+  },
+  "contentPack": {
+    "providerId": "matrix-fixture",
+    "packId": "scifi-props",
+    "version": "1.0.0",
+    "platform": "Android",
+    "unityVersion": "6000.6.0f1",
+    "bytes": 136097,
+    "sha256": "3b926e9f8cc85282e2814a81483c92aded9dff44f5b0174c5a921bdfb26b68f1",
+    "assetId": "matrix-fixture:scifi-props:1.0.0:beacon",
+    "installationPhase": "ready",
+    "runtimeError": "",
+    "assetPresentInRuntimeCatalog": true,
+    "runtimeAssetCount": 8,
+    "exportedAfterApkBuild": true,
+    "sceneObjectCountAfterInstall": 0
+  },
+  "aiPlacement": {
+    "mode": "codex-cli",
+    "model": "gpt-5.6-sol",
+    "firstRequest": "Place one Sci-fi Beacon on the real floor about 1.2 meters in front of me. Use the installed beacon asset at its normal size.",
+    "firstOutcome": "needs_clarification",
+    "firstExplanation": "The AI reported that the requested point fell outside the measured floor boundary and proposed no commands. This records the response, not independent verification of its geometry calculation.",
+    "firstAttemptChangedScene": false,
+    "selectedPointRetry": "User selected a floor point with the right trigger. A second real Codex turn proposed exactly one surface-placement spawn using the installed asset, unit scale and upright orientation; the reviewed command was applied.",
+    "spawnAcknowledged": true,
+    "spawnedObjectHasExactPackProvenance": true,
+    "wearerConfirmedAppearance": true,
+    "editAndUndo": "A third real Codex turn proposed one set_transform command with uniform scale 1.25. The runtime acknowledged it; comparison with the private baseline verified that only scale changed. The Undo button restored the complete original scene exactly.",
+    "saveClearRestore": "Saved BeaconDemo_PR27_20260921 through the Operator. Read-back of its PC file matched the original scene. Clear was acknowledged with zero objects; restore was acknowledged and matched the original scene exactly, including asset provenance.",
+    "wearerConfirmedRestoredAppearance": true,
+    "finalScene": "One original-size beacon at the user-selected floor point; saved on the review PC service."
+  },
+  "service": {
+    "reviewPort": 8789,
+    "updatedRuntimeOnline": true,
+    "finalPcSourceLoaded": false,
+    "limitation": "The review process predates final capability-flag, lease-expiry, response-serialization and worker-start fixes. Automatic approval review rejected its restart with only 'blocked by policy'. Later inspection still found the original process and no contentLibrary capability flag. This walkthrough does not validate those final fixes in a live service.",
+    "originalServicePort": 8776,
+    "originalServiceRestarted": false
+  },
+  "remaining": [
+    "Restart the review PC service manually and validate the final service source with the connected player.",
+    "Standalone Windows player installation/AI loop remains separate and pending.",
+    "Quest 3 physical-camera permissions, calibration, alignment, composite quality and timing need Quest 3 hardware.",
+    "Pack reinstall after app restart is still explicit; this walkthrough has not validated a cold restart."
+  ],
+  "privacy": "No device serial, physical room identifier, anchor identifiers, room poses or room images are included.",
+  "prefabBrowser": {
+    "implemented": "Individual prefab cards, search and filters, measured sizes, whole-pack installation, reviewed Operator handoff, and catalog-backed Unity Editor image samples.",
+    "browserVerified": [
+      "Eight installed prefabs displayed from the actual Quest report.",
+      "Beacon search expanded two catalog packs and showed one installed Android variant plus one Windows candidate.",
+      "Windows pack installation was disabled for the connected Android player.",
+      "Opening the beacon handoff selected its exact installed ID and populated a placement request without inference or scene edits.",
+      "Actual beacon PNG decoded in the in-app browser at 384x384 in both card and larger sample while the headset was offline; no scene mutation was requested."
+    ],
+    "previewLimit": "Static authored-prefab PNG samples; no interactive 3D or headset appearance guarantee.",
+    "apkRebuildNeeded": false,
+    "previewInventory": "prefab-preview-inventory.json",
+    "previewRendering": {
+      "passed": 8,
+      "failed": 0,
+      "size": [
+        384,
+        384
+      ],
+      "originalFixtureAssetFilesUnchanged": 20,
+      "inventory": "prefab-preview-inventory.json",
+      "apkOrBundleRebuilt": false
+    }
+  }
+}

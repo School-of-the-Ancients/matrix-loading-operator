@@ -40,6 +40,8 @@ namespace ArSandbox
         public TransformData transform;
         // Optional for legacy schema-1 scenes. Animation phase is presentation only.
         public List<BehaviorData> behaviors;
+        // Optional schema-1 provenance; absent for bundled/legacy assets.
+        public ContentSourceReference source;
     }
 
     [Serializable]
@@ -81,6 +83,7 @@ namespace ArSandbox
         // Optional static render bounds. Unknown geometry is null; JsonUtility may
         // materialize that as an all-zero inline object, never a known positive size.
         public BoundsData localBounds;
+        public ContentSourceReference source;
     }
 
     [Serializable]
@@ -207,12 +210,60 @@ namespace ArSandbox
     {
         public string captureId;
         public int revision;
+        public string mode;
+    }
+
+    [Serializable]
+    public sealed class SceneCaptureCapabilities
+    {
+        public string[] modes = new[] { "virtual" };
+        public string device;
+        public string mixedStatus = "unsupported";
+        public string reason;
+        public bool depthOcclusion;
+    }
+
+    [Serializable]
+    public sealed class SceneCameraIntrinsics
+    {
+        public float fx, fy, cx, cy;
+    }
+
+    [Serializable]
+    public sealed class SceneCameraPose
+    {
+        public Float3 position, rotation, forward;
+    }
+
+    [Serializable]
+    public sealed class ScenePhysicalCamera
+    {
+        public string eye = "left";
+        public string frameTimestampUtc;
+        public double frameAgeMs;
+        public int imageWidth, imageHeight, sensorWidth, sensorHeight;
+        public SceneCameraIntrinsics intrinsics;
+        public SceneCameraPose pose;
+        public float[] projection;
+        public string projectionConvention = "unity_camera_row_major";
+        public string alignment = "camera_intrinsics_at_exposure";
+    }
+
+    [Serializable]
+    public sealed class SceneSpatialProvenance
+    {
+        public string source, roomId;
+        public int anchorCount;
+        public bool alignmentVerified;
+        public bool depthOcclusion;
+        public bool physicalDepthIncluded;
     }
 
     [Serializable]
     public sealed class SceneCaptureCamera
     {
-        // World-space metres and Euler degrees of the mono center-eye camera.
+        // World-space metres and Euler degrees of the mono rendering camera.
+        // Virtual uses center eye; mixed uses the physical camera at exposure.
         public Float3 position, rotation, forward;
         public float fieldOfView, aspect, nearClip, farClip;
     }
@@ -222,6 +273,7 @@ namespace ArSandbox
     {
         public string captureId, clientId;
         public int revision;
+        public string mode = "virtual";
         public bool ok;
         public string error;
         public string mimeType;
@@ -232,6 +284,8 @@ namespace ArSandbox
         public int frameCount;
         public string source = "unity_center_eye";
         public bool includesPassthrough;
+        public ScenePhysicalCamera physicalCamera;
+        public SceneSpatialProvenance spatialProvenance;
         public SceneCaptureCamera camera;
         public double renderMs, encodeMs, frameTimeMs;
         // Monotonic wall-clock interval between PcBridge.Update calls bracketing
@@ -249,6 +303,7 @@ namespace ArSandbox
         public string description = "";
         public float spawnScale = 0.2f;
         public GameObject prefab;
+        public ContentSourceReference source;
     }
 
     [Serializable]

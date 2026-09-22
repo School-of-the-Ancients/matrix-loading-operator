@@ -1,0 +1,65 @@
+{
+  "source": "Editor protocol and calibrated-projection checks; no Quest 3 camera was used",
+  "completedUtc": "2026-09-21T21:24:46.3216621Z",
+  "passed": 14,
+  "failed": 0,
+  "error": "",
+  "checks": [
+    {
+      "name": "missing mode preserves virtual default",
+      "passed": true
+    },
+    {
+      "name": "mixed request without physical frame fails instead of virtual fallback",
+      "passed": true
+    },
+    {
+      "name": "failure receipt retains requested mode and identity",
+      "passed": true
+    },
+    {
+      "name": "Editor advertises virtual-only and explains unsupported physical camera",
+      "passed": true
+    },
+    {
+      "name": "unsupported prepare returns bounded failure without starting a sensor",
+      "passed": true
+    },
+    {
+      "name": "native 4:3 calibrated projection",
+      "passed": true
+    },
+    {
+      "name": "wide stream uses center sensor crop",
+      "passed": true
+    },
+    {
+      "name": "square stream uses center sensor crop",
+      "passed": true
+    },
+    {
+      "name": "nonfinite focal length rejected",
+      "passed": true
+    },
+    {
+      "name": "unstable near-zero focal length rejected",
+      "passed": true
+    },
+    {
+      "name": "invalid clipping range rejected",
+      "passed": true
+    },
+    {
+      "name": "frame age derives from exposure timestamp",
+      "passed": true
+    },
+    {
+      "name": "stale physical frame rejected",
+      "passed": true
+    },
+    {
+      "name": "future physical frame rejected",
+      "passed": true
+    }
+  ]
+}

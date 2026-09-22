@@ -26,6 +26,13 @@ namespace ArSandbox
             var rig = rigObject.GetComponent<OVRCameraRig>();
             var manager = rigObject.GetComponent<OVRManager>();
             manager.isInsightPassthroughEnabled = true;
+            // Meta 205 serializes this internal OVRManager field. Camera consent
+            // belongs to an explicit mixed-capture request, never rig startup.
+            var serializedManager = new SerializedObject(manager);
+            var startupCameraPermission = serializedManager.FindProperty("requestPassthroughCameraAccessPermissionOnStartup");
+            if (startupCameraPermission == null) throw new InvalidOperationException("Meta camera startup permission setting is unavailable.");
+            startupCameraPermission.boolValue = false;
+            serializedManager.ApplyModifiedPropertiesWithoutUndo();
             manager.trackingOriginType = OVRManager.TrackingOrigin.FloorLevel;
             foreach (var camera in rigObject.GetComponentsInChildren<Camera>(true))
             {
@@ -103,14 +110,15 @@ namespace ArSandbox
                 {
                     var entry = devices.GetArrayElementAtIndex(index);
                     var name = entry.FindPropertyRelative("manifestName").stringValue;
-                    entry.FindPropertyRelative("enabled").boolValue = name == "eureka" || name == "cambria";
+                    entry.FindPropertyRelative("enabled").boolValue = name == "eureka" || name == "cambria" || name == "quest3s";
                 }
                 serializedFeature.ApplyModifiedPropertiesWithoutUndo();
             }
             var config = OVRProjectConfig.CachedProjectConfig;
             // Quest Pro's manually configured Scene Model V1 is the primary path.
             // Quest 3 is compatible without requiring its depth or high-fidelity features.
-            config.targetDeviceTypes = new List<OVRProjectConfig.DeviceType> { OVRProjectConfig.DeviceType.QuestPro, OVRProjectConfig.DeviceType.Quest3 };
+            config.targetDeviceTypes = new List<OVRProjectConfig.DeviceType> { OVRProjectConfig.DeviceType.QuestPro, OVRProjectConfig.DeviceType.Quest3, OVRProjectConfig.DeviceType.Quest3S };
+            config.isPassthroughCameraAccessEnabled = true;
             config.sceneSupport = OVRProjectConfig.FeatureSupport.Required;
             config.insightPassthroughSupport = OVRProjectConfig.FeatureSupport.Required;
             config.anchorSupport = OVRProjectConfig.AnchorSupport.Enabled;

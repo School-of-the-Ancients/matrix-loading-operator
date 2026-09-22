@@ -1,6 +1,8 @@
 # Matrix Operator: the virtual white room
 
-The virtual room has passed 21 direct command/persistence checks and 61 live Codex AI loop checks on the actual Quest Pro. Five real model turns completed spawn, same-ID resize, save, clear and exact restore; the wearer confirms seeing the AI changes and their scene restored. The next pass is the existing MRUK path with manually configured room surfaces. Education, mentors, curriculum, voice and downloaded catalogs are separate later work. Quest 3 is optional.
+The original white-room headset milestone on September 20, 2026 passed 21 direct command/persistence checks and 61 live Codex AI loop checks on the actual Quest Pro. Five real model turns completed spawn, same-ID resize, save, clear and exact restore; the wearer confirmed seeing the AI changes and their scene restored.
+
+Current source also includes [headset voice](Voice-And-Codex-Controls.md), Rotate/Bob, and [downloadable static prefab packs](Content-Library-User-Guide.md). Native [room-aware AR](Room-AR.md) has separate Quest Pro hardware evidence. Consult the [current checkpoint](Current-Checkpoint.md) for the build and validation scope of each feature; the original white-room results do not validate later features. Quest 3 is not required for this virtual mode.
 
 The room loads automatically with a fixed floor at y=0. Its stable `white-room-v1` / `white-floor` coordinate frame allows a saved arrangement to survive an application restart without a physical room scan. All units are metres. Headset recentering can change where the viewer stands in this virtual scene; this mode does not promise alignment with real furniture.
 
@@ -27,16 +29,16 @@ The build script generates an independent Unity project under `.white-room-fixtu
 
 ## Open the Desktop exports in Unity Hub
 
-In Unity Hub choose **Add project from disk**, then select one of these folders under **Desktop → Game Design**. Use Unity **6000.6.0f1**:
+The original workstation exports used these folders under **Desktop → Game Design**. If those copies are available, choose **Add project from disk** in Unity Hub and use Unity **6000.6.0f1**; a fresh clone does not contain these workstation folders:
 
 | Project folder | Scene to open |
 | --- | --- |
 | Matrix White Room Quest | `Assets/Sandbox/WhiteRoom/Scenes/WhiteRoomQuest.unity` |
 | Matrix White Room Desktop | `Assets/Sandbox/WhiteRoom/Scenes/WhiteRoomDesktop.unity` |
 
-These complete Unity source copies contain Assets, Packages and ProjectSettings, with all metadata. The Quest copy's 103 files and Desktop copy's 90 files match their generated sources by SHA-256. Neither export was opened or rebuilt at its new location. Unity creates caches on first import; the Quest target also needs Android Build Support. No Meta Core/MRUK packages or credentials were copied. [Export evidence](../Validation/unity-hub-export.json).
+At export time, these complete Unity source copies contained Assets, Packages and ProjectSettings, with all metadata. The Quest copy's 103 files and Desktop copy's 90 files matched their generated sources by SHA-256; neither export had been opened or rebuilt at its new location. This historical inventory does not establish that a copy contains current source. Unity creates caches on first import; the Quest target also needs Android Build Support. No Meta Core/MRUK packages or credentials were copied. [Export evidence](../Validation/unity-hub-export.json).
 
-The sibling **Matrix Loading Operator** full repository copy also contains the copied builds and local saves. Make authoritative source changes there and regenerate with `Build-WhiteRoom.ps1`; changes made only in a generated Hub copy do not flow back automatically. Follow the [Desktop guide](Desktop-Unity-Hub.md) when switching the running PC service to that checkout.
+The original sibling **Matrix Loading Operator** repository copy also held copied builds and local saves. Make source changes in your chosen full repository checkout and regenerate with `Build-WhiteRoom.ps1`; changes made only in a generated Hub copy do not flow back automatically. Follow the [Desktop guide](Desktop-Unity-Hub.md) when switching the running PC service to a different checkout.
 
 ## Operator loop
 
@@ -76,9 +78,9 @@ Install Unity Android Build Support, SDK/NDK and OpenJDK, then run:
 ./Install-WhiteRoom.ps1
 ```
 
-The installer requires one USB-connected, ADB-authorized headset and installs `Builds/WhiteRoomQuest/MatrixOperator.apk` while preserving app data. Installation and forwarding succeeded on Quest Pro, but its implicit launch failed; open **Matrix Operator** manually from **Unknown Sources**. The installed APK remains the same validated artifact. Keep the PC service running and close the desktop player: the service leases one active runtime at a time, with a 15-second disconnect timeout.
+The installer requires one USB-connected, ADB-authorized headset and installs `Builds/WhiteRoomQuest/MatrixOperator.apk` while preserving app data. In the original Quest Pro check, installation and forwarding succeeded but implicit launch failed; open **Matrix Operator** manually from **Unknown Sources**. Keep the PC service running and close the desktop player: the service leases one active runtime at a time, with a 15-second disconnect timeout.
 
-After unplugging/reconnecting USB, run `./Connect-QuestControl.ps1` to restore forwarding without reinstalling or launching anything. It verifies the exact Quest model, PC health and port mapping while preserving other reverse rules. Supply `-Serial` if several authorized devices are connected; `-Port` defaults to 8765. This repaired the observed offline connection on the actual Quest Pro.
+After unplugging/reconnecting USB, run `./Connect-QuestControl.ps1` to restore forwarding without reinstalling or launching anything. It verifies the exact Quest model, PC health and port mapping while preserving other reverse rules. Supply `-Serial` if several authorized devices are connected; `-Port` defaults to 8765. Match the PC service port, headset's configured service URL, and USB reverse port, including any retained override from an earlier installation. This repaired the observed offline connection on the actual Quest Pro.
 
 After installation, a repeatable device check is available:
 
@@ -92,6 +94,8 @@ The first command only inspects the connected app and service. Run the second af
 The isolated Quest project lives at `.white-room-fixture/Quest`; its scene is `Assets/Sandbox/WhiteRoom/Scenes/WhiteRoomQuest.unity`. This fully virtual build uses Unity OpenXR, XR Management and Input System with Quest Pro/Quest 3 device profiles. It does not import Meta Core or MRUK and does not modify antivirus settings or quarantined files. The original passthrough/MRUK path remains available separately under the existing build scripts and documentation.
 
 - Right trigger: select an object or floor placement point.
+- Hold/release left trigger: record speech and submit it for transcription and a proposal.
+- Y: apply the reviewed voice proposal. Left grip: Undo one runtime edit.
 - A: summon the selected catalog prop. B: cycle props.
 - X: delete the selected object.
 - Left stick: nudge selected object by 10 cm in the floor axes.
@@ -102,6 +106,6 @@ The rig requires floor-level tracking and pauses controller edits when head/cont
 
 ## Validation and limitations
 
-See [current validation evidence](../Validation/White-Room-Validation.md) and [durable progress log](Progress-Log.md). Compile/build, automated player tests, browser checks and hardware tests are recorded separately. Existing historical reports describe the earlier AR prototype and do not establish white-room behavior.
+See the [original white-room validation](../Validation/White-Room-Validation.md), [current checkpoint](Current-Checkpoint.md), and [durable progress log](Progress-Log.md). Compile/build, automated player tests, browser checks and hardware tests are recorded separately. Historical AR prototype reports do not establish white-room behavior.
 
-For the selected subscription mode, stop the previous PC service and run `./Start-CodexControlService.ps1`. The native Codex CLI is signed in with ChatGPT and manages its own credentials. The complete five-turn model-driven spawn/resize/save/clear/restore sequence now passes **61 checks, 0 failures**, with actual Quest acknowledgements and the original table/selection restored afterward. The wearer confirmed the visible AI changes and restored scene. The earlier 27/1 attempt is retained in the session history. MRUK hardware and the broader tracking/comfort checklist remain pending. The explicit offline parser and compatible API route remain available separately; voice is unimplemented. [AI configuration and vocabulary](AI-Integration.md).
+For the selected subscription mode, stop the previous PC service and run `./Start-CodexControlService.ps1`. The native Codex CLI uses the PC's ChatGPT sign-in and manages its own credentials. In the original white-room milestone, the complete five-turn model-driven spawn/resize/save/clear/restore sequence passed **61 checks, 0 failures**, with actual Quest acknowledgements and the original table/selection restored afterward. The wearer confirmed the visible AI changes and restored scene. The earlier 27/1 attempt is retained in that session's history. Later [voice](Voice-And-Codex-Controls.md) and [room-AR](Room-AR.md) milestones have their own implementation and hardware evidence; the broader tracking/comfort checklist remains separate. The explicit offline parser and compatible API route remain available. [AI configuration and vocabulary](AI-Integration.md).
