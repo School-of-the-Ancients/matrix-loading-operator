@@ -6,6 +6,8 @@ Matrix runs as a **Windows virtual room**, a **Quest virtual room**, or **room-a
 
 **[Download a version](https://github.com/School-of-the-Ancients/matrix-loading-operator/releases)** · **[Latest validated checkpoint](Docs/Current-Checkpoint.md)** · **[Content library guide](Docs/Content-Library-User-Guide.md)** · **[Issues](https://github.com/School-of-the-Ancients/matrix-loading-operator/issues)**
 
+Matrix Operator remains an independent creative and spatial runtime. The planned [School of the Ancients integration](https://github.com/School-of-the-Ancients/school-of-the-ancients-roadmap) connects the separate learning product through a versioned API: School owns mentors, lessons and learner records; Matrix owns scenes, content and observed actions. See the [product plan](https://github.com/School-of-the-Ancients/school-of-the-ancients-roadmap/blob/main/PRD.md), [API proposal](https://github.com/School-of-the-Ancients/school-of-the-ancients-roadmap/blob/main/API-CONTRACT.md), and [organization Kanban](https://github.com/orgs/School-of-the-Ancients/projects/1). These are implementation plans, not newly shipped runtime features.
+
 These instructions describe this source checkout. Historical releases have different capabilities: use the APK and PC service from the **same release**, and read its included instructions. The [version guide](Docs/Versions-And-Submissions.md) maps preserved builds to their features.
 
 ![Unity-rendered gallery of the seven bundled props: chair, table, wall, pedestal, block, orb and column](Validation/white-room-preview.png)
