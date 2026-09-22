@@ -20,7 +20,7 @@ this API after its actual deployment path is demonstrated.
 | Discovery | Loopback only; no pairing required; contains no scene or images |
 | Client authentication | One-use pairing code exchanged for a scoped bearer token |
 | Runtime binding | One exact runtime lease generation; even the same app returning after lease expiry requires a new pairing |
-| Proposal input | Existing `offline-rules` text grammar; optional typed `experiment.block-scale.v1` intent; neither is a general AI model |
+| Proposal input | `offline-rules` text grammar; optional owner-configured `codex-cli` AI text planning; optional typed `experiment.block-scale.v1` intent |
 | Apply | Human owner in Matrix's `/clients` page with the Operator service token |
 | Capture and content installation | Not exposed to clients; remain available through the existing Operator |
 | Measurement | Runtime-reported snapshots/transforms; no claim of measured physical dimensions or volume |
@@ -52,6 +52,10 @@ feature as a public control endpoint or put the service token into a hosted site
 4. The sample requests “Place a block here.” Select a valid placement point in
    the runtime first, and ensure `block` exists in its installed catalog. Use
    `--text` to choose another supported offline command.
+   For an AI scene request, add `--mode codex-cli --text "Arrange a small demonstration using the installed props."`.
+   The sample first checks that the service advertises that mode. The Operator
+   configures Codex and chooses its model and reasoning effort; the companion
+   cannot override those settings.
 5. Review the actual commands in `/clients` and choose **Apply reviewed
    proposal**. No client request applies itself. The sample polls until a result
    or its bounded waiting period ends.
@@ -103,6 +107,58 @@ Read `/scene`, then submit the exact revision and runtime identity you reviewed:
 `correlationId` is optional and opaque. Do not send learner records, credentials,
 conversation history, or curriculum schemas. Matrix owns scene state; clients
 interpret their own conversations and use the correlation ID to connect results.
+
+### Optional AI text planning
+
+`capabilities["scene.propose_text"]` has this shape when the owner's Codex
+executable, configuration and selected preferences validate locally:
+
+```json
+{"modes":["offline-rules","codex-cli"],"requiresOperatorApply":true}
+```
+
+Otherwise `modes` contains only `offline-rules`. Discovery never runs inference
+or exposes executable paths, model settings, credentials, room data or images.
+Advertisement establishes local configuration, not login, quota, network or
+provider health; actual inference can still fail. The owner configures the
+existing planner as described in [AI Integration](AI-Integration.md).
+
+An AI request uses the same envelope with the exact intent
+`{"text":"Arrange a small demonstration using the installed props.","mode":"codex-cli"}`.
+Only `text` (1–4000 characters, not blank) and `mode` are accepted. There are no
+client overrides for models, reasoning, executable paths, credentials, image
+attachments or raw commands. `openai-compatible` is not exposed by this adapter.
+The existing planner receives the current scene, installed catalog, room and
+selection metadata and validates its result through the normal command schema.
+An AI request may propose several existing supported commands; this does not
+enable asset downloads, arbitrary tools, generated scripts or executable code.
+
+The AI POST returns HTTP 200 with `status:"planning"` promptly. Poll the retained
+request until it reaches `ready`, `needs_clarification`, `error`, `stale` or
+`cancelled`. Planning and HTTP success are not runtime success. The Operator
+must review the actual commands and Apply; runtime command receipts and the
+acknowledging snapshot remain the only execution evidence.
+Submitting this mode invokes the owner's configured provider with the request
+and structured scene context. Pairing therefore permits that client to consume
+AI inference; Apply authorizes the resulting scene edits after inference.
+
+Only one client AI request can run inference at a time. A new request while it
+is occupied returns HTTP 409 `planner_busy` without creating a ledger entry;
+an unavailable configuration returns 503 `planner_unavailable`. Identical
+same-ID retries return their existing outcome even if the planner later becomes
+busy or unavailable. There is no automatic offline fallback, inference retry or
+replay. Existing per-session active and retained request limits still apply.
+
+Cancellation and revocation prevent any late proposal from becoming reviewable;
+they do not interrupt the already running, time-bounded CLI process. The slot
+remains busy until it finishes. Runtime lease, scene or selection changes also
+discard stale results. Offline parsing and typed scale intents keep their
+existing synchronous behavior and do not consume this AI slot. Operator and
+voice planning retain their existing workflows.
+
+The [AI request test record](../Validation/client-ai-scene-requests.json) covers
+real local HTTP with mocked inference and synthetic runtime/AR fixtures. It does
+not establish live model reasoning, Windows visual behavior or headset acceptance.
 
 ```json
 {
