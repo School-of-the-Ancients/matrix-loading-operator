@@ -89,7 +89,11 @@ This connection walkthrough supports **Quest Pro and Quest 3** with developer mo
 6. In the [Operator](http://127.0.0.1:8765/), choose **Outlines align — enable editing** after verifying alignment. Point at an open floor or tabletop patch and press **right trigger** to select it.
 7. Try **“Put an orb here”** through the proposal/review/Apply flow.
 
-After reconnecting USB, run `Connect-QuestControl.ps1` again. Only one runtime owns a service connection: quit the desktop player or other Matrix app before switching; the inactive lease expires after 15 seconds.
+After reconnecting USB, click **Reconnect Quest** beside the Operator's connection status. Keep the headset awake with Matrix open. The button restores the USB connection and waits for the app to check in; a successful USB operation alone is not reported as an online runtime. `Connect-QuestControl.ps1 -Port <your-port>` remains a terminal fallback.
+
+The page displays **This Operator** with its address and a **Content library** link. If the running Quest app is configured for another local port, **Reconnect Quest** offers a link to that Operator instead of changing your app settings. For example, a headset configured for `8789` will not appear on a separate service at `8765`. The button requires the updated PC service; update/restart that service once after installing this feature. No APK update is needed.
+
+Only one runtime owns a service connection: quit the desktop player or other Matrix app before switching; the inactive lease expires after 15 seconds.
 
 The default port is **8765**. If using another port, the service, app URL and USB forwarding must all match. An APK update preserves app data, including a previous `control.json` URL. See [troubleshooting](#troubleshooting) and the full [room AR runbook](Docs/Room-AR.md).
 
@@ -207,7 +211,7 @@ On **Quest Pro**, the capture contains virtual objects and visible room outlines
 
 | Symptom | What to check |
 | --- | --- |
-| PC service offline / runtime disconnected | Keep its terminal open, open the intended app and rerun `Connect-QuestControl.ps1` after USB reconnection. Match the app URL, service port and reverse mapping. |
+| PC service offline / runtime disconnected | Keep its terminal open, connect Quest by USB, open Matrix and click **Reconnect Quest**. Follow the matching Operator link if the headset uses a different port. |
 | Port already in use | Reuse the intended service or stop it before starting its replacement. Both launcher scripts accept `-Port`; USB forwarding alone does not change the app's retained URL. |
 | Another app owns the connection | Quit the other Matrix app or desktop player and allow 15 seconds for its lease to expire. |
 | Room loading / editing disabled | Check spatial permission, Space Setup and localization. Inspect and confirm outlines on the PC. Reload an empty room with **left-stick click**; **Y applies voice proposals**. See [room recovery](Docs/Room-AR.md#missing-anchors-and-recovery). |
