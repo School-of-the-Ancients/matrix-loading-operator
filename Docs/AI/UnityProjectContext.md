@@ -54,9 +54,9 @@ VaM local samples demonstrated stable object lookup, typed parameter dispatch, e
 ### Matrix Boulder MB-0 (2026-09-23)
 
 - Roadmap #38 and `Docs/Matrix-Boulder-PRD.md` add a separate geospatial city renderer. The current first slice is desktop only. `Packages/manifest.json` pins Cesium for Unity 1.25.1 from its official scoped registry; Unity remains 6000.6.0f1 with the built-in render pipeline and Input System.
-- Boulder code and the generated scene live under `Assets/Sandbox/MatrixBoulder`. `Build-MatrixBoulder.ps1` creates an ignored, minimal Unity fixture and synchronizes the scene and `.meta` GUIDs back to the source tree. The stream loader reads a local token at runtime; no token is serialized. See `Docs/Matrix-Boulder-MB0.md`.
+- Boulder code and the generated scene live under `Assets/Sandbox/MatrixBoulder`. `Build-MatrixBoulder.ps1` creates a minimal Unity fixture under `%LOCALAPPDATA%/MatrixBoulderFixture-<checkout hash>` to keep Shader Graph paths short, and synchronizes the scene and `.meta` GUIDs back to the source tree. The stream loader reads a local token at runtime; no token is serialized. See `Docs/Matrix-Boulder-MB0.md`.
 - `Build-WhiteRoom.ps1` constructs its own package manifest. `Build-RoomAR.ps1` copies the main manifest but filters the Boulder-only Cesium dependency in its fixture. Its runtime source allowlist remains explicit.
-- The full source project import hit an access-denied error while compiling Meta XR AIBlocks. The isolated Boulder fixture compiled and built; visual tile streaming still requires a Cesium ion token and Play Mode inspection. Do not infer White Room, Room AR, or Quest acceptance from the Boulder build.
+- The full source project import hit an access-denied error while compiling Meta XR AIBlocks. The isolated Boulder fixture compiled and built. A September 24 local Windows player with an authorized token streamed recognizable Boulder tiles and credits after moving the fixture to a short path to fix Shader Graph import; several-kilometer manual flight is still pending. Do not infer White Room, Room AR, or Quest acceptance from the Boulder build.
 
 ### Matrix Boulder citizen prototype (2026-09-24)
 

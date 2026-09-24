@@ -8,7 +8,7 @@ MB-0 is an isolated Windows desktop scene for [roadmap #38](https://github.com/S
 - Internet access and a Cesium ion account with Google Photorealistic 3D Tiles enabled.
 - A Cesium ion access token allowed to read asset **2275207**. Keep its privileges to the needed asset. Usage may incur Cesium ion charges.
 
-The project pins Cesium for Unity **1.25.1** from its official scoped registry. Unity resolves its transitive dependencies on import. The generated scene is `Assets/Sandbox/MatrixBoulder/Scenes/MatrixBoulder.unity`. The build command prepares an ignored `.matrix-boulder-fixture/` Unity project containing only Boulder code and Cesium, then copies the generated scene and GUIDs back to this repository. This follows the repo's isolated White Room/Room AR build pattern.
+The project pins Cesium for Unity **1.25.1** from its official scoped registry. Unity resolves its transitive dependencies on import. The generated scene is `Assets/Sandbox/MatrixBoulder/Scenes/MatrixBoulder.unity`. The build command prepares an isolated `MatrixBoulderFixture-<checkout hash>` Unity project under `%LOCALAPPDATA%`, containing only Boulder code and Cesium, then copies the generated scene and GUIDs back to this repository. The short path is required for Shader Graph's built-in target template import on Windows. White Room and Room AR keep their separate build fixtures.
 
 ## Local token setup
 
@@ -22,7 +22,7 @@ The token is read at Play Mode startup, assigned to the disabled tileset, then t
 ## Generate, play, build
 
 1. Run `.\Build-MatrixBoulder.ps1` from the repository root. It generates the dedicated scene and builds `Builds\MatrixBoulder\MatrixBoulder.exe`. It does not replace White Room or Room AR scenes.
-2. For Play Mode, open the prepared `.matrix-boulder-fixture/` project in Unity 6000.6.0f1. Open `Assets/Sandbox/MatrixBoulder/Scenes/MatrixBoulder.unity`, and place `.matrix-boulder-token` at the **fixture** root if using a file. Enter Play Mode and wait for tiles to stream. The camera begins above central Boulder near 40.0150° N, 105.2705° W.
+2. For Play Mode, open the prepared `%LOCALAPPDATA%/MatrixBoulderFixture-<checkout hash>/` project in Unity 6000.6.0f1. Run `./Build-MatrixBoulder.ps1 -PrepareOnly` to print its exact path. Open `Assets/Sandbox/MatrixBoulder/Scenes/MatrixBoulder.unity`, and place `.matrix-boulder-token` at the **fixture** root if using a file. Enter Play Mode and wait for tiles to stream. The camera begins above central Boulder near 40.0150° N, 105.2705° W.
 3. Use **W/A/S/D** to fly, **Q/E** to descend/ascend, mouse to look, and the mouse wheel to change speed. Cesium's globe anchor and origin shift keep the camera near the Unity origin during long flights.
 4. For a Windows player, launch `Builds\MatrixBoulder\MatrixBoulder.exe` with a token supplied as above. The token file goes next to that executable.
 
@@ -30,6 +30,6 @@ Cesium's default credit UI is created at runtime, and the tileset forces its req
 
 ## Validation boundary
 
-The scene generator checks the georeference, asset ID, blank serialized token, forced attribution, and Cesium flight/origin components. The build script requires a fresh Unity success marker and a nonempty executable. A live acceptance check still needs Play Mode with authorized provider credentials: recognize Boulder and fly several kilometers without visible jitter. These checks do not establish MB-1 persistence, Quest performance, or AR registration.
+The scene generator checks the georeference, asset ID, blank serialized token, forced attribution, Cesium material, and flight/origin components. The build script requires a fresh Unity success marker and a nonempty executable. On September 24, a local Windows player streamed recognizable Boulder imagery with the Flatirons, displayed Google/Cesium attribution, and showed the citizen HUD and colored beacons. The first live run exposed a magenta tile shader: Shader Graph could not read a template through the deep fixture path. The short fixture path and an explicit Cesium material reference corrected that build. A several-kilometer manual flight without visible jitter remains to be checked. These observations do not establish Quest performance or AR registration.
 
 Sources: [Cesium for Unity quickstart](https://cesium.com/learn/unity/unity-quickstart/), [Google Photorealistic 3D Tiles tutorial](https://cesium.com/learn/unity/unity-photorealistic-3d-tiles/), [Cesium release notes](https://github.com/CesiumGS/cesium-unity/blob/main/CHANGES.md).

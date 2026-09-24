@@ -11,6 +11,7 @@ namespace ArSandbox.MatrixBoulder.Editor
     public static class MatrixBoulderSceneSetup
     {
         public const string ScenePath = "Assets/Sandbox/MatrixBoulder/Scenes/MatrixBoulder.unity";
+        public const string CitizenMaterialPath = "Assets/Sandbox/MatrixBoulder/Materials/CitizenBeacon.mat";
         public const long GooglePhotorealisticAssetId = 2275207;
         public const double BoulderLongitude = -105.2705;
         public const double BoulderLatitude = 40.0150;
@@ -33,6 +34,11 @@ namespace ArSandbox.MatrixBoulder.Editor
             tileset.tilesetSource = CesiumDataSource.FromCesiumIon;
             tileset.ionAssetID = GooglePhotorealisticAssetId;
             tileset.showCreditsOnScreen = true;
+            var tilesMaterial = Resources.Load<Material>("CesiumDefaultTilesetMaterial");
+            if (tilesMaterial == null || tilesMaterial.shader == null || !tilesMaterial.shader.isSupported ||
+                tilesMaterial.shader.name.StartsWith("Hidden/GraphErrorShader", StringComparison.Ordinal))
+                throw new InvalidOperationException("Cesium built-in tileset shader is unavailable.");
+            tileset.opaqueMaterial = tilesMaterial;
 
             var prefab = Resources.Load<GameObject>("DynamicCamera");
             if (prefab == null) throw new InvalidOperationException("Cesium DynamicCamera prefab was not found.");
@@ -55,8 +61,19 @@ namespace ArSandbox.MatrixBoulder.Editor
             var stream = new GameObject("Boulder stream configuration").AddComponent<MatrixBoulderStream>();
             stream.SetTileset(tileset);
 
+            var citizenMaterial = AssetDatabase.LoadAssetAtPath<Material>(CitizenMaterialPath);
+            if (citizenMaterial == null)
+            {
+                var shader = Shader.Find("Unlit/Color");
+                if (shader == null || !shader.isSupported)
+                    throw new InvalidOperationException("Citizen unlit shader is unavailable.");
+                Directory.CreateDirectory(Path.GetDirectoryName(CitizenMaterialPath));
+                AssetDatabase.Refresh();
+                citizenMaterial = new Material(shader) { color = Color.white };
+                AssetDatabase.CreateAsset(citizenMaterial, CitizenMaterialPath);
+            }
             var citizens = new GameObject("Boulder citizen simulation").AddComponent<BoulderCitizenDemo>();
-            citizens.SetReferences(georeference, cameraObject.GetComponent<CesiumGlobeAnchor>());
+            citizens.SetReferences(georeference, cameraObject.GetComponent<CesiumGlobeAnchor>(), citizenMaterial);
 
             EditorSceneManager.SaveScene(scene, ScenePath);
             AssetDatabase.SaveAssets();
@@ -73,7 +90,9 @@ namespace ArSandbox.MatrixBoulder.Editor
             var tileset = UnityEngine.Object.FindFirstObjectByType<Cesium3DTileset>(FindObjectsInactive.Include);
             if (tileset == null || tileset.ionAssetID != GooglePhotorealisticAssetId ||
                 !string.IsNullOrEmpty(tileset.ionAccessToken) || tileset.gameObject.activeSelf ||
-                !tileset.showCreditsOnScreen)
+                !tileset.showCreditsOnScreen || tileset.opaqueMaterial == null ||
+                tileset.opaqueMaterial.shader == null || !tileset.opaqueMaterial.shader.isSupported ||
+                tileset.opaqueMaterial.shader.name.StartsWith("Hidden/GraphErrorShader", StringComparison.Ordinal))
                 throw new InvalidOperationException("Boulder tileset or credential boundary is invalid.");
             var camera = UnityEngine.Object.FindFirstObjectByType<CesiumCameraController>();
             if (camera == null || camera.GetComponent<CesiumOriginShift>() == null ||
@@ -81,12 +100,17 @@ namespace ArSandbox.MatrixBoulder.Editor
                 throw new InvalidOperationException("Boulder fly camera is missing Cesium components.");
             if (UnityEngine.Object.FindFirstObjectByType<MatrixBoulderStream>() == null)
                 throw new InvalidOperationException("Boulder stream configuration is missing.");
-            if (UnityEngine.Object.FindFirstObjectByType<BoulderCitizenDemo>() == null)
+            var citizens = UnityEngine.Object.FindFirstObjectByType<BoulderCitizenDemo>();
+            if (citizens == null || citizens.CitizenMaterial == null ||
+                citizens.CitizenMaterial.shader.name != "Unlit/Color")
                 throw new InvalidOperationException("Boulder citizen simulation is missing.");
         }
 
         public static void BuildDesktop()
         {
+            AssetDatabase.ImportAsset(
+                "Packages/com.cesium.unity/Source/Runtime/Resources/CesiumDefaultTilesetShader.shadergraph",
+                ImportAssetOptions.ForceUpdate | ImportAssetOptions.ForceSynchronousImport);
             GenerateDesktop();
             BoulderCitizenValidation.Run();
             string output = Path.GetFullPath(Path.Combine(Application.dataPath, "..", "Builds/MatrixBoulder/MatrixBoulder.exe"));

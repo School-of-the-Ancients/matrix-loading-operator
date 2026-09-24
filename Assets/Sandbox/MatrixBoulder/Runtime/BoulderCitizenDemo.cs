@@ -12,6 +12,9 @@ namespace ArSandbox.MatrixBoulder
     {
         [SerializeField] private CesiumGeoreference georeference;
         [SerializeField] private CesiumGlobeAnchor flyCamera;
+        [SerializeField] private Material citizenMaterial;
+
+        private static readonly int ColorId = Shader.PropertyToID("_Color");
 
         private readonly Dictionary<string, CesiumGlobeAnchor> visuals =
             new Dictionary<string, CesiumGlobeAnchor>();
@@ -23,15 +26,18 @@ namespace ArSandbox.MatrixBoulder
         private bool paused;
         private bool smokeRun;
 
-        public void SetReferences(CesiumGeoreference world, CesiumGlobeAnchor camera)
+        public Material CitizenMaterial => citizenMaterial;
+
+        public void SetReferences(CesiumGeoreference world, CesiumGlobeAnchor camera, Material material)
         {
             georeference = world;
             flyCamera = camera;
+            citizenMaterial = material;
         }
 
         private void Start()
         {
-            if (georeference == null || flyCamera == null)
+            if (georeference == null || flyCamera == null || citizenMaterial == null)
             {
                 status = "Citizen scene references are missing.";
                 Debug.LogError(status, this);
@@ -114,7 +120,7 @@ namespace ArSandbox.MatrixBoulder
             body.transform.SetParent(root.transform, false);
             body.transform.localPosition = new Vector3(0, 1.5f, 0);
             body.transform.localScale = new Vector3(2, 2, 2);
-            body.GetComponent<Renderer>().material.color = color;
+            Colorize(body.GetComponent<Renderer>(), color);
             Destroy(body.GetComponent<Collider>());
 
             GameObject beacon = GameObject.CreatePrimitive(PrimitiveType.Cylinder);
@@ -122,8 +128,16 @@ namespace ArSandbox.MatrixBoulder
             beacon.transform.SetParent(root.transform, false);
             beacon.transform.localPosition = new Vector3(0, 14, 0);
             beacon.transform.localScale = new Vector3(.2f, 12, .2f);
-            beacon.GetComponent<Renderer>().material.color = color;
+            Colorize(beacon.GetComponent<Renderer>(), color);
             Destroy(beacon.GetComponent<Collider>());
+        }
+
+        private void Colorize(Renderer renderer, Color color)
+        {
+            renderer.sharedMaterial = citizenMaterial;
+            var properties = new MaterialPropertyBlock();
+            properties.SetColor(ColorId, color);
+            renderer.SetPropertyBlock(properties);
         }
 
         private void Save()
@@ -185,7 +199,7 @@ namespace ArSandbox.MatrixBoulder
         {
             GeoPose pose = citizen.pose;
             flyCamera.longitudeLatitudeHeight = new double3(
-                pose.longitudeDegrees, pose.latitudeDegrees, pose.heightMeters + 100);
+                pose.longitudeDegrees, pose.latitudeDegrees, pose.heightMeters + 60);
             flyCamera.transform.rotation = Quaternion.Euler(90, 0, 0);
         }
     }
