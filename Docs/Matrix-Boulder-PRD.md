@@ -208,7 +208,7 @@ Stay on the repository's current **Unity 6000.6.0f1** baseline unless Cesium pro
 
 ### Cesium
 
-Start with a pinned Cesium for Unity release compatible with Unity 6 and Android. As of this plan, Cesium for Unity v1.24.0 is the latest published release and supports Unity 6-era projects and Android.
+Start with a pinned Cesium for Unity release compatible with Unity 6 and Android. MB-0 pins Cesium for Unity v1.25.1; its isolated Unity 6000.6.0f1 desktop fixture compiles and builds. Android compatibility is outside MB-0 validation.
 
 Do not silently upgrade unrelated Unity or Meta XR packages as part of this spike.
 

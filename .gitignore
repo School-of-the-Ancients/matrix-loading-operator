@@ -124,3 +124,5 @@ InitTestScene*.unity*
 
 # Headset capture reports and private room previews default here.
 /work/
+/.matrix-boulder-token
+/.matrix-boulder-fixture/

@@ -45,6 +45,19 @@ foreach ($relative in @('Packages\manifest.json', 'Packages\packages-lock.json',
     [void](New-Item -ItemType Directory -Path (Split-Path -Parent $destination) -Force)
     Copy-Item -LiteralPath (Join-Path $repositoryRoot $relative) -Destination $destination -Force
 }
+# Cesium belongs only to the separate desktop Boulder scene. Keep the room AR
+# fixture's package graph isolated even though the source project's manifest has it.
+$roomManifestPath = Join-Path $fixtureRoot 'Packages\manifest.json'
+$roomManifest = Get-Content -LiteralPath $roomManifestPath -Raw | ConvertFrom-Json
+$roomManifest.dependencies.PSObject.Properties.Remove('com.cesium.unity')
+if ($roomManifest.scopedRegistries) {
+    $roomManifest.scopedRegistries = @($roomManifest.scopedRegistries | Where-Object { $_.name -ne 'Cesium' })
+}
+[IO.File]::WriteAllText($roomManifestPath, ($roomManifest | ConvertTo-Json -Depth 10), [Text.UTF8Encoding]::new($false))
+$roomLockPath = Join-Path $fixtureRoot 'Packages\packages-lock.json'
+$roomLock = Get-Content -LiteralPath $roomLockPath -Raw | ConvertFrom-Json
+$roomLock.dependencies.PSObject.Properties.Remove('com.cesium.unity')
+[IO.File]::WriteAllText($roomLockPath, ($roomLock | ConvertTo-Json -Depth 20), [Text.UTF8Encoding]::new($false))
 $encoding = [Text.UTF8Encoding]::new($false)
 $playerSettings = Join-Path $fixtureRoot 'ProjectSettings\ProjectSettings.asset'
 if (-not (Test-Path -LiteralPath $playerSettings)) {
