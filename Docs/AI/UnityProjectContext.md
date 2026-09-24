@@ -57,3 +57,8 @@ VaM local samples demonstrated stable object lookup, typed parameter dispatch, e
 - Boulder code and the generated scene live under `Assets/Sandbox/MatrixBoulder`. `Build-MatrixBoulder.ps1` creates an ignored, minimal Unity fixture and synchronizes the scene and `.meta` GUIDs back to the source tree. The stream loader reads a local token at runtime; no token is serialized. See `Docs/Matrix-Boulder-MB0.md`.
 - `Build-WhiteRoom.ps1` constructs its own package manifest. `Build-RoomAR.ps1` copies the main manifest but filters the Boulder-only Cesium dependency in its fixture. Its runtime source allowlist remains explicit.
 - The full source project import hit an access-denied error while compiling Meta XR AIBlocks. The isolated Boulder fixture compiled and built; visual tile streaming still requires a Cesium ion token and Play Mode inspection. Do not infer White Room, Room AR, or Quest acceptance from the Boulder build.
+
+### Matrix Boulder citizen prototype (2026-09-24)
+
+- The isolated Boulder fixture now also contains two deterministic resident placeholders. `BoulderCitizenModel` owns stable IDs, WGS84 geodetic poses, needs, and simple home/work/cafe decisions; `BoulderCitizenDemo` projects those poses through `CesiumGlobeAnchor`, shows a HUD, and saves a versioned local JSON file. See `Docs/Matrix-Boulder-Citizens.md` for setup and limits.
+- The elevated locations are hand-authored test points, not terrain or routing data. The prototype has no model service, dialogue, audio, server-side clock, shared #13 executor, or Quest support.

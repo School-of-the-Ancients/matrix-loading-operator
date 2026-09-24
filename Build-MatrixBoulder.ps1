@@ -12,7 +12,9 @@ if (-not $fixture.StartsWith($root + [IO.Path]::DirectorySeparatorChar, [StringC
     throw 'The Boulder fixture must remain inside this repository.'
 }
 $sourceRoot = Join-Path $root 'Assets\Sandbox\MatrixBoulder'
-$relativeScripts = @('Runtime\MatrixBoulderStream.cs', 'Editor\MatrixBoulderSceneSetup.cs')
+$relativeScripts = @('Runtime\MatrixBoulderStream.cs', 'Runtime\BoulderCitizenModel.cs',
+    'Runtime\BoulderCitizenDemo.cs', 'Editor\MatrixBoulderSceneSetup.cs',
+    'Editor\BoulderCitizenValidation.cs')
 foreach ($relative in $relativeScripts) {
     $source = Join-Path $sourceRoot $relative
     if (-not (Test-Path -LiteralPath $source -PathType Leaf)) { throw "Missing Boulder source: $source" }

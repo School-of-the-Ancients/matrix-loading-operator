@@ -55,6 +55,9 @@ namespace ArSandbox.MatrixBoulder.Editor
             var stream = new GameObject("Boulder stream configuration").AddComponent<MatrixBoulderStream>();
             stream.SetTileset(tileset);
 
+            var citizens = new GameObject("Boulder citizen simulation").AddComponent<BoulderCitizenDemo>();
+            citizens.SetReferences(georeference, cameraObject.GetComponent<CesiumGlobeAnchor>());
+
             EditorSceneManager.SaveScene(scene, ScenePath);
             AssetDatabase.SaveAssets();
             ValidateScene();
@@ -78,11 +81,14 @@ namespace ArSandbox.MatrixBoulder.Editor
                 throw new InvalidOperationException("Boulder fly camera is missing Cesium components.");
             if (UnityEngine.Object.FindFirstObjectByType<MatrixBoulderStream>() == null)
                 throw new InvalidOperationException("Boulder stream configuration is missing.");
+            if (UnityEngine.Object.FindFirstObjectByType<BoulderCitizenDemo>() == null)
+                throw new InvalidOperationException("Boulder citizen simulation is missing.");
         }
 
         public static void BuildDesktop()
         {
             GenerateDesktop();
+            BoulderCitizenValidation.Run();
             string output = Path.GetFullPath(Path.Combine(Application.dataPath, "..", "Builds/MatrixBoulder/MatrixBoulder.exe"));
             string[] arguments = Environment.GetCommandLineArgs();
             for (int i = 0; i + 1 < arguments.Length; i++)
