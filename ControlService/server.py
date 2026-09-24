@@ -261,6 +261,8 @@ class State:
     def __init__(self, directory, clock=time.monotonic, learning=None, web_assets_directory=None):
         self.directory = Path(directory)
         self.directory.mkdir(parents=True, exist_ok=True)
+        self.web_assets = WebAssetCatalog(web_assets_directory or Path(__file__).with_name("web_assets"))
+        self.web_authoring = WebAuthoringJobs(self.web_assets)
         self.clock = clock
         self.lock = threading.RLock()
         self.client_id = None
@@ -282,8 +284,6 @@ class State:
         self.last_capture_request = -float("inf")
         self.voice_capture_id = None
         self.content = ContentBridge(self)
-        self.web_assets = WebAssetCatalog(web_assets_directory or Path(__file__).with_name("web_assets"))
-        self.web_authoring = WebAuthoringJobs(self.web_assets)
         self.clients = ClientAPI(self, plan)
 
     def online(self):
