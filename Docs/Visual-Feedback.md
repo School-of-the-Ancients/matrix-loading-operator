@@ -10,6 +10,19 @@ Issue [#8](https://github.com/School-of-the-Ancients/matrix-loading-operator/iss
 4. Check **Send this preview with my typed request** and create a proposal, or choose **Include preview in next headset voice request**, then speak normally. The voice attachment is consumed once when the request begins. Model and reasoning settings still apply.
 5. An inspection without edits produces an image review with no Apply action. Proposed corrections use the existing review, Apply, acknowledgement, and Undo workflow.
 
+After the runtime acknowledges every command in an applied proposal, the
+Operator automatically captures and reviews the **virtual** result when the
+checked option and an image-capable AI model are available. **Capture and review
+applied result** also remains available for a manual retry. Mixed physical-camera
+capture always needs a separate button click. The AI compares the view with the
+original request and can recommend a better locally prepared prefab. If a
+better prefab is already installed, the AI may propose exact replacement
+commands; reviewed Apply is still required. If the better pack is only on the
+PC, the review names its exact provider, asset and version for installation.
+Failed or incomplete commands, a later scene revision, a runtime reconnection,
+or an unsupported image model disable this action. Mixed mode includes physical
+room pixels only when explicitly selected before clicking the button.
+
 Images become stale after 30 seconds or a runtime/session, scene, or selection change. Recapture to use image input again, or uncheck typed inclusion / disarm voice inclusion for text-only operation. Ordinary head motion does not invalidate the saved image: inference uses the exact snapshot and camera metadata recorded with that image, not a newer head pose. Animated visual offsets are visible in the image while the snapshot continues to store authoritative placement and behavior configuration.
 
 ### What a virtual AR capture contains

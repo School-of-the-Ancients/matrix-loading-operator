@@ -9,13 +9,43 @@ shared connector path for issue #9. It is not limited to Scenario.
 With no private catalog configuration, the PC service offers **read-only Poly
 Haven discovery**. Its public API lists 3D models, HDRIs, and textures; Matrix
 maps these to objects, environments, and materials. Search is paged at 100
-results per request. These are source listings, not installed Unity prefabs.
-Open a result's source page, choose a suitable download, then import, inspect,
-and export a platform-specific content pack in the Unity Editor. The service
-does not download or execute a Poly Haven model automatically. Poly Haven's
-assets are CC0, and the provider card gives the credit required for use of its
-live API. See the [asset license](https://polyhaven.com/license) and
+results per request. The PC caches index metadata in memory for ten minutes.
+These public results are source listings until the optional local mirror and
+Unity exporter produce compatible packs. Poly Haven's assets are CC0; the
+provider card gives the credit required for use of its live API. See the
+[asset license](https://polyhaven.com/license) and
 [API terms](https://github.com/Poly-Haven/Public-API/blob/master/ToS.md).
+
+For a full local 1K library, run `Tools/Mirror-PolyHaven.py --output
+D:\MatrixPolyHavenLibrary --download`. It records one checksum-verified,
+versioned Quest-sized representation of every current index entry, with a
+per-asset success or failure row in `download-results.jsonl`. Rerunning reuses
+verified files. Models retain the 1K FBX and declared texture dependencies;
+HDRIs use 1K HDR panoramas; texture entries retain available 1K material maps.
+When 1K is unavailable, the mirror tries 2K. The source library is on the PC,
+not inside the APK or headset storage.
+
+`ArSandbox.PolyHavenPrefabExporter.ExportAvailableBatchFromArguments` converts
+the staged library into one immutable Android pack per asset in a Unity Editor
+fixture. Its `-polyHavenSourceRoot` points at the library root and
+`-contentPackOutputRoot` at `Packs\Android`; an Editor opened with Android as
+its active build target is required. The batch journal records exported,
+reused and failed assets independently. `Tools/Build-PolyHaven-Catalog.py
+--library D:\MatrixPolyHavenLibrary --platform Android` verifies every bundle
+and writes a combined catalog plus `matrix-content-config.json`; set
+`MATRIX_CONTENT_CONFIG` to that config before starting the PC service. The
+AI ranks the entire configured local pack catalog and receives a bounded
+candidate shortlist. Installing a selected pack sends only that pack to the
+headset; later placements reuse its verified cache without rebuilding the APK.
+Set `MATRIX_CONTENT_CACHE` to a directory on the same spacious drive to keep
+the active verified pack cache off a smaller system drive. The 2 GiB cache
+contains requested packs, not the entire source library.
+
+Models are static object prefabs. An HDRI exports as an inward panorama dome,
+and a texture exports as a material sample tile. Those are placeable previews
+using the existing static prefab loader. They do not change Unity's global
+skybox or apply a material to an arbitrary scene object. Rigged characters,
+animations, sound playback, and new scripts need separate runtime capabilities.
 
 Matrix also exposes **Sketchfab public model search** as an explicitly selected
 source. Its official API returns at most 24 models per cursor page; the page
@@ -65,7 +95,7 @@ environment variable containing its bearer token. Never put the token itself in
 catalogs or browser fields. HTTP artifact locations must stay on the manifest's
 origin. Redirects are rejected, so configure the final provider URL.
 
-The service supports 32 configured providers, 1,000 entries per local/HTTP
+The service supports 32 configured providers, 3,000 entries per local/HTTP
 manifest, paged search across enabled providers, 128 MiB
 per artifact, and a 2 GiB content cache. Full caches return a clear error. Archive
 unneeded cache files manually on the PC; the service does not silently evict packs
@@ -82,10 +112,10 @@ model search and pass the returned `nextCursor` as `cursor` for its next page;
 that source has no reported total. Select `providerId: "openverse-audio"` for
 20-result pages of audio, advancing with the returned `offset + limit`. The
 default "all" search covers local, HTTP, and Poly Haven catalogs; choose the
-larger external searches explicitly. Search results are only metadata. In an explicit AI mode, the
-Operator can receive bounded Poly Haven suggestions from the request text;
-it also sees at most 40 recent manually searched candidates. It can spawn
-only assets installed in the player.
+larger external searches explicitly. Search results are only metadata. In an
+explicit AI mode, the Operator ranks all locally prepared packs and the public
+Poly Haven index against the request, then receives at most 40 candidate
+summaries. It can spawn only assets installed in the player.
 
 See [Content packs](Content-Packs.md) for the Unity Editor export menu, JSON
 specification, exact build target requirements, and fixture export command.

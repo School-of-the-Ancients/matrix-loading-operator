@@ -15,6 +15,32 @@ Select **Openverse audio** to find licensed sounds and open their original sourc
 pages. Search results retain creator and attribution details, but the current
 Matrix player does not yet load or play external audio.
 
+### Why does the running app show 23 props?
+
+Those are the prefabs bundled in the current demo. The full Poly Haven index
+has thousands of entries, but public listings alone are not Unity prefabs.
+The local library workflow mirrors compact source files on the PC and exports
+one Android pack per entry. Only a chosen pack is installed on the headset when
+needed; it then joins the running app's asset list without rebuilding the APK.
+Models become static props, HDRIs become panorama domes, and textures become
+material sample tiles. See [the full-library commands](Content-Catalogs.md).
+
+With a configured local catalog and an updated connected player, an AI request
+such as **“Summon an armchair here”** searches the ready packs, installs the
+top compatible match if needed, waits for the player to acknowledge it, then
+creates a placement proposal. You still review and Apply the scene change.
+After Apply, the virtual result is automatically captured for an image-capable
+AI when that option is checked. The AI can judge visible placement and propose
+an installed alternative or name an exact prepared pack to try next. A result
+review never silently replaces an
+object. Broad or ambiguous requests can still require a better description.
+
+Public Poly Haven search fetches **metadata only**, cached in the PC service
+for ten minutes. The optional D: mirror downloads source files once; the Unity
+batch converts them once into versioned packs. Installing a compatible pack
+copies verified bundle bytes to the PC cache and headset. The app can restore
+an exact cached dependency after restart while the source provider is offline.
+
 For one new Asset Store prop, this currently takes **more preparation than adding
 it directly to a Unity scene**. The benefit comes afterward: you can reuse the
 same Matrix APK while adding supported packs and arranging their contents with AI,
@@ -26,7 +52,8 @@ authoring tools or automatically convert every Asset Store package.
 | What you are adding | What needs building? |
 | --- | --- |
 | Your first use of the PR #27 content loader | Install a Matrix APK containing the new loader and run its matching PC service. An older APK cannot gain this loader from the web page. |
-| Another supported static prop | Export a content pack in Unity. You build the **pack**, not another APK. |
+| Another prepared Poly Haven prop, panorama dome, or material tile | Install its existing Android pack. The APK stays installed. |
+| A new supported static prop outside the prepared library | Export a content pack in Unity. You build the **pack**, not another APK. |
 | Different meshes or supported materials/textures on those props | Export a new pack version; the compatible APK can stay installed. |
 | New C# behavior, animation playback, a rigged character, audio, or another unsupported feature | Implement the capability and its loading support, then rebuild the app. Exporting a bundle alone does not enable it. |
 
@@ -175,20 +202,21 @@ the specification and compatibility checks in more detail.
 
 ## What can I ask the AI to do?
 
-The Operator can use recently searched catalog candidates and bounded Poly Haven
-suggestions for a missing asset to compare options and
-recommend a suitable pack. It can place and edit **installed** assets advertised
-by the connected player. Installation makes the props available for a fresh AI
-proposal; it does not automatically retry an earlier request.
+The Operator searches the local Poly Haven prefab catalog before a typed AI
+summon request. When the best compatible pack is not installed, it installs
+that pack through the connected player, waits for the runtime to register the
+prefab, and then creates a placement proposal. Review and Apply the proposal
+to change the scene. No APK rebuild is needed for each compatible pack.
 
 - After searching: **“Which of these packs fits a small sci-fi control station?”**
 - After installing: **“Arrange three Sci-fi Beacons around the selected area.”**
 - With a placed prop selected: **“Make it bob gently above its current position.”**
 
-The AI does not independently acquire Asset Store packages, import or export them
-in Unity, install packs, or start generation jobs. When a needed asset is missing,
-it should explain what to install and wait for a new proposal afterward. You still
-review and Apply scene changes. Save and restore are separate proposals.
+The automatic install path applies to **ready, compatible local prefab packs**.
+The AI does not acquire Asset Store packages, author Unity prefabs, export new
+bundles, or start generation jobs. Assets that lack a ready pack still require
+the authoring workflow above. You still review and Apply scene changes. Save
+and restore are separate proposals.
 
 ## Images, backgrounds, and the eight categories
 

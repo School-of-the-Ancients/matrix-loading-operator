@@ -33,7 +33,7 @@ const cancel=id=>timers.delete(id);
 const pollers=[],navigations=[],pageUrl='http://127.0.0.1:8789/?prefab=fixture%3Abeacon';
 const location={host:'127.0.0.1:8789',search:'?prefab=fixture%3Abeacon',assign:value=>navigations.push(value),replace:value=>navigations.push(value)};
 Object.defineProperty(location,'href',{get:()=>pageUrl,set:value=>navigations.push(value)});
-let capture={supported:true,status:'none',voiceCaptureId:null};
+let capture={supported:true,status:'none',voiceCaptureId:null},stateRevision=1,stateResults=[],autoReadyCapture=false,recommendCandidates=[],installedAssetIds=[],contentJobs=[];
 const screenshot={captureId:'capture-1',capturedAtUtc:'2026-09-21T18:00:00Z',content:'virtual_scene'};
 const captureReady={...capture,...screenshot,status:'ready',width:640,height:360,ageSeconds:2,captureDurationMs:14.012800000000001};
 const pageHeading=new Element('h1');
@@ -45,20 +45,23 @@ const context=vm.createContext({document:{getElementById:id=>elements.get(id),cr
       options.signal.addEventListener('abort',()=>{abortedPaths.push(url);const error=Error('Aborted');error.name='AbortError';reject(error);},{once:true});
     });
     if(url==='/api/planner')return {ok:true,json:async()=>structuredClone(info)};
-    if(url==='/api/state')return stateError?{ok:false,status:stateError.status,json:async()=>({error:stateError.message})}:{ok:true,json:async()=>({online:runtimeOnline,clientId:runtimeOnline?'runtime-session':null,pendingCount:0,snapshot:{scene:{roomId:'white-room-v1',objects:[]},assets:[],anchors:[]},voice:null,capture:structuredClone(capture)})};
+    if(url==='/api/state')return stateError?{ok:false,status:stateError.status,json:async()=>({error:stateError.message})}:{ok:true,json:async()=>({online:runtimeOnline,clientId:runtimeOnline?'runtime-session':null,revision:stateRevision,pendingCount:0,results:structuredClone(stateResults),snapshot:{scene:{roomId:'white-room-v1',objects:[]},assets:installedAssetIds.map(assetId=>({assetId,displayName:'Armchair'})),anchors:[]},voice:null,capture:structuredClone(capture)})};
     if(url==='/api/runtime/reconnect'){
       if(reconnectHold)await reconnectHold;
       if(reconnectFailure)throw Error(reconnectFailure);
       return {ok:reconnectHttpStatus>=200&&reconnectHttpStatus<300,status:reconnectHttpStatus,json:async()=>structuredClone(reconnectReply)};
     }
     if(url==='/api/scenes')return {ok:true,json:async()=>({scenes:[]})};
+    if(url==='/api/content/recommend')return {ok:true,json:async()=>({candidates:structuredClone(recommendCandidates)})};
+    if(url==='/api/content/install'){installedAssetIds=body.assetId==='chair-pack'?['polyhaven:chair-pack:v1:model']:[];contentJobs=[{requestId:'install-1',phase:'ready',assetIds:installedAssetIds}];return {ok:true,json:async()=>({requestId:'install-1',phase:'preparing'})};}
+    if(url==='/api/content')return {ok:true,json:async()=>({jobs:structuredClone(contentJobs)})};
     if(url==='/api/planner_preferences')return {ok:!rejectPreferences,json:async()=>rejectPreferences?{error:'Unsupported model'}:{codex:body.codex}};
     if(url==='/api/capture'){
-      if(body!==undefined){capture={supported:true,status:'pending',voiceCaptureId:null};return {ok:true,json:async()=>structuredClone(capture)};}
+      if(body!==undefined){capture=autoReadyCapture?structuredClone(captureReady):{supported:true,status:'pending',voiceCaptureId:null};return {ok:true,json:async()=>structuredClone(capture)};}
       return {ok:!rejectPreview,json:async()=>rejectPreview?{error:'Preview authorization failed'}:{...structuredClone(capture),imageDataUrl:'data:image/png;base64,cHJldmlldw=='}};
     }
     if(url==='/api/capture/voice'){capture.voiceCaptureId=body.captureId;return {ok:true,json:async()=>structuredClone(capture)};}
-    if(url==='/api/plan')return {ok:!(rejectCapturedPlan&&body.captureId),json:async()=>rejectCapturedPlan&&body.captureId?{error:'Capture is stale. Capture a fresh view.'}:{...structuredClone(ready),...(body.captureId?{screenshot:{...screenshot,captureId:body.captureId}}:{})}};
+    if(url==='/api/plan')return {ok:!(rejectCapturedPlan&&body.captureId),json:async()=>rejectCapturedPlan&&body.captureId?{error:'Capture is stale. Capture a fresh view.'}:body.text?.startsWith('Find a better prefab for')?{mode:body.mode,status:'review_only',requiresApply:false,commands:[],summary:'The applied result is visible.',screenshot:{...screenshot,captureId:body.captureId}}:{...structuredClone(ready),...(body.captureId?{screenshot:{...screenshot,captureId:body.captureId}}:{})}};
     throw Error('Unexpected request: '+url);
   }});
 const tick=()=>new Promise(resolve=>setImmediate(resolve));
@@ -118,6 +121,14 @@ async function run(){
   element('prompt').value='Make another chair';await element('plan').onclick();
   assert.deepEqual(calls.find(call=>call.url==='/api/plan').body,
                    {text:'Make another chair',mode:'codex-cli',codex:{model:'model-b',reasoningEffort:null}});
+  recommendCandidates=[{providerId:'polyhaven',assetId:'chair-pack',version:'v1',targetPlatform:'Android',title:'Armchair',
+    prefabAssetIds:['polyhaven:chair-pack:v1:model'],installed:false}];
+  element('prompt').value='Summon an armchair';const installsBefore=calls.filter(call=>call.url==='/api/content/install').length;
+  await element('plan').onclick();
+  assert.equal(calls.filter(call=>call.url==='/api/content/install').length,installsBefore+1,'A matching local pack installs before the placement proposal');
+  assert.equal(calls.filter(call=>call.url==='/api/plan').at(-1).body.text,'Summon an armchair');
+  assert.equal(calls.filter(call=>call.url==='/api/apply_plan').length,0,'Automatic pack installation does not bypass reviewed scene Apply');
+  recommendCandidates=[];installedAssetIds=[];contentJobs=[];
   context.testVoice=ready;vm.runInContext('latest.voice=testVoice;renderVoice(latest.voice);controls();',context);
   assert.equal(element('reviewVoice').disabled,false);assert.match(element('voiceTranscript').textContent,/Copy this chair/);
   element('reviewVoice').onclick();assert.equal(element('proposalSummary').textContent,ready.summary);
@@ -203,6 +214,33 @@ async function run(){
   capture={supported:true,status:'error',error:'Headset capture timed out.'};await vm.runInContext('refresh()',context);
   assert.match(element('captureStatus').textContent,/Capture failed.*timed out/);
   assert.equal(element('captureScene').disabled,false,'Capture failures allow a retry');
+  autoReadyCapture=true;stateRevision=2;stateResults=[{requestId:'applied-1',ok:true,objectId:'placed-chair-1'}];
+  vm.runInContext("awaitedIds=['applied-1'];awaitedProposal=true;reviewedRequest='Place a comfortable armchair'",context);
+  await vm.runInContext('refresh()',context);
+  assert.equal(element('reviewResult').disabled,false,'Confirmed proposal offers a visual review');
+  const beforeReviewApply=calls.filter(call=>call.url==='/api/apply_plan').length;
+  await element('reviewResult').onclick();
+  const visualReview=calls.filter(call=>call.url==='/api/plan').at(-1);
+  assert.equal(visualReview.body.captureId,'capture-1','The visual review attaches the captured result');
+  assert.match(visualReview.body.text,/Place a comfortable armchair/);
+  assert.match(visualReview.body.text,/placed-chair-1/);
+  assert.match(visualReview.body.text,/search the supplied content catalog for a better prefab/);
+  assert.equal(element('apply').disabled,true,'Image inspection alone has no Apply action');
+  assert.equal(calls.filter(call=>call.url==='/api/apply_plan').length,beforeReviewApply,'Visual review never applies another edit');
+  stateRevision=3;await vm.runInContext('refresh()',context);
+  assert.equal(element('reviewResult').disabled,true,'A later scene revision invalidates the old result');
+  element('autoReview').checked=true;stateRevision=4;stateResults=[{requestId:'auto-applied',ok:true,objectId:'auto-chair'}];
+  vm.runInContext("awaitedIds=['auto-applied'];awaitedProposal=true;reviewedRequest='Place a comfortable armchair'",context);
+  const beforeAutoPlans=calls.filter(call=>call.url==='/api/plan').length;
+  await vm.runInContext('refresh()',context);for(let i=0;i<12;i++)await tick();
+  assert.equal(calls.filter(call=>call.url==='/api/plan').length,beforeAutoPlans+1,'Virtual result review starts after confirmed Apply');
+  assert.equal(calls.filter(call=>call.url==='/api/apply_plan').length,beforeReviewApply,'Automatic review never applies its own proposal');
+  element('autoReview').checked=false;
+  stateRevision=5;stateResults=[{requestId:'failed-1',ok:false,error:'Prefab missing'}];
+  vm.runInContext("awaitedIds=['failed-1'];awaitedProposal=true",context);
+  await vm.runInContext('refresh()',context);
+  assert.equal(element('reviewResult').disabled,true,'A failed Apply is not eligible for result review');
+  autoReadyCapture=false;stateResults=[];
   element('mode').value='offline-rules';element('mode').onchange();
   assert.equal(element('codexSettings').hidden,true);assert.equal(element('apply').disabled,true);
   capture=structuredClone(captureReady);await vm.runInContext('refresh()',context);

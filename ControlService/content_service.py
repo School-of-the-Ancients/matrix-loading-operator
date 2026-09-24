@@ -84,11 +84,13 @@ class ContentBridge:
                         for asset in (installed_assets or []) if isinstance(asset, dict)
                         for name in (asset.get("assetId"), asset.get("displayName")) if isinstance(name, str) and name)
         discovery_intent = bool(re.search(r"\b(add|create|find|give|import|make|place|put|search|show|spawn|summon)\b", prompt, re.I))
-        public = self.catalog.suggest_public(prompt) if discovery_intent and not installed and hasattr(self.catalog, "suggest_public") else []
+        alternative_intent = bool(re.search(r"\b(another|alternative|better|replace|replacement)\b", prompt, re.I))
+        ready = self.catalog.suggest_ready(prompt) if discovery_intent and (not installed or alternative_intent) and hasattr(self.catalog, "suggest_ready") else []
+        public = self.catalog.suggest_public(prompt) if discovery_intent and (not installed or alternative_intent) and hasattr(self.catalog, "suggest_public") else []
         with self.state.lock:
             rows = self.search_results.get("assets", []) if isinstance(self.search_results, dict) else []
         selected, seen = [], set()
-        for asset in public + rows:
+        for asset in ready + public + rows:
             identity = (asset.get("providerId"), asset.get("assetId"), asset.get("version"), asset.get("targetPlatform"))
             if identity in seen:
                 continue
@@ -107,6 +109,8 @@ class ContentBridge:
     def post(self, path, body):
         if path == "/api/content/search":
             return self.search(body)
+        if path == "/api/content/recommend":
+            return self.recommend(body)
         if path == "/api/content/install":
             return self.queue_install(body)
         if path == "/api/content/cancel":
@@ -133,6 +137,27 @@ class ContentBridge:
         if path == "/api/content/generate/output":
             return self.catalog.prepare_generation_output(body.get("id"), body.get("outputIndex"))
         raise ContentError(404, "Content operation not found")
+
+    def recommend(self, body):
+        """Return exact, compatible prefab pack IDs for a requested scene object."""
+        require(isinstance(body, dict) and set(body) == {"text"} and isinstance(body["text"], str)
+                and 0 < len(body["text"]) <= 4000, "Recommend requires request text")
+        with self.state.lock:
+            runtime = copy.deepcopy(self.runtime)
+            installed = {asset.get("assetId") for asset in (self.state.latest or {}).get("assets", [])}
+        if not runtime["supported"]:
+            return {"candidates": []}
+        candidates = []
+        for row in self.catalog.suggest_ready(body["text"], limit=10,
+                                              platform=runtime["platform"], unity_version=runtime["unityVersion"]):
+            pack = row.get("metadata", {}).get("contentPack", {})
+            prefab_ids = [item.get("assetId") for item in pack.get("assets", []) if isinstance(item, dict)]
+            if row.get("targetPlatform") != runtime["platform"] or pack.get("unityVersion") != runtime["unityVersion"] or not prefab_ids:
+                continue
+            candidates.append({"providerId": row["providerId"], "assetId": row["assetId"], "version": row["version"],
+                               "targetPlatform": row["targetPlatform"], "title": row["title"], "prefabAssetIds": prefab_ids,
+                               "installed": all(asset_id in installed for asset_id in prefab_ids)})
+        return {"candidates": candidates}
 
     def queue_install(self, body):
         require(set(body) <= {"providerId", "assetId", "version", "targetPlatform"}, "Unknown install field")

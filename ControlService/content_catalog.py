@@ -20,10 +20,10 @@ import urllib.parse
 import urllib.request
 import uuid
 
-MAX_MANIFEST = 2 * 1024 * 1024
+MAX_MANIFEST = 16 * 1024 * 1024
 MAX_DOWNLOAD = 128 * 1024 * 1024
 MAX_CACHE_BYTES = 2 * 1024 * 1024 * 1024
-MAX_ASSETS = 1000
+MAX_ASSETS = 3000
 MAX_QUEUE = 200
 CATEGORIES = ("environments", "objects", "games", "characters", "voices", "animations", "sounds", "behaviors", "materials")
 FORMATS = {"assetbundle", "png", "jpg", "jpeg", "hdr", "exr", "mp4", "webm", "wav", "ogg", "glb", "gltf", "fbx", "unitypackage", "declarative-behavior"}
@@ -354,7 +354,7 @@ class ContentCatalog:
         with self.lock:
             if self.polyhaven_cache is not None and now - self.polyhaven_cached_at < POLYHAVEN_CACHE_SECONDS:
                 return self.polyhaven_cache
-        document = self._json_request(provider, POLYHAVEN_ASSETS_URL, limit=8 * MAX_MANIFEST)
+        document = self._json_request(provider, POLYHAVEN_ASSETS_URL, limit=16 * 1024 * 1024)
         require(isinstance(document, dict) and len(document) <= 10000, "Invalid Poly Haven asset index", 502)
         kinds = {0: ("environments", "hdr"), 1: ("materials", "png"), 2: ("objects", "gltf")}
         rows = []
@@ -605,6 +605,41 @@ class ContentCatalog:
                 continue
         ranked.sort(key=lambda row: (row[0], row[1]))
         return [copy.deepcopy(asset) for _, _, asset in ranked[:limit]]
+
+    def suggest_ready(self, prompt, limit=20, platform=None, unity_version=None):
+        """Rank every enabled local prefab pack, but send only a bounded shortlist to AI."""
+        if not isinstance(prompt, str) or not prompt or not 1 <= limit <= 40:
+            return []
+        stop = {"add", "and", "better", "build", "create", "find", "for", "give", "here", "import", "into", "make", "one", "place", "please", "put",
+                "review", "room", "scene", "screenshot", "show", "spawn", "summon", "the", "this", "with", "want", "another", "prefab", "object"}
+        tokens = list(dict.fromkeys(word for word in re.findall(r"[a-z0-9]+", prompt.casefold())
+                                    if len(word) > 2 and word not in stop))[:8]
+        if not tokens:
+            return []
+        ranked = []
+        for provider in self.providers.values():
+            if provider["type"] != "local" or not self._enabled(provider):
+                continue
+            try:
+                for asset in self._assets(provider):
+                    if asset["format"] != "assetbundle":
+                        continue
+                    if platform is not None and asset["targetPlatform"] != platform:
+                        continue
+                    if unity_version is not None and asset["metadata"]["contentPack"]["unityVersion"] != unity_version:
+                        continue
+                    title = asset["title"].casefold()
+                    metadata = asset["metadata"]
+                    tags = " ".join(metadata.get("tags", [])).casefold()
+                    description = metadata.get("description", "").casefold()
+                    score = sum(5 if token in title else 3 if token in tags else 1 if token in description else 0
+                                for token in tokens)
+                    if score:
+                        ranked.append((-score, title, public_asset(asset, provider["id"])))
+            except ContentError:
+                continue
+        ranked.sort(key=lambda row: (row[0], row[1]))
+        return [asset for _, _, asset in ranked[:limit]]
 
     def _cache_stream(self, source, expected_sha=None, expected_length=None, cancel_event=None):
         reservation = expected_length or MAX_DOWNLOAD

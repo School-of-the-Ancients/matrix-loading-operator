@@ -76,6 +76,16 @@ class ContentServiceTests(unittest.TestCase):
         self.exchange(value, contentReceipt=receipt)  # lost HTTP response retry
         self.assertEqual(len(self.state.content.jobs), 1)
 
+    def test_recommend_returns_only_compatible_local_pack_ids(self):
+        pack = {"providerId": "test", "assetId": "props", "version": "1.0.0", "title": "Beacon",
+                "targetPlatform": "StandaloneWindows64", "metadata": {"contentPack": MANIFEST}}
+        wrong = {**pack, "assetId": "android-props", "targetPlatform": "Android"}
+        with patch.object(self.catalog, "suggest_ready", return_value=[wrong, pack], create=True):
+            found = self.state.content.recommend({"text": "Summon a beacon"})
+        self.assertEqual(["props"], [row["assetId"] for row in found["candidates"]])
+        self.assertEqual([ASSET["assetId"]], found["candidates"][0]["prefabAssetIds"])
+        self.assertFalse(found["candidates"][0]["installed"])
+
     def test_cancel_before_runtime_dispatch(self):
         self.catalog.gate = threading.Event()
         job = self.install()

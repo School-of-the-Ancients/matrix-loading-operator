@@ -244,6 +244,18 @@ class CatalogTests(unittest.TestCase):
         with self.assertRaises(ContentError):
             validate_manifest({"schemaVersion": 1, "assets": [item]})
 
+    def test_ready_shortlist_searches_local_prefab_catalog(self):
+        pack = {"schemaVersion": 1, "packId": "armchair", "providerId": "local-pack", "version": "1.0.0", "platform": "Android",
+                "unityVersion": "6000.6.0f1", "sha256": DIGEST, "byteLength": len(DATA),
+                "assets": [{"assetId": "local-pack:armchair:1.0.0:model", "prefabPath": "assets/chair.prefab", "displayName": "Armchair"}]}
+        self.write_manifest([asset(assetId="armchair", title="Chinese Armchair", format="assetbundle", targetPlatform="Android",
+                                   metadata={"description": "Comfortable chair", "tags": ["furniture"], "contentPack": pack})])
+        found = self.catalog.suggest_ready("Find a better comfortable armchair")
+        self.assertEqual(1, len(found))
+        self.assertEqual("local-pack", found[0]["providerId"])
+        self.assertTrue(found[0]["runtimeLoadable"])
+        self.assertNotIn("location", found[0])
+
     def test_public_discovery_default_and_invalid_config_report_honestly(self):
         with patch.dict(os.environ, {}, clear=True):
             default = ContentCatalog(cache_dir=self.root / "empty").status()

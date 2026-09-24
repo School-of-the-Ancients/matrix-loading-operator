@@ -541,7 +541,8 @@ class State:
     def status(self):
         with self.lock:
             self.expire()
-            return {"online": self.online(), "clientId": self.client_id, "contentLibrary": True, "snapshot": copy.deepcopy(self.latest),
+            return {"online": self.online(), "clientId": self.client_id, "revision": self.revision,
+                    "contentLibrary": True, "snapshot": copy.deepcopy(self.latest),
                     "runtime": copy.deepcopy(self.runtime),
                     "pendingCount": len(self.pending), "results": copy.deepcopy(list(self.results)),
                     "capture": self.capture_status(),
