@@ -80,5 +80,52 @@ $('restore').addEventListener('click',async()=>{
 });
 $('mode').addEventListener('change',()=>{proposal=null;$('proposal').classList.add('hidden');});
 $('refresh-assets').addEventListener('click',()=>refreshAssets());
-$('token').addEventListener('change',()=>refreshAssets());
+$('token').addEventListener('change',()=>{refreshAssets();loadLatestAuthoring();});
 refreshScenes();
+
+let authoringTimer=null;
+let generatedAssetId='';
+async function showAuthoringJob(job){
+  clearTimeout(authoringTimer);
+  if(job.phase==='ready'){
+    generatedAssetId=job.asset.assetId;
+    await refreshAssets(true);
+    $('authoring-status').textContent=`Ready in ${job.elapsedMs} ms: ${job.spec.name} · ${generatedAssetId}`;
+    $('place-asset').disabled=!world.asset(generatedAssetId);
+    feedback(`${job.spec.name} is available. Select a point and place it.`);
+  }else if(job.phase==='error'){
+    generatedAssetId='';$('place-asset').disabled=true;
+    $('authoring-status').textContent=`Authoring failed: ${job.error}`;
+  }else{
+    $('authoring-status').textContent=`${job.spec.name}: ${job.phase}…`;
+    authoringTimer=setTimeout(async()=>{
+      try{await showAuthoringJob(await bridge.request(`/api/web/authoring/${job.jobId}`));}
+      catch(error){$('authoring-status').textContent=error.message;}
+    },500);
+  }
+}
+async function loadLatestAuthoring(){
+  try{const data=await bridge.request('/api/web/authoring');if(data.jobs.length)await showAuthoringJob(data.jobs.at(-1));}
+  catch{/* The service may require a token that has not been entered yet. */}
+}
+$('create-asset').addEventListener('click',async()=>{
+  clearTimeout(authoringTimer);generatedAssetId='';$('place-asset').disabled=true;
+  const button=$('create-asset');button.disabled=true;
+  try{
+    const job=await bridge.request('/api/web/authoring',{
+      name:$('asset-name').value.trim(),brief:$('asset-brief').value.trim(),
+      shape:$('asset-shape').value,palette:$('asset-palette').value,
+      width:Number($('asset-width').value),height:Number($('asset-height').value),depth:Number($('asset-depth').value)
+    });
+    await showAuthoringJob(job);
+  }catch(error){$('authoring-status').textContent=error.message;feedback(error.message,true);}
+  finally{button.disabled=false;}
+});
+$('place-asset').addEventListener('click',async()=>{
+  if(!generatedAssetId||!world.asset(generatedAssetId))return;
+  const position=structuredClone(world.selection.position);
+  const result=await call('/api/command',{op:'spawn',assetId:generatedAssetId,anchorId:'web-floor',
+    transform:{position,rotation:{x:0,y:0,z:0},scale:{x:1,y:1,z:1}}},`Placement queued at ${Object.values(position).join(', ')} m.`);
+  if(result)$('authoring-status').textContent=`Placement requested for ${generatedAssetId}. Wait for the runtime receipt.`;
+});
+loadLatestAuthoring();

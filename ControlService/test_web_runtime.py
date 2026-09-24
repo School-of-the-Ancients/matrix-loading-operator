@@ -1,8 +1,10 @@
 """Browser runtime contract smoke; no headset or AI provider required."""
 import json
+import copy
 from pathlib import Path
 import tempfile
 import threading
+import time
 import unittest
 import urllib.error
 import urllib.request
@@ -82,6 +84,47 @@ class WebRuntimeContractTests(unittest.TestCase):
         code, body = self.get(asset["url"])
         self.assertEqual(code, 200)
         self.assertEqual(body, source.read_bytes())
+
+    def test_on_request_prototype_becomes_spawnable_asset(self):
+        spec = {"name": "Slate Gate", "brief": "Quiet ruins", "shape": "arch", "palette": "slate",
+                "width": 1.8, "height": 2.2, "depth": .5}
+        code, job = self.post("/api/web/authoring", spec)
+        self.assertEqual(code, 200, job)
+        for _ in range(100):
+            code, raw = self.get("/api/web/authoring/" + job["jobId"])
+            job = json.loads(raw)
+            if job["phase"] in ("ready", "error"):
+                break
+            time.sleep(.02)
+        self.assertEqual(job["phase"], "ready", job)
+        self.assertGreaterEqual(job["elapsedMs"], 0)
+        asset = job["asset"]
+        code, data = self.get(asset["url"])
+        self.assertEqual(code, 200)
+        self.assertEqual(data[:4], b"glTF")
+        current = copy.deepcopy(SNAPSHOT)
+        current["assets"].append({key: asset[key] for key in
+                                  ("assetId", "displayName", "description", "spawnScale")})
+        code, _ = self.post("/api/exchange", {"clientId": "web-client", "snapshot": current,
+                                              "results": [], "captureSupported": False})
+        self.assertEqual(code, 200)
+        code, queued = self.post("/api/command", {"op": "spawn", "assetId": asset["assetId"],
+                                                  "anchorId": "web-floor", "transform": {
+                                                      "position": {"x": 0, "y": 0, "z": -2},
+                                                      "rotation": {"x": 0, "y": 0, "z": 0},
+                                                      "scale": {"x": 1, "y": 1, "z": 1}}})
+        self.assertEqual(code, 200, queued)
+        code, delivered = self.post("/api/exchange", {"clientId": "web-client", "snapshot": current,
+                                                      "results": [], "captureSupported": False})
+        self.assertEqual(code, 200)
+        self.assertEqual(delivered["commands"][0]["assetId"], asset["assetId"])
+
+    def test_bad_authoring_recipe_is_rejected_before_queueing(self):
+        code, body = self.post("/api/web/authoring", {"name": "Bad Gate", "brief": "", "shape": "arch",
+                                                       "palette": "slate", "width": 4.1, "height": .5, "depth": .2})
+        self.assertEqual(code, 400, body)
+        code, raw = self.get("/api/web/authoring")
+        self.assertEqual(json.loads(raw)["jobs"], [])
 
 
 if __name__ == "__main__":

@@ -29,6 +29,7 @@ from codex_provider import CodexConfig, CodexProviderError, codex_options, selec
 import speech
 import scene_capture
 from web_assets import WebAssetCatalog, WebAssetError
+from web_authoring import WebAuthoringJobs, WebAuthoringError
 from content_service import ContentBridge, runtime_capabilities
 from content_catalog import ContentError
 from quest_connection import QuestConnection
@@ -282,6 +283,7 @@ class State:
         self.voice_capture_id = None
         self.content = ContentBridge(self)
         self.web_assets = WebAssetCatalog(web_assets_directory or Path(__file__).with_name("web_assets"))
+        self.web_authoring = WebAuthoringJobs(self.web_assets)
         self.clients = ClientAPI(self, plan)
 
     def online(self):
@@ -972,6 +974,10 @@ class Handler(BaseHTTPRequestHandler):
                     data = {"assets": self.server.state.web_assets.list()}
                 except WebAssetError as error:
                     raise APIError(500, str(error)) from None
+            elif path == "/api/web/authoring":
+                data = self.server.state.web_authoring.status()
+            elif path.startswith("/api/web/authoring/"):
+                data = self.server.state.web_authoring.status(path.rsplit("/", 1)[1])
             elif path.startswith("/api/web/assets/"):
                 name = path[len("/api/web/assets/"):]
                 require(bool(re.fullmatch(r"[0-9a-f]{64}\.glb", name)), "Unknown web asset", 404)
@@ -1017,6 +1023,8 @@ class Handler(BaseHTTPRequestHandler):
             else:
                 raise APIError(404, "Not found")
             self.send_data(200, data)
+        except WebAuthoringError as error:
+            self.send_api_error(APIError(error.status, str(error)))
         except (APIError, LearningError, ContentError, ClientError) as error:
             self.send_api_error(error)
         except PlannerError as error:
@@ -1058,6 +1066,8 @@ class Handler(BaseHTTPRequestHandler):
                 data = self.server.quest_connection.reconnect(self.server.server_port, state.online)
             elif path.startswith("/api/content/"):
                 data = state.content.post(path, body)
+            elif path == "/api/web/authoring":
+                data = state.web_authoring.submit(body)
             elif path == "/api/command":
                 data = state.queue(body["commands"] if set(body) == {"commands"} else [body])
             elif path == "/api/save":
@@ -1096,6 +1106,8 @@ class Handler(BaseHTTPRequestHandler):
             else:
                 raise APIError(404, "Not found")
             self.send_data(200, data)
+        except WebAuthoringError as error:
+            self.send_api_error(APIError(error.status, str(error)))
         except (APIError, LearningError, speech.SpeechError, CodexProviderError, ContentError, ClientError) as error:
             self.send_api_error(error)
         except (OSError, ValueError, RecursionError):
