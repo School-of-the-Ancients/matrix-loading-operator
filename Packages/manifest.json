@@ -1,5 +1,13 @@
 {
+  "scopedRegistries": [
+    {
+      "name": "Cesium",
+      "url": "https://unity.pkg.cesium.com",
+      "scopes": ["com.cesium.unity"]
+    }
+  ],
   "dependencies": {
+    "com.cesium.unity": "1.25.1",
     "com.meta.xr.mrutilitykit": "205.0.0",
     "com.meta.xr.sdk.core": "205.0.0",
     "com.unity.ai.navigation": "2.0.14",
