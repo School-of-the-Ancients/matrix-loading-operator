@@ -674,7 +674,8 @@ def plan(state, body, request_context=None):
             screenshot, current = state.selected_capture(body["captureId"])
     try:
         options = {"codex": codex} if codex is not None else {}
-        candidates = state.content.planner_context()
+        candidates = state.content.planner_context(prompt if mode in ("codex-cli", "openai-compatible") else "",
+                                                   current.get("assets"))
         if candidates:
             options["catalog_context"] = candidates
         if screenshot is not None:

@@ -6,6 +6,25 @@ Unity content packs to the player. Each result includes its provider, license,
 version, platform, dependencies, and runtime suitability. This is the first
 shared connector path for issue #9. It is not limited to Scenario.
 
+With no private catalog configuration, the PC service offers **read-only Poly
+Haven discovery**. Its public API lists 3D models, HDRIs, and textures; Matrix
+maps these to objects, environments, and materials. Search is paged at 100
+results per request. These are source listings, not installed Unity prefabs.
+Open a result's source page, choose a suitable download, then import, inspect,
+and export a platform-specific content pack in the Unity Editor. The service
+does not download or execute a Poly Haven model automatically. Poly Haven's
+assets are CC0, and the provider card gives the credit required for use of its
+live API. See the [asset license](https://polyhaven.com/license) and
+[API terms](https://github.com/Poly-Haven/Public-API/blob/master/ToS.md).
+
+Matrix also exposes **Sketchfab public model search** as an explicitly selected
+source. Its official API returns at most 24 models per cursor page; the page
+controls use the API's cursors. Results retain each model's displayed license
+and link to its source page. Sketchfab's [Download API](https://sketchfab.com/developers/download-api)
+requires end-user OAuth, so this connector is discovery-only: it does not use
+a shared account or download an archive. The player must review the specific
+license and prepare a compatible Unity content pack before an asset can spawn.
+
 Unity Asset Store acquisitions and `.unitypackage` files use an explicit Editor
 queue. The queue tracks `queued`, `acquired`, `imported`, `exported`, `failed`, and
 `cancelled`; changing a status records the operator's action. It does not buy
@@ -36,7 +55,8 @@ environment variable containing its bearer token. Never put the token itself in
 catalogs or browser fields. HTTP artifact locations must stay on the manifest's
 origin. Redirects are rejected, so configure the final provider URL.
 
-The service supports 32 configured providers, 1,000 entries per catalog, 128 MiB
+The service supports 32 configured providers, 1,000 entries per local/HTTP
+manifest, paged search across enabled providers, 128 MiB
 per artifact, and a 2 GiB content cache. Full caches return a clear error. Archive
 unneeded cache files manually on the PC; the service does not silently evict packs
 that saved scenes might need. Each artifact has an immutable version and checksum.
@@ -45,6 +65,16 @@ explicitly selected platform takes precedence over `Any`; `Any` is a fallback
 when that platform has no exact entry. Multiple compatible versions still require
 an explicit version. A failed provider appears as a per-provider error while other
 catalog results remain usable.
+`POST /api/content/search` accepts `query`, `category`, `providerId`, `offset`
+(starting at zero), and `limit` (1–100). Results include `total`, `hasMore`,
+`offset`, and `limit`. Select `providerId: "sketchfab"` for the large external
+model search and pass the returned `nextCursor` as `cursor` for its next page;
+that source has no reported total. The default "all" search covers local,
+HTTP, and Poly Haven catalogs; choose Sketchfab explicitly for its cursor
+pagination. Search results are only metadata. In an explicit AI mode, the
+Operator can receive bounded Poly Haven suggestions from the request text;
+it also sees at most 40 recent manually searched candidates. It can spawn
+only assets installed in the player.
 
 See [Content packs](Content-Packs.md) for the Unity Editor export menu, JSON
 specification, exact build target requirements, and fixture export command.
@@ -56,7 +86,7 @@ Catalogs use `schemaVersion: 1` and an `assets` array. Every entry requires:
 | Field | Meaning |
 | --- | --- |
 | `assetId`, `version`, `title` | Stable catalog identity and human-readable title |
-| `category` | `environments`, `objects`, `games`, `characters`, `voices`, `animations`, `sounds`, or `behaviors` |
+| `category` | `environments`, `objects`, `games`, `characters`, `voices`, `animations`, `sounds`, `behaviors`, or `materials` |
 | `format` | A supported media/model/package format; executable code formats are rejected |
 | `targetPlatform` | Unity build target such as `Android`, `StandaloneWindows64`, or `Any` for source media |
 | `location` | Relative local file or same-origin HTTP artifact URL |
@@ -73,9 +103,10 @@ namespaced ids `providerId:packId:version:localId`, prefab paths, display names,
 descriptions, and spawn scales. The player independently validates the manifest,
 bundle, supported components, and target compatibility before registration.
 
-Downloaded GLB/glTF files and Unity packages currently require Editor conversion.
-Their search results explicitly report `requiresEditor: true`. Downloaded images,
-video, and audio are reviewed source material until a compatible content export
+Downloaded GLB/glTF/FBX files, HDR/EXR images, and Unity packages currently require
+Editor conversion. Every non-bundle search result explicitly reports
+`requiresEditor: true`. Downloaded images, video, and audio are reviewed source
+material until a compatible content export
 uses them. A panorama is not a three-dimensional environment or a room scan.
 Dependency references are retained, but this initial runtime path installs
 self-contained packs. Keep third-party license and attribution requirements with
@@ -142,18 +173,31 @@ or unfamiliar widget layouts are rejected. Conversion preserves the original UI
 workflow and records its canonical hash. Video workflows need a separate review
 and API export; this image converter never guesses their layouts.
 
-## Coverage of the eight categories
+## Coverage of the content categories
 
 | Category | Current slice | Next integration |
 | --- | --- | --- |
-| Environments/backgrounds | Catalog, local media generation, Editor queue, prefab packs | Reviewed skybox/background application and environment-specific tools |
-| Objects/prefabs | Versioned prefab packs, verified cache, runtime registration | Additional licensed content libraries and import formats |
+| Environments/backgrounds | Poly Haven HDRI discovery, catalogs, local media generation, Editor queue, prefab packs | Reviewed skybox/background application and environment-specific tools |
+| Objects/prefabs | Poly Haven and Sketchfab model discovery, versioned prefab packs, verified cache, runtime registration | Guided glTF conversion and additional licensed content libraries |
 | Games/templates | Catalog and Editor queue | Template dependency and capability review |
 | Characters | Prefab packs and Editor queue | Rig, material, animator, and performance validation |
 | Voices | Catalog and Editor queue | Voice provider adapter and runtime audio mapping |
 | Animations | Catalog and prefab pack source path | Clip/rig compatibility and runtime animation selection |
 | Sound effects | Catalog and Editor queue | Audio provider adapter and bounded runtime playback |
 | Actions/behaviors/scripts | Metadata, Editor queue, existing compiled declarative behaviors | Reviewed additions to the compiled behavior allowlist |
+| Materials/textures | Poly Haven texture discovery and catalog | Reviewed material import and platform texture limits |
+
+The internet does not expose a single interoperable database of every game,
+character, voice, animation, and sound. [Freesound's API](https://freesound.org/docs/api/overview.html)
+requires an API credential, and original-file downloads require OAuth.
+[Scenario](https://docs.scenario.com/get-started/generation/3d-model-generation/3d-model-generation-scenario)
+provides text/image-to-3D generation rather than a public pack of game-ready
+prefabs. [Blockade Labs](https://api-documentation.blockadelabs.com/api/skybox.html)
+provides skybox generation, which is background imagery rather than room
+geometry. [Mixamo](https://helpx.adobe.com/creative-cloud/faq/mixamo-faq.html)
+offers biped animation assets but its rigs and clips need character compatibility
+review. These sources need specific adapters, authentication, license handling,
+conversion, and player tests before Matrix can claim to load them.
 
 Catalog availability is separate from runtime support. A searchable asset is not
 automatically compatible with Quest. Two independently configured catalog

@@ -101,5 +101,10 @@ const run=code=>vm.runInContext(code,context),el=id=>elements.get(id),tick=()=>n
  await assert.rejects(run('loadPrefabPreview(beaconKey)'),/changed while loading/);downloadMutation=null;assert.equal(run('prefabPreviewCache.size'),0,'Stale completion cannot publish a preview');
  run('prefabImages=[preview]');decodeMutation=()=>run('prefabImages=[]');await assert.rejects(run('loadPrefabPreview(beaconKey)'),/changed while loading/);decodeMutation=null;assert.equal(run('prefabPreviewCache.size'),0,'Identity is checked again after image decoding');
  run('syncPrefabPreviews()');assert.equal(el('prefabSample').hidden,true,'Removed preview identity hides the old large sample');
+ context.discovery={assets:[{providerId:'sketchfab',assetId:'a'.repeat(32),version:'live',title:'Castle',category:'objects',format:'gltf',targetPlatform:'Any',license:{name:'CC Attribution'},metadata:{sourceUrl:'https://sketchfab.com/models/'+'a'.repeat(32)},discoveryOnly:true,runtimeLoadable:false}],total:null,offset:0,limit:24,nextCursor:'next_24',hasMore:true,errors:[]};
+ run('renderAssets(discovery)');
+ assert.equal(el('assets').children.length,1);assert.equal(walk(el('assets')).filter(e=>e.tag==='a'&&e.href?.startsWith('https://sketchfab.com/models/')).length,1);
+ assert.equal(walk(el('assets')).some(e=>e.tag==='button'&&/Download|Install/.test(e.textContent)),false,'Discovery cannot be mistaken for an installable pack');
+ assert.equal(el('searchPager').children[0].textContent,'Next page');
  console.log('Content panel checks passed: prefab identity, filters, readiness, focus, handoff, authenticated bounded image previews, stale completion, and no scene edits.');
 })().catch(e=>{console.error(e);process.exitCode=1;});

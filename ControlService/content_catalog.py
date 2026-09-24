@@ -25,8 +25,11 @@ MAX_DOWNLOAD = 128 * 1024 * 1024
 MAX_CACHE_BYTES = 2 * 1024 * 1024 * 1024
 MAX_ASSETS = 1000
 MAX_QUEUE = 200
-CATEGORIES = ("environments", "objects", "games", "characters", "voices", "animations", "sounds", "behaviors")
-FORMATS = {"assetbundle", "png", "jpg", "jpeg", "mp4", "webm", "wav", "ogg", "glb", "gltf", "unitypackage", "declarative-behavior"}
+CATEGORIES = ("environments", "objects", "games", "characters", "voices", "animations", "sounds", "behaviors", "materials")
+FORMATS = {"assetbundle", "png", "jpg", "jpeg", "hdr", "exr", "mp4", "webm", "wav", "ogg", "glb", "gltf", "fbx", "unitypackage", "declarative-behavior"}
+POLYHAVEN_ASSETS_URL = "https://api.polyhaven.com/assets?t=all"
+POLYHAVEN_CACHE_SECONDS = 600
+SKETCHFAB_SEARCH_URL = "https://api.sketchfab.com/v3/search"
 ID = re.compile(r"[A-Za-z0-9][A-Za-z0-9._-]{0,95}\Z")
 SHA = re.compile(r"[a-f0-9]{64}\Z")
 
@@ -115,7 +118,7 @@ def public_asset(asset, provider_id):
     result = {key: copy.deepcopy(value) for key, value in asset.items() if key != "location"}
     result["providerId"] = provider_id
     result["runtimeLoadable"] = asset["format"] == "assetbundle"
-    result["requiresEditor"] = asset["format"] in ("unitypackage", "glb", "gltf")
+    result["requiresEditor"] = asset["format"] != "assetbundle"
     return result
 
 
@@ -206,6 +209,8 @@ class ContentCatalog:
         self.reserved_bytes = 0
         self.pending_generations = set()
         self.providers = {}
+        self.polyhaven_cache = None
+        self.polyhaven_cached_at = 0.0
         self.config_error = ""
         self.state_path = self.cache_dir / "state.json"
         self.state = {"schemaVersion": 1, "enabled": {}, "imports": [], "generations": []}
@@ -220,6 +225,11 @@ class ContentCatalog:
                 self._configure(read_json(self.config_path))
             except ContentError as error:
                 self.config_error = str(error)
+        else:
+            # Read-only public discovery is useful before the user has exported a pack.
+            self._configure({"schemaVersion": 1, "providers": [
+                {"id": "polyhaven", "type": "polyhaven", "title": "Poly Haven", "enabled": True},
+                {"id": "sketchfab", "type": "sketchfab", "title": "Sketchfab models", "enabled": True}]})
 
     def _configure(self, config):
         require(isinstance(config, dict) and config.get("schemaVersion") == 1, "Unsupported content configuration")
@@ -231,7 +241,7 @@ class ContentCatalog:
             provider_id = identifier(raw.get("id"), "provider id")
             require(provider_id not in configured, "Duplicate provider id")
             kind = raw.get("type")
-            require(kind in ("local", "http", "comfyui", "generation-handoff"), "Unsupported content provider type")
+            require(kind in ("local", "http", "polyhaven", "sketchfab", "comfyui", "generation-handoff"), "Unsupported content provider type")
             require(type(raw.get("enabled", False)) is bool, "Invalid provider enabled flag")
             provider = {"id": provider_id, "type": kind, "enabled": raw.get("enabled", False),
                         "title": string(raw.get("title", provider_id), "provider title")}
@@ -244,6 +254,10 @@ class ContentCatalog:
                 provider["manifest"] = (self.config_path.parent / string(raw.get("manifest"), "manifest path", 2048)).resolve()
             elif kind == "http":
                 provider["manifestUrl"] = http_url(raw.get("manifestUrl"))
+            elif kind == "polyhaven":
+                require(not token_env, "Poly Haven public discovery does not use credentials")
+            elif kind == "sketchfab":
+                require(not token_env, "Sketchfab public discovery does not use credentials")
             elif kind == "comfyui":
                 provider["baseUrl"] = http_url(raw.get("baseUrl")).rstrip("/")
                 require(not urllib.parse.urlsplit(provider["baseUrl"]).query, "ComfyUI base URL cannot contain a query")
@@ -277,7 +291,7 @@ class ContentCatalog:
         return provider
 
     def _request(self, provider, url, payload=None):
-        headers = {"Accept": "application/json"}
+        headers = {"Accept": "application/json", "User-Agent": "MatrixLoadingOperator/1.0 (+https://github.com/School-of-the-Ancients/matrix-loading-operator)"}
         token_env = provider.get("tokenEnv")
         if token_env:
             token = os.environ.get(token_env)
@@ -310,6 +324,8 @@ class ContentCatalog:
             raise ContentError(502, "Provider returned invalid JSON") from None
 
     def _assets(self, provider):
+        if provider["type"] == "polyhaven":
+            return self._polyhaven_assets(provider)
         if provider["type"] == "local":
             assets = validate_manifest(read_json(provider["manifest"]))
             for asset in assets:
@@ -327,14 +343,109 @@ class ContentCatalog:
             return assets
         raise ContentError(409, "This provider generates content; it is not a searchable asset catalog")
 
+    def _polyhaven_assets(self, provider):
+        # Poly Haven's public API returns metadata, not immutable Unity content packs.
+        # Cache the bounded index in memory, never claim these are installed prefabs.
+        now = time.monotonic()
+        with self.lock:
+            if self.polyhaven_cache is not None and now - self.polyhaven_cached_at < POLYHAVEN_CACHE_SECONDS:
+                return self.polyhaven_cache
+        document = self._json_request(provider, POLYHAVEN_ASSETS_URL, limit=8 * MAX_MANIFEST)
+        require(isinstance(document, dict) and len(document) <= 10000, "Invalid Poly Haven asset index", 502)
+        kinds = {0: ("environments", "hdr"), 1: ("materials", "png"), 2: ("objects", "gltf")}
+        rows = []
+        for asset_id, data in document.items():
+            if not isinstance(asset_id, str) or not ID.fullmatch(asset_id) or not isinstance(data, dict):
+                continue
+            kind = kinds.get(data.get("type")) if type(data.get("type")) is int else None
+            if kind is None:
+                continue
+            title, description, tags = data.get("name"), data.get("description", ""), data.get("tags", [])
+            if not isinstance(title, str) or not 0 < len(title) <= 256 or not isinstance(description, str):
+                continue
+            if not isinstance(tags, list):
+                tags = []
+            tags = [tag[:96] for tag in tags[:32] if isinstance(tag, str) and tag]
+            version = data.get("files_hash")
+            if not isinstance(version, str) or not re.fullmatch(r"[a-f0-9]{40}", version):
+                version = "live"
+            rows.append({"providerId": provider["id"], "assetId": asset_id, "version": version,
+                         "title": title, "category": kind[0], "format": kind[1], "targetPlatform": "Any",
+                         "license": {"name": "CC0", "url": "https://polyhaven.com/license", "attribution": ""},
+                         "metadata": {"description": description[:2048], "tags": tags,
+                                      "sourceUrl": "https://polyhaven.com/a/" + urllib.parse.quote(asset_id),
+                                      "sourceKind": ("HDRI", "texture", "3D model")[data["type"]]},
+                         "runtimeLoadable": False, "requiresEditor": True, "discoveryOnly": True})
+        rows.sort(key=lambda row: (row["title"].casefold(), row["assetId"]))
+        with self.lock:
+            self.polyhaven_cache = rows
+            self.polyhaven_cached_at = time.monotonic()
+        return rows
+
+    def _sketchfab_search(self, provider, query, cursor, limit):
+        # The public search cursor is opaque. Downloads require per-user OAuth,
+        # so these records are discovery only and never enter the pack installer.
+        params = {"type": "models", "downloadable": "true", "count": min(limit, 24)}
+        if query:
+            params["q"] = query
+        if cursor:
+            params["cursor"] = cursor
+        document = self._json_request(provider, SKETCHFAB_SEARCH_URL + "?" + urllib.parse.urlencode(params), limit=2 * MAX_MANIFEST)
+        require(isinstance(document, dict) and isinstance(document.get("results"), list)
+                and len(document["results"]) <= 24, "Invalid Sketchfab search response", 502)
+        rows = []
+        for data in document["results"]:
+            if not isinstance(data, dict) or data.get("isDownloadable") is not True or data.get("isAgeRestricted") is True:
+                continue
+            uid, title, license_info = data.get("uid"), data.get("name"), data.get("license")
+            if not isinstance(uid, str) or not re.fullmatch(r"[a-f0-9]{32}", uid):
+                continue
+            if not isinstance(title, str) or not 0 < len(title) <= 256 or not isinstance(license_info, dict):
+                continue
+            license_name = license_info.get("label")
+            if not isinstance(license_name, str) or not license_name:
+                continue
+            raw_tags = data.get("tags", [])
+            tags = [tag["name"][:96] for tag in raw_tags[:32] if isinstance(tag, dict) and isinstance(tag.get("name"), str)] if isinstance(raw_tags, list) else []
+            raw_categories = data.get("categories", [])
+            categories = [item.get("name", "") for item in raw_categories if isinstance(item, dict)] if isinstance(raw_categories, list) else []
+            names = " ".join(categories + tags).casefold()
+            category = "characters" if any(word in names for word in ("character", "creature", "people")) else "environments" if any(word in names for word in ("architecture", "scene", "environment")) else "objects"
+            description = data.get("description", "")
+            if not isinstance(description, str):
+                description = ""
+            rows.append({"providerId": provider["id"], "assetId": uid, "version": "live", "title": title,
+                         "category": category, "format": "gltf", "targetPlatform": "Any",
+                         "license": {"name": license_name[:128], "url": "https://sketchfab.com/licenses", "attribution": "Review creator and license on source page"},
+                         "metadata": {"description": description[:2048], "tags": tags,
+                                      "sourceUrl": "https://sketchfab.com/models/" + uid,
+                                      "animationCount": data.get("animationCount", 0) if type(data.get("animationCount")) is int else 0},
+                         "runtimeLoadable": False, "requiresEditor": True, "discoveryOnly": True})
+        cursors = document.get("cursors")
+        require(isinstance(cursors, dict), "Invalid Sketchfab cursor response", 502)
+        next_cursor = cursors.get("next")
+        previous_cursor = cursors.get("previous")
+        require(next_cursor is None or isinstance(next_cursor, str) and re.fullmatch(r"[A-Za-z0-9_-]{1,128}", next_cursor),
+                "Invalid Sketchfab next cursor", 502)
+        require(previous_cursor is None or isinstance(previous_cursor, str) and re.fullmatch(r"[A-Za-z0-9_-]{1,128}", previous_cursor),
+                "Invalid Sketchfab previous cursor", 502)
+        return {"schemaVersion": 1, "assets": rows, "errors": [], "total": None, "offset": 0,
+                "limit": min(limit, 24), "nextCursor": next_cursor, "previousCursor": previous_cursor,
+                "hasMore": next_cursor is not None,
+                "truncated": next_cursor is not None}
+
     def status(self):
         providers = []
         for provider in self.providers.values():
             kind = provider["type"]
             row = {"id": provider["id"], "title": provider["title"], "type": kind, "enabled": self._enabled(provider),
                    "credentialConfigured": not provider["tokenEnv"] or bool(os.environ.get(provider["tokenEnv"])),
-                   "capabilities": {"search": kind in ("local", "http"), "retrieve": kind in ("local", "http"),
+                    "capabilities": {"search": kind in ("local", "http", "polyhaven", "sketchfab"), "retrieve": kind in ("local", "http"),
                                     "generate": kind == "comfyui", "editorImport": False}}
+            if kind == "polyhaven":
+                row["credit"] = "Powered by Poly Haven"
+            if kind == "sketchfab":
+                row["credit"] = "Models from Sketchfab · downloads require your Sketchfab authorization"
             if kind == "comfyui":
                 row["workflows"] = [{"id": item["id"], "title": item["title"], "format": "comfyui-api"} for item in provider["workflows"].values()]
             if kind == "generation-handoff":
@@ -357,8 +468,11 @@ class ContentCatalog:
     def test_provider(self, provider_id):
         # An explicit read-only test is useful before enabling a configured source.
         provider = self._provider(provider_id, enabled=False)
-        if provider["type"] in ("local", "http"):
+        if provider["type"] in ("local", "http", "polyhaven"):
             return {"providerId": provider_id, "ok": True, "assetCount": len(self._assets(provider))}
+        if provider["type"] == "sketchfab":
+            result = self._sketchfab_search(provider, "chair", None, 1)
+            return {"providerId": provider_id, "ok": True, "searchable": bool(result["assets"])}
         if provider["type"] == "comfyui":
             stats = self._json_request(provider, provider["baseUrl"] + "/system_stats")
             require(isinstance(stats, dict), "Invalid ComfyUI system response", 502)
@@ -368,22 +482,66 @@ class ContentCatalog:
                     "configuredWorkflowCount": len(provider["workflows"])}
         raise ContentError(409, provider["reason"])
 
-    def search(self, query="", category=None, provider_id=None):
+    def search(self, query="", category=None, provider_id=None, offset=0, limit=100, cursor=None):
         query = string(query, "search query", 256, True).casefold()
         require(category is None or category in CATEGORIES, "Unsupported content category")
+        require(type(offset) is int and 0 <= offset <= 100000, "Invalid catalog offset")
+        require(type(limit) is int and 1 <= limit <= 100, "Invalid catalog page size")
         if provider_id is not None:
             identifier(provider_id, "provider id")
-        providers = [self._provider(provider_id)] if provider_id else [provider for provider in self.providers.values() if self._enabled(provider) and provider["type"] in ("local", "http")]
+            provider = self._provider(provider_id)
+            if provider["type"] == "sketchfab":
+                require(offset == 0, "Sketchfab uses its returned page cursor, not an offset")
+                require(cursor is None or isinstance(cursor, str) and re.fullmatch(r"[A-Za-z0-9_-]{1,128}", cursor), "Invalid Sketchfab cursor")
+                require(category is None or category in ("objects", "characters", "environments"), "Sketchfab has no results in this category")
+                result = self._sketchfab_search(provider, query, cursor, limit)
+                if category is not None:
+                    result["assets"] = [row for row in result["assets"] if row["category"] == category]
+                return result
+        require(cursor is None, "Page cursor requires the Sketchfab provider")
+        providers = [self._provider(provider_id)] if provider_id else [provider for provider in self.providers.values() if self._enabled(provider) and provider["type"] in ("local", "http", "polyhaven")]
         results, errors = [], []
         for provider in providers:
             try:
                 for asset in self._assets(provider):
                     haystack = " ".join((asset["assetId"], asset["title"], json.dumps(asset["metadata"]))).casefold()
                     if (not category or asset["category"] == category) and (not query or query in haystack):
-                        results.append(public_asset(asset, provider["id"]))
+                        results.append(copy.deepcopy(asset) if provider["type"] == "polyhaven" else public_asset(asset, provider["id"]))
             except ContentError as error:
                 errors.append({"providerId": provider["id"], "message": str(error), "status": error.status})
-        return {"schemaVersion": 1, "assets": results[:MAX_ASSETS], "errors": errors, "truncated": len(results) > MAX_ASSETS}
+        total = len(results)
+        return {"schemaVersion": 1, "assets": results[offset:offset + limit], "errors": errors,
+                "total": total, "offset": offset, "limit": limit, "hasMore": offset + limit < total,
+                "truncated": offset + limit < total}
+
+    def suggest_public(self, prompt, limit=20):
+        """Find bounded, read-only source candidates for a proposal without sending prompt text to a provider."""
+        if not isinstance(prompt, str) or not prompt or not 1 <= limit <= 40:
+            return []
+        stop = {"a", "add", "an", "and", "are", "as", "at", "can", "clear", "create", "delete", "duplicate", "edit", "for", "from", "game", "get",
+                "give", "i", "in", "into", "is", "it", "make", "me", "move", "my", "of", "on", "our", "place",
+                "here", "please", "put", "redo", "restore", "rotate", "room", "save", "scale", "select", "show", "some", "spawn", "the", "there", "this", "to", "undo", "want", "with"}
+        tokens = [word for word in re.findall(r"[a-z0-9]+", prompt.casefold()) if len(word) > 2 and word not in stop]
+        tokens = list(dict.fromkeys(tokens))[:8]
+        if not tokens:
+            return []
+        ranked = []
+        for provider in self.providers.values():
+            if provider["type"] != "polyhaven" or not self._enabled(provider):
+                continue
+            try:
+                for asset in self._polyhaven_assets(provider):
+                    title = asset["title"].casefold()
+                    tags = " ".join(asset["metadata"]["tags"]).casefold()
+                    description = asset["metadata"]["description"].casefold()
+                    score = sum(5 if token in title else 3 if token in tags else 1 if token in description else 0
+                                for token in tokens)
+                    if score:
+                        ranked.append((-score, title, asset))
+            except ContentError:
+                continue
+        ranked.sort(key=lambda row: (row[0], row[1]))
+        return [copy.deepcopy(asset) for _, _, asset in ranked[:limit]]
 
     def _cache_stream(self, source, expected_sha=None, expected_length=None, cancel_event=None):
         reservation = expected_length or MAX_DOWNLOAD
@@ -421,6 +579,8 @@ class ContentCatalog:
 
     def prepare(self, provider_id, asset_id, version=None, target_platform=None, cancel_event=None):
         provider = self._provider(provider_id)
+        require(provider["type"] in ("local", "http"),
+                "This discovery result needs review and Unity conversion before installation; open its source page", 409)
         identifier(asset_id, "assetId")
         if version is not None:
             identifier(version, "version")

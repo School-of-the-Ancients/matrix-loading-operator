@@ -766,7 +766,7 @@ PC persistence commands: {op:'save_scene',name} or {op:'load_scene',name}. Load 
 For 'load NAME', an exact case-insensitive saved-scene name takes priority over an asset name.
 Otherwise 'load a chair' or 'summon a chair' means spawn only a known catalog asset at the selected point.
 Explicit 'restore NAME' or 'load scene NAME' always means a saved scene. Never download assets or invent a catalog.
-When contentCatalog is supplied, it describes recent user search results, not installed runtime assets.
+When contentCatalog is supplied, it describes read-only public source suggestions and recent user search results, not installed runtime assets.
 You may compare their provenance, license, format and platform and recommend a suitable import in your summary.
 Only spawn IDs present in snapshot.assets. If missing content is needed, return no commands and explain which
 catalog item to prepare/install in the content library, then ask for a new proposal after installation.

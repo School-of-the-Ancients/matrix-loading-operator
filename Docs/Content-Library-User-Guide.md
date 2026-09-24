@@ -4,6 +4,14 @@ The content library lets an already-built Matrix app receive additional compatib
 props. You install a pack, then ask the Operator to place and edit its props in
 your room. Installing a pack adds choices; it does not place anything by itself.
 
+The **Find content** section also searches live public source listings. Poly
+Haven offers models, HDRIs, and textures without an account; choose **Sketchfab**
+as the provider to page through its downloadable-model listings. These entries
+link to their source pages and display their license, but are not packs. Sketchfab
+downloads require the player's own authorization. Download a suitable source
+through its normal site, review its license and geometry, then use the Unity
+preparation path below. A public search result cannot be placed directly.
+
 For one new Asset Store prop, this currently takes **more preparation than adding
 it directly to a Unity scene**. The benefit comes afterward: you can reuse the
 same Matrix APK while adding supported packs and arranging their contents with AI,
@@ -164,7 +172,8 @@ the specification and compatibility checks in more detail.
 
 ## What can I ask the AI to do?
 
-The Operator can use recently searched catalog candidates to compare options and
+The Operator can use recently searched catalog candidates and bounded Poly Haven
+suggestions for a missing asset to compare options and
 recommend a suitable pack. It can place and edit **installed** assets advertised
 by the connected player. Installation makes the props available for a fresh AI
 proposal; it does not automatically retry an earlier request.

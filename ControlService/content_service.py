@@ -68,20 +68,41 @@ class ContentBridge:
                     "imports": self.catalog.import_queue(), "generations": self.catalog.generations()}
 
     def search(self, body):
-        require(set(body) <= {"query", "category", "providerId"}, "Unknown catalog search field")
+        require(set(body) <= {"query", "category", "providerId", "offset", "limit", "cursor"}, "Unknown catalog search field")
         result = self.catalog.search(body.get("query", ""), category=body.get("category") or None,
-                                     provider_id=body.get("providerId") or None)
+                                     provider_id=body.get("providerId") or None,
+                                     offset=body.get("offset", 0), limit=body.get("limit", 100),
+                                     cursor=body.get("cursor"))
         with self.state.lock:
             self.search_results = copy.deepcopy(result)
         return result
 
-    def planner_context(self):
-        """Only user-searched, descriptive candidates; no automatic network/installation."""
+    def planner_context(self, prompt="", installed_assets=None):
+        """Bounded source suggestions and user searches; never download or install."""
+        normalized = " " + re.sub(r"[^a-z0-9]+", " ", prompt.casefold()).strip() + " "
+        installed = any(" " + re.sub(r"[^a-z0-9]+", " ", name.casefold()).strip() + " " in normalized
+                        for asset in (installed_assets or []) if isinstance(asset, dict)
+                        for name in (asset.get("assetId"), asset.get("displayName")) if isinstance(name, str) and name)
+        discovery_intent = bool(re.search(r"\b(add|create|find|give|import|make|place|put|search|show|spawn|summon)\b", prompt, re.I))
+        public = self.catalog.suggest_public(prompt) if discovery_intent and not installed and hasattr(self.catalog, "suggest_public") else []
         with self.state.lock:
             rows = self.search_results.get("assets", []) if isinstance(self.search_results, dict) else []
-            return [{key: copy.deepcopy(asset[key]) for key in ("providerId", "assetId", "version", "title", "category",
-                                                               "format", "targetPlatform", "license", "runtimeLoadable") if key in asset}
-                    for asset in rows[:40]]
+        selected, seen = [], set()
+        for asset in public + rows:
+            identity = (asset.get("providerId"), asset.get("assetId"), asset.get("version"), asset.get("targetPlatform"))
+            if identity in seen:
+                continue
+            seen.add(identity)
+            item = {key: copy.deepcopy(asset[key]) for key in ("providerId", "assetId", "version", "title", "category",
+                   "format", "targetPlatform", "license", "runtimeLoadable", "discoveryOnly") if key in asset}
+            source_url = asset.get("metadata", {}).get("sourceUrl")
+            if isinstance(source_url, str) and (source_url.startswith("https://polyhaven.com/a/") or
+                                                source_url.startswith("https://sketchfab.com/models/")):
+                item["sourcePage"] = source_url
+            selected.append(item)
+            if len(selected) == 40:
+                break
+        return selected
 
     def post(self, path, body):
         if path == "/api/content/search":

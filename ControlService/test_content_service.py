@@ -218,9 +218,37 @@ class ContentHttpTests(unittest.TestCase):
         headers = {"Authorization": "Bearer " + self.server.token}
         code, state = self.request("/api/content", headers=headers)
         self.assertEqual(code, 200)
-        self.assertFalse(state["configured"])
+        self.assertTrue(state["configured"])
+        self.assertEqual("polyhaven", state["providers"][0]["id"])
         self.assertEqual(self.request("/api/content/files/" + "a" * 64)[0], 401)
         self.assertEqual(self.request("/api/content/install", {"providerId": "test", "assetId": "props", "version": "1"}, headers=headers)[0], 409)
+
+    def test_public_discovery_search_uses_cursor_and_never_installs(self):
+        catalog = self.state.content.catalog
+        listing = {"results": [{"uid": "a" * 32, "name": "Castle", "isDownloadable": True,
+                                "license": {"label": "CC Attribution"}, "tags": [], "categories": []}],
+                   "cursors": {"next": "cursor_24", "previous": None}}
+        with patch.object(catalog, "_json_request", return_value=listing):
+            code, found = self.request("/api/content/search", {"providerId": "sketchfab", "query": "castle"})
+        self.assertEqual(code, 200)
+        self.assertEqual("cursor_24", found["nextCursor"])
+        self.assertTrue(found["assets"][0]["discoveryOnly"])
+        self.assertEqual(self.request("/api/content/prepare", {"providerId": "sketchfab", "assetId": "a" * 32})[0], 409)
+
+    def test_planner_uses_public_suggestions_only_for_missing_assets(self):
+        catalog = self.state.content.catalog
+        candidate = {"providerId": "polyhaven", "assetId": "castle", "version": "live", "title": "Castle",
+                     "category": "objects", "format": "gltf", "targetPlatform": "Any", "license": {"name": "CC0"},
+                     "metadata": {"sourceUrl": "https://polyhaven.com/a/castle"},
+                     "runtimeLoadable": False, "discoveryOnly": True}
+        with patch.object(catalog, "suggest_public", return_value=[candidate]) as suggest:
+            self.assertEqual([], self.state.content.planner_context("Place a cube", SNAPSHOT["assets"]))
+            suggest.assert_not_called()
+            found = self.state.content.planner_context("Place a castle", SNAPSHOT["assets"])
+            suggest.assert_called_once()
+        self.assertEqual("castle", found[0]["assetId"])
+        self.assertFalse(found[0]["runtimeLoadable"])
+        self.assertEqual("https://polyhaven.com/a/castle", found[0]["sourcePage"])
 
 
 if __name__ == "__main__":
