@@ -25,6 +25,16 @@ requires end-user OAuth, so this connector is discovery-only: it does not use
 a shared account or download an archive. The player must review the specific
 license and prepare a compatible Unity content pack before an asset can spawn.
 
+**Openverse public audio search** is another explicitly selected source. Its
+API can be used anonymously and returns paged results with creator, license,
+attribution, and the original source page. Matrix retains those fields, excludes
+items marked mature, and labels all entries as discovery-only. The current
+player has no general sound playback/import capability, so finding a sound
+does not make it audible in the room. Openverse indexes multiple upstream
+providers; review each item's actual license and source before reuse. See the
+[Openverse API client documentation](https://docs.openverse.org/packages/js/api_client/index.html)
+and [audio search documentation](https://docs.openverse.org/api/index.html).
+
 Unity Asset Store acquisitions and `.unitypackage` files use an explicit Editor
 queue. The queue tracks `queued`, `acquired`, `imported`, `exported`, `failed`, and
 `cancelled`; changing a status records the operator's action. It does not buy
@@ -69,9 +79,10 @@ catalog results remain usable.
 (starting at zero), and `limit` (1–100). Results include `total`, `hasMore`,
 `offset`, and `limit`. Select `providerId: "sketchfab"` for the large external
 model search and pass the returned `nextCursor` as `cursor` for its next page;
-that source has no reported total. The default "all" search covers local,
-HTTP, and Poly Haven catalogs; choose Sketchfab explicitly for its cursor
-pagination. Search results are only metadata. In an explicit AI mode, the
+that source has no reported total. Select `providerId: "openverse-audio"` for
+20-result pages of audio, advancing with the returned `offset + limit`. The
+default "all" search covers local, HTTP, and Poly Haven catalogs; choose the
+larger external searches explicitly. Search results are only metadata. In an explicit AI mode, the
 Operator can receive bounded Poly Haven suggestions from the request text;
 it also sees at most 40 recent manually searched candidates. It can spawn
 only assets installed in the player.
@@ -183,13 +194,14 @@ and API export; this image converter never guesses their layouts.
 | Characters | Prefab packs and Editor queue | Rig, material, animator, and performance validation |
 | Voices | Catalog and Editor queue | Voice provider adapter and runtime audio mapping |
 | Animations | Catalog and prefab pack source path | Clip/rig compatibility and runtime animation selection |
-| Sound effects | Catalog and Editor queue | Audio provider adapter and bounded runtime playback |
+| Sound effects/audio | Openverse audio discovery, catalog and Editor queue | Reviewed audio import, attribution display, and bounded runtime playback |
 | Actions/behaviors/scripts | Metadata, Editor queue, existing compiled declarative behaviors | Reviewed additions to the compiled behavior allowlist |
 | Materials/textures | Poly Haven texture discovery and catalog | Reviewed material import and platform texture limits |
 
 The internet does not expose a single interoperable database of every game,
-character, voice, animation, and sound. [Freesound's API](https://freesound.org/docs/api/overview.html)
-requires an API credential, and original-file downloads require OAuth.
+character, voice, animation, and sound. Openverse can discover some openly
+licensed audio without those credentials; direct [Freesound API](https://freesound.org/docs/api/overview.html)
+use requires an API credential, and original-file downloads require OAuth.
 [Scenario](https://docs.scenario.com/get-started/generation/3d-model-generation/3d-model-generation-scenario)
 provides text/image-to-3D generation rather than a public pack of game-ready
 prefabs. [Blockade Labs](https://api-documentation.blockadelabs.com/api/skybox.html)

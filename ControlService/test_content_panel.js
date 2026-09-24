@@ -106,5 +106,10 @@ const run=code=>vm.runInContext(code,context),el=id=>elements.get(id),tick=()=>n
  assert.equal(el('assets').children.length,1);assert.equal(walk(el('assets')).filter(e=>e.tag==='a'&&e.href?.startsWith('https://sketchfab.com/models/')).length,1);
  assert.equal(walk(el('assets')).some(e=>e.tag==='button'&&/Download|Install/.test(e.textContent)),false,'Discovery cannot be mistaken for an installable pack');
  assert.equal(el('searchPager').children[0].textContent,'Next page');
+ context.audioDiscovery={assets:[{providerId:'openverse-audio',assetId:'a8783d20-f1af-4c4b-b9ec-a8c212f67fee',version:'live',title:'Footsteps',category:'sounds',format:'mp3',targetPlatform:'Any',license:{name:'by',attribution:'Footsteps by InspectorJ'},metadata:{sourceUrl:'https://freesound.org/people/InspectorJ/sounds/345560'},discoveryOnly:true,runtimeLoadable:false}],total:240,offset:0,limit:20,hasMore:true,errors:[]};
+ run('renderAssets(audioDiscovery)');
+ assert.equal(walk(el('assets')).filter(e=>e.tag==='a'&&e.href?.startsWith('https://freesound.org/')).length,1,'Openverse audio links to its original page');
+ assert.equal(walk(el('assets')).some(e=>e.tag==='button'&&/Download|Install/.test(e.textContent)),false,'Openverse audio remains discovery only');
+ assert.equal(el('searchPager').children[0].textContent,'Next page');
  console.log('Content panel checks passed: prefab identity, filters, readiness, focus, handoff, authenticated bounded image previews, stale completion, and no scene edits.');
 })().catch(e=>{console.error(e);process.exitCode=1;});

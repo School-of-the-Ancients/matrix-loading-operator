@@ -30,6 +30,7 @@ FORMATS = {"assetbundle", "png", "jpg", "jpeg", "hdr", "exr", "mp4", "webm", "wa
 POLYHAVEN_ASSETS_URL = "https://api.polyhaven.com/assets?t=all"
 POLYHAVEN_CACHE_SECONDS = 600
 SKETCHFAB_SEARCH_URL = "https://api.sketchfab.com/v3/search"
+OPENVERSE_AUDIO_URL = "https://api.openverse.org/v1/audio/"
 ID = re.compile(r"[A-Za-z0-9][A-Za-z0-9._-]{0,95}\Z")
 SHA = re.compile(r"[a-f0-9]{64}\Z")
 
@@ -229,7 +230,8 @@ class ContentCatalog:
             # Read-only public discovery is useful before the user has exported a pack.
             self._configure({"schemaVersion": 1, "providers": [
                 {"id": "polyhaven", "type": "polyhaven", "title": "Poly Haven", "enabled": True},
-                {"id": "sketchfab", "type": "sketchfab", "title": "Sketchfab models", "enabled": True}]})
+                {"id": "sketchfab", "type": "sketchfab", "title": "Sketchfab models", "enabled": True},
+                {"id": "openverse-audio", "type": "openverse-audio", "title": "Openverse audio", "enabled": True}]})
 
     def _configure(self, config):
         require(isinstance(config, dict) and config.get("schemaVersion") == 1, "Unsupported content configuration")
@@ -241,7 +243,7 @@ class ContentCatalog:
             provider_id = identifier(raw.get("id"), "provider id")
             require(provider_id not in configured, "Duplicate provider id")
             kind = raw.get("type")
-            require(kind in ("local", "http", "polyhaven", "sketchfab", "comfyui", "generation-handoff"), "Unsupported content provider type")
+            require(kind in ("local", "http", "polyhaven", "sketchfab", "openverse-audio", "comfyui", "generation-handoff"), "Unsupported content provider type")
             require(type(raw.get("enabled", False)) is bool, "Invalid provider enabled flag")
             provider = {"id": provider_id, "type": kind, "enabled": raw.get("enabled", False),
                         "title": string(raw.get("title", provider_id), "provider title")}
@@ -258,6 +260,8 @@ class ContentCatalog:
                 require(not token_env, "Poly Haven public discovery does not use credentials")
             elif kind == "sketchfab":
                 require(not token_env, "Sketchfab public discovery does not use credentials")
+            elif kind == "openverse-audio":
+                require(not token_env, "Openverse public discovery does not use credentials")
             elif kind == "comfyui":
                 provider["baseUrl"] = http_url(raw.get("baseUrl")).rstrip("/")
                 require(not urllib.parse.urlsplit(provider["baseUrl"]).query, "ComfyUI base URL cannot contain a query")
@@ -434,18 +438,70 @@ class ContentCatalog:
                 "hasMore": next_cursor is not None,
                 "truncated": next_cursor is not None}
 
+    def _openverse_audio_search(self, provider, query, offset, limit):
+        page_size = min(limit, 20)
+        require(offset % page_size == 0, "Openverse offset must start at a page boundary")
+        params = {"q": query, "page_size": page_size, "page": offset // page_size + 1}
+        document = self._json_request(provider, OPENVERSE_AUDIO_URL + "?" + urllib.parse.urlencode(params), limit=2 * MAX_MANIFEST)
+        require(isinstance(document, dict) and isinstance(document.get("results"), list)
+                and len(document["results"]) <= page_size, "Invalid Openverse audio response", 502)
+        total, page_count, page = document.get("result_count"), document.get("page_count"), document.get("page")
+        require(all(type(number) is int and number >= 0 for number in (total, page_count, page))
+                and page == params["page"], "Invalid Openverse audio pagination", 502)
+        rows = []
+        for data in document["results"]:
+            if not isinstance(data, dict) or data.get("mature") is True:
+                continue
+            uid, title, license_name = data.get("id"), data.get("title"), data.get("license")
+            if not isinstance(uid, str) or not re.fullmatch(r"[a-f0-9]{8}(?:-[a-f0-9]{4}){3}-[a-f0-9]{12}", uid):
+                continue
+            if not isinstance(title, str) or not title or not isinstance(license_name, str) or not license_name:
+                continue
+            creator = data.get("creator", "")
+            attribution = data.get("attribution", "")
+            if not isinstance(creator, str):
+                creator = ""
+            if not isinstance(attribution, str):
+                attribution = ""
+            license_url = data.get("license_url", "")
+            if not isinstance(license_url, str) or not license_url.startswith("https://creativecommons.org/"):
+                license_url = ""
+            raw_tags = data.get("tags", [])
+            tags = [tag["name"][:96] for tag in raw_tags[:32] if isinstance(tag, dict) and isinstance(tag.get("name"), str)] if isinstance(raw_tags, list) else []
+            filetype = data.get("filetype")
+            filetype = filetype.lower() if isinstance(filetype, str) and re.fullmatch(r"[A-Za-z0-9]{2,8}", filetype) else "audio"
+            source_url = data.get("foreign_landing_url")
+            try:
+                source_url = http_url(source_url) if isinstance(source_url, str) and source_url.startswith("https://") else ""
+            except ContentError:
+                source_url = ""
+            if not source_url:
+                source_url = "https://api.openverse.org/v1/audio/" + uid + "/"
+            rows.append({"providerId": provider["id"], "assetId": uid, "version": "live", "title": title[:256],
+                         "category": "sounds", "format": filetype, "targetPlatform": "Any",
+                         "license": {"name": license_name[:128], "url": license_url, "attribution": attribution[:2048] or creator[:256]},
+                         "metadata": {"tags": tags, "creator": creator[:256],
+                                      "sourceUrl": source_url,
+                                      "durationSeconds": round(data["duration"] / 1000, 2) if type(data.get("duration")) is int and data["duration"] >= 0 else None},
+                         "runtimeLoadable": False, "requiresEditor": True, "discoveryOnly": True})
+        has_more = page < page_count
+        return {"schemaVersion": 1, "assets": rows, "errors": [], "total": total, "offset": offset,
+                "limit": page_size, "hasMore": has_more, "truncated": has_more}
+
     def status(self):
         providers = []
         for provider in self.providers.values():
             kind = provider["type"]
             row = {"id": provider["id"], "title": provider["title"], "type": kind, "enabled": self._enabled(provider),
                    "credentialConfigured": not provider["tokenEnv"] or bool(os.environ.get(provider["tokenEnv"])),
-                    "capabilities": {"search": kind in ("local", "http", "polyhaven", "sketchfab"), "retrieve": kind in ("local", "http"),
+                    "capabilities": {"search": kind in ("local", "http", "polyhaven", "sketchfab", "openverse-audio"), "retrieve": kind in ("local", "http"),
                                     "generate": kind == "comfyui", "editorImport": False}}
             if kind == "polyhaven":
                 row["credit"] = "Powered by Poly Haven"
             if kind == "sketchfab":
                 row["credit"] = "Models from Sketchfab · downloads require your Sketchfab authorization"
+            if kind == "openverse-audio":
+                row["credit"] = "Audio from Openverse · review each item's creator, license, and attribution"
             if kind == "comfyui":
                 row["workflows"] = [{"id": item["id"], "title": item["title"], "format": "comfyui-api"} for item in provider["workflows"].values()]
             if kind == "generation-handoff":
@@ -473,6 +529,9 @@ class ContentCatalog:
         if provider["type"] == "sketchfab":
             result = self._sketchfab_search(provider, "chair", None, 1)
             return {"providerId": provider_id, "ok": True, "searchable": bool(result["assets"])}
+        if provider["type"] == "openverse-audio":
+            result = self._openverse_audio_search(provider, "footsteps", 0, 1)
+            return {"providerId": provider_id, "ok": True, "searchable": bool(result["assets"])}
         if provider["type"] == "comfyui":
             stats = self._json_request(provider, provider["baseUrl"] + "/system_stats")
             require(isinstance(stats, dict), "Invalid ComfyUI system response", 502)
@@ -498,6 +557,10 @@ class ContentCatalog:
                 if category is not None:
                     result["assets"] = [row for row in result["assets"] if row["category"] == category]
                 return result
+            if provider["type"] == "openverse-audio":
+                require(cursor is None, "Openverse audio uses a page offset, not a cursor")
+                require(category is None or category == "sounds", "Openverse audio has no results in this category")
+                return self._openverse_audio_search(provider, query, offset, limit)
         require(cursor is None, "Page cursor requires the Sketchfab provider")
         providers = [self._provider(provider_id)] if provider_id else [provider for provider in self.providers.values() if self._enabled(provider) and provider["type"] in ("local", "http", "polyhaven")]
         results, errors = [], []

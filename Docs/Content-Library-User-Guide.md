@@ -11,6 +11,9 @@ link to their source pages and display their license, but are not packs. Sketchf
 downloads require the player's own authorization. Download a suitable source
 through its normal site, review its license and geometry, then use the Unity
 preparation path below. A public search result cannot be placed directly.
+Select **Openverse audio** to find licensed sounds and open their original source
+pages. Search results retain creator and attribution details, but the current
+Matrix player does not yet load or play external audio.
 
 For one new Asset Store prop, this currently takes **more preparation than adding
 it directly to a Unity scene**. The benefit comes afterward: you can reuse the

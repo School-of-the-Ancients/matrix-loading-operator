@@ -311,6 +311,58 @@ class CatalogTests(unittest.TestCase):
         self.assert_error(409, lambda: catalog.prepare("sketchfab", uid))
         self.assert_error(400, lambda: catalog.search(provider_id="sketchfab", cursor="../../bad"))
 
+    def test_openverse_audio_preserves_credit_and_pages_without_installing(self):
+        self.providers = [{"id": "openverse-audio", "type": "openverse-audio", "enabled": True}]
+        catalog = self.create_catalog()
+        first_id = "a8783d20-f1af-4c4b-b9ec-a8c212f67fee"
+        second_id = "b8783d20-f1af-4c4b-b9ec-a8c212f67fee"
+        item = {"id": first_id, "title": "Footsteps, Stones", "license": "by",
+                "license_url": "https://creativecommons.org/licenses/by/4.0/",
+                "creator": "InspectorJ", "attribution": "Footsteps by InspectorJ, CC BY 4.0",
+                "foreign_landing_url": "https://freesound.org/people/InspectorJ/sounds/345560",
+                "filetype": "MP3", "duration": 18940, "tags": [{"name": "footsteps"}]}
+        pages = [{"results": [item], "result_count": 2, "page_count": 2, "page": 1},
+                 {"results": [dict(item, id=second_id)],
+                  "result_count": 2, "page_count": 2, "page": 2}]
+        with patch.object(catalog, "_json_request", side_effect=pages) as fetch:
+            first = catalog.search("footsteps", provider_id="openverse-audio", category="sounds", limit=1)
+            self.assertEqual(2, first["total"])
+            self.assertTrue(first["hasMore"])
+            self.assertEqual(1, len(first["assets"]))
+            row = first["assets"][0]
+            self.assertEqual("sounds", row["category"])
+            self.assertEqual("mp3", row["format"])
+            self.assertEqual("by", row["license"]["name"])
+            self.assertEqual("Footsteps by InspectorJ, CC BY 4.0", row["license"]["attribution"])
+            self.assertEqual("https://freesound.org/people/InspectorJ/sounds/345560", row["metadata"]["sourceUrl"])
+            self.assertEqual(18.94, row["metadata"]["durationSeconds"])
+            self.assertTrue(row["discoveryOnly"])
+            self.assertFalse(row["runtimeLoadable"])
+            second = catalog.search("footsteps", provider_id="openverse-audio", offset=1, limit=1)
+            self.assertEqual(second_id, second["assets"][0]["assetId"])
+            self.assertFalse(second["hasMore"])
+            self.assertIn("page=2", fetch.call_args.args[1])
+        self.assert_error(409, lambda: catalog.prepare("openverse-audio", first_id))
+        self.assert_error(400, lambda: catalog.search(provider_id="openverse-audio", category="objects"))
+        self.assert_error(400, lambda: catalog.search(provider_id="openverse-audio", offset=1, limit=2))
+        self.assert_error(400, lambda: catalog.search(provider_id="openverse-audio", cursor="bad"))
+
+    def test_openverse_audio_excludes_mature_rows_and_unsafe_links(self):
+        self.providers = [{"id": "openverse-audio", "type": "openverse-audio", "enabled": True}]
+        catalog = self.create_catalog()
+        first_id = "a8783d20-f1af-4c4b-b9ec-a8c212f67fee"
+        second_id = "b8783d20-f1af-4c4b-b9ec-a8c212f67fee"
+        item = {"id": first_id, "title": "Footsteps", "license": "cc0", "creator": "Creator"}
+        page = {"results": [dict(item, mature=True),
+                            dict(item, id=second_id, foreign_landing_url="http://insecure.example/audio")],
+                "result_count": 2, "page_count": 1, "page": 1}
+        with patch.object(catalog, "_json_request", return_value=page):
+            result = catalog.search("footsteps", provider_id="openverse-audio", limit=2)
+        self.assertEqual(1, len(result["assets"]))
+        self.assertEqual("https://api.openverse.org/v1/audio/" + second_id + "/",
+                         result["assets"][0]["metadata"]["sourceUrl"])
+        self.assertFalse(result["hasMore"])
+
     def test_malformed_http_identifiers_return_domain_errors(self):
         self.configure_comfy()
         for invalid in ([], {}, True, 42, None):

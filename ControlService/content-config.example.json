@@ -14,6 +14,12 @@
       "enabled": true
     },
     {
+      "id": "openverse-audio",
+      "title": "Openverse public audio discovery",
+      "type": "openverse-audio",
+      "enabled": true
+    },
+    {
       "id": "matrix-fixture",
       "title": "Locally exported Unity packs",
       "type": "local",

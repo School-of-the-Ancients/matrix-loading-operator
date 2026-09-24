@@ -235,6 +235,22 @@ class ContentHttpTests(unittest.TestCase):
         self.assertTrue(found["assets"][0]["discoveryOnly"])
         self.assertEqual(self.request("/api/content/prepare", {"providerId": "sketchfab", "assetId": "a" * 32})[0], 409)
 
+    def test_audio_discovery_http_route_never_prepares_a_sound(self):
+        catalog = self.state.content.catalog
+        uid = "a8783d20-f1af-4c4b-b9ec-a8c212f67fee"
+        page = {"results": [{"id": uid, "title": "Footsteps", "license": "by",
+                             "creator": "InspectorJ", "foreign_landing_url": "https://freesound.org/example"}],
+                "result_count": 1, "page_count": 1, "page": 1}
+        with patch.object(catalog, "_json_request", return_value=page):
+            code, found = self.request("/api/content/search", {"providerId": "openverse-audio",
+                                                                "query": "footsteps", "category": "sounds"})
+        self.assertEqual(200, code)
+        self.assertEqual(1, found["total"])
+        self.assertEqual("sounds", found["assets"][0]["category"])
+        self.assertEqual("by", found["assets"][0]["license"]["name"])
+        self.assertTrue(found["assets"][0]["discoveryOnly"])
+        self.assertEqual(409, self.request("/api/content/prepare", {"providerId": "openverse-audio", "assetId": uid})[0])
+
     def test_planner_uses_public_suggestions_only_for_missing_assets(self):
         catalog = self.state.content.catalog
         candidate = {"providerId": "polyhaven", "assetId": "castle", "version": "live", "title": "Castle",
