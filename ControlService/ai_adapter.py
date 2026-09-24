@@ -26,7 +26,7 @@ NAME = re.compile(r"[A-Za-z0-9][A-Za-z0-9 _-]{0,63}\Z")
 SERVICE_OPS = {"save_scene", "load_scene"}
 READ_OPS = {"get_scene", "list_assets", "list_targets"}
 HISTORY_OPS = {"undo", "redo"}
-BEHAVIOR_KINDS = ("rotate", "bob")
+BEHAVIOR_KINDS = ("rotate", "bob", "path", "select_toggle")
 BEHAVIOR_DEFAULTS = {"enabled": True, "paused": False, "axis": "y", "speedDegreesPerSecond": 30,
                      "amplitudeMeters": .05, "frequencyHz": .5}
 
@@ -122,7 +122,8 @@ def _transform(value):
 
 def validate_behavior(value):
     """Bounded declarative configuration, never executable code or sampled motion."""
-    _require(isinstance(value, dict) and set(value) <= {"kind", *BEHAVIOR_DEFAULTS}, "Invalid behavior fields")
+    _require(isinstance(value, dict) and set(value) <= {"kind", *BEHAVIOR_DEFAULTS,
+              "waypointA", "waypointB", "speedMetersPerSecond", "toggled"}, "Invalid behavior fields")
     kind = value.get("kind")
     _require(isinstance(kind, str) and kind in BEHAVIOR_KINDS, "Unknown behavior kind")
     result = {"kind": kind, **BEHAVIOR_DEFAULTS, **value}
@@ -134,13 +135,46 @@ def validate_behavior(value):
         number = result[field]
         _require(type(number) in (int, float) and minimum <= number <= maximum and math.isfinite(number),
                  "Invalid behavior " + field)
+    if kind == "path":
+        for field in ("waypointA", "waypointB"):
+            point = value.get(field)
+            _require(isinstance(point, dict) and set(point) == {"x", "y", "z"}, "Invalid path " + field)
+            _require(all(type(point[axis]) in (int, float) and math.isfinite(point[axis]) and
+                         -1 <= point[axis] <= 1 for axis in ("x", "y", "z")), "Invalid path " + field)
+            result[field] = {axis: point[axis] for axis in ("x", "y", "z")}
+        speed = value.get("speedMetersPerSecond")
+        _require(type(speed) in (int, float) and math.isfinite(speed) and .01 <= speed <= 1,
+                 "Invalid path speedMetersPerSecond")
+        result["speedMetersPerSecond"] = speed
+        distance = math.dist(tuple(result["waypointA"].values()), tuple(result["waypointB"].values()))
+        _require(.02 <= distance <= 1, "Path length must be 0.02-1 metre")
+    else:
+        # Unity JsonUtility serializes fields from the shared BehaviorData DTO
+        # even for a different kind. Accept only inert defaults on the wire.
+        for field in ("waypointA", "waypointB"):
+            point = value.get(field)
+            _require(point is None or (isinstance(point, dict) and set(point) == {"x", "y", "z"} and
+                     all(type(point[axis]) in (int, float) and point[axis] == 0 for axis in ("x", "y", "z"))),
+                     "Path fields require path behavior")
+        _require(value.get("speedMetersPerSecond", 0) == 0 and
+                 type(value.get("speedMetersPerSecond", 0)) in (int, float),
+                 "Path fields require path behavior")
+        for field in ("waypointA", "waypointB", "speedMetersPerSecond"):
+            result.pop(field, None)
+    if kind == "select_toggle":
+        toggled = value.get("toggled", False)
+        _require(type(toggled) is bool, "Invalid select toggle state")
+        result["toggled"] = toggled
+    else:
+        _require(value.get("toggled", False) is False, "Toggle state requires select_toggle behavior")
+        result.pop("toggled", None)
     return result
 
 
 def validate_behaviors(value):
     if value is None:
         return []
-    _require(isinstance(value, list) and len(value) <= 2, "At most two behaviors are supported")
+    _require(isinstance(value, list) and len(value) <= 4, "At most four behaviors are supported")
     result = [validate_behavior(item) for item in value]
     _require(len({item["kind"] for item in result}) == len(result), "Duplicate behavior kind")
     return sorted(result, key=lambda item: BEHAVIOR_KINDS.index(item["kind"]))
@@ -149,7 +183,7 @@ def validate_behaviors(value):
 def validate_behavior_kinds(value):
     if value is None:
         return []
-    _require(isinstance(value, list) and len(value) <= 2
+    _require(isinstance(value, list) and len(value) <= 4
              and all(isinstance(item, str) and item in BEHAVIOR_KINDS for item in value),
              "Invalid behavior capabilities")
     _require(len(set(value)) == len(value), "Duplicate behavior capability")
@@ -176,21 +210,31 @@ def runtime_skill_catalog(clean):
                         "default": .5, "usedBy": ["bob"]}}
     skills = []
     for kind in supported:
+        path_default = {"kind": "path", "waypointA": {"x": 0, "y": 0, "z": 0},
+                        "waypointB": {"x": .2, "y": 0, "z": 0}, "speedMetersPerSecond": .1}
+        default = path_default if kind == "path" else {"kind": kind}
         skills.append({"kind": kind, "command": "set_behavior", "target": "existing objectId",
-                       "parameters": copy.deepcopy(parameters), "defaultConfig": validate_behavior({"kind": kind}),
+                       "parameters": (copy.deepcopy(parameters) if kind not in ("path", "select_toggle") else {
+                           **copy.deepcopy(parameters), "waypointA": "root-local metres, each component -1 to 1",
+                           "waypointB": "root-local metres, 0.02-1 metre from waypointA",
+                           "speedMetersPerSecond": {"minimum": .01, "maximum": 1}} if kind == "path" else {
+                           **copy.deepcopy(parameters), "toggled": {"type": "boolean", "default": False}}),
+                       "defaultConfig": validate_behavior(default),
                        "effect": ("Continuous signed rotation around the placed visual's local axis." if kind == "rotate"
-                                  else "Vertical float from 0 to amplitudeMeters above the base along support up, independent of object scale."),
+                                  else "Vertical float from 0 to amplitudeMeters above the base along support up, independent of object scale." if kind == "bob"
+                                  else "Ping-pong motion between two root-local waypoints; the placed root and saved pose stay fixed." if kind == "path"
+                                  else "Selecting a prefab with interactionMode light or hinge toggles its light or lid. State is saved and undoable."),
                        "replacement": "Replaces only this kind, preserving the other kind and existing phase.",
                        "remove": {"command": "remove_behavior", "behaviorKind": kind,
                                   "effect": "Removes this kind and discards its phase; other kinds remain."}})
-    return {"version": 1, "skills": skills, "maximumKindsPerObject": 2,
+    return {"version": 1, "skills": skills, "maximumKindsPerObject": 4,
             "requiresReviewedApply": True,
             "removeAll": ({"command": "remove_behavior", "behaviorKind": "all"} if supported else None),
             "baselineOwnership": {"owner": "existing placement executor", "animationWritesBaseTransform": False,
                                   "preserves": ["objectId", "anchorId", "base transform"],
                                   "saved": ["behavior configurations", "base transform"],
                                   "notSaved": ["animation phase"], "restoreStartsAtBase": True},
-            "unsupported": ["physics", "triggers", "paths", "navigation", "runtime code generation", "swept-volume collision"]}
+            "unsupported": ["physics", "arbitrary triggers", "navigation", "runtime code generation", "swept-volume collision"]}
 
 
 def validate_local_bounds(value):
@@ -383,6 +427,10 @@ def _catalog(values, key, limit):
                 result[identifier]["source"] = source
         if key == "assetId" and value.get("description"):
             result[identifier]["description"] = _text(value["description"], "asset description", limit=500)
+        if key == "assetId" and value.get("interactionMode"):
+            _require(value["interactionMode"] in ("light", "hinge") and "source" not in result[identifier],
+                     "Invalid bundled interaction mode")
+            result[identifier]["interactionMode"] = value["interactionMode"]
         if key == "assetId" and "spawnScale" in value:
             scale = value["spawnScale"]
             _require(type(scale) in (int, float) and 0.01 <= scale <= 20 and math.isfinite(scale), "Invalid catalog spawnScale")
@@ -420,6 +468,9 @@ def _context(snapshot, selection=None):
         if source:
             objects[identifier]["source"] = source
         behaviors = validate_behaviors(value.get("behaviors"))
+        _require(not any(item["kind"] == "select_toggle" for item in behaviors) or
+                 assets[asset_id].get("interactionMode") in ("light", "hinge"),
+                 "Saved interaction is unavailable on this prefab", 409)
         if behaviors:
             objects[identifier]["behaviors"] = behaviors
     selected = copy.deepcopy(snapshot.get("selection") if selection is None else selection)
@@ -519,6 +570,9 @@ def validate_commands(commands, snapshot, saved_scenes=None, selection=None):
                 if op == "set_behavior":
                     behavior = validate_behavior(value.get("behavior"))
                     _require(behavior["kind"] in supported, "Connected player does not support this behavior", 409)
+                    if behavior["kind"] == "select_toggle":
+                        _require(assets[objects[identifier]["assetId"]].get("interactionMode") in ("light", "hinge"),
+                                 "This prefab has no selectable interaction")
                     result["behavior"] = behavior
                     current = [item for item in current if item["kind"] != behavior["kind"]] + [behavior]
                 else:
@@ -537,6 +591,10 @@ def validate_commands(commands, snapshot, saved_scenes=None, selection=None):
             elif op == "duplicate":
                 object_count += 1
                 _require(object_count <= MAX_OBJECTS, "Scene object limit would be exceeded")
+            elif op == "select":
+                for behavior in objects[identifier].get("behaviors", []):
+                    if behavior["kind"] == "select_toggle" and behavior["enabled"] and not behavior["paused"]:
+                        behavior["toggled"] = not behavior["toggled"]
             elif op == "set_transform":
                 result["transform"] = _transform(value.get("transform"))
                 if "anchorId" in value:
@@ -610,8 +668,9 @@ Allowed runtime commands:
 spawn: {op:'spawn',assetId,anchorId,transform,optional placement:'surface'};
 set_transform: {op:'set_transform',objectId,transform,optional anchorId,optional placement:'surface'};
 select: {op:'select',objectId}; duplicate: {op:'duplicate',objectId}; delete: {op:'delete',objectId};
-set_behavior: {op:'set_behavior',objectId,behavior:{kind,enabled,paused,axis,speedDegreesPerSecond,amplitudeMeters,frequencyHz}};
-remove_behavior: {op:'remove_behavior',objectId,behaviorKind:'rotate'|'bob'|'all'}.
+set_behavior: {op:'set_behavior',objectId,behavior:{kind,enabled,paused,axis,speedDegreesPerSecond,amplitudeMeters,frequencyHz,
+  optional waypointA:{x,y,z},waypointB:{x,y,z},speedMetersPerSecond for path; toggled for select_toggle}};
+remove_behavior: {op:'remove_behavior',objectId,behaviorKind:'rotate'|'bob'|'path'|'select_toggle'|'all'}.
 Behaviors are available ONLY when snapshot.behaviorKinds explicitly lists the requested kind. An absent or empty
 behaviorKinds means an older player: return no commands and explain that the Quest app must be updated. Never
 substitute a one-time transform for a requested ongoing animation or claim an unsupported behavior was applied.
@@ -620,8 +679,11 @@ Use its skill parameters, units, limits, defaults and lifecycle semantics. An em
 capability. Its unsupported list is explicit: do not invent physics, triggers, paths, navigation or generated code.
 The only supported behaviors are rotate and bob. They animate a visual offset around the object's saved base
 transform; base position, anchor, object ID and scale remain unchanged. This is not navigation, physics or code.
-Each object can have one rotate plus one bob, listed in scene.objects[].behaviors. set_behavior replaces only its
+Each object can have one rotate, one bob, one path, and one select_toggle, listed in scene.objects[].behaviors. set_behavior replaces only its
 own kind, preserving the other kind; remove_behavior removes only the named kind, or all for an explicit request.
+select_toggle is valid only for an asset whose interactionMode is light or hinge. Each later select command
+toggles its saved state; on a lamp this switches the light, on a chest it opens/closes the lid. Selecting
+such an object is an undoable world edit. Do not claim an interaction before its receipt is acknowledged.
 Every behavior config uses: kind rotate|bob; enabled boolean (default true); paused boolean (default false);
 axis x|y|z (default y); speedDegreesPerSecond [-180,180] (default 30); amplitudeMeters [0,0.25] (default 0.05);
 frequencyHz [0.05,2] (default 0.5). Send all fields. For rotate, speed and axis control rotation around the visual's

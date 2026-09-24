@@ -42,7 +42,7 @@ The original sibling **Matrix Loading Operator** repository copy also held copie
 
 ## Operator loop
 
-The seven bundled assets are chair, table, wall, pedestal, block, orb and column. Furniture uses authored life-size geometry and scale 1; primitives start at scale 0.2. All have floor-aligned pivots. The catalog carries each asset's default scale, so desktop, headset, PC panel and offline commands agree.
+The source build bundles 23 assets. The original seven are chair, table, wall, pedestal, block, orb and column; their old IDs and scales are preserved. The other 16 are miniature terrain, roads, vegetation, structures, a lamp and a chest, listed in the [4616 demo inventory](4616-Miniature-World.md). Furniture uses authored life-size geometry and scale 1; the original primitives start at scale 0.2, while miniatures start at scale 1. All have floor-aligned pivots. The catalog carries each asset's default scale, so desktop, headset, PC panel and offline commands agree.
 
 In the PC panel, enter each request, choose **Create proposal**, review it, then **Apply reviewed proposal**. Wait for the runtime confirmation before continuing:
 

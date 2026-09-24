@@ -28,6 +28,7 @@ These instructions describe this source checkout. Historical releases have diffe
 | Add a catalog or ComfyUI workflow | [Provider configuration](Docs/Content-Catalogs.md) |
 | Let AI inspect the current view | [Capture how-to](#show-the-ai-a-scene-capture) and [visual feedback guide](Docs/Visual-Feedback.md) |
 | Animate, save or restore my scene | [First scene walkthrough](#make-your-first-scene), [behaviors](Docs/Runtime-Behaviors.md) and [save/restore](#save-clear-and-restore) |
+| Build a miniature tabletop village | [4616 miniature world demo](Docs/4616-Miniature-World.md) |
 | Freeze a build for coursework | [Versions and submission snapshots](Docs/Versions-And-Submissions.md#freeze-each-submission) |
 | Develop or connect another AI provider | [Development](#development), [AI integration](Docs/AI-Integration.md) and [PC API](ControlService/README.md) |
 | Connect an independent local application | [Client API v1 pairing, review and receipts](Docs/Client-API-v1.md) |

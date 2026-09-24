@@ -78,6 +78,58 @@ class BehaviorValidationTests(unittest.TestCase):
             with self.subTest(value=value), self.assertRaises(PlannerError):
                 validate_behavior_kinds(value)
 
+    def test_path_is_bounded_and_requires_advertised_player_capability(self):
+        points = {"waypointA": {"x": 0, "y": 0, "z": 0},
+                  "waypointB": {"x": .2, "y": 0, "z": 0}, "speedMetersPerSecond": .1}
+        path = config("path", **points)
+        self.assertEqual(validate_behavior_kinds(["path", "rotate"]), ["rotate", "path"])
+        self.assertEqual(path["waypointB"], points["waypointB"])
+        value = live_snapshot()
+        with self.assertRaisesRegex(PlannerError, "does not support"):
+            validate_commands([setting("path", **points)], value)
+        value["behaviorKinds"].append("path")
+        self.assertEqual(validate_commands([setting("path", **points)], value)[0]["behavior"], path)
+        for bad in ({"waypointB": {"x": 2, "y": 0, "z": 0}},
+                    {"waypointB": points["waypointA"]}, {"speedMetersPerSecond": 2},
+                    {"waypointA": {"x": float("nan"), "y": 0, "z": 0}}):
+            with self.subTest(bad=bad), self.assertRaises(PlannerError):
+                config("path", **{**points, **bad})
+        variants = _schema()["properties"]["commands"]["items"]["anyOf"]
+        self.assertTrue(any(item["properties"].get("behavior", {}).get("properties", {}).get("kind", {}).get("enum") == ["path"]
+                            for item in variants))
+
+    def test_select_toggle_requires_bundled_interactive_asset_and_saves_state(self):
+        value = live_snapshot()
+        value["behaviorKinds"].append("select_toggle")
+        toggle = {"kind": "select_toggle", "toggled": False}
+        with self.assertRaisesRegex(PlannerError, "no selectable interaction"):
+            validate_commands([setting(**toggle)], value)
+        value["assets"][0]["interactionMode"] = "light"
+        checked = validate_commands([setting(**toggle)], value)
+        self.assertFalse(checked[0]["behavior"]["toggled"])
+        with self.assertRaises(PlannerError):
+            config("rotate", toggled=True)
+        with self.assertRaises(PlannerError):
+            config("select_toggle", toggled="yes")
+        value["scene"]["objects"][0]["behaviors"] = [config("select_toggle", toggled=True)]
+        self.assertTrue(snapshot(value)["scene"]["objects"][0]["behaviors"][0]["toggled"])
+        variants = _schema()["properties"]["commands"]["items"]["anyOf"]
+        self.assertTrue(any(item["properties"].get("behavior", {}).get("properties", {}).get("kind", {}).get("enum") == ["select_toggle"]
+                            for item in variants))
+
+    def test_unity_shared_behavior_wire_defaults_do_not_break_heartbeat(self):
+        path = config("path", waypointA={"x": 0, "y": 0, "z": 0},
+                      waypointB={"x": .2, "y": 0, "z": 0}, speedMetersPerSecond=.1)
+        self.assertEqual(validate_behavior({**path, "toggled": False}), path)
+        rotate = config("rotate")
+        wire = {**rotate, "waypointA": {"x": 0, "y": 0, "z": 0},
+                "waypointB": None, "speedMetersPerSecond": 0, "toggled": False}
+        self.assertEqual(validate_behavior(wire), rotate)
+        with self.assertRaises(PlannerError):
+            validate_behavior({**wire, "waypointB": {"x": .1, "y": 0, "z": 0}})
+        with self.assertRaises(PlannerError):
+            validate_behavior({**path, "toggled": True})
+
     def test_metadata_selection_and_configs_are_copied_into_ai_context(self):
         value = live_snapshot()
         clean = _context(value)[0]
@@ -172,7 +224,7 @@ class BehaviorValidationTests(unittest.TestCase):
             self.assertIsNone(catalog["removeAll"])
         catalog = runtime_skill_catalog({"behaviorKinds": ["bob"]})
         self.assertEqual([skill["kind"] for skill in catalog["skills"]], ["bob"])
-        self.assertTrue({"physics", "triggers", "paths", "navigation"} <= set(catalog["unsupported"]))
+        self.assertTrue({"physics", "arbitrary triggers", "navigation"} <= set(catalog["unsupported"]))
 
     def test_skill_catalog_parameters_match_validator_and_keep_baseline_ownership_explicit(self):
         catalog = runtime_skill_catalog(live_snapshot())

@@ -200,6 +200,13 @@ def _schema():
                         "speedDegreesPerSecond": {"type": "number", "minimum": -180, "maximum": 180},
                         "amplitudeMeters": {"type": "number", "minimum": 0, "maximum": .25},
                         "frequencyHz": {"type": "number", "minimum": .05, "maximum": 2}})
+    path_behavior = _object({**behavior["properties"],
+                             "kind": {"type": "string", "enum": ["path"]},
+                             "waypointA": vector, "waypointB": vector,
+                             "speedMetersPerSecond": {"type": "number", "minimum": .01, "maximum": 1}})
+    toggle_behavior = _object({**behavior["properties"],
+                               "kind": {"type": "string", "enum": ["select_toggle"]},
+                               "toggled": {"type": "boolean"}})
     variants = []
     for op, fields in (
         ("spawn", {"assetId": identifier, "anchorId": identifier, "transform": transform}),
@@ -209,7 +216,9 @@ def _schema():
         ("set_transform", {"objectId": identifier, "anchorId": identifier, "transform": transform}),
         ("set_transform", {"objectId": identifier, "anchorId": identifier, "transform": transform, "placement": surface_placement}),
         ("set_behavior", {"objectId": identifier, "behavior": behavior}),
-        ("remove_behavior", {"objectId": identifier, "behaviorKind": {"type": "string", "enum": ["rotate", "bob", "all"]}}),
+        ("set_behavior", {"objectId": identifier, "behavior": path_behavior}),
+        ("set_behavior", {"objectId": identifier, "behavior": toggle_behavior}),
+        ("remove_behavior", {"objectId": identifier, "behaviorKind": {"type": "string", "enum": ["rotate", "bob", "path", "select_toggle", "all"]}}),
         *((op, {"objectId": identifier}) for op in ("select", "duplicate", "delete")),
         *((op, {}) for op in ("undo", "redo", "clear", "get_scene", "list_assets", "list_targets")),
         *((op, {"name": identifier}) for op in ("save_scene", "load_scene")),

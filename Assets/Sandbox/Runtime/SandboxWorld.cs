@@ -104,9 +104,19 @@ namespace ArSandbox
                 if (!InRange(asset.spawnScale, MinimumScale, MaximumScale)) throw new ArgumentException("Asset spawnScale must be finite and between 0.01 and 20.");
                 if ((asset.description?.Length ?? 0) > 500) throw new ArgumentException("Asset description must be at most 500 characters.");
                 SandboxContentRules.ValidateSource(asset.assetId, asset.source);
+                if (!string.IsNullOrEmpty(asset.interactionMode))
+                {
+                    if (SandboxContentRules.HasSource(asset.source) ||
+                        (asset.interactionMode != "light" && asset.interactionMode != "hinge"))
+                        throw new ArgumentException("Only bundled light and hinge interactions are supported.");
+                    Transform part = asset.prefab.transform.Find("InteractivePart");
+                    if (part == null || (asset.interactionMode == "light" && part.GetComponent<Light>() == null))
+                        throw new ArgumentException("Interactive prefab needs its authored InteractivePart.");
+                }
                 if (SandboxContentRules.HasSource(asset.source)) SandboxContentPrefabValidator.Validate(asset.prefab);
                 prepared.Add(asset.assetId, new PrefabEntry { assetId = asset.assetId, displayName = asset.displayName ?? asset.assetId,
                     description = asset.description ?? "", spawnScale = asset.spawnScale, prefab = asset.prefab,
+                    interactionMode = asset.interactionMode,
                     source = SandboxContentRules.HasSource(asset.source) ? SandboxContentRules.Clone(asset.source) : null });
                 BoundsData measured = MeasureStaticBounds(asset.prefab);
                 if (SandboxContentRules.HasSource(asset.source) && (measured == null || measured.size == null ||
@@ -134,7 +144,7 @@ namespace ArSandbox
                     throw new ArgumentException("behavior is accepted only by set_behavior.");
                 if (command.op != "remove_behavior" && !string.IsNullOrEmpty(command.behaviorKind))
                     throw new ArgumentException("behaviorKind is accepted only by remove_behavior.");
-                SceneData before = IsMutation(command.op) ? Capture().scene : null;
+                SceneData before = (IsMutation(command.op) || WillToggleOnSelect(command)) ? Capture().scene : null;
 
                 switch (command.op)
                 {
@@ -148,7 +158,8 @@ namespace ArSandbox
                         break;
                     case "select":
                         ValidateObjectOnlyCommand(command);
-                        RequireInstance(command.objectId);
+                        Instance selected = RequireInstance(command.objectId);
+                        ToggleOnSelect(selected);
                         result.objectId = command.objectId;
                         break;
                     case "duplicate":
@@ -220,7 +231,8 @@ namespace ArSandbox
             var assetInfos = new List<AssetInfo>(assets.Count);
             foreach (PrefabEntry asset in assets.Values)
                 assetInfos.Add(new AssetInfo { assetId = asset.assetId, displayName = asset.displayName,
-                    description = asset.description, spawnScale = asset.spawnScale, localBounds = Clone(assetBounds[asset.assetId]),
+                    description = asset.description, spawnScale = asset.spawnScale,
+                    interactionMode = asset.interactionMode, localBounds = Clone(assetBounds[asset.assetId]),
                     source = SandboxContentRules.Clone(asset.source) });
             assetInfos.Sort((a, b) => string.CompareOrdinal(a.assetId, b.assetId));
 
@@ -298,6 +310,7 @@ namespace ArSandbox
             RoomTarget target = RequireTarget(command.anchorId);
             ValidateTransform(command.transform);
             ValidateBehaviors(behaviors);
+            ValidateAssetBehaviors(asset,behaviors);
 
             var data = new SceneObjectData
             {
@@ -393,7 +406,9 @@ namespace ArSandbox
             // on some supported versions and all-zero values on others. Neither is
             // distinguishable from absence here; HTTP validation checks field presence.
             // A kind or any non-default payload remains an invalid foreign field.
-            if (!string.IsNullOrEmpty(value.kind) || value.paused) return true;
+            if (!string.IsNullOrEmpty(value.kind) || value.paused || value.toggled ||
+                HasVectorPayload(value.waypointA) || HasVectorPayload(value.waypointB) ||
+                value.speedMetersPerSecond != 0f) return true;
             bool zero = !value.enabled && string.IsNullOrEmpty(value.axis) &&
                 value.speedDegreesPerSecond == 0f && value.amplitudeMeters == 0f && value.frequencyHz == 0f;
             bool defaults = value.enabled && value.axis == "y" && value.speedDegreesPerSecond == 30f &&
@@ -404,7 +419,7 @@ namespace ArSandbox
         private static void ValidateBehaviors(List<BehaviorData> values)
         {
             if (values == null) return;
-            if (values.Count > 2) throw new ArgumentException("At most two behaviors are supported, one rotate and one bob.");
+            if (values.Count > 4) throw new ArgumentException("At most four behaviors are supported, one of each kind.");
             var kinds = new HashSet<string>(StringComparer.Ordinal);
             foreach (BehaviorData value in values)
             {
@@ -415,8 +430,8 @@ namespace ArSandbox
 
         private static void ValidateBehavior(BehaviorData value)
         {
-            if (value == null || (value.kind != "rotate" && value.kind != "bob"))
-                throw new ArgumentException("behavior.kind must be rotate or bob.");
+            if (value == null || (value.kind != "rotate" && value.kind != "bob" && value.kind != "path" && value.kind != "select_toggle"))
+                throw new ArgumentException("behavior.kind must be rotate, bob, path, or select_toggle.");
             if (value.axis != "x" && value.axis != "y" && value.axis != "z")
                 throw new ArgumentException("behavior.axis must be x, y, or z.");
             if (!InRange(value.speedDegreesPerSecond, -180f, 180f))
@@ -425,6 +440,53 @@ namespace ArSandbox
                 throw new ArgumentException("behavior.amplitudeMeters must be finite and between 0 and 0.25.");
             if (!InRange(value.frequencyHz, .05f, 2f))
                 throw new ArgumentException("behavior.frequencyHz must be finite and between 0.05 and 2.");
+            if (value.kind == "path")
+            {
+                if (value.waypointA == null || value.waypointB == null ||
+                    !PathPoint(value.waypointA) || !PathPoint(value.waypointB) ||
+                    !InRange(value.speedMetersPerSecond, .01f, 1f))
+                    throw new ArgumentException("Path needs two finite root-local waypoints within one metre and speed 0.01-1 m/s.");
+                float distance = Vector3.Distance(new Vector3(value.waypointA.x,value.waypointA.y,value.waypointA.z),
+                    new Vector3(value.waypointB.x,value.waypointB.y,value.waypointB.z));
+                if (!InRange(distance,.02f,1f)) throw new ArgumentException("Path length must be 0.02-1 metre.");
+            }
+        }
+
+        private static bool PathPoint(Float3 point)
+        {
+            return InRange(point.x,-1f,1f) && InRange(point.y,-1f,1f) && InRange(point.z,-1f,1f);
+        }
+
+        private static void ValidateAssetBehaviors(PrefabEntry asset, List<BehaviorData> behaviors)
+        {
+            if (behaviors == null) return;
+            foreach (BehaviorData behavior in behaviors)
+                if (behavior.kind == "select_toggle" && string.IsNullOrEmpty(asset.interactionMode))
+                    throw new ArgumentException("This prefab has no selectable light or hinge interaction.");
+        }
+
+        private bool WillToggleOnSelect(SandboxCommand command)
+        {
+            return command.op == "select" && SelectionWouldEdit(command.objectId);
+        }
+
+        public bool SelectionWouldEdit(string objectId)
+        {
+            if (string.IsNullOrEmpty(objectId) ||
+                !instances.TryGetValue(objectId,out Instance instance) || instance.data.behaviors == null)
+                return false;
+            return instance.data.behaviors.Exists(value => value.kind == "select_toggle" && value.enabled && !value.paused);
+        }
+
+        private static void ToggleOnSelect(Instance instance)
+        {
+            if (instance.data.behaviors == null) return;
+            int index = instance.data.behaviors.FindIndex(value => value.kind == "select_toggle" && value.enabled && !value.paused);
+            if (index < 0) return;
+            List<BehaviorData> next = Clone(instance.data.behaviors);
+            next[index].toggled = !next[index].toggled;
+            instance.behaviorVisual.Configure(next);
+            instance.data.behaviors = next;
         }
 
         private void SetBehavior(SandboxCommand command)
@@ -433,6 +495,7 @@ namespace ArSandbox
             Instance instance = RequireInstance(command.objectId);
             RequireTarget(instance.data.anchorId);
             ValidateBehavior(command.behavior);
+            ValidateAssetBehaviors(RequireAsset(instance.data.assetId), new List<BehaviorData> { command.behavior });
             List<BehaviorData> next = Clone(instance.data.behaviors);
             int index = next.FindIndex(value => value.kind == command.behavior.kind);
             if (index < 0) next.Add(Clone(command.behavior));
@@ -447,8 +510,8 @@ namespace ArSandbox
             ValidateObjectOnlyCommand(command);
             Instance instance = RequireInstance(command.objectId);
             RequireTarget(instance.data.anchorId);
-            if (command.behaviorKind != "rotate" && command.behaviorKind != "bob" && command.behaviorKind != "all")
-                throw new ArgumentException("behaviorKind must be rotate, bob, or all.");
+            if (command.behaviorKind != "rotate" && command.behaviorKind != "bob" && command.behaviorKind != "path" && command.behaviorKind != "select_toggle" && command.behaviorKind != "all")
+                throw new ArgumentException("behaviorKind must be rotate, bob, path, select_toggle, or all.");
             List<BehaviorData> next = Clone(instance.data.behaviors);
             if (command.behaviorKind == "all") next.Clear();
             else next.RemoveAll(value => value.kind == command.behaviorKind);
@@ -568,6 +631,7 @@ namespace ArSandbox
                 RoomTarget target = RequireTarget(data.anchorId);
                 ValidateTransform(data.transform);
                 ValidateBehaviors(data.behaviors);
+                ValidateAssetBehaviors(asset,data.behaviors);
                 // Saved transforms have already had their surface clearance resolved.
                 // Revalidate them against current geometry without shifting them again.
                 ResolvePlacement(data.assetId, target, data.transform, null);
@@ -602,7 +666,7 @@ namespace ArSandbox
                 visual.transform.localScale = Vector3.one;
                 visual.SetActive(true);
                 SandboxBehaviorVisual behaviorVisual = instance.AddComponent<SandboxBehaviorVisual>();
-                behaviorVisual.Configure(visual.transform, data.behaviors);
+                behaviorVisual.Configure(visual.transform, data.behaviors, asset.interactionMode);
                 Apply(instance.transform, target.origin, data.transform);
                 return new Instance { data = data, gameObject = instance, behaviorVisual = behaviorVisual };
             }
@@ -993,7 +1057,10 @@ namespace ArSandbox
         {
             return new BehaviorData { kind = value.kind, enabled = value.enabled, paused = value.paused,
                 axis = value.axis, speedDegreesPerSecond = value.speedDegreesPerSecond,
-                amplitudeMeters = value.amplitudeMeters, frequencyHz = value.frequencyHz };
+                amplitudeMeters = value.amplitudeMeters, frequencyHz = value.frequencyHz,
+                waypointA = value.waypointA == null ? null : Clone(value.waypointA),
+                waypointB = value.waypointB == null ? null : Clone(value.waypointB),
+                speedMetersPerSecond = value.speedMetersPerSecond, toggled = value.toggled };
         }
 
         private static List<BehaviorData> Clone(List<BehaviorData> values)

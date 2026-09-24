@@ -54,6 +54,11 @@ namespace ArSandbox
         public float speedDegreesPerSecond = 30f;
         public float amplitudeMeters = .05f;
         public float frequencyHz = .5f;
+        // Path points are root-local metres. Absent in existing schema-1 saves.
+        public Float3 waypointA;
+        public Float3 waypointB;
+        public float speedMetersPerSecond;
+        public bool toggled;
     }
 
     [Serializable]
@@ -80,6 +85,8 @@ namespace ArSandbox
         public string displayName;
         public string description = "";
         public float spawnScale = 0.2f;
+        // Empty for static props; bundled interactive props use light or hinge.
+        public string interactionMode;
         // Optional static render bounds. Unknown geometry is null; JsonUtility may
         // materialize that as an all-zero inline object, never a known positive size.
         public BoundsData localBounds;
@@ -142,7 +149,7 @@ namespace ArSandbox
     [Serializable]
     public sealed class SandboxSnapshot
     {
-        public string[] behaviorKinds = new[] { "rotate", "bob" };
+        public string[] behaviorKinds = new[] { "rotate", "bob", "path", "select_toggle" };
         // A retained AR scene may be saved or explicitly cleared after anchors
         // become unavailable. It must never be used for new placement or restore.
         public bool readOnly;
@@ -302,6 +309,7 @@ namespace ArSandbox
         public string displayName;
         public string description = "";
         public float spawnScale = 0.2f;
+        public string interactionMode;
         public GameObject prefab;
         public ContentSourceReference source;
     }

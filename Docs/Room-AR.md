@@ -25,7 +25,7 @@ USB debugging and the PC connection were restored after a fresh cable reconnect 
 | Existing virtual sandbox | Matrix Operator | `com.matt.matrixoperator.whiteroom` |
 | Native room AR | Matrix Operator AR | `com.matt.arsandbox` |
 
-Both use the same seven bundled prefab IDs and the same PC service. Save the white-room arrangement before switching. Quit the previous app so it releases the PC connection; the service's inactive client lease expires after 15 seconds. A room AR save cannot be restored into the white room because their room IDs differ.
+The original builds used the same seven bundled prefab IDs and the same PC service. Current source builds share those seven plus the [16 miniature additions](4616-Miniature-World.md). Save the white-room arrangement before switching. Quit the previous app so it releases the PC connection; the service's inactive client lease expires after 15 seconds. A room AR save cannot be restored into the white room because their room IDs differ.
 
 ## Build and connect on the Omen
 

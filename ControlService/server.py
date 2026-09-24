@@ -133,6 +133,10 @@ def catalog(value, key, limit):
                 entry["source"] = source
         if key == "assetId" and item.get("description"):
             entry["description"] = text(item["description"], "asset description", limit=500)
+        if key == "assetId" and item.get("interactionMode"):
+            require(item["interactionMode"] in ("light", "hinge") and "source" not in entry,
+                    "Invalid bundled interaction mode")
+            entry["interactionMode"] = item["interactionMode"]
         if key == "assetId" and "spawnScale" in item:
             scale = item["spawnScale"]
             require(type(scale) in (int, float) and 0.01 <= scale <= 20 and math.isfinite(scale), "Invalid spawnScale")
@@ -509,6 +513,11 @@ class State:
                     require(kind == "all" or kind in supported, "Connected player does not support this behavior", 409)
                     require(item["objectId"] in {obj["objectId"] for obj in self.latest["scene"]["objects"]},
                             "Behavior target object is unavailable", 409)
+                    if item["op"] == "set_behavior" and kind == "select_toggle":
+                        target = next(obj for obj in self.latest["scene"]["objects"] if obj["objectId"] == item["objectId"])
+                        asset = next((asset for asset in self.latest["assets"] if asset["assetId"] == target["assetId"]), None)
+                        require(asset is not None and asset.get("interactionMode") in ("light", "hinge"),
+                                "This prefab has no selectable interaction", 409)
                 elif item["op"] == "load":
                     require(all(behavior["kind"] in supported for obj in item["scene"]["objects"]
                                 for behavior in obj.get("behaviors", [])),

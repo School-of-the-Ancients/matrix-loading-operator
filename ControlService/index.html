@@ -108,12 +108,15 @@ function applyPrefabSelection(){
 function renderBehaviors(){
   const supported=latest?.snapshot?.behaviorKinds||[],item=selectedObject();
   if(!supported.length){$('behaviorStatus').textContent='This runtime needs the behavior update before animation requests can run.';return;}
-  if(!item){$('behaviorStatus').textContent='Select a prop to configure Rotate and Bob through the Operator.';return;}
+  if(!item){$('behaviorStatus').textContent='Select a prop to configure motion or an available interaction through the Operator.';return;}
   const behaviors=item.behaviors||[];
   $('behaviorStatus').textContent=behaviors.length?behaviors.map(b=>{
     const state=!b.enabled?'disabled':b.paused?'paused':'running';
-    return b.kind==='rotate'?'Rotate '+b.axis.toUpperCase()+' · '+b.speedDegreesPerSecond+'°/s · '+state:'Bob · '+Math.round(b.amplitudeMeters*100)+' cm · '+b.frequencyHz+' Hz · '+state;
-  }).join(' | '):'No animations. Ask the Operator to rotate or gently float this prop.';
+    if(b.kind==='rotate')return 'Rotate '+b.axis.toUpperCase()+' · '+b.speedDegreesPerSecond+'°/s · '+state;
+    if(b.kind==='bob')return 'Bob · '+Math.round(b.amplitudeMeters*100)+' cm · '+b.frequencyHz+' Hz · '+state;
+    if(b.kind==='select_toggle')return 'Select toggle · '+(b.toggled?'on/open':'off/closed')+' · '+state;
+    return 'Path · '+b.speedMetersPerSecond+' m/s · '+state;
+  }).join(' | '):'No animations. Ask the Operator to rotate, float, or follow a short path.';
 }
 function fillTransform(force=false){const item=selectedObject();if(!item){editedId='';dirty=false;return;}const signature=JSON.stringify(item.transform);if(!force&&item.objectId===editedId&&(dirty||signature===shownTransform))return;for(const group of ['position','rotation','scale'])for(const axis of ['x','y','z'])$(group+'-'+axis).value=Number(item.transform[group][axis].toFixed(4));editedId=item.objectId;shownTransform=signature;dirty=false;}
 function imageCapability(mode=$('mode').value){

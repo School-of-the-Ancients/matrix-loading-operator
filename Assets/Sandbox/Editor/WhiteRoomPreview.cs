@@ -24,8 +24,8 @@ namespace ArSandbox
             string originalScene = Convert.ToBase64String(File.ReadAllBytes(scenePath));
             var app = Object.FindFirstObjectByType<SandboxApp>();
             Camera camera = Camera.main;
-            if (app == null || camera == null || app.prefabs == null || app.prefabs.Length != 7)
-                throw new InvalidOperationException("Expected the empty desktop scene and seven authored prefabs.");
+            if (app == null || camera == null || app.prefabs == null || app.prefabs.Length < 7)
+                throw new InvalidOperationException("Expected the empty desktop scene and original authored prefabs.");
 
             var positions = new Dictionary<string, Vector3>
             {
@@ -52,6 +52,8 @@ namespace ArSandbox
                 camera.aspect = (float)width / height;
                 foreach (PrefabEntry asset in app.prefabs)
                 {
+                    // Keep this historical seven-prop gallery stable as the catalog grows.
+                    if (!positions.ContainsKey(asset.assetId)) continue;
                     GameObject instance = Object.Instantiate(asset.prefab);
                     instances.Add(instance);
                     instance.name = "Preview only - " + asset.assetId;

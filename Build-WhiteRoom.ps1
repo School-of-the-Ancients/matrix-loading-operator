@@ -14,7 +14,7 @@ if (-not $fixtureRoot.StartsWith($repositoryRoot + [IO.Path]::DirectorySeparator
     throw 'The fixture must remain inside this repository.'
 }
 $runtimeNames = @('SandboxData', 'SandboxWorld', 'SandboxBehaviorVisual', 'SandboxSceneCapture', 'QuestCameraCapture', 'SandboxContentData', 'SandboxContentLoader', 'SandboxApp', 'PcBridge', 'SandboxVoiceInput', 'WhiteRoomAdapter', 'WhiteRoomDesktopControls', 'WhiteRoomXrControls')
-$editorNames = @('WhiteRoomSceneSetup', 'WhiteRoomXrSetup', 'WhiteRoomPreview', 'SandboxCoreChecks', 'SandboxContentChecks', 'SandboxContentPackExporter', 'SandboxPrefabPreview')
+$editorNames = @('WhiteRoomSceneSetup', 'MiniatureCatalog', 'WhiteRoomXrSetup', 'WhiteRoomPreview', 'SandboxCoreChecks', 'SandboxContentChecks', 'SandboxContentPackExporter', 'SandboxPrefabPreview')
 $authoredFiles = @($runtimeNames | ForEach-Object { 'Assets\Sandbox\Runtime\' + $_ + '.cs' }) +
                  @($editorNames | ForEach-Object { 'Assets\Sandbox\Editor\' + $_ + '.cs' })
 foreach ($relative in $authoredFiles) {
