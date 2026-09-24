@@ -1,0 +1,45 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <meta name="theme-color" content="#08131e" />
+  <title>Matrix Web Runtime</title>
+</head>
+<body>
+  <div id="app">
+    <div id="view"></div>
+    <header>
+      <div class="brand"><span class="brand-mark">◈</span><span><strong>MATRIX</strong><small>WEB RUNTIME · v0.1</small></span></div>
+      <div class="status"><span id="connection-dot"></span><span id="connection">Connecting…</span></div>
+    </header>
+    <aside class="panel">
+      <div class="panel-title"><span>WORLD OPERATOR</span><span id="object-count">0 objects</span></div>
+      <p class="hint">Click the floor to place, or click an object to select. In XR, point and press trigger.</p>
+      <label for="token">Service token <small>(only if configured)</small></label>
+      <input id="token" type="password" autocomplete="off" placeholder="Kept only in this tab" />
+      <label for="mode">Planner</label>
+      <select id="mode"><option value="offline-rules">Offline commands</option><option value="codex-cli">Codex AI on PC</option></select>
+      <label for="prompt">Request</label>
+      <textarea id="prompt" rows="3" placeholder="Put a table here with four chairs."></textarea>
+      <button id="propose" class="primary">Create proposal</button>
+      <div id="proposal" class="proposal hidden" aria-live="polite">
+        <div class="proposal-label">REVIEW BEFORE APPLY</div>
+        <p id="proposal-summary"></p>
+        <pre id="proposal-commands"></pre>
+        <div class="row"><button id="apply" class="primary">Apply proposal</button><button id="discard">Discard</button></div>
+      </div>
+      <div class="separator"></div>
+      <div class="row"><button id="refresh-assets">Refresh assets</button><span id="asset-count" class="asset-count">7 built-in</span></div>
+      <div class="row"><button id="undo">Undo</button><button id="redo">Redo</button><button id="clear">Clear</button></div>
+      <div class="row"><input id="save-name" aria-label="Scene name" placeholder="Scene name" /><button id="save">Save</button></div>
+      <div class="row"><select id="saved-scenes" aria-label="Saved scenes"><option value="">Saved scenes</option></select><button id="restore">Restore</button></div>
+      <p id="feedback" role="status">Starting runtime…</p>
+      <a id="operator-link" href="/" target="_blank" rel="noopener">Open full Operator ↗</a>
+    </aside>
+    <div class="xr-buttons" id="xr-buttons"></div>
+    <div class="view-label" id="view-label">DESKTOP · VIRTUAL ROOM</div>
+  </div>
+  <script type="module" src="/src/main.js"></script>
+</body>
+</html>
