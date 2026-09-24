@@ -15,8 +15,8 @@ import urllib.request
 
 
 USER_AGENT = "MatrixLoadingOperator/1.0 (+https://github.com/School-of-the-Ancients/matrix-loading-operator)"
-MAX_FILE_BYTES = 128 * 1024 * 1024
-MAX_SOURCE_BYTES = 192 * 1024 * 1024
+MAX_FILE_BYTES = 768 * 1024 * 1024
+MAX_SOURCE_BYTES = 1024 * 1024 * 1024
 ASSET_ID = re.compile(r"[A-Za-z0-9][A-Za-z0-9._-]{0,95}\Z")
 DIGEST = re.compile(r"[a-f0-9]{32}\Z")
 
@@ -128,6 +128,7 @@ def prepare(asset_id, output_root, info=None, files=None):
                 "sourceVersion": source_version, "sourceUrl": "https://polyhaven.com/a/" + quoted,
                 "license": {"name": "CC0", "url": "https://polyhaven.com/license", "attribution": ""},
                 "resolution": resolution, "fbx": selected[0]["filename"], "diffuse": diffuse,
+                "dimensions": info.get("dimensions"),
                 "files": files_out}
     path = directory / "polyhaven-source.json"
     temporary = path.with_suffix(".tmp")

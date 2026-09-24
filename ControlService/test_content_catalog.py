@@ -256,6 +256,18 @@ class CatalogTests(unittest.TestCase):
         self.assertTrue(found[0]["runtimeLoadable"])
         self.assertNotIn("location", found[0])
 
+    def test_ready_shortlist_respects_explicit_panorama_intent(self):
+        def ready(identifier, category):
+            pack = {"schemaVersion": 1, "packId": identifier, "providerId": "local-pack", "version": "1.0.0",
+                    "platform": "Android", "unityVersion": "6000.6.0f1", "sha256": DIGEST, "byteLength": len(DATA),
+                    "assets": [{"assetId": "local-pack:" + identifier + ":1.0.0:visual",
+                                "prefabPath": "assets/" + identifier + ".prefab", "displayName": identifier}]}
+            return asset(assetId=identifier, title="Grassy " + identifier, category=category,
+                         format="assetbundle", targetPlatform="Android", metadata={"contentPack": pack})
+        self.write_manifest([ready("cobblestone", "materials"), ready("meadow", "environments")])
+        found = self.catalog.suggest_ready("Show a grassy panorama", platform="Android", unity_version="6000.6.0f1")
+        self.assertEqual(["meadow"], [item["assetId"] for item in found])
+
     def test_public_discovery_default_and_invalid_config_report_honestly(self):
         with patch.dict(os.environ, {}, clear=True):
             default = ContentCatalog(cache_dir=self.root / "empty").status()

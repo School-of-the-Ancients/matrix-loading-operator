@@ -66,7 +66,11 @@ def verified_manifest(path):
             source = path.parent / item["filename"]
             if not source.is_file() or source.stat().st_size != item["byteLength"]:
                 return False
-            if hashlib.sha256(source.read_bytes()).hexdigest() != item["sha256"]:
+            with source.open("rb") as stream:
+                digest = hashlib.sha256()
+                for chunk in iter(lambda: stream.read(1024 * 1024), b""):
+                    digest.update(chunk)
+            if digest.hexdigest() != item["sha256"]:
                 return False
         return True
     except (OSError, ValueError, KeyError, TypeError):
@@ -129,7 +133,15 @@ def run(root, download, limit, offset, delay, report_name=None):
                 version = info.get("files_hash", "")
                 existing = root / KINDS[kind] / asset_id / version / "polyhaven-source.json"
                 if download and verified_manifest(existing):
-                    source_bytes = sum(item["byteLength"] for item in json.loads(existing.read_text(encoding="utf-8"))["files"])
+                    manifest = json.loads(existing.read_text(encoding="utf-8"))
+                    if kind == 2 and isinstance(info.get("dimensions"), list) and len(info["dimensions"]) == 3 and \
+                            all(type(value) in (int, float) and 0 < value <= 200000 for value in info["dimensions"]) and \
+                            manifest.get("dimensions") != info["dimensions"]:
+                        manifest["dimensions"] = info["dimensions"]
+                        temporary = existing.with_suffix(".tmp")
+                        temporary.write_text(json.dumps(manifest, indent=2) + "\n", encoding="utf-8")
+                        os.replace(temporary, existing)
+                    source_bytes = sum(item["byteLength"] for item in manifest["files"])
                     outcome = {"assetId": asset_id, "category": KINDS[kind], "status": "reused", "sourceManifest": str(existing),
                                "sourceBytes": source_bytes}
                 else:

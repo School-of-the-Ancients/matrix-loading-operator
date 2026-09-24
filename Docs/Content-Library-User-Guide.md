@@ -36,7 +36,7 @@ review never silently replaces an
 object. Broad or ambiguous requests can still require a better description.
 
 Public Poly Haven search fetches **metadata only**, cached in the PC service
-for ten minutes. The optional D: mirror downloads source files once; the Unity
+for ten minutes. The optional local mirror downloads source files once; the Unity
 batch converts them once into versioned packs. Installing a compatible pack
 copies verified bundle bytes to the PC cache and headset. The app can restore
 an exact cached dependency after restart while the source provider is offline.

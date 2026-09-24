@@ -1,7 +1,8 @@
 param(
     [ValidateRange(1, 65535)][int]$Port = 8765,
     [string]$CodexExe,
-    [string]$Model
+    [string]$Model,
+    [string]$ContentLibrary
 )
 $ErrorActionPreference = 'Stop'
 if (Get-NetTCPConnection -State Listen -LocalPort $Port -ErrorAction SilentlyContinue) {
@@ -12,11 +13,28 @@ if (-not (Test-Path -LiteralPath $CodexExe -PathType Leaf) -or [IO.Path]::GetExt
     throw 'Supply the native Codex executable, or make codex.exe available on PATH.'
 }
 $python = (Get-Command python.exe -ErrorAction Stop).Source
-$names = 'SANDBOX_AI_MODE', 'SANDBOX_CODEX_EXE', 'SANDBOX_CODEX_MODEL', 'CODEX_API_KEY', 'OPENAI_API_KEY'
+$names = 'SANDBOX_AI_MODE', 'SANDBOX_CODEX_EXE', 'SANDBOX_CODEX_MODEL', 'CODEX_API_KEY', 'OPENAI_API_KEY', 'MATRIX_CONTENT_CONFIG', 'MATRIX_CONTENT_CACHE'
 $previous = @{}
 foreach ($name in $names) { $previous[$name] = [Environment]::GetEnvironmentVariable($name, 'Process') }
+$defaultContentLibrary = Join-Path $env:USERPROFILE 'Documents\Codex\MatrixPolyHavenLibrary'
+if (-not $ContentLibrary -and -not $env:MATRIX_CONTENT_CONFIG -and
+    (Test-Path -LiteralPath (Join-Path $defaultContentLibrary 'matrix-content-config.json') -PathType Leaf)) {
+    $ContentLibrary = $defaultContentLibrary
+}
 $serviceExitCode = 1
 try {
+    if ($ContentLibrary) {
+        $library = (Resolve-Path -LiteralPath $ContentLibrary -ErrorAction Stop).Path
+        $config = Join-Path $library 'matrix-content-config.json'
+        if (-not (Test-Path -LiteralPath $config -PathType Leaf)) {
+            throw "The content catalog is missing: $config"
+        }
+        $cache = Join-Path $library 'Cache'
+        New-Item -ItemType Directory -Path $cache -Force | Out-Null
+        [Environment]::SetEnvironmentVariable('MATRIX_CONTENT_CONFIG', $config, 'Process')
+        [Environment]::SetEnvironmentVariable('MATRIX_CONTENT_CACHE', $cache, 'Process')
+        Write-Host "Using content library: $library"
+    }
     # The user selected subscription access. Let Codex manage its own saved login.
     [Environment]::SetEnvironmentVariable('CODEX_API_KEY', $null, 'Process')
     [Environment]::SetEnvironmentVariable('OPENAI_API_KEY', $null, 'Process')

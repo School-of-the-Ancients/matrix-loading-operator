@@ -24,6 +24,7 @@ namespace ArSandbox
         {
             public int schemaVersion;
             public string providerId, assetId, title, sourceVersion, sourceUrl, category, fbx, diffuse;
+            public float[] dimensions;
             public ContentLicense license;
             public SourceFile[] files;
         }
@@ -115,7 +116,7 @@ namespace ArSandbox
             foreach (SourceFile item in source.files)
             {
                 if (item == null || !Regex.IsMatch(item.filename ?? "", "^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$") ||
-                    !Regex.IsMatch(item.sha256 ?? "", "^[a-f0-9]{64}$") || item.byteLength < 1 || item.byteLength > 128L * 1024 * 1024)
+                    !Regex.IsMatch(item.sha256 ?? "", "^[a-f0-9]{64}$") || item.byteLength < 1 || item.byteLength > 768L * 1024 * 1024)
                     throw new ArgumentException("Invalid staged Poly Haven file entry.");
                 string path = Path.Combine(sourceDirectory, item.filename);
                 if (!File.Exists(path) || new FileInfo(path).Length != item.byteLength || Digest(path) != item.sha256)
@@ -131,15 +132,30 @@ namespace ArSandbox
             string packId = "m" + HexSha256(Encoding.UTF8.GetBytes(source.assetId)).Substring(0, 12);
             string version = "p" + source.sourceVersion.Substring(0, 12);
             string folder = "Assets/MatrixPolyHaven/" + packId + "/" + version;
+            if (AssetDatabase.IsValidFolder("Assets/MatrixPolyHaven/" + packId))
+                AssetDatabase.DeleteAsset("Assets/MatrixPolyHaven/" + packId);
             EnsureFolder("Assets/MatrixPolyHaven"); EnsureFolder("Assets/MatrixPolyHaven/" + packId); EnsureFolder(folder);
             foreach (SourceFile item in source.files)
             {
                 string path = folder + "/" + item.filename;
                 File.Copy(Path.Combine(sourceDirectory, item.filename), Path.GetFullPath(path), true);
-                AssetDatabase.ImportAsset(path, ImportAssetOptions.ForceSynchronousImport);
             }
-            GameObject model = AssetDatabase.LoadAssetAtPath<GameObject>(folder + "/" + source.fbx);
+            // Import the FBX and its image dependencies once. Importing each
+            // image separately can reparse a large FBX dozens of times.
+            AssetDatabase.Refresh(ImportAssetOptions.ForceSynchronousImport);
+            string modelPath = folder + "/" + source.fbx;
+            GameObject model = AssetDatabase.LoadAssetAtPath<GameObject>(modelPath);
             if (model == null) throw new ArgumentException("Unity could not import the staged FBX model.");
+            if (model.GetComponentsInChildren<MeshFilter>(true).Any(filter => filter.sharedMesh != null && !filter.sharedMesh.isReadable) ||
+                model.GetComponentsInChildren<SkinnedMeshRenderer>(true).Any(renderer => renderer.sharedMesh != null && !renderer.sharedMesh.isReadable))
+            {
+                ModelImporter importer = AssetImporter.GetAtPath(modelPath) as ModelImporter;
+                if (importer == null) throw new ArgumentException("Unity did not create an FBX model importer.");
+                importer.isReadable = true;
+                importer.SaveAndReimport();
+                model = AssetDatabase.LoadAssetAtPath<GameObject>(modelPath);
+                if (model == null) throw new ArgumentException("Unity could not reimport the readable FBX model.");
+            }
             Shader shader = Shader.Find("Standard");
             if (shader == null) throw new InvalidOperationException("Built-in Standard shader is unavailable.");
             var materials = new Dictionary<string, Material>();
@@ -171,8 +187,11 @@ namespace ArSandbox
                 PrefabUtility.UnpackPrefabInstance(instance, PrefabUnpackMode.Completely, InteractionMode.AutomatedAction);
                 FlattenImportedLods(root);
                 ConvertSkinnedMeshesToStatic(root, folder);
-                SplitImportedUnitScales(root);
+                SimplifyOversizedMeshes(root, folder);
                 TrimImportedRenderers(root);
+                CollapseEmptyTransforms(root, instance.transform);
+                SplitImportedUnitScales(root);
+                RemoveSpatialOutliers(root);
                 MeshRenderer[] renderers = root.GetComponentsInChildren<MeshRenderer>(true);
                 if (renderers.Length == 0) throw new ArgumentException("The model has no static mesh renderers.");
                 foreach (MeshRenderer renderer in renderers)
@@ -188,8 +207,27 @@ namespace ArSandbox
                 }
                 Bounds bounds = renderers[0].bounds;
                 for (int i = 1; i < renderers.Length; i++) bounds.Encapsulate(renderers[i].bounds);
-                instance.transform.localPosition -= new Vector3(0, bounds.min.y, 0);
-                bounds.center -= new Vector3(0, bounds.min.y, 0);
+                float expectedMetres = source.dimensions != null && source.dimensions.Length == 3 &&
+                    source.dimensions.All(value => SandboxContentRules.Finite(value) && value > 0 && value <= 200000)
+                    ? source.dimensions.Max() / 1000f : 0f;
+                float measuredMetres = Mathf.Max(bounds.size.x, bounds.size.y, bounds.size.z);
+                bool unusualCoordinates = Mathf.Abs(bounds.min.y) > 90 || bounds.center.magnitude > 90 || bounds.size.magnitude > 90 ||
+                    expectedMetres > 0 && (measuredMetres > expectedMetres * 2.5f || measuredMetres < expectedMetres / 5f) ||
+                    root.GetComponentsInChildren<Transform>(true).Any(transform => transform.localPosition.magnitude > 90 ||
+                        transform.localScale.magnitude > 90 || Mathf.Abs(transform.localScale.x) < .00001f ||
+                        Mathf.Abs(transform.localScale.y) < .00001f || Mathf.Abs(transform.localScale.z) < .00001f);
+                if (unusualCoordinates)
+                {
+                    BakeStaticHierarchy(root, instance, renderers, folder, bounds, expectedMetres);
+                    renderers = root.GetComponentsInChildren<MeshRenderer>(true);
+                    bounds = renderers[0].bounds;
+                    for (int i = 1; i < renderers.Length; i++) bounds.Encapsulate(renderers[i].bounds);
+                }
+                else
+                {
+                    instance.transform.localPosition -= new Vector3(0, bounds.min.y, 0);
+                    bounds.center -= new Vector3(0, bounds.min.y, 0);
+                }
                 BoxCollider collider = root.AddComponent<BoxCollider>();
                 collider.center = bounds.center;
                 collider.size = new Vector3(Mathf.Max(.01f, bounds.size.x), Mathf.Max(.01f, bounds.size.y), Mathf.Max(.01f, bounds.size.z));
@@ -240,6 +278,8 @@ namespace ArSandbox
             string packId = "m" + HexSha256(Encoding.UTF8.GetBytes(source.assetId)).Substring(0, 12);
             string version = "p" + source.sourceVersion.Substring(0, 12);
             string folder = "Assets/MatrixPolyHaven/" + packId + "/" + version;
+            if (AssetDatabase.IsValidFolder("Assets/MatrixPolyHaven/" + packId))
+                AssetDatabase.DeleteAsset("Assets/MatrixPolyHaven/" + packId);
             EnsureFolder("Assets/MatrixPolyHaven"); EnsureFolder("Assets/MatrixPolyHaven/" + packId); EnsureFolder(folder);
             string imagePath = folder + "/" + visual.filename;
             File.Copy(Path.Combine(sourceDirectory, visual.filename), Path.GetFullPath(imagePath), true);
@@ -394,6 +434,208 @@ namespace ArSandbox
             }
             foreach (Animator animator in root.GetComponentsInChildren<Animator>(true)) Object.DestroyImmediate(animator);
             foreach (Animation animation in root.GetComponentsInChildren<Animation>(true)) Object.DestroyImmediate(animation);
+        }
+
+        private static void SimplifyOversizedMeshes(GameObject root, string folder)
+        {
+            var replacements = new Dictionary<Mesh, Mesh>();
+            int index = 0;
+            foreach (MeshFilter filter in root.GetComponentsInChildren<MeshFilter>(true))
+            {
+                Mesh original = filter.sharedMesh;
+                if (original == null || original.vertexCount <= 190000) continue;
+                if (!replacements.TryGetValue(original, out Mesh compact))
+                {
+                    var sourceVertices = original.vertices;
+                    var sourceUv = original.uv;
+                    Bounds bounds = original.bounds;
+                    int[] remap = null;
+                    List<Vector3> sums = null;
+                    List<int> weights = null;
+                    List<Vector2> uvs = null;
+                    int grid = 0;
+                    foreach (int cells in new[] { 128, 112, 96, 80, 64, 48, 32 })
+                    {
+                        var clusters = new Dictionary<long, int>();
+                        var candidates = new int[sourceVertices.Length];
+                        var positions = new List<Vector3>();
+                        var counts = new List<int>();
+                        var textureCoordinates = new List<Vector2>();
+                        Vector3 minimum = bounds.min, size = bounds.size;
+                        for (int vertex = 0; vertex < sourceVertices.Length; vertex++)
+                        {
+                            Vector3 point = sourceVertices[vertex];
+                            int x = Mathf.Clamp(Mathf.FloorToInt((point.x - minimum.x) / Mathf.Max(size.x, .000001f) * cells), 0, cells - 1);
+                            int y = Mathf.Clamp(Mathf.FloorToInt((point.y - minimum.y) / Mathf.Max(size.y, .000001f) * cells), 0, cells - 1);
+                            int z = Mathf.Clamp(Mathf.FloorToInt((point.z - minimum.z) / Mathf.Max(size.z, .000001f) * cells), 0, cells - 1);
+                            long key = ((long)x * cells + y) * cells + z;
+                            if (!clusters.TryGetValue(key, out int replacement))
+                            {
+                                replacement = clusters.Count;
+                                clusters.Add(key, replacement);
+                                positions.Add(point); counts.Add(1);
+                                textureCoordinates.Add(sourceUv.Length == sourceVertices.Length ? sourceUv[vertex] : Vector2.zero);
+                            }
+                            else { positions[replacement] += point; counts[replacement]++; }
+                            candidates[vertex] = replacement;
+                            if (clusters.Count > 190000) break;
+                        }
+                        if (clusters.Count > 190000) continue;
+                        remap = candidates; sums = positions; weights = counts; uvs = textureCoordinates; grid = cells;
+                        break;
+                    }
+                    if (remap == null || sums.Count == 0)
+                        throw new ArgumentException("Model could not be reduced to the Quest static mesh budget.");
+                    var selected = new List<int>[original.subMeshCount];
+                    var seen = new HashSet<long>[original.subMeshCount];
+                    for (int submesh = 0; submesh < selected.Length; submesh++)
+                    { selected[submesh] = new List<int>(); seen[submesh] = new HashSet<long>(); }
+                    const int maxTriangles = 250000;
+                    int accepted = 0;
+                    var random = new System.Random(17);
+                    var reservoir = new List<TriangleSample>(maxTriangles);
+                    long baseValue = sums.Count;
+                    for (int submesh = 0; submesh < selected.Length; submesh++)
+                    {
+                        int[] part = original.GetTriangles(submesh);
+                        for (int offset = 0; offset + 2 < part.Length; offset += 3)
+                        {
+                            int a = remap[part[offset]], b = remap[part[offset + 1]], c = remap[part[offset + 2]];
+                            if (a == b || b == c || a == c) continue;
+                            int lo = Math.Min(a, Math.Min(b, c)), hi = Math.Max(a, Math.Max(b, c));
+                            int middle = a + b + c - lo - hi;
+                            long key = ((long)lo * baseValue + middle) * baseValue + hi;
+                            if (!seen[submesh].Add(key)) continue;
+                            accepted++;
+                            var sample = new TriangleSample { submesh = submesh, a = a, b = b, c = c };
+                            if (reservoir.Count < maxTriangles) reservoir.Add(sample);
+                            else
+                            {
+                                int replacement = random.Next(accepted);
+                                if (replacement < maxTriangles) reservoir[replacement] = sample;
+                            }
+                        }
+                    }
+                    if (reservoir.Count == 0)
+                        throw new ArgumentException("Model has no triangles after Quest mesh reduction.");
+                    foreach (TriangleSample triangle in reservoir)
+                    {
+                        selected[triangle.submesh].Add(triangle.a);
+                        selected[triangle.submesh].Add(triangle.b);
+                        selected[triangle.submesh].Add(triangle.c);
+                    }
+                    compact = new Mesh { name = "Quest static mesh " + index,
+                        indexFormat = sums.Count > 65535 ? UnityEngine.Rendering.IndexFormat.UInt32 : UnityEngine.Rendering.IndexFormat.UInt16 };
+                    compact.vertices = sums.Select((point, i) => point / weights[i]).ToArray();
+                    if (sourceUv.Length == sourceVertices.Length) compact.uv = uvs.ToArray();
+                    compact.subMeshCount = selected.Length;
+                    for (int submesh = 0; submesh < selected.Length; submesh++) compact.SetTriangles(selected[submesh], submesh);
+                    compact.RecalculateNormals();
+                    compact.RecalculateBounds();
+                    AssetDatabase.CreateAsset(compact, folder + "/quest-mesh-" + index++ + ".asset");
+                    replacements.Add(original, compact);
+                    Debug.Log("Reduced Poly Haven mesh from " + original.vertexCount + " to " + compact.vertexCount +
+                        " vertices on a " + grid + " cell grid with " + reservoir.Count + " triangles.");
+                }
+                filter.sharedMesh = compact;
+            }
+        }
+
+        private struct TriangleSample { public int submesh, a, b, c; }
+
+        private static void RemoveSpatialOutliers(GameObject root)
+        {
+            MeshRenderer[] renderers = root.GetComponentsInChildren<MeshRenderer>(true);
+            if (renderers.Length < 3) return;
+            float Median(IEnumerable<float> values)
+            {
+                float[] sorted = values.OrderBy(value => value).ToArray();
+                return sorted[sorted.Length / 2];
+            }
+            Vector3 center = new Vector3(Median(renderers.Select(renderer => renderer.bounds.center.x)),
+                Median(renderers.Select(renderer => renderer.bounds.center.y)),
+                Median(renderers.Select(renderer => renderer.bounds.center.z)));
+            float spread = Median(renderers.Select(renderer => Vector3.Distance(renderer.bounds.center, center)));
+            float cutoff = Mathf.Max(20f, spread * 20f);
+            if (spread > 1000f)
+            {
+                MeshRenderer nearest = renderers.OrderBy(renderer => renderer.bounds.center.magnitude).First();
+                if (nearest.bounds.center.magnitude < spread * .1f)
+                {
+                    center = nearest.bounds.center;
+                    cutoff = Mathf.Max(100f, nearest.bounds.size.magnitude * 10f);
+                }
+            }
+            int removed = 0;
+            foreach (MeshRenderer renderer in renderers)
+            {
+                float distance = Vector3.Distance(renderer.bounds.center, center);
+                if (distance <= cutoff || renderer.bounds.size.magnitude >= distance * .5f) continue;
+                MeshFilter filter = renderer.GetComponent<MeshFilter>();
+                if (filter != null) Object.DestroyImmediate(filter);
+                Object.DestroyImmediate(renderer);
+                removed++;
+            }
+            if (removed > 0) Debug.Log("Removed " + removed + " remote imported mesh parts outside the model's main cluster.");
+        }
+
+        private static void BakeStaticHierarchy(GameObject root, GameObject imported, MeshRenderer[] renderers, string folder,
+            Bounds sourceBounds, float expectedMetres)
+        {
+            Vector3 origin = new Vector3(sourceBounds.center.x, sourceBounds.min.y, sourceBounds.center.z);
+            float largest = Mathf.Max(sourceBounds.size.x, sourceBounds.size.y, sourceBounds.size.z);
+            float target = expectedMetres > 0 ? Mathf.Clamp(expectedMetres, .05f, 80f) : Mathf.Min(largest, 20f);
+            float sizeFactor = target / Mathf.Max(largest, .000001f);
+            for (int index = 0; index < renderers.Length; index++)
+            {
+                MeshRenderer renderer = renderers[index];
+                MeshFilter filter = renderer.GetComponent<MeshFilter>();
+                if (filter == null || filter.sharedMesh == null) continue;
+                Mesh baked = Object.Instantiate(filter.sharedMesh);
+                baked.name = "Rebased static mesh " + index;
+                Matrix4x4 matrix = renderer.transform.localToWorldMatrix;
+                Vector3[] vertices = baked.vertices;
+                for (int vertex = 0; vertex < vertices.Length; vertex++)
+                    vertices[vertex] = (matrix.MultiplyPoint3x4(vertices[vertex]) - origin) * sizeFactor;
+                baked.vertices = vertices;
+                Vector3[] normals = baked.normals;
+                if (normals.Length == vertices.Length)
+                {
+                    Matrix4x4 normalMatrix = matrix.inverse.transpose;
+                    for (int vertex = 0; vertex < normals.Length; vertex++)
+                        normals[vertex] = normalMatrix.MultiplyVector(normals[vertex]).normalized;
+                    baked.normals = normals;
+                }
+                if (matrix.determinant < 0)
+                    for (int submesh = 0; submesh < baked.subMeshCount; submesh++)
+                    {
+                        int[] triangles = baked.GetTriangles(submesh);
+                        for (int triangle = 0; triangle < triangles.Length; triangle += 3)
+                        { int first = triangles[triangle]; triangles[triangle] = triangles[triangle + 2]; triangles[triangle + 2] = first; }
+                        baked.SetTriangles(triangles, submesh);
+                    }
+                baked.RecalculateBounds();
+                AssetDatabase.CreateAsset(baked, folder + "/rebased-" + index + ".asset");
+                var part = new GameObject("Static part " + index);
+                part.transform.SetParent(root.transform, false);
+                part.AddComponent<MeshFilter>().sharedMesh = baked;
+                part.AddComponent<MeshRenderer>().sharedMaterials = renderer.sharedMaterials;
+            }
+            Object.DestroyImmediate(imported);
+            Debug.Log("Rebased imported Poly Haven hierarchy into " + renderers.Length + " static meshes at size factor " + sizeFactor + ".");
+        }
+
+        private static void CollapseEmptyTransforms(GameObject root, Transform importedRoot)
+        {
+            Transform[] hierarchy = root.GetComponentsInChildren<Transform>(true);
+            for (int i = hierarchy.Length - 1; i >= 0; i--)
+            {
+                Transform node = hierarchy[i];
+                if (node == null || node == root.transform || node == importedRoot || node.GetComponents<Component>().Length != 1) continue;
+                Transform parent = node.parent;
+                while (node.childCount > 0) node.GetChild(0).SetParent(parent, true);
+                Object.DestroyImmediate(node.gameObject);
+            }
         }
 
         // Preserve imported world geometry while keeping each transform inside

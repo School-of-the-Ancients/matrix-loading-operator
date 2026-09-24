@@ -16,8 +16,9 @@ provider card gives the credit required for use of its live API. See the
 [asset license](https://polyhaven.com/license) and
 [API terms](https://github.com/Poly-Haven/Public-API/blob/master/ToS.md).
 
-For a full local 1K library, run `Tools/Mirror-PolyHaven.py --output
-D:\MatrixPolyHavenLibrary --download`. It records one checksum-verified,
+For a full local 1K library on this PC, run
+`python Tools/Mirror-PolyHaven.py --output "$env:USERPROFILE\Documents\Codex\MatrixPolyHavenLibrary" --download`.
+It records one checksum-verified,
 versioned Quest-sized representation of every current index entry, with a
 per-asset success or failure row in `download-results.jsonl`. Rerunning reuses
 verified files. Models retain the 1K FBX and declared texture dependencies;
@@ -26,26 +27,37 @@ When 1K is unavailable, the mirror tries 2K. The source library is on the PC,
 not inside the APK or headset storage.
 
 `ArSandbox.PolyHavenPrefabExporter.ExportAvailableBatchFromArguments` converts
-the staged library into one immutable Android pack per asset in a Unity Editor
+the staged library into one versioned Android pack per asset in a Unity Editor
 fixture. Its `-polyHavenSourceRoot` points at the library root and
 `-contentPackOutputRoot` at `Packs\Android`; an Editor opened with Android as
 its active build target is required. The batch journal records exported,
-reused and failed assets independently. `Tools/Build-PolyHaven-Catalog.py
---library D:\MatrixPolyHavenLibrary --platform Android` verifies every bundle
+reused and failed assets independently. `python Tools/Build-PolyHaven-Catalog.py
+--library "$env:USERPROFILE\Documents\Codex\MatrixPolyHavenLibrary" --platform Android` verifies every bundle
 and writes a combined catalog plus `matrix-content-config.json`; set
 `MATRIX_CONTENT_CONFIG` to that config before starting the PC service. The
 AI ranks the entire configured local pack catalog and receives a bounded
 candidate shortlist. Installing a selected pack sends only that pack to the
 headset; later placements reuse its verified cache without rebuilding the APK.
-Set `MATRIX_CONTENT_CACHE` to a directory on the same spacious drive to keep
-the active verified pack cache off a smaller system drive. The 2 GiB cache
+Set `MATRIX_CONTENT_CACHE` to a directory beside the library so the active
+verified pack cache is easy to inspect. The 2 GiB cache
 contains requested packs, not the entire source library.
+
+With Codex AI enabled, launch the service with
+`./Start-CodexControlService.ps1`. It detects this PC's library at
+`$env:USERPROFILE\Documents\Codex\MatrixPolyHavenLibrary` when no content
+config is already set. Use `-ContentLibrary` to select another library; the
+launcher sets both content paths for that service session.
 
 Models are static object prefabs. An HDRI exports as an inward panorama dome,
 and a texture exports as a material sample tile. Those are placeable previews
 using the existing static prefab loader. They do not change Unity's global
 skybox or apply a material to an arbitrary scene object. Rigged characters,
 animations, sound playback, and new scripts need separate runtime capabilities.
+The exporter simplifies oversized meshes and omits imported mesh parts whose
+coordinates lie far outside the main object. Check the resulting prefab's
+appearance and frame time on a Quest before treating any particular model as
+device-ready. A source or exporter change that alters pack bytes must receive
+a new published version so saved scenes can retrieve the exact earlier pack.
 
 Matrix also exposes **Sketchfab public model search** as an explicitly selected
 source. Its official API returns at most 24 models per cursor page; the page

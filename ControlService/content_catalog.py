@@ -612,10 +612,15 @@ class ContentCatalog:
             return []
         stop = {"add", "and", "better", "build", "create", "find", "for", "give", "here", "import", "into", "make", "one", "place", "please", "put",
                 "review", "room", "scene", "screenshot", "show", "spawn", "summon", "the", "this", "with", "want", "another", "prefab", "object"}
-        tokens = list(dict.fromkeys(word for word in re.findall(r"[a-z0-9]+", prompt.casefold())
-                                    if len(word) > 2 and word not in stop))[:8]
+        category_words = {"skybox", "hdri", "panorama", "background", "environment", "material", "texture"}
+        normalized = {"grassy": "grass", "wooden": "wood", "rocky": "rock"}
+        tokens = list(dict.fromkeys(normalized.get(word, word) for word in re.findall(r"[a-z0-9]+", prompt.casefold())
+                                    if len(word) > 2 and word not in stop and word not in category_words))[:8]
         if not tokens:
             return []
+        words = set(re.findall(r"[a-z0-9]+", prompt.casefold()))
+        category_hint = ("environments" if words & {"skybox", "hdri", "panorama", "background", "environment"} else
+                         "materials" if words & {"material", "texture"} else None)
         ranked = []
         for provider in self.providers.values():
             if provider["type"] != "local" or not self._enabled(provider):
@@ -623,6 +628,8 @@ class ContentCatalog:
             try:
                 for asset in self._assets(provider):
                     if asset["format"] != "assetbundle":
+                        continue
+                    if category_hint is not None and asset["category"] != category_hint:
                         continue
                     if platform is not None and asset["targetPlatform"] != platform:
                         continue
