@@ -106,9 +106,18 @@ Use a serializable geospatial pose such as:
   "latitudeDegrees": 40.0,
   "longitudeDegrees": -105.0,
   "heightMeters": 1600.0,
+  "heightReference": "WGS84_ELLIPSOID",
   "headingDegrees": 0.0
 }
 ```
+
+The canonical `heightMeters` is meters above the WGS84 ellipsoid, and
+`heightReference` must be `WGS84_ELLIPSOID`. It is not mean-sea-level elevation
+or height above terrain. Importers must convert source elevations into this
+reference before saving a pose, record the source datum and conversion used,
+and reject or flag elevations whose reference is unknown. Terrain-relative
+height requires an independently licensed terrain source for the conversion;
+Google's visual tiles are not a source for canonical heights.
 
 Unity transforms are a rendered projection of this state.
 
