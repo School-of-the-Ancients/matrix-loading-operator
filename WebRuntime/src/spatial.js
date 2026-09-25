@@ -58,6 +58,15 @@ export function samePlaneShape(a,b){
     Math.abs(extent(a.surface.boundary,'z')-extent(b.surface.boundary,'z'))<.08;
 }
 
+export function measuredFloorHeight(anchors,viewerY){
+  if(!Number.isFinite(viewerY))return null;
+  const floors=anchors.filter(anchor=>anchor.surface?.kind==='support'&&
+    anchor.semanticLabels?.includes('FLOOR')&&Number.isFinite(anchor.roomPose?.position?.y))
+    .map(anchor=>anchor.roomPose.position.y)
+    .filter(y=>viewerY-y>=.25&&viewerY-y<=2.5);
+  return floors.length?Math.max(...floors):null;
+}
+
 // XRPlane object identity can be replaced after Quest room relocalization.
 // Only reuse a session-local ID when the measured shape uniquely identifies it.
 export function matchPlaneAnchor(anchor,previous,usedIds=new Set()){

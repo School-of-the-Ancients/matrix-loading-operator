@@ -3,7 +3,7 @@ import {ARButton} from 'three/addons/webxr/ARButton.js';
 import {VRButton} from 'three/addons/webxr/VRButton.js';
 import {GLTFLoader} from 'three/addons/loaders/GLTFLoader.js';
 import {beginGrab,moveGrab,finishGrab,beginPointerGrab,movePointerGrab,movePointerGrabVertical,finishPointerGrab,moveDesktopCamera} from './grab.js';
-import {viewerPose,planeData,insideBoundary,matchPlaneAnchor,samePlaneShape} from './spatial.js';
+import {viewerPose,planeData,insideBoundary,matchPlaneAnchor,samePlaneShape,measuredFloorHeight} from './spatial.js';
 
 const wood=()=>new THREE.MeshStandardMaterial({color:0xa56f45,roughness:.78});
 const metal=()=>new THREE.MeshStandardMaterial({color:0x738995,roughness:.45,metalness:.45});
@@ -41,11 +41,14 @@ function operatorPanel(){
   const mesh=new THREE.Mesh(new THREE.PlaneGeometry(.78,.58),new THREE.MeshBasicMaterial({map:texture,transparent:true,depthTest:false,depthWrite:false,side:THREE.DoubleSide}));
   mesh.renderOrder=100;mesh.userData.operatorVoice=true;
   const group=new THREE.Group();group.add(mesh);group.visible=false;
-  let message='Aim here, hold trigger, and ask for a scene.',tone='idle',page=0,pinLabel='PIN TO WALL',voiceLabel='VOICE ON';
+  let message='Aim here, hold trigger, and ask for a scene.',tone='idle',page=0,pinLabel='PIN TO WALL',voiceLabel='VOICE ON',originLabel='ROOM ORIGIN UNKNOWN';
   const paint=()=>{
     const ctx=canvas.getContext('2d');ctx.fillStyle='#071923';ctx.fillRect(0,0,1024,768);
     ctx.strokeStyle=tone==='error'?'#ffad8d':'#55e9d2';ctx.lineWidth=9;ctx.strokeRect(10,10,1004,748);
     ctx.fillStyle='#75f4df';ctx.font='bold 51px sans-serif';ctx.fillText('◈  OPERATOR',55,90);
+    ctx.fillStyle='#245568';ctx.fillRect(766,35,210,72);
+    ctx.fillStyle='#e9f9fa';ctx.font='bold 25px sans-serif';ctx.textAlign='center';ctx.fillText('REVIEW VIEW',871,80);ctx.textAlign='left';
+    ctx.fillStyle='#8bb8c2';ctx.font='bold 21px sans-serif';ctx.fillText(originLabel,55,123);
     ctx.font=message.length>500?'25px sans-serif':'31px sans-serif';ctx.fillStyle='#dff7f8';
     const lines=[];
     for(const paragraph of message.split('\n')){
@@ -69,27 +72,33 @@ function operatorPanel(){
   const setMessage=(next,nextTone='idle')=>{message=String(next);tone=nextTone;page=0;paint();};
   const setPinLabel=next=>{pinLabel=next;paint();};
   const setVoiceLabel=next=>{voiceLabel=next;paint();};
+  const setOriginLabel=next=>{if(originLabel!==next){originLabel=next;paint();}};
   const nextPage=()=>{page++;paint();};
   paint();
-  return {group,mesh,setMessage,setPinLabel,setVoiceLabel,nextPage};
+  return {group,mesh,setMessage,setPinLabel,setVoiceLabel,setOriginLabel,nextPage};
 }
 const v3=v=>new THREE.Vector3(v.x,v.y,v.z);
 const plain=v=>({x:Number(v.x.toFixed(3)),y:Number(v.y.toFixed(3)),z:Number(v.z.toFixed(3))});
 
 export class MatrixView {
-  constructor(container,world,onSelection,getToken=()=>'',onAssetError=()=>{},onSceneEdit=()=>{},onRuntimeChange=()=>{},onVoiceStart=()=>{},onVoiceEnd=()=>{},onVoiceOutputToggle=()=>{}){
-    this.world=world;this.onSelection=onSelection;this.getToken=getToken;this.onAssetError=onAssetError;this.onSceneEdit=onSceneEdit;this.onRuntimeChange=onRuntimeChange;this.onVoiceStart=onVoiceStart;this.onVoiceEnd=onVoiceEnd;this.onVoiceOutputToggle=onVoiceOutputToggle;this.onFrame=()=>{};
+  constructor(container,world,onSelection,getToken=()=>'',onAssetError=()=>{},onSceneEdit=()=>{},onRuntimeChange=()=>{},onVoiceStart=()=>{},onVoiceEnd=()=>{},onVoiceOutputToggle=()=>{},onVisualReview=()=>{}){
+    this.world=world;this.onSelection=onSelection;this.getToken=getToken;this.onAssetError=onAssetError;this.onSceneEdit=onSceneEdit;this.onRuntimeChange=onRuntimeChange;this.onVoiceStart=onVoiceStart;this.onVoiceEnd=onVoiceEnd;this.onVoiceOutputToggle=onVoiceOutputToggle;this.onVisualReview=onVisualReview;this.onFrame=()=>{};
     this.container=container;this.objectRoots=new Map();this.anchorRoots=new Map();this.planeOutlines=new Map();this.planeIds=new WeakMap();this.nextPlaneId=0;this.hitSource=null;this.reticleVisible=false;this.xrViewer=null;this.reticleAnchorId='';this.lastPlaneTime=0;
     this.modelCache=new Map();
     this.scene=new THREE.Scene();this.scene.background=new THREE.Color(0x0a1b29);
+    this.virtualFloorRoot=new THREE.Group();this.scene.add(this.virtualFloorRoot);
+    this.roomAnchor=null;this.roomAnchorPending=false;this.roomAnchorCreationFailed=false;this.roomAnchorPersistent=false;
+    const storedEyeHeight=Number(sessionStorage.getItem('matrix-web-eye-height'));
+    this.measuredEyeHeight=storedEyeHeight>=.4&&storedEyeHeight<=2.5?storedEyeHeight:null;
+    this.virtualFloorCalibrated=false;
     this.camera=new THREE.PerspectiveCamera(65,1,.02,300);this.camera.position.set(0,1.7,3.7);this.camera.lookAt(0,.8,-1.3);
     this.camera.rotation.reorder('YXZ');this.keys=new Set();this.lastFrameTime=null;
     this.renderer=new THREE.WebGLRenderer({antialias:true,alpha:true});this.renderer.setPixelRatio(Math.min(devicePixelRatio,2));this.renderer.xr.enabled=true;
     this.renderer.shadowMap.enabled=true;this.renderer.outputColorSpace=THREE.SRGBColorSpace;container.append(this.renderer.domElement);
     this.scene.add(new THREE.HemisphereLight(0xb8e7ff,0x2b3c43,2.1));
     const sun=new THREE.DirectionalLight(0xffe9cc,2.4);sun.position.set(-2,6,4);sun.castShadow=true;sun.shadow.mapSize.set(1024,1024);this.scene.add(sun);
-    this.floor=new THREE.Mesh(new THREE.PlaneGeometry(200,200),new THREE.MeshStandardMaterial({color:0x163149,roughness:1}));this.floor.rotation.x=-Math.PI/2;this.floor.receiveShadow=true;this.scene.add(this.floor);
-    this.grid=new THREE.GridHelper(200,200,0x2e8499,0x24506a);this.grid.position.y=.002;this.scene.add(this.grid);
+    this.floor=new THREE.Mesh(new THREE.PlaneGeometry(200,200),new THREE.MeshStandardMaterial({color:0x163149,roughness:1}));this.floor.rotation.x=-Math.PI/2;this.floor.receiveShadow=true;this.virtualFloorRoot.add(this.floor);
+    this.grid=new THREE.GridHelper(200,200,0x2e8499,0x24506a);this.grid.position.y=.002;this.virtualFloorRoot.add(this.grid);
     this.reticle=new THREE.Mesh(new THREE.RingGeometry(.06,.075,32),new THREE.MeshBasicMaterial({color:0x5ef7d7,side:THREE.DoubleSide}));this.reticle.rotation.x=-Math.PI/2;this.reticle.visible=false;this.scene.add(this.reticle);
     this.operatorPanel=operatorPanel();this.scene.add(this.operatorPanel.group);this.operatorVoiceController=null;this.operatorMount={kind:'head'};
     this.raycaster=new THREE.Raycaster();this.pointer=new THREE.Vector2();
@@ -129,7 +138,7 @@ export class MatrixView {
     const [ar,vr]=await Promise.all(['immersive-ar','immersive-vr'].map(mode=>navigator.xr.isSessionSupported(mode).catch(()=>false)));
     const overlay=document.getElementById('xr-overlay');
     if(ar){const button=ARButton.createButton(this.renderer,{requiredFeatures:['plane-detection'],optionalFeatures:['hit-test','anchors','local-floor','dom-overlay'],domOverlay:{root:overlay}});button.textContent='Enter AR';buttons.append(button);}
-    if(vr){const button=VRButton.createButton(this.renderer,{optionalFeatures:['dom-overlay'],domOverlay:{root:overlay}});button.textContent='Enter VR';buttons.append(button);}
+    if(vr){const button=VRButton.createButton(this.renderer,{optionalFeatures:['anchors','dom-overlay'],domOverlay:{root:overlay}});button.textContent='Enter VR';buttons.append(button);}
     if(!ar&&!vr)buttons.textContent='XR requires a compatible headset browser';
   }
   async onSessionStart(){
@@ -137,14 +146,62 @@ export class MatrixView {
     if(session.domOverlayState)document.getElementById('xr-overlay').style.display='';
     this.operatorPanel.group.visible=true;
     this.operatorMount={kind:'head'};this.operatorPanel.setPinLabel(this.isAR?'PIN TO WALL':'PIN HERE');
-    this.sessionStartedAt=performance.now();this.roomCaptureRequested=false;
+    this.sessionStartedAt=performance.now();this.roomCaptureRequested=false;this.virtualFloorCalibrated=false;this.roomAnchorCreationFailed=false;
+    this.restoreRoomAnchor(session);
     if(this.isAR){this.world.enterAR();this.sync();this.onRuntimeChange();}
     for(const ray of this.controllerRays)ray.visible=true;
     this.floor.visible=!this.isAR;this.grid.visible=!this.isAR;this.scene.background=this.isAR?null:new THREE.Color(0x0a1b29);
     document.getElementById('view-label').textContent=this.isAR?'WEBXR AR · SCANNING ROOM PLANES':'WEBXR VR · VIRTUAL ROOM';
     if(this.isAR){try{const viewer=await session.requestReferenceSpace('viewer');this.hitSource=await session.requestHitTestSource({space:viewer});}catch{this.hitSource=null;}}
   }
-  onSessionEnd(){if(this.operatorVoiceController)this.releaseOperatorVoice(this.operatorVoiceController);this.operatorPanel.group.visible=false;this.operatorMount={kind:'head'};this.operatorPanel.setPinLabel('PIN TO WALL');if(this.grab)this.releaseGrab(this.grab.controller);for(const ray of this.controllerRays)ray.visible=false;this.hitSource?.cancel();this.hitSource=null;this.reticle.visible=false;this.reticleVisible=false;this.reticleAnchorId='';this.xrViewer=null;this.planeIds=new WeakMap();this.nextPlaneId=0;this.clearPlanes();this.isAR=false;this.world.leaveAR();this.sync();this.onRuntimeChange();document.getElementById('xr-overlay').style.display='none';this.floor.visible=true;this.grid.visible=true;this.scene.background=new THREE.Color(0x0a1b29);document.getElementById('view-label').textContent='DESKTOP · VIRTUAL ROOM';}
+  restoreRoomAnchor(session){
+    this.roomAnchor=null;this.roomAnchorPending=false;this.roomAnchorPersistent=false;
+    const handle=localStorage.getItem('matrix-web-room-anchor-v1');
+    if(!handle||typeof session.restorePersistentAnchor!=='function')return;
+    this.roomAnchorPending=true;
+    let restored;
+    try{restored=session.restorePersistentAnchor(handle);}
+    catch(error){this.roomAnchorPending=false;this.onAssetError(`Room anchor restore: ${error.message}`);return;}
+    Promise.resolve(restored).then(anchor=>{
+      if(this.renderer.xr.getSession()===session){this.roomAnchor=anchor;this.roomAnchorPersistent=true;}
+    }).catch(()=>{
+      // VR may not grant anchor restoration. Keep the AR handle for the next
+      // passthrough session instead of losing the established room origin.
+      if(this.renderer.xr.getSession()===session&&this.isAR)localStorage.removeItem('matrix-web-room-anchor-v1');
+    }).finally(()=>{if(this.renderer.xr.getSession()===session)this.roomAnchorPending=false;});
+  }
+  createRoomAnchor(frame,ref,floorHeight){
+    if(this.roomAnchor||this.roomAnchorPending||this.roomAnchorCreationFailed||typeof frame.createAnchor!=='function'||!this.xrViewer||typeof XRRigidTransform==='undefined')return;
+    const head=this.xrViewer.position,forward=this.xrViewer.direction.clone().setY(0).normalize();
+    const yaw=Math.atan2(-forward.x,-forward.z);
+    const orientation=new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(0,1,0),yaw);
+    const position=new THREE.Vector3(head.x,floorHeight,head.z);
+    this.virtualFloorRoot.position.copy(position);this.virtualFloorRoot.quaternion.copy(orientation);
+    this.roomAnchorPending=true;
+    const session=frame.session;
+    let created;
+    try{created=frame.createAnchor(new XRRigidTransform(position,orientation),ref);}
+    catch(error){this.roomAnchorPending=false;this.roomAnchorCreationFailed=true;this.onAssetError(`Room anchor: ${error.message}`);return;}
+    Promise.resolve(created).then(async anchor=>{
+      if(this.renderer.xr.getSession()!==session)return;
+      this.roomAnchor=anchor;
+      if(typeof anchor.requestPersistentHandle==='function'){
+        const handle=await anchor.requestPersistentHandle();
+        if(this.renderer.xr.getSession()===session){localStorage.setItem('matrix-web-room-anchor-v1',handle);this.roomAnchorPersistent=true;}
+      }
+    }).catch(error=>{if(this.renderer.xr.getSession()===session){this.roomAnchorCreationFailed=true;this.onAssetError(`Room anchor: ${error.message}`);}})
+      .finally(()=>{if(this.renderer.xr.getSession()===session)this.roomAnchorPending=false;});
+  }
+  updateRoomAnchor(frame,ref){
+    if(!this.roomAnchor)return;
+    const pose=frame.getPose(this.roomAnchor.anchorSpace,ref);
+    if(!pose)return;
+    this.virtualFloorRoot.position.copy(v3(pose.transform.position));
+    const {x,y,z,w}=pose.transform.orientation;
+    this.virtualFloorRoot.quaternion.set(x,y,z,w);
+    this.virtualFloorCalibrated=true;
+  }
+  onSessionEnd(){if(this.operatorVoiceController)this.releaseOperatorVoice(this.operatorVoiceController);this.operatorPanel.group.visible=false;this.operatorMount={kind:'head'};this.operatorPanel.setPinLabel('PIN TO WALL');this.operatorPanel.setOriginLabel('ROOM ORIGIN UNKNOWN');if(this.grab)this.releaseGrab(this.grab.controller);for(const ray of this.controllerRays)ray.visible=false;this.hitSource?.cancel();this.hitSource=null;this.reticle.visible=false;this.reticleVisible=false;this.reticleAnchorId='';this.xrViewer=null;this.planeIds=new WeakMap();this.nextPlaneId=0;this.clearPlanes();this.isAR=false;this.roomAnchor=null;this.roomAnchorPending=false;this.roomAnchorPersistent=false;this.virtualFloorRoot.position.set(0,0,0);this.virtualFloorRoot.quaternion.identity();this.virtualFloorCalibrated=false;this.world.leaveAR();this.sync();this.onRuntimeChange();document.getElementById('xr-overlay').style.display='none';this.floor.visible=true;this.grid.visible=true;this.scene.background=new THREE.Color(0x0a1b29);document.getElementById('view-label').textContent='DESKTOP · VIRTUAL ROOM';}
   setOperatorStatus(message,tone='idle'){this.operatorPanel.setMessage(message,tone);}
   setVoiceOutputEnabled(enabled){this.operatorPanel.setVoiceLabel(enabled?'VOICE ON':'VOICE OFF');}
   positionOperatorPanel(){
@@ -226,9 +283,21 @@ export class MatrixView {
     }
     for(const [id,group] of this.planeOutlines)if(!present.has(id)){this.scene.remove(group);disposeGroup(group);this.planeOutlines.delete(id);}
     this.world.setSpatialAnchors(anchors);
+    const floorHeight=measuredFloorHeight(anchors,this.xrViewer?.position.y);
+    if(floorHeight!==null){
+      if(!this.roomAnchor)this.virtualFloorRoot.position.y=floorHeight;
+      if(!this.virtualFloorCalibrated){
+        this.measuredEyeHeight=this.xrViewer.position.y-floorHeight;
+        sessionStorage.setItem('matrix-web-eye-height',String(this.measuredEyeHeight));
+        this.virtualFloorCalibrated=true;
+      }
+      if(!this.roomAnchor)this.createRoomAnchor(frame,ref,floorHeight);
+    }
     const floor=anchors.find(anchor=>anchor.semanticLabels.includes('FLOOR'))?.anchorId;
     for(const [id,group] of this.planeOutlines)group.userData.label.visible=id===floor||id===this.world.selection.anchorId;
-    document.getElementById('view-label').textContent=anchors.length?`WEBXR AR · ${anchors.length} ROOM PLANES`:'WEBXR AR · NO ROOM PLANES';
+    const origin=this.roomAnchor?(this.roomAnchorPersistent?'ROOM ANCHORED':'SESSION ANCHORED'):this.roomAnchorPending?'ALIGNING ROOM':'ROOM ORIGIN UNAVAILABLE';
+    this.operatorPanel.setOriginLabel(origin);
+    document.getElementById('view-label').textContent=anchors.length?`WEBXR AR · ${anchors.length} ROOM PLANES · ${origin}`:'WEBXR AR · NO ROOM PLANES';
     if(!anchors.length&&!this.roomCaptureRequested&&time-this.sessionStartedAt>3000&&typeof frame.session?.initiateRoomCapture==='function'){
       this.roomCaptureRequested=true;
       Promise.resolve(frame.session.initiateRoomCapture()).catch(error=>this.onAssetError(`Quest Room Setup: ${error.message}`));
@@ -253,7 +322,7 @@ export class MatrixView {
         const placeholder=new THREE.Mesh(new THREE.BoxGeometry(.35,.35,.35),new THREE.MeshBasicMaterial({color:0x5ee3cf,wireframe:true}));placeholder.position.y=.175;visual.add(placeholder);
       }
       visual.userData.objectId=object.objectId;root.add(visual);root.userData.visual=visual;root.userData.behaviors=object.behaviors||[];
-      (this.anchorRoots.get(object.anchorId)||this.scene).add(root);this.objectRoots.set(object.objectId,root);
+      (this.anchorRoots.get(object.anchorId)||this.virtualFloorRoot).add(root);this.objectRoots.set(object.objectId,root);
       if(asset.url)this.loadExternal(asset,root,visual,object.objectId);
     }
     this.highlight();
@@ -337,7 +406,8 @@ export class MatrixView {
     this.raycaster.set(origin,direction);
     const panelHit=this.operatorPanel.group.visible&&this.raycaster.intersectObject(this.operatorPanel.mesh)[0];
     if(panelHit){
-      if(panelHit.uv?.y<.19&&panelHit.uv.x>.86)this.operatorPanel.nextPage();
+      if(panelHit.uv?.y>.86&&panelHit.uv.x>.74)this.onVisualReview();
+      else if(panelHit.uv?.y<.19&&panelHit.uv.x>.86)this.operatorPanel.nextPage();
       else if(panelHit.uv?.y<.19&&panelHit.uv.x>.72)this.onVoiceOutputToggle();
       else if(panelHit.uv?.y<.19&&panelHit.uv.x>.50)this.toggleOperatorPin();
       else {this.operatorVoiceController=controller;this.onVoiceStart();}
@@ -378,6 +448,11 @@ export class MatrixView {
   }
   viewer(){
     if(this.isAR){if(!this.xrViewer)return null;const frames=[];
+      this.virtualFloorRoot.updateMatrixWorld(true);
+      const virtualPosition=this.virtualFloorRoot.worldToLocal(this.xrViewer.position.clone());
+      const virtualDirection=this.xrViewer.direction.clone().applyQuaternion(this.virtualFloorRoot.getWorldQuaternion(new THREE.Quaternion()).invert()).normalize();
+      const virtualForward=virtualDirection.clone().setY(0);if(virtualForward.length()<.01)virtualForward.set(0,0,-1);virtualForward.normalize();
+      frames.push({anchorId:'web-floor',position:plain(virtualPosition),forward:plain(virtualForward),lookDirection:plain(virtualDirection)});
       for(const anchor of this.world.spatial?.anchors||[]){if(anchor.surface.kind!=='support')continue;
         const root=this.planeOutlines.get(anchor.anchorId);if(!root)continue;
         const position=root.worldToLocal(this.xrViewer.position.clone());const direction=this.xrViewer.direction.clone().applyQuaternion(root.getWorldQuaternion(new THREE.Quaternion()).invert()).normalize();
@@ -388,14 +463,79 @@ export class MatrixView {
     }
     const camera=this.renderer.xr.isPresenting?this.renderer.xr.getCamera():this.camera;
     const position=camera.getWorldPosition(new THREE.Vector3());const direction=new THREE.Vector3(0,0,-1).applyQuaternion(camera.getWorldQuaternion(new THREE.Quaternion()));
+    this.virtualFloorRoot.updateMatrixWorld(true);
+    this.virtualFloorRoot.worldToLocal(position);
+    direction.applyQuaternion(this.virtualFloorRoot.getWorldQuaternion(new THREE.Quaternion()).invert());
     const horizontal=direction.clone().setY(0);if(horizontal.length()<.01)horizontal.set(0,0,-1);horizontal.normalize();
     return {frames:[{anchorId:'web-floor',position:plain(position),forward:plain(horizontal),lookDirection:plain(direction.normalize())}]};
+  }
+  captureVirtual(request,clientId){
+    const width=960,height=720,started=performance.now();
+    const camera=new THREE.PerspectiveCamera(70,width/height,.02,100);
+    if(this.renderer.xr.isPresenting){
+      if(!this.xrViewer)throw Error('Tracked headset view is not ready');
+      camera.position.copy(this.xrViewer.position);camera.quaternion.copy(this.xrViewer.quaternion);
+    }else{
+      camera.position.copy(this.camera.position);camera.quaternion.copy(this.camera.quaternion);
+      camera.fov=this.camera.fov;camera.updateProjectionMatrix();
+    }
+    const target=new THREE.WebGLRenderTarget(width,height,{depthBuffer:true});
+    const previousTarget=this.renderer.getRenderTarget(),previousBackground=this.scene.background;
+    const previousXr=this.renderer.xr.enabled,panelVisible=this.operatorPanel.group.visible;
+    const pixels=new Uint8Array(width*height*4);
+    try{
+      this.renderer.xr.enabled=false;
+      this.scene.background=new THREE.Color(0x101820);
+      this.operatorPanel.group.visible=false;
+      this.renderer.setRenderTarget(target);
+      this.renderer.render(this.scene,camera);
+      this.renderer.readRenderTargetPixels(target,0,0,width,height,pixels);
+    }finally{
+      this.renderer.setRenderTarget(previousTarget);
+      this.renderer.xr.enabled=previousXr;
+      this.scene.background=previousBackground;
+      this.operatorPanel.group.visible=panelVisible;
+      target.dispose();
+    }
+    const rendered=performance.now();
+    const canvas=document.createElement('canvas');canvas.width=width;canvas.height=height;
+    const context=canvas.getContext('2d');if(!context)throw Error('JPEG encoder unavailable');
+    const image=context.createImageData(width,height);
+    for(let y=0;y<height;y++)image.data.set(pixels.subarray((height-1-y)*width*4,(height-y)*width*4),y*width*4);
+    context.putImageData(image,0,0);
+    let encoded='';
+    for(const quality of [.75,.55,.35]){
+      encoded=canvas.toDataURL('image/jpeg',quality).split(',')[1]||'';
+      if(encoded.length<=4*Math.ceil(512*1024/3))break;
+    }
+    if(!encoded||encoded.length>4*Math.ceil(512*1024/3))throw Error('Rendered view exceeds 512 KiB');
+    const forward=new THREE.Vector3(0,0,-1).applyQuaternion(camera.quaternion).normalize();
+    const euler=new THREE.Euler().setFromQuaternion(camera.quaternion,'XYZ');
+    const snapshot=this.world.snapshot(this.viewer());
+    return {captureId:request.captureId,revision:request.revision,clientId,mode:'virtual',ok:true,
+      mimeType:'image/jpeg',dataBase64:encoded,width,height,source:'webxr_virtual_center_eye',includesPassthrough:false,
+      capturedAtUtc:new Date().toISOString(),snapshot,
+      camera:{position:plain(camera.position),rotation:plain(new THREE.Vector3(...['x','y','z'].map(axis=>THREE.MathUtils.radToDeg(euler[axis])))),
+        forward:plain(forward),fieldOfView:camera.fov,aspect:width/height,nearClip:camera.near,farClip:camera.far},
+      spatialProvenance:{source:'virtual',roomId:snapshot.scene.roomId,anchorCount:snapshot.anchors.length,
+        alignmentVerified:false,depthOcclusion:false,physicalDepthIncluded:false},
+      renderMs:rendered-started,encodeMs:performance.now()-rendered,frameTimeMs:0};
   }
   animate(time,frame){
     if(frame&&this.renderer.xr.isPresenting)this.onFrame();
     if(this.lastFrameTime!==null&&!this.renderer.xr.isPresenting)moveDesktopCamera(this.camera,this.keys,(time-this.lastFrameTime)/1000);
     this.lastFrameTime=time;
-    if(frame&&this.renderer.xr.isPresenting){const ref=this.renderer.xr.getReferenceSpace();if(ref){this.xrViewer=viewerPose(frame,ref);this.positionOperatorPanel();this.updatePlanes(time,frame,ref);}}
+    if(frame&&this.renderer.xr.isPresenting){const ref=this.renderer.xr.getReferenceSpace();if(ref){this.xrViewer=viewerPose(frame,ref);this.positionOperatorPanel();this.updatePlanes(time,frame,ref);this.updateRoomAnchor(frame,ref);
+      if(!this.isAR&&!this.virtualFloorCalibrated&&this.xrViewer&&this.measuredEyeHeight!==null){
+        this.virtualFloorRoot.position.y=this.xrViewer.position.y-this.measuredEyeHeight;
+        this.virtualFloorCalibrated=true;
+      }
+      if(!this.isAR){
+        const origin=this.roomAnchor?(this.roomAnchorPersistent?'ROOM ANCHORED':'SESSION ANCHORED'):this.roomAnchorPending?'ALIGNING ROOM':this.virtualFloorCalibrated?'HEIGHT CALIBRATED':'ROOM ORIGIN UNAVAILABLE';
+        this.operatorPanel.setOriginLabel(origin);
+        document.getElementById('view-label').textContent=`WEBXR VR · ${origin}`;
+      }
+    }}
     if(this.hitSource&&frame){const hits=frame.getHitTestResults(this.hitSource);const ref=this.renderer.xr.getReferenceSpace();const pose=ref&&hits[0]?.getPose(ref);
       this.reticleVisible=!!pose;this.reticle.visible=!!pose;this.reticleAnchorId='';if(pose){this.reticle.position.setFromMatrixPosition(new THREE.Matrix4().fromArray(pose.transform.matrix));
         for(const anchor of this.world.spatial?.anchors||[]){if(anchor.surface.kind!=='support')continue;const root=this.planeOutlines.get(anchor.anchorId);if(!root)continue;

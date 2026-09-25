@@ -21,7 +21,7 @@ function unlockReplyAudio(){
   replyContext.resume().catch(()=>{});
 }
 const feedback=(message,isError=false)=>{$('feedback').textContent=message;$('feedback').classList.toggle('error',isError);};
-const view=new MatrixView($('view'),world,()=>{proposal=null;$('proposal').classList.add('hidden');feedback(`Selected ${world.selection.objectId||'placement point'} at ${Object.values(world.selection.position).join(', ')} m.`);},()=>$('token').value.trim(),message=>feedback(message,true),(id,position)=>{proposal=null;$('proposal').classList.add('hidden');renderScene();feedback(`Moved ${id.slice(0,8)} to ${Object.values(position).join(', ')} m. Undo and Save are available.`);},()=>{proposal=null;$('proposal').classList.add('hidden');renderScene();},beginVoice,endVoice,()=>{$('speak-replies').checked=!$('speak-replies').checked;view.setVoiceOutputEnabled($('speak-replies').checked);unlockReplyAudio();});
+const view=new MatrixView($('view'),world,()=>{proposal=null;$('proposal').classList.add('hidden');feedback(`Selected ${world.selection.objectId||'placement point'} at ${Object.values(world.selection.position).join(', ')} m.`);},()=>$('token').value.trim(),message=>feedback(message,true),(id,position)=>{proposal=null;$('proposal').classList.add('hidden');renderScene();feedback(`Moved ${id.slice(0,8)} to ${Object.values(position).join(', ')} m. Undo and Save are available.`);},()=>{proposal=null;$('proposal').classList.add('hidden');renderScene();},beginVoice,endVoice,()=>{$('speak-replies').checked=!$('speak-replies').checked;view.setVoiceOutputEnabled($('speak-replies').checked);unlockReplyAudio();},reviewView);
 view.sync();
 view.setVoiceOutputEnabled($('speak-replies').checked);
 view.initXR($('xr-buttons')).catch(e=>feedback(e.message,true));
@@ -59,7 +59,7 @@ async function refreshAssets(silent=false){
     if(!silent)feedback(`Catalog updated: ${world.externalAssets.length} web assets.`);
   }catch(error){if(!silent)feedback(error.message,true);}
 }
-bridge.start(()=>view.viewer());
+bridge.start(()=>view.viewer(),(request,clientId)=>view.captureVirtual(request,clientId));
 view.onFrame=()=>bridge.tick();
 refreshAssets(true);
 bridge.request('/api/planner').then(status=>{
@@ -86,6 +86,29 @@ async function propose(){
   if(!data)return;
   await showProposal(data);
 }
+let reviewBusy=false;
+async function reviewView(){
+  if(reviewBusy)return;
+  reviewBusy=true;unlockReplyAudio();
+  try{
+    feedback('Capturing the rendered view…');view.setOperatorStatus('Capturing virtual objects and room outlines for visual review…');
+    const requested=await bridge.request('/api/capture',{mode:'virtual'});
+    let ready=null;
+    for(let attempt=0;attempt<50;attempt++){
+      const state=await bridge.request('/api/state');
+      const capture=state.capture;
+      if(capture?.captureId!==requested.captureId)throw Error('Capture was replaced; please retry review');
+      if(capture.status==='error'||capture.status==='stale')throw Error(capture.error||'Capture failed');
+      if(capture.status==='ready'){ready=capture;break;}
+      await new Promise(resolve=>setTimeout(resolve,400));
+    }
+    if(!ready)throw Error('Rendered view capture timed out');
+    feedback('Reviewing the rendered view with Codex…');view.setOperatorStatus('Reviewing the captured virtual scene…');
+    const result=await bridge.request('/api/plan',{text:'Review the current rendered virtual scene for visible scale, floor alignment, and placement problems. The image excludes physical passthrough; use room-plane measurements for physical context. If the scene looks good, say so. Propose only supported corrections.',mode:'codex-cli',captureId:ready.captureId});
+    await showProposal(result);
+  }catch(error){feedback(error.message,true);view.setOperatorStatus(`Visual review failed: ${error.message}`,'error');}
+  finally{reviewBusy=false;}
+}
 const SAFE_AUTO_OPS=new Set(['spawn','duplicate','set_transform','set_behavior','remove_behavior','select']);
 async function speakReply(message){
   if(!$('speak-replies').checked)return;
@@ -104,9 +127,10 @@ async function speakReply(message){
     const buffer=await replyContext.decodeAudioData(await response.arrayBuffer());
     if(replyContext.state!=='running')await replyContext.resume();
     if(replyContext.state!=='running')throw Error('Browser audio is suspended');
-    replySource?.stop();
-    replySource=replyContext.createBufferSource();replySource.buffer=buffer;
-    replySource.connect(replyContext.destination);replySource.start();
+    if(replySource){try{replySource.stop();}catch{}}
+    const source=replyContext.createBufferSource();replySource=source;source.buffer=buffer;
+    source.onended=()=>{if(replySource===source)replySource=null;};
+    source.connect(replyContext.destination);source.start();
   }catch(error){console.warn('Operator voice output:',error);fallback();}
 }
 async function pollBlender(jobId,request){
@@ -173,6 +197,7 @@ $('blender-request').addEventListener('click',async()=>{
   catch(error){feedback(error.message,true);view.setOperatorStatus(error.message,'error');}
   finally{button.disabled=false;}
 });
+$('review-view').addEventListener('click',reviewView);
 $('speak-replies').addEventListener('change',()=>{view.setVoiceOutputEnabled($('speak-replies').checked);unlockReplyAudio();});
 $('prompt').addEventListener('keydown',event=>{if(event.key==='Enter'&&(event.ctrlKey||event.metaKey))propose();});
 $('discard').addEventListener('click',()=>{proposal=null;$('proposal').classList.add('hidden');feedback('Proposal discarded.');});

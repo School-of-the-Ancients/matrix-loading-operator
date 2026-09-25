@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {MatrixWorld} from '../src/protocol.js';
-import {viewerPose,planeData,insideBoundary,matchPlaneAnchor,samePlaneShape} from '../src/spatial.js';
+import {viewerPose,planeData,insideBoundary,matchPlaneAnchor,samePlaneShape,measuredFloorHeight} from '../src/spatial.js';
 
 const boundary=[{x:-2,y:0,z:-2},{x:2,y:0,z:-2},{x:2,y:0,z:2},{x:-2,y:0,z:2}];
 const anchor={anchorId:'webxr-plane-1',displayName:'FLOOR',source:'webxr',semanticLabels:['FLOOR'],
@@ -53,4 +53,10 @@ test('a relocalized floor keeps its session ID only when its shape is unique',()
   assert.equal(matchPlaneAnchor(shifted,[anchor],new Set([anchor.anchorId])),null);
   const changed={...shifted,surface:{...shifted.surface,boundary:boundary.map(p=>({...p,x:p.x*1.3}))}};
   assert.equal(matchPlaneAnchor(changed,[anchor]),null);
+});
+
+test('virtual scene uses the closest measured floor below the headset',()=>{
+  const floor=(y,label='FLOOR')=>({...anchor,semanticLabels:[label],roomPose:{...anchor.roomPose,position:{x:0,y,z:0}}});
+  assert.equal(measuredFloorHeight([floor(-1.466),floor(-1.469),floor(1,'CEILING')],-.645),-1.466);
+  assert.equal(measuredFloorHeight([floor(1),floor(-4)],-.645),null);
 });

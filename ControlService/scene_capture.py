@@ -192,7 +192,7 @@ def image(value):
           and (value["width"], value["height"]) == (width, height), "Capture dimensions do not match JPEG")
     mixed = value.get("source") == "quest_camera_composite"
     check((mixed and value.get("includesPassthrough") is True and value.get("mode") == "mixed")
-          or (value.get("source") == "unity_center_eye" and value.get("includesPassthrough") is False
+          or (value.get("source") in ("unity_center_eye", "webxr_virtual_center_eye") and value.get("includesPassthrough") is False
               and value.get("mode", "virtual") in ("virtual", "")),
           "Capture source, mode and physical passthrough disclosure disagree")
     stamp = value.get("capturedAtUtc")
@@ -206,7 +206,9 @@ def image(value):
     camera = value.get("camera")
     check(isinstance(camera, dict), "Capture camera pose is missing")
     pose = {key: vector(camera.get(key), "camera." + key) for key in ("position", "rotation", "forward")}
-    pose["coordinateFrame"] = "unity_world; use snapshot.viewer frames for anchor-relative placement"
+    pose["coordinateFrame"] = ("webxr_reference_space; use snapshot.viewer frames for anchor-relative placement"
+                                if value.get("source") == "webxr_virtual_center_eye" else
+                                "unity_world; use snapshot.viewer frames for anchor-relative placement")
     pose["fieldOfView"] = number(camera.get("fieldOfView"), "camera.fieldOfView", 1, 179)
     pose["aspect"] = number(camera.get("aspect"), "camera.aspect", .01, 100)
     pose["nearClip"] = number(camera.get("nearClip"), "camera.nearClip", .0001, 1000)
@@ -239,5 +241,6 @@ def content_description(snapshot, capture=None):
                 "MRUK anchors describe the configured room model. No physical depth image or depth occlusion is included; "
                 "this is not the headset compositor view. Do not infer exact 3D distances from pixels alone.")
     if (snapshot.get("roomContext") or {}).get("mode") == "ar":
-        return "AR virtual content and rendered MRUK debug geometry only. Physical passthrough and physical-room photographs are NOT included."
+        geometry = "WebXR room-plane outlines" if (capture or {}).get("source") == "webxr_virtual_center_eye" else "rendered MRUK debug geometry"
+        return f"AR virtual content and {geometry} only. Physical passthrough and physical-room photographs are NOT included."
     return "Virtual scene rendered from the current camera viewpoint. No physical-camera image or passthrough is included."
