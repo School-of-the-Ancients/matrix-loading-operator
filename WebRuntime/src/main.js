@@ -4,7 +4,7 @@ import {MatrixView} from './view.js';
 import {MatrixBridge} from './bridge.js';
 import {VoiceRecorder} from './voice.js';
 import {CameraStream} from './camera_stream.js';
-import {loadStoredWorld,saveStoredWorld,restoreStoredWorld,storedWorld,quarantineStoredWorld,
+import {loadStoredWorld,saveStoredWorld,restoreStoredWorld,restoreBestStoredWorld,storedWorld,
   saveCheckpoint,loadCheckpoint} from './scene_store.js';
 import {loadConversation,rememberTurn,clearConversation} from './conversation.js';
 import {startGame,deliverMovedObject,gameStatus,validSavedGame} from './game.js';
@@ -141,8 +141,13 @@ function renderScene(){
   updateWorldControls();
   if(!pendingWorld){
     persistenceWarning=saveStoredWorld(storedWorld(world),sessionStorage,localStorage);
-    view.setOperatorWarning(persistenceWarning?'PERSISTENT SAVE FAILED · closing browser may lose world':restoreWarning?'Saved world rejected · new changes can save':'');
-    if(persistenceWarning)feedback('The current world changed, but durable storage failed.',true);
+    const durableFailed=persistenceWarning.includes('Persistent browser save failed');
+    view.setOperatorWarning(persistenceWarning?durableFailed?
+      'PERSISTENT SAVE FAILED · closing browser may lose world':'TAB COPY FAILED · durable world saved':
+      restoreWarning?'Saved world rejected · new changes can save':'');
+    if(persistenceWarning)feedback(durableFailed?
+      'The current world changed, but durable storage failed.':
+      'The tab recovery copy failed; the durable browser world was saved.',true);
   }
 }
 renderScene();
@@ -169,14 +174,19 @@ async function refreshAssets(silent=false){
     const data=await bridge.request('/api/web/assets');world.registerAssets(data.assets||[]);
     $('asset-count').textContent=`${7+world.externalAssets.length} available`;
     if(pendingWorld){
-      try{restoreStoredWorld(world,pendingWorld.value);pendingWorld=null;renderScene();}
-      catch(error){
-        quarantineStoredWorld(pendingWorld,localStorage);
-        pendingWorld=null;
-        restoreWarning=`Saved browser world could not be restored: ${error.message}. A copy was quarantined; this active world can now be saved.`;
-        renderScene();
-        feedback('World recovery needs attention.',true);
+      const restored=restoreBestStoredWorld(world,pendingWorld,localStorage);
+      if(restored.state==='blocked'){
+        restoreWarning=`${restored.reason}. Saved worlds remain untouched; free browser storage or export site data, then retry.`;
+        feedback('World recovery is waiting for safe archive storage.',true);
+        return;
       }
+      pendingWorld=null;
+      if(restored.state==='invalid')
+        restoreWarning=`Saved browser worlds could not be restored: ${restored.rejected.map(item=>item.error).join('; ')}. Rejected copies were quarantined; the active world can now be saved.`;
+      else if(restored.rejected.length)
+        restoreWarning=`The newest browser world was invalid. Its raw copy was quarantined and the older ${restored.source} world was restored.`;
+      renderScene();
+      if(restored.rejected.length)feedback('World recovery needs attention.',true);
     }
     initXRIfReady();
     if(!silent)feedback(`Catalog updated: ${world.externalAssets.length} web assets.`);

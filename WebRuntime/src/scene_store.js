@@ -6,6 +6,13 @@ export const WORLD_KEY='matrix-web-world-v2';
 export const TAB_WORLD_KEY='matrix-web-world-tab-v2';
 export const CHECKPOINT_KEY='matrix-web-checkpoint-v2';
 export const QUARANTINE_KEY='matrix-web-world-rejected-v2';
+export const QUARANTINE_BACKUP_KEY='matrix-web-world-rejected-backup-v2';
+let lastSavedAtMs=0;
+
+const savedAt=value=>Number.isSafeInteger(value?.savedAtMs)&&
+  value.savedAtMs>=0&&value.savedAtMs<Number.MAX_SAFE_INTEGER-1?value.savedAtMs:0;
+const validEnvelope=value=>value?.version===2&&value.scene&&typeof value.scene==='object'&&
+  Object.hasOwn(value,'game');
 
 export function storedWorld(world){
   const scene=world.spatial?{...world.virtualScene.scene,
@@ -15,33 +22,66 @@ export function storedWorld(world){
 
 export function saveStoredWorld(value,tabStorage,durableStorage){
   let json;
-  try{json=JSON.stringify(value);}
+  try{
+    const latest=loadStoredWorld(tabStorage,durableStorage);
+    lastSavedAtMs=Math.max(lastSavedAtMs,savedAt(latest?.value));
+    lastSavedAtMs=Math.max(Date.now(),lastSavedAtMs+1);
+    json=JSON.stringify({...value,savedAtMs:lastSavedAtMs});
+  }
   catch(error){return `World could not be serialized: ${error.message}. Closing Quest Browser may lose this world.`;}
-  let warning='';
+  const warnings=[];
   try{durableStorage.setItem(WORLD_KEY,json);}
-  catch(error){warning=`Persistent browser save failed: ${error.message}. Closing Quest Browser may lose this world.`;}
+  catch(error){warnings.push(`Persistent browser save failed: ${error.message}. Closing Quest Browser may lose this world.`);}
   try{tabStorage.setItem(TAB_WORLD_KEY,json);}
-  catch(error){warning=warning||`Tab world save failed: ${error.message}`;}
-  return warning;
+  catch(error){warnings.push(`Tab world save failed: ${error.message}`);}
+  return warnings.join('\n');
 }
 
 export function loadStoredWorld(tabStorage,durableStorage){
   let rejected=null;
+  const candidates=[];
   for(const [storage,key] of [[tabStorage,TAB_WORLD_KEY],[durableStorage,WORLD_KEY]]){
     try{
       const raw=storage.getItem(key);
       if(raw){
-        try{return {value:JSON.parse(raw),source:key,raw};}
-        catch{rejected||={value:null,source:key,raw};}
+        try{
+          const value=JSON.parse(raw);
+          if(validEnvelope(value))candidates.push({value,source:key,raw});
+          else rejected||={value:null,source:key,raw};
+        }catch{rejected||={value:null,source:key,raw};}
       }
     }catch{ /* Unavailable storage must not block the other copy. */ }
+  }
+  if(candidates.length){
+    candidates.sort((left,right)=>savedAt(right.value)-savedAt(left.value));
+    return {...candidates[0],alternates:candidates.slice(1)};
   }
   const scene=loadStoredScene(tabStorage,durableStorage);
   return scene?{value:{version:2,scene,game:null},source:'scene-only',raw:JSON.stringify(scene)}:rejected;
 }
 
-export function quarantineStoredWorld(pending,storage){
-  try{storage.setItem(QUARANTINE_KEY,pending.raw);}catch{ /* A full store may also reject quarantine. */ }
+export function quarantineStoredWorld(pending,storage,index=0){
+  const key=index===0?QUARANTINE_KEY:QUARANTINE_BACKUP_KEY;
+  try{
+    storage.setItem(key,pending.raw);
+    return storage.getItem(key)===pending.raw;
+  }catch{return false;}
+}
+
+export function restoreBestStoredWorld(world,pending,storage){
+  const rejected=[];
+  for(const candidate of [pending,...(pending.alternates||[])]){
+    try{
+      restoreStoredWorld(world,candidate.value);
+      return {state:'restored',source:candidate.source,rejected};
+    }catch(error){
+      if(!quarantineStoredWorld(candidate,storage,rejected.length))
+        return {state:'blocked',reason:`Could not preserve rejected ${candidate.source} before recovery: ${error.message}`,
+          rejected};
+      rejected.push({source:candidate.source,error:error.message});
+    }
+  }
+  return {state:'invalid',rejected};
 }
 
 export function restoreStoredWorld(world,value){
