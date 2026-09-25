@@ -38,6 +38,8 @@ Registration validates the GLB header, embedded resources, size and mesh budget,
 
 The PC can now create a GLB on demand: type a request and select **Create requested object in Blender**, or say something like “Create a portal in Blender.” The service asks the configured Codex CLI for a declarative blueprint, runs a fixed headless Blender builder, validates and registers the GLB, and summons it in the live browser scene. The job status is `queued`, `designing`, `building`, then `ready` or `error`. The result persists in the content-addressed catalog; the job history is session-only. This path uses Blender installed on the PC, but it does not use the live Blender MCP connection or edit the user's open `.blend` file. Blueprints currently compose up to 80 cubes, cylinders, spheres, cones, and tori. Arbitrary sculpting, image-to-3D, and automatic asset replacement after visual review are later work.
 
+[Blender authoring tiers](BLENDER_AUTHORING_TIERS.md) records a bounded investigation of richer scratch-scene authoring. That guided tier is a proposal, not a runtime capability.
+
 ## Build a procedural asset on request
 
 In the browser, expand **Create a procedural asset**, choose Arch, Monolith, or Pedestal, a palette and dimensions, then select **Build asset**. The PC service reports `queued`, `building`, then `ready` or `error`. At `ready`, the browser refreshes the catalog and enables **Place generated asset at selected point**. Placement uses the existing runtime command/receipt path; it is an explicit user action and can be undone. The job status reports PC authoring time in milliseconds. The cataloged GLB persists across service restarts, while the job history is session-only.
