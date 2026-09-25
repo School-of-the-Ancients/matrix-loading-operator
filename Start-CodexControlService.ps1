@@ -8,6 +8,8 @@ param(
     [string]$SpeechRoot
 )
 $ErrorActionPreference = 'Stop'
+$AgentSandbox = $AgentSandbox.ToLowerInvariant()
+$WindowsSandbox = $WindowsSandbox.ToLowerInvariant()
 if (Get-NetTCPConnection -State Listen -LocalPort $Port -ErrorAction SilentlyContinue) {
     throw "Port $Port is already in use. Stop the existing Operator service before starting this one."
 }
