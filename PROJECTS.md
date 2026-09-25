@@ -91,9 +91,9 @@ shared experience state
 
 Do not create independent HTML and XR simulations when they represent the same experiment.
 
-## Current implementation stack
+## Current implementation
 
-The Agent Portal PR chain beginning with #60 establishes:
+The Agent Portal work merged through #60–#73 and #75–#79 establishes:
 
 - PC-local Codex app-server transport;
 - durable Matrix session mapping;
@@ -103,9 +103,11 @@ The Agent Portal PR chain beginning with #60 establishes:
 - native approvals;
 - runtime receipts;
 - GLB registration/spawn;
-- generic bounded WebXR components.
+- generic bounded WebXR components;
+- validated GLB animation playback and selection binding;
+- virtual-floor asset previews in ready WebXR AR rooms.
 
-Check the latest open PRs before assuming a capability is already on `main`.
+These capabilities were merged into `main` on 2026-09-25. Check current open PRs for subsequent work.
 
 ---
 
@@ -325,7 +327,7 @@ It probably belongs in **School of the Ancients**, consuming Matrix through an A
 
 For now, organize by **documentation and ownership before moving code**.
 
-Do not perform a mass directory move merely to make the tree prettier. The repository contains validated scripts, historical release paths and open stacked PRs; gratuitous moves create merge conflicts and break runbooks.
+Do not perform a mass directory move merely to make the tree prettier. The repository contains validated scripts and historical release paths; gratuitous moves break runbooks and complicate future reviews.
 
 Preferred cleanup order:
 
