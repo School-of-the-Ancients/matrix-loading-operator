@@ -341,6 +341,7 @@ function restoreWorld(){
   restoreArmedUntil=0;
   try{
     restoreStoredWorld(world,checkpoint);
+    discardProposal();
     renderScene();feedback('World checkpoint restored in this browser.');
     view.setOperatorStatus('World checkpoint restored.');
   }catch(error){feedback(`Checkpoint could not be restored: ${error.message}`,true);}

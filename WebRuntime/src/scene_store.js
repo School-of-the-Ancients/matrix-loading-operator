@@ -27,7 +27,7 @@ export function saveStoredWorld(value,tabStorage,durableStorage){
 
 export function loadStoredWorld(tabStorage,durableStorage){
   let rejected=null;
-  for(const [storage,key] of [[durableStorage,WORLD_KEY],[tabStorage,TAB_WORLD_KEY]]){
+  for(const [storage,key] of [[tabStorage,TAB_WORLD_KEY],[durableStorage,WORLD_KEY]]){
     try{
       const raw=storage.getItem(key);
       if(raw){
@@ -105,4 +105,8 @@ export function restoreStoredScene(world,scene){
     world.validateScene(scene);
     world.scene=structuredClone(scene);
   }
+  // A restored scene may no longer contain the previously selected object.
+  // Keep both the active and suspended virtual-room selections valid.
+  world.selection={anchorId:'web-floor',objectId:'',position:{x:0,y:0,z:-2}};
+  if(world.virtualScene)world.virtualScene.selection=structuredClone(world.selection);
 }

@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import {MatrixWorld} from '../src/protocol.js';
 import {loadStoredScene,saveStoredScene,restoreStoredScene,saveCheckpoint,loadCheckpoint,
   storedWorld,saveStoredWorld,loadStoredWorld,restoreStoredWorld,quarantineStoredWorld,
-  TAB_SCENE_KEY,DURABLE_SCENE_KEY,WORLD_KEY,QUARANTINE_KEY} from '../src/scene_store.js';
+  TAB_SCENE_KEY,DURABLE_SCENE_KEY,WORLD_KEY,TAB_WORLD_KEY,QUARANTINE_KEY} from '../src/scene_store.js';
 import {startGame,deliverMovedObject} from '../src/game.js';
 import {rememberTurn,clearConversation} from '../src/conversation.js';
 
@@ -106,6 +106,32 @@ test('durable storage failure remains explicit while tab recovery still works',(
   const warning=saveStoredWorld(storedWorld(new MatrixWorld()),tab,failing);
   assert.match(warning,/Closing Quest Browser may lose this world/);
   assert.equal(loadStoredWorld(tab,storage()).value.version,2);
+});
+
+test('reload prefers the newer tab world after a durable write fails',()=>{
+  const tab=storage(),durable=storage(),world=new MatrixWorld(()=>crypto.randomUUID());
+  world.execute({requestId:'first',op:'spawn',assetId:'orb',anchorId:'web-floor',transform:pose});
+  assert.equal(saveStoredWorld(storedWorld(world),tab,durable),'');
+  world.execute({requestId:'second',op:'spawn',assetId:'chair',anchorId:'web-floor',transform:pose});
+  const failing={getItem:key=>durable.getItem(key),setItem(){throw Error('quota exceeded');}};
+  assert.match(saveStoredWorld(storedWorld(world),tab,failing),/Persistent browser save failed/);
+  assert.equal(loadStoredWorld(tab,durable).source,TAB_WORLD_KEY);
+  assert.equal(loadStoredWorld(tab,durable).value.scene.objects.length,2);
+  assert.equal(loadStoredWorld(storage(),durable).value.scene.objects.length,1);
+});
+
+test('checkpoint restore clears selection missing from the restored scene, including after leaving AR',()=>{
+  const world=new MatrixWorld(()=> 'later-object');
+  const checkpoint=storedWorld(world);
+  world.execute({requestId:'spawn',op:'spawn',assetId:'orb',anchorId:'web-floor',transform:pose});
+  world.setSelection('later-object',pose.position);
+  world.enterAR();
+  restoreStoredWorld(world,checkpoint);
+  assert.equal(world.selection.objectId,'');
+  assert.equal(world.selection.anchorId,'web-floor');
+  world.leaveAR();
+  assert.equal(world.selection.objectId,'');
+  assert.equal(world.snapshot().scene.objects.length,0);
 });
 
 test('New Chat clears only conversation state',()=>{
