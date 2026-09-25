@@ -53,6 +53,7 @@ The current mechanic catalog supports roles pickup and delivery-zone; event rele
 and either delivered-count or score-at-least objectives with a win condition. Choose exact assetId values from snapshot.assets.
 For a broad request, choose a theme from available assets and 2 to 6 pickup objects and one destination.
 Use unique roleId values. Each release-near rule connects a pickup role to a delivery-zone role.
+Use at most one rule for each pickup-role and delivery-zone-role pair.
 Use multiple roles, rules and objectives only when the request needs them, such as matching colored objects to zones.
 Keep the total object count at or below 24. Every pickup objective must have a release-near rule.
 A score-at-least objective has targetPoints and no roleId or targetCount. Include at most one, with
@@ -97,6 +98,7 @@ def validate_game_plan(value, snapshot):
     by_id = {role["roleId"]: role for role in roles}
     if len(by_id) != len(roles) or {role["kind"] for role in roles} != {"pickup", "delivery-zone"} or sum(role["count"] for role in roles) > 24:
         raise ValueError("Game needs unique bounded pickup and delivery roles")
+    rule_pairs = set()
     for rule in rules:
         if (not isinstance(rule, dict) or set(rule) != {"event", "actorRoleId", "targetRoleId", "distanceMeters", "scorePoints"}
                 or rule["event"] != "release-near" or by_id.get(rule["actorRoleId"], {}).get("kind") != "pickup"
@@ -104,6 +106,10 @@ def validate_game_plan(value, snapshot):
                 or type(rule["distanceMeters"]) not in (int, float) or not 0.25 <= rule["distanceMeters"] <= 1.0
                 or type(rule["scorePoints"]) is not int or not 1 <= rule["scorePoints"] <= 1000):
             raise ValueError("Invalid game rule")
+        pair = (rule["actorRoleId"], rule["targetRoleId"])
+        if pair in rule_pairs:
+            raise ValueError("Duplicate game rule for actor and target roles")
+        rule_pairs.add(pair)
     max_score = sum(role["count"] * max((rule["scorePoints"] for rule in rules
                                          if rule["actorRoleId"] == role["roleId"]), default=0)
                     for role in roles if role["kind"] == "pickup")

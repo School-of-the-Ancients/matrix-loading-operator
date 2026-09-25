@@ -26,12 +26,16 @@ export function validateGameSpec(spec,asset=()=>true){
   }
   if(total>24||![...roles.values()].some(role=>role.kind==='pickup')||
      ![...roles.values()].some(role=>role.kind==='delivery-zone'))throw Error('Game role limit exceeded or required role missing');
+  const rulePairs=new Set();
   for(const rule of spec.rules){
     if(!shape(rule,['event','actorRoleId','targetRoleId','distanceMeters','scorePoints'])||
        rule.event!=='release-near'||roles.get(rule.actorRoleId)?.kind!=='pickup'||
        roles.get(rule.targetRoleId)?.kind!=='delivery-zone'||!finite(rule.distanceMeters)||
        rule.distanceMeters<.25||rule.distanceMeters>1||!Number.isInteger(rule.scorePoints)||
        rule.scorePoints<1||rule.scorePoints>1000)throw Error('Invalid game rule');
+    const pair=`${rule.actorRoleId}|${rule.targetRoleId}`;
+    if(rulePairs.has(pair))throw Error('Duplicate game rule for actor and target roles');
+    rulePairs.add(pair);
   }
   const maxScore=[...roles.values()].filter(role=>role.kind==='pickup').reduce((sum,role)=>
     sum+role.count*Math.max(0,...spec.rules.filter(rule=>rule.actorRoleId===role.roleId).map(rule=>rule.scorePoints)),0);

@@ -42,6 +42,10 @@ class GamePlanTests(unittest.TestCase):
                            score_plan["objectives"] * 2):
             with self.subTest(objectives=objectives), self.assertRaises(ValueError):
                 web_game.validate_game_plan({**PLAN, "objectives": objectives}, snapshot)
+        shadowed = {**score_plan, "rules": [{**PLAN["rules"][0], "scorePoints": 1},
+                                               PLAN["rules"][0]]}
+        with self.assertRaisesRegex(ValueError, "Duplicate game rule"):
+            web_game.validate_game_plan(shadowed, snapshot)
 
     def test_game_route_returns_reviewable_plan_without_scene_commands(self):
         with tempfile.TemporaryDirectory() as directory:

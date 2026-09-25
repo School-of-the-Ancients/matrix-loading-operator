@@ -81,6 +81,9 @@ test('score objectives reject impossible thresholds and inconsistent saved progr
   assert.throws(()=>validateGameSpec(spec),/Invalid game objective/);
   assert.throws(()=>validateGameSpec({...spec,objectives:[{kind:'score-at-least',targetPoints:20},
     {kind:'score-at-least',targetPoints:25}]}),/Invalid game objective/);
+  assert.throws(()=>validateGameSpec({...plan,rules:[{...plan.rules[0],scorePoints:1},
+    {...plan.rules[0],scorePoints:10}],objectives:[{kind:'score-at-least',targetPoints:10}]}),
+    /Duplicate game rule/);
   const current=world(),game=startGame(current,{...spec,objectives:[{kind:'score-at-least',targetPoints:10}]},viewer);
   moveTo(current,game.bindings.orbs[0],game.bindings.station[0]);
   deliverMovedObject(current,game.bindings.orbs[0]);
