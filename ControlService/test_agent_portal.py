@@ -18,6 +18,7 @@ class FakeBackend:
         self.closed = False
         self.resume_calls = []
         self.start_calls = 0
+        self.sent_texts = []
 
     def start(self):
         pass
@@ -33,6 +34,7 @@ class FakeBackend:
         return identifier
 
     def send_text(self, identifier, text):
+        self.sent_texts.append(text)
         self.turn_number += 1
         self.approval = {"approvalId": 100 + self.turn_number, "conversationId": identifier,
                          "turnId": f"native-turn-{self.turn_number}", "action": "running_command",
@@ -184,19 +186,6 @@ class AgentPortalTests(unittest.TestCase):
         self.assertEqual(portal.open()["sessionId"], session_id)
         self.assertEqual(portal.status(session_id)["transcript"], [])
         self.assertIsNone(json.loads((Path(self.temp.name) / "agent_portal.json").read_text())["conversationId"])
-
-    def test_unreviewable_approval_can_be_denied_but_not_approved(self):
-        portal = self.portal()
-        session_id = portal.open()["sessionId"]
-        turn_id = portal.send_text(session_id, "Test approval")["turnId"]
-        backend = self.backends[-1]
-        backend.approval["reviewable"] = False
-        backend.approval["summary"] = "Command effect cannot be reviewed in XR."
-        pending = portal.status(session_id)["pendingApprovals"][0]
-        self.assertFalse(pending["reviewable"])
-        with self.assertRaisesRegex(AgentPortalError, "cannot be reviewed"):
-            portal.decide(session_id, pending["approvalId"], turn_id, True)
-        portal.decide(session_id, pending["approvalId"], turn_id, False)
 
     def test_unreviewable_approval_can_be_denied_but_not_approved(self):
         portal = self.portal()

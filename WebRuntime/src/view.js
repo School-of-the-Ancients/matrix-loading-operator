@@ -199,7 +199,7 @@ export class MatrixView {
     this.grid=new THREE.GridHelper(200,200,0x2e8499,0x24506a);this.grid.position.y=.002;this.virtualFloorRoot.add(this.grid);
     this.reticle=new THREE.Mesh(new THREE.RingGeometry(.06,.075,32),new THREE.MeshBasicMaterial({color:0x5ef7d7,side:THREE.DoubleSide}));this.reticle.rotation.x=-Math.PI/2;this.reticle.visible=false;this.scene.add(this.reticle);
     this.operatorPanel=operatorPanel();this.scene.add(this.operatorPanel.group);this.operatorVoiceController=null;this.operatorMount={kind:'head'};
-    this.raycaster=new THREE.Raycaster();this.pointer=new THREE.Vector2();
+    this.raycaster=new THREE.Raycaster();this.pointer=new THREE.Vector2();this.pointerKnown=false;this.lastPointingController=null;
     this.controllers=[0,1].map(index=>this.renderer.xr.getController(index));
     this.controllerRays=[];
     for(const controller of this.controllers){
@@ -207,9 +207,9 @@ export class MatrixView {
       const ray=new THREE.Line(new THREE.BufferGeometry().setFromPoints([new THREE.Vector3(),new THREE.Vector3(0,0,-4)]),
         new THREE.LineBasicMaterial({color:0x5ef7d7,transparent:true,opacity:.7}));
       ray.visible=false;controller.add(ray);this.controllerRays.push(ray);
-      controller.addEventListener('selectstart',()=>this.selectFromController(controller));
+      controller.addEventListener('selectstart',()=>{this.lastPointingController=controller;this.selectFromController(controller);});
       controller.addEventListener('selectend',()=>{this.releaseOperatorVoice(controller);this.releaseGrab(controller);});
-      controller.addEventListener('squeezestart',()=>this.onVoiceStart());
+      controller.addEventListener('squeezestart',()=>{this.lastPointingController=controller;this.onVoiceStart();});
       controller.addEventListener('squeezeend',()=>this.onVoiceEnd());
     }
     this.grab=null;this.pointerGrab=null;this.pointerLook=null;
@@ -541,6 +541,7 @@ export class MatrixView {
   }
   rayFromPointer(event){
     const rect=this.renderer.domElement.getBoundingClientRect();this.pointer.set((event.clientX-rect.left)/rect.width*2-1,-(event.clientY-rect.top)/rect.height*2+1);
+    this.pointerKnown=true;
     this.raycaster.setFromCamera(this.pointer,this.camera);
   }
   pointerDown(event){
@@ -552,6 +553,7 @@ export class MatrixView {
     if(id){const grab=beginPointerGrab(this.raycaster,this.objectRoots.get(id));if(grab)this.pointerGrab={...grab,objectId:id,pointerId:event.pointerId,lastY:event.clientY,vertical:false};}
   }
   pointerMove(event){
+    if(!this.renderer.xr.isPresenting)this.rayFromPointer(event);
     if(this.pointerLook?.pointerId===event.pointerId){
       const dx=event.clientX-this.pointerLook.x,dy=event.clientY-this.pointerLook.y;
       this.pointerLook.x=event.clientX;this.pointerLook.y=event.clientY;
@@ -638,6 +640,47 @@ export class MatrixView {
       if(this.reticleVisible&&this.reticleAnchorId){const root=this.planeOutlines.get(this.reticleAnchorId);this.world.setSelection('',plain(root.worldToLocal(this.reticle.position.clone())),this.reticleAnchorId);this.onSelection();return;}}
     const floorHit=this.isAR?null:this.raycaster.intersectObject(this.floor)[0];
     if(floorHit){const position=plain(floorHit.point);if(['x','y','z'].every(k=>Math.abs(position[k])<=100)){this.world.setSelection('',position);this.highlight();this.onSelection();}}
+  }
+  pointingTarget(){
+    if(this.renderer.xr.isPresenting){
+      const controller=this.lastPointingController;
+      if(!controller)return null;
+      controller.updateMatrixWorld(true);
+      const origin=new THREE.Vector3().setFromMatrixPosition(controller.matrixWorld);
+      const direction=new THREE.Vector3(0,0,-1).applyQuaternion(controller.getWorldQuaternion(new THREE.Quaternion()));
+      this.raycaster.set(origin,direction);
+    }else{
+      if(!this.pointerKnown)return null;
+      this.raycaster.setFromCamera(this.pointer,this.camera);
+    }
+    const objectHit=this.raycaster.intersectObjects([...this.objectRoots.values()],true)[0];
+    if(objectHit){
+      let node=objectHit.object;while(node&&!node.userData.objectId)node=node.parent;
+      const objectId=node?.userData.objectId;
+      const object=this.world.scene.objects.find(item=>item.objectId===objectId);
+      const root=object?.anchorId==='web-floor'?this.virtualFloorRoot:this.planeOutlines.get(object?.anchorId);
+      if(root){root.updateMatrixWorld(true);const position=plain(root.worldToLocal(objectHit.point.clone()));
+        if(['x','y','z'].every(axis=>Math.abs(position[axis])<=100))
+          return {anchorId:object.anchorId,objectId,position};}
+    }
+    if(this.isAR){
+      const hits=this.raycaster.intersectObjects([...this.planeOutlines.values()],true);
+      const hit=hits.find(item=>item.object.isMesh&&item.object.userData.anchorId);
+      if(hit){
+        const anchorId=hit.object.userData.anchorId,root=this.planeOutlines.get(anchorId);
+        root.updateMatrixWorld(true);
+        const position=plain(root.worldToLocal(hit.point.clone()));
+        if(['x','y','z'].every(axis=>Math.abs(position[axis])<=100))
+          return {anchorId,objectId:null,position};
+      }
+      return null;
+    }
+    const hit=this.raycaster.intersectObject(this.floor)[0];
+    if(!hit)return null;
+    this.virtualFloorRoot.updateMatrixWorld(true);
+    const position=plain(this.virtualFloorRoot.worldToLocal(hit.point.clone()));
+    return ['x','y','z'].every(axis=>Math.abs(position[axis])<=100)?
+      {anchorId:'web-floor',objectId:null,position}:null;
   }
   viewer(){
     if(this.isAR){if(!this.xrViewer)return null;const frames=[];

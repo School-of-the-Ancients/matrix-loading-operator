@@ -32,7 +32,7 @@ ID, a bounded transcript, one active turn, background event collection, explicit
 approval/cancel operations, and atomic persistence under `.agent_portal/`,
 outside the scene-save namespace. Transcript retention is bounded by encoded
 file size; omitted request/reply text is marked in the session snapshot.
-The five `/api/agent/*` POST routes use the service's existing bearer-token and
+The `/api/agent/*` POST routes use the service's existing bearer-token and
 same-origin checks. The browser must store only the opaque Matrix session ID;
 the local Codex executable and configured MCP credentials remain on the PC.
 Approval responses expose a bounded operation summary and turn identity. Raw
@@ -47,8 +47,19 @@ The `/web/` Operator now shows a compact Agent page with recent text, activity,
 Approve/Deny, Stop, and a PC speech transcription path that sends spoken text
 to the same Codex conversation. The browser stores only an opaque Matrix
 session ID; when a service bearer token is configured, it must be re-entered
-after page refresh. Matrix tools, spatial grounding, Blender-specific agent
-workflows, and rich artifacts remain later slices.
+after page refresh. Matrix tools, Blender-specific agent workflows, and rich
+artifacts remain later slices.
+
+An optional version 1 spatial context on `/api/agent/turn` identifies the
+active Matrix client and room, input source, selected object, and a separate
+pointing hit. The PC checks the IDs against its current room snapshot and adds
+the service scene revision, up to eight object summaries, room recovery state,
+and one relevant viewer frame. The result is advisory turn context, not a
+Matrix command. No camera image, raw hand telemetry, browser credential, or
+free-form asset description is included. A world change still requires a
+future typed Matrix tool and runtime receipt. Desktop text attaches context
+only when the wearer selects the checkbox; in-world speech captures it at
+recording start.
 
 ## Installed-version observations
 
