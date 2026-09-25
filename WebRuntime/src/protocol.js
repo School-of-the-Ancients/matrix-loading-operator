@@ -110,10 +110,9 @@ export class MatrixWorld {
     if(Math.abs(transform.rotation.x)>.01||Math.abs(transform.rotation.z)>.01)
       throw Error('Support placement needs an upright object');
     const spawnScale=this.asset(assetId)?.spawnScale||1;
-    const xs=[bounds.center.x-bounds.size.x/2,bounds.center.x+bounds.size.x/2]
-      .map(x=>x*transform.scale.x*spawnScale);
-    const zs=[bounds.center.z-bounds.size.z/2,bounds.center.z+bounds.size.z/2]
-      .map(z=>z*transform.scale.z*spawnScale);
+    // loadExternal centers GLBs horizontally; built-in meshes are centered too.
+    const xs=[-bounds.size.x/2,bounds.size.x/2].map(x=>x*transform.scale.x*spawnScale);
+    const zs=[-bounds.size.z/2,bounds.size.z/2].map(z=>z*transform.scale.z*spawnScale);
     const radians=transform.rotation.y*Math.PI/180,cos=Math.cos(radians),sin=Math.sin(radians);
     const corners=[[xs[0],zs[0]],[xs[1],zs[0]],[xs[1],zs[1]],[xs[0],zs[1]]]
       .map(([x,z])=>({x:transform.position.x+x*cos-z*sin,z:transform.position.z+x*sin+z*cos}));
@@ -135,7 +134,9 @@ export class MatrixWorld {
       const bounds=this.asset(assetId).localBounds;
       if(transform.position.y<0)throw Error('Surface clearance cannot be negative');
       const spawnScale=this.asset(assetId)?.spawnScale||1;
-      transform.position.y-=((bounds.center.y-bounds.size.y/2)*transform.scale.y*spawnScale);
+      // Imported GLBs are already floor aligned by loadExternal.
+      if(!this.asset(assetId).url)
+        transform.position.y-=((bounds.center.y-bounds.size.y/2)*transform.scale.y*spawnScale);
     }
     return transform;
   }

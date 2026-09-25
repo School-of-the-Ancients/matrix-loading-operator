@@ -84,17 +84,23 @@ test('surface footprint cannot bridge a concave notch even when all four corners
   assert.match(result.error,/footprint/);
 });
 
-test('surface footprint includes the asset local-bounds offset from its pivot',()=>{
+test('surface footprint uses the horizontally recentered GLB bounds',()=>{
   const world=new MatrixWorld(()=> 'placed');world.enterAR();
-  world.externalAssets.push({assetId:'web:offset',spawnScale:1,
-    localBounds:{center:{x:.8,y:.5,z:0},size:{x:.6,y:1,z:.6}}});
+  world.externalAssets.push({assetId:'web:offset-left',spawnScale:1,url:'/asset.glb',
+    localBounds:{center:{x:-.8,y:1,z:0},size:{x:.6,y:1,z:.6}}},
+  {assetId:'web:offset-right',spawnScale:1,url:'/asset.glb',
+    localBounds:{center:{x:.8,y:1,z:0},size:{x:.6,y:1,z:.6}}});
   const support=[{x:0,z:0},{x:2,z:0},{x:2,z:2},{x:0,z:2}];
   world.setSpatialAnchors([{...anchor,surface:{kind:'support',boundary:support}}]);
   assert.equal(world.execute({requestId:'confirm',op:'confirm_room'}).ok,true);
-  const result=world.execute({requestId:'offset',op:'spawn',assetId:'web:offset',anchorId:anchor.anchorId,
+  const overhang=world.execute({requestId:'overhang',op:'spawn',assetId:'web:offset-left',anchorId:anchor.anchorId,
+    placement:'surface',transform:{...transform,position:{x:1.8,y:0,z:1}}});
+  assert.match(overhang.error,/footprint/,'rendered model would extend beyond the right edge');
+  const valid=world.execute({requestId:'valid',op:'spawn',assetId:'web:offset-right',anchorId:anchor.anchorId,
     placement:'surface',transform:{...transform,position:{x:1.2,y:0,z:1}}});
-  assert.equal(result.ok,false);
-  assert.match(result.error,/footprint/);
+  assert.equal(valid.ok,true,'the recentered visible model fits');
+  assert.equal(world.requireObject(valid.objectId).transform.position.y,0,
+    'an imported GLB is already floor aligned by the renderer');
 });
 
 test('moving, duplicating, or loading a support object cannot bypass footprint validation',()=>{
