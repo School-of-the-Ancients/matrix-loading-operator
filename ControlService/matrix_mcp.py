@@ -5,7 +5,8 @@ import os
 
 from mcp.server.fastmcp import FastMCP
 from mcp.types import ToolAnnotations
-from matrix_tool_bridge import (component_action, component_status, list_assets, list_components,
+from matrix_tool_bridge import (animation_status, bind_animation, component_action, component_status,
+                                list_assets, list_components,
                                 move_object, move_status, publish_component, read_scene, register_glb,
                                 spawn_asset, spawn_status)
 
@@ -68,6 +69,31 @@ def matrix_spawn_asset(room_id: str, scene_revision: int, asset_id: str,
 def matrix_spawn_status(request_id: str) -> dict:
     """Read a runtime receipt and observed object ID for a Matrix GLB spawn."""
     return spawn_status(os.environ["MATRIX_CONTROL_URL"], os.environ["MATRIX_CONTROL_TOKEN"], request_id)
+
+
+@server.tool(annotations=ToolAnnotations(readOnlyHint=False, destructiveHint=False,
+                                         idempotentHint=False, openWorldHint=False))
+def matrix_bind_animation(room_id: str, scene_revision: int, object_id: str,
+                          expected_asset_id: str, loop_clip: str | None,
+                          select_clip: str | None) -> dict:
+    """Bind validated GLB clips to one virtual-floor object after native approval.
+
+    loop_clip repeats at rest; select_clip plays once on object selection then
+    returns to the loop. Use exact names from matrix_list_assets. Both null
+    removes the binding. This persists the binding, not current playback phase.
+    A queued or unconfirmed result is not a completed world change.
+    """
+    return bind_animation(os.environ["MATRIX_CONTROL_URL"], os.environ["MATRIX_CONTROL_TOKEN"],
+                          {"room_id": room_id, "scene_revision": scene_revision,
+                           "object_id": object_id, "expected_asset_id": expected_asset_id,
+                           "loop_clip": loop_clip, "select_clip": select_clip})
+
+
+@server.tool(annotations=ToolAnnotations(readOnlyHint=True))
+def matrix_animation_status(request_id: str) -> dict:
+    """Read the runtime receipt and observed state for a GLB clip binding."""
+    return animation_status(os.environ["MATRIX_CONTROL_URL"],
+                            os.environ["MATRIX_CONTROL_TOKEN"], request_id)
 
 
 @server.tool(annotations=ToolAnnotations(readOnlyHint=True))

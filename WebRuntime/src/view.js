@@ -35,6 +35,11 @@ export function validateRenderedFootprint(asset,size){
   if(bounds&&(size.x>bounds.size.x+.005||size.z>bounds.size.z+.005))
     throw Error('GLB rendered footprint exceeds its registered bounds; remeasure and register the asset');
 }
+export function animationSelectionState(object,root){
+  if(!object?.animation?.selectClip)return 'none';
+  if(typeof root?.userData?.selectAnimation==='function')return 'ready';
+  return root?.userData?.assetLoading?'loading':'unavailable';
+}
 function disposeGroup(root){root.traverse(node=>{if(node.geometry&&!node.userData.cachedGeometry)node.geometry.dispose();if(node.material){const materials=Array.isArray(node.material)?node.material:[node.material];for(const material of materials){if(node.userData.ownedTexture)material.map?.dispose();material.dispose();}}});}
 function planeLabel(label){
   const canvas=document.createElement('canvas');canvas.width=512;canvas.height=96;
@@ -508,7 +513,7 @@ export class MatrixView {
       }
       visual.userData.objectId=object.objectId;root.add(visual);root.userData.visual=visual;root.userData.behaviors=object.behaviors||[];
       (this.anchorRoots.get(object.anchorId)||this.virtualFloorRoot).add(root);this.objectRoots.set(object.objectId,root);
-      if(asset.url)this.loadExternal(asset,root,visual,object.objectId);
+      if(asset.url){root.userData.assetLoading=true;this.loadExternal(asset,root,visual,object.objectId);}
     }
     this.highlight();
   }
@@ -534,11 +539,13 @@ export class MatrixView {
       const source=await pending;
       if(this.objectRoots.get(objectId)!==root)return;
       const object=this.world.scene.objects.find(item=>item.objectId===objectId);
-      const {model,mixer}=instantiateAnimatedAsset(source,asset,{play:object?.anchorId==='web-floor'});
+      const {model,mixer,select}=instantiateAnimatedAsset(source,asset,{
+        play:object?.anchorId==='web-floor',binding:object?.animation||null});
       model.traverse(node=>{if(node.isMesh){node.userData.cachedGeometry=true;node.material=Array.isArray(node.material)?node.material.map(material=>material.clone()):node.material.clone();}});
       for(const child of [...visual.children]){visual.remove(child);disposeGroup(child);}
       visual.add(model);root.userData.model=model;root.userData.mixer=mixer;
-    }catch(error){this.modelCache.delete(asset.assetId);this.onAssetError(`${asset.displayName}: ${error.message}`);}
+      root.userData.selectAnimation=select;root.userData.assetLoading=false;
+    }catch(error){root.userData.assetLoading=false;this.modelCache.delete(asset.assetId);this.onAssetError(`${asset.displayName}: ${error.message}`);}
   }
   highlight(){
     for(const [id,root] of this.objectRoots){
@@ -556,6 +563,9 @@ export class MatrixView {
     if(event.button===2){this.pointerLook={pointerId:event.pointerId,x:event.clientX,y:event.clientY};return;}
     this.rayFromPointer(event);
     const id=this.selectFromRay();
+    if(id){const animation=animationSelectionState(this.world.requireObject(id),this.objectRoots.get(id));
+      if(animation==='ready')return;
+      if(animation==='loading'){this.onAssetError('Animation is still loading; select again when the GLB appears.');return;}}
     if(id&&this.world.requireObject(id).component?.status==='running'){
       this.onAssetError('Stop this component before moving the object.');return;}
     if(id){const grab=beginPointerGrab(this.raycaster,this.objectRoots.get(id));if(grab)this.pointerGrab={...grab,objectId:id,pointerId:event.pointerId,lastY:event.clientY,vertical:false};}
@@ -611,6 +621,9 @@ export class MatrixView {
       return;
     }
     const id=this.selectFromRay();
+    if(id){const animation=animationSelectionState(this.world.requireObject(id),this.objectRoots.get(id));
+      if(animation==='ready')return;
+      if(animation==='loading'){this.onAssetError('Animation is still loading; select again when the GLB appears.');return;}}
     if(id&&(this.world.spatial?.stale||this.world.spatial?.originUnavailable)){
       this.onAssetError('Room origin or tracking is unavailable; object grabs are paused.');return;
     }
@@ -643,7 +656,10 @@ export class MatrixView {
   selectFromRay(){
     const roots=[...this.objectRoots.values()];const hits=this.raycaster.intersectObjects(roots,true);
     if(hits.length){let node=hits[0].object;while(node&&!node.userData.objectId)node=node.parent;
-      const id=node?.userData.objectId;if(id){const object=this.world.requireObject(id);this.world.setSelection(id,object.transform.position,object.anchorId);this.highlight();this.onSelection();return id;}}
+      const id=node?.userData.objectId;if(id){const object=this.world.requireObject(id);this.world.setSelection(id,object.transform.position,object.anchorId);this.highlight();this.onSelection();
+        if(object.animation?.selectClip&&!this.world.spatial?.stale&&!this.world.spatial?.originUnavailable)
+          this.objectRoots.get(id)?.userData.selectAnimation?.();
+        return id;}}
     if(this.isAR){const hits=this.raycaster.intersectObjects([...this.planeOutlines.values()],true);
       const hit=hits.find(item=>item.object.isMesh&&item.object.userData.anchorId);
       if(hit){const anchorId=hit.object.userData.anchorId;const root=this.planeOutlines.get(anchorId);const local=root.worldToLocal(hit.point.clone());this.world.setSelection('',plain(local),anchorId);this.onSelection();return;}

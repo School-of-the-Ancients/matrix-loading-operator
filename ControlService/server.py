@@ -21,6 +21,7 @@ import urllib.error
 import urllib.parse
 import urllib.request
 import uuid
+import unicodedata
 
 from ai_adapter import (Planner, PlannerError, validate_local_bounds, validate_viewer,
                         validate_anchor_metadata, validate_room_context, validate_pointing,
@@ -54,7 +55,7 @@ LEASE_SECONDS = 15
 NAME = re.compile(r"[A-Za-z0-9][A-Za-z0-9 _-]{0,63}\Z")
 OPS = {"spawn", "set_transform", "select", "duplicate", "delete", "undo", "redo", "clear", "load",
        "get_scene", "list_assets", "list_targets", "confirm_room", "set_behavior", "remove_behavior",
-       "attach_component", "stop_component", "remove_component"}
+       "attach_component", "stop_component", "remove_component", "bind_animation"}
 
 
 class APIError(Exception):
@@ -111,6 +112,22 @@ def transform(value):
             "scale": vector(value.get("scale"), "scale", True)}
 
 
+def animation_binding(value, *, allow_empty=False):
+    require(isinstance(value, dict) and set(value) == {"loopClip", "selectClip"},
+            "Invalid animation binding")
+    result = {}
+    for key in ("loopClip", "selectClip"):
+        name = value[key]
+        require(name is None or isinstance(name, str) and 1 <= len(name) <= 64 and
+                not any(unicodedata.category(char).startswith("C") for char in name),
+                f"Invalid {key}")
+        result[key] = name
+    require(allow_empty or any(result.values()), "Animation binding needs a clip")
+    require(not result["loopClip"] or result["loopClip"] != result["selectClip"],
+            "Loop and selection clips must differ")
+    return result
+
+
 def scene(value):
     require(isinstance(value, dict), "Invalid scene")
     require(type(value.get("schemaVersion")) is int and value["schemaVersion"] == 1,
@@ -143,6 +160,8 @@ def scene(value):
             except ComponentError as error:
                 raise APIError(400, str(error)) from None
             normalized[-1]["component"] = copy.deepcopy(item["component"])
+        if "animation" in item:
+            normalized[-1]["animation"] = animation_binding(item["animation"])
     for item in normalized:
         component = item.get("component")
         if component:
@@ -189,6 +208,14 @@ def catalog(value, key, limit):
                 raise APIError(400, str(error)) from None
             if bounds is not None:
                 entry["localBounds"] = bounds
+        if key == "assetId" and "animationClips" in item:
+            clips = item["animationClips"]
+            require(isinstance(clips, list) and len(clips) <= 8 and
+                    all(isinstance(name, str) and 1 <= len(name) <= 64 and
+                        not any(unicodedata.category(char).startswith("C") for char in name)
+                        for name in clips) and len(set(clips)) == len(clips),
+                    "Invalid animation clip catalog")
+            entry["animationClips"] = clips
         if key == "anchorId":
             try:
                 entry.update(validate_anchor_metadata(item))
@@ -219,9 +246,24 @@ def snapshot(value):
             require(type(value["componentSchemaVersion"]) is int and value["componentSchemaVersion"] == 1,
                     "Unsupported component schema")
             result["componentSchemaVersion"] = 1
+        if value.get("animationSchemaVersion") is not None:
+            require(type(value["animationSchemaVersion"]) is int and value["animationSchemaVersion"] == 1,
+                    "Unsupported animation schema")
+            result["animationSchemaVersion"] = 1
         require(result.get("componentSchemaVersion") == 1 or
                 not any("component" in item for item in result["scene"]["objects"]),
                 "Scene components require the WebXR component runtime")
+        require(result.get("animationSchemaVersion") == 1 or
+                not any("animation" in item for item in result["scene"]["objects"]),
+                "Scene animation bindings require the WebXR runtime")
+        for item in result["scene"]["objects"]:
+            if "animation" not in item:
+                continue
+            asset = next((asset for asset in result["assets"] if asset["assetId"] == item["assetId"]), None)
+            require(item["anchorId"] == "web-floor" and asset is not None and
+                    all(not clip or clip in asset.get("animationClips", [])
+                        for clip in item["animation"].values()),
+                    "Scene animation clip is unavailable")
         viewer = validate_viewer(value.get("viewer"), {a["anchorId"] for a in result["anchors"]})
         pointing = validate_pointing(value.get("pointing"),
                                      {a["anchorId"]: a for a in result["anchors"]},
@@ -270,6 +312,7 @@ def command(value):
                 "set_behavior": {"objectId", "behavior"}, "remove_behavior": {"objectId", "behaviorKind"},
                 "attach_component": {"objectId", "componentId", "package", "targetObjectId"},
                 "stop_component": {"objectId"}, "remove_component": {"objectId"},
+                "bind_animation": {"objectId", "loopClip", "selectClip"},
                 "select": {"objectId"}, "duplicate": {"objectId"}, "delete": {"objectId"},
                 "load": {"scene"}}.get(op, set())
     allowed |= required
@@ -305,6 +348,9 @@ def command(value):
         except ComponentError as error:
             raise APIError(400, str(error)) from None
         require(COMPONENT_ID.fullmatch(result["componentId"]) is not None, "Invalid componentId")
+    if op == "bind_animation":
+        result.update(animation_binding({key: value[key] for key in ("loopClip", "selectClip")},
+                                        allow_empty=True))
     return result
 
 
@@ -468,6 +514,7 @@ class State:
         self.results = collections.deque(maxlen=100)
         self.agent_move_ids = collections.OrderedDict()
         self.agent_spawn_ids = collections.OrderedDict()
+        self.agent_animation_ids = collections.OrderedDict()
         self.agent_component_ids = collections.OrderedDict()
         self.revision = 0
         self.proposals = collections.OrderedDict()
@@ -731,6 +778,20 @@ class State:
                             raise APIError(409, str(error)) from None
                         require(registered["package"] == item["package"],
                                 "Component package does not match its published version", 409)
+                elif item["op"] == "bind_animation":
+                    require(self.latest.get("animationSchemaVersion") == 1 and
+                            (self.latest.get("roomContext") or {}).get("mode") == "white-room",
+                            "Connected WebXR virtual room does not support animation bindings", 409)
+                    obj = next((obj for obj in self.latest["scene"]["objects"]
+                                if obj["objectId"] == item["objectId"]), None)
+                    require(obj is not None and obj["anchorId"] == "web-floor",
+                            "Animation target is unavailable on the virtual floor", 409)
+                    registered = next((asset for asset in self.web_assets.list()
+                                       if asset.get("assetId") == obj["assetId"]), None)
+                    names = {clip["name"] for clip in (registered or {}).get("geometry", {}).get("animationClips", [])}
+                    require(registered is not None and
+                            all(not item[key] or item[key] in names for key in ("loopClip", "selectClip")),
+                            "Requested GLB animation clip is unavailable", 409)
                 elif item["op"] == "load":
                     require(all(behavior["kind"] in supported for obj in item["scene"]["objects"]
                                 for behavior in obj.get("behaviors", [])),
@@ -738,6 +799,9 @@ class State:
                     require(self.latest.get("componentSchemaVersion") == 1 or
                             not any("component" in obj for obj in item["scene"]["objects"]),
                             "Saved components need the WebXR runtime; scene has not been loaded", 409)
+                    require(self.latest.get("animationSchemaVersion") == 1 or
+                            not any("animation" in obj for obj in item["scene"]["objects"]),
+                            "Saved animation bindings need the WebXR runtime; scene has not been loaded", 409)
                 if self.latest.get("readOnly"):
                     require(item["op"] in {"clear", "get_scene", "list_assets", "list_targets"},
                             "Room changed. Save the retained poses, clear objects, then reload room data and verify outlines", 409)
@@ -878,6 +942,73 @@ class State:
                 result["status"] = "succeeded" if observed else "unconfirmed"
                 if observed:
                     result["objectId"] = object_id
+            return result
+
+    def agent_bind_animation(self, value):
+        """Persist named GLB clips on one virtual-floor object through the runtime."""
+        require(isinstance(value, dict) and set(value) ==
+                {"room_id", "scene_revision", "object_id", "expected_asset_id", "loop_clip", "select_clip"},
+                "Invalid Matrix animation request")
+        room_id = text(value["room_id"], "room_id")
+        object_id = text(value["object_id"], "object_id")
+        asset_id = text(value["expected_asset_id"], "expected_asset_id")
+        revision = value["scene_revision"]
+        require(type(revision) is int and revision >= 0, "Invalid scene revision")
+        binding = animation_binding({"loopClip": value["loop_clip"], "selectClip": value["select_clip"]},
+                                    allow_empty=True)
+        with self.lock:
+            self.expire()
+            require(self.online() and self.latest is not None, self.room_unavailable_message(), 409)
+            current = self.latest
+            require(current["scene"]["roomId"] == room_id and self.revision == revision,
+                    "Matrix scene changed; inspect the current room and retry", 409)
+            require(current.get("animationSchemaVersion") == 1 and
+                    (current.get("roomContext") or {}).get("mode") == "white-room",
+                    "Connected WebXR virtual room does not support animation bindings", 409)
+            require(not current.get("readOnly") and not self.pending,
+                    "Matrix world is not ready for an animation change", 409)
+            item = next((item for item in current["scene"]["objects"] if item["objectId"] == object_id), None)
+            require(item is not None and item["assetId"] == asset_id and item["anchorId"] == "web-floor",
+                    "Animation object is no longer available on the virtual floor", 409)
+            registered = next((asset for asset in self.web_assets.list() if asset["assetId"] == asset_id), None)
+            require(registered is not None, "Animation asset is no longer registered", 409)
+            names = {clip["name"] for clip in registered["geometry"].get("animationClips", [])}
+            require(all(not clip or clip in names for clip in binding.values()),
+                    "Requested GLB animation clip is unavailable", 409)
+            require(any(asset["assetId"] == asset_id and set(asset.get("animationClips", [])) == names
+                        for asset in current["assets"]),
+                    "Connected browser has not loaded the current GLB animation catalog", 409)
+            queued = self.queue([{"op": "bind_animation", "objectId": object_id, **binding}])["commands"][0]
+            request_id = queued["requestId"]
+            self.agent_animation_ids[request_id] = {"roomId": room_id, "objectId": object_id,
+                                                    "assetId": asset_id, "binding": binding}
+            while len(self.agent_animation_ids) > 64:
+                self.agent_animation_ids.popitem(last=False)
+            return self.agent_animation_status(request_id)
+
+    def agent_animation_status(self, request_id):
+        require(isinstance(request_id, str) and re.fullmatch(r"[0-9a-f]{32}", request_id),
+                "Invalid Matrix animation receipt ID")
+        with self.lock:
+            self.expire()
+            issued = self.agent_animation_ids.get(request_id)
+            require(issued is not None, "Matrix animation receipt is unavailable", 404)
+            receipt = next((item for item in reversed(self.results) if item["requestId"] == request_id), None)
+            result = {"requestId": request_id, "roomId": issued["roomId"],
+                      "objectId": issued["objectId"], "assetId": issued["assetId"],
+                      "binding": issued["binding"], "sceneRevision": self.revision}
+            if receipt is None:
+                result["status"] = "queued" if request_id in self.pending else "unconfirmed"
+            elif not receipt["ok"]:
+                result["status"] = "unconfirmed" if "outcome unknown" in receipt["error"] else "failed"
+                if result["status"] == "failed":
+                    result["error"] = receipt["error"][:200]
+            else:
+                observed = self.latest and self.latest["scene"]["roomId"] == issued["roomId"] and next(
+                    (item for item in self.latest["scene"]["objects"] if item["objectId"] == issued["objectId"]
+                     and item["assetId"] == issued["assetId"]), None)
+                expected = issued["binding"] if any(issued["binding"].values()) else None
+                result["status"] = "succeeded" if observed and observed.get("animation") == expected else "unconfirmed"
             return result
 
     def agent_publish_component(self, value):

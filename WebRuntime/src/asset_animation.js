@@ -13,7 +13,7 @@ function safeTrack(track){
   for(const value of track.values)if(!Number.isFinite(value)||Math.abs(value)>limit)return false;
   return true;
 }
-export function instantiateAnimatedAsset(gltf,asset,{play=true}={}){
+export function instantiateAnimatedAsset(gltf,asset,{play=true,binding=null}={}){
   const advertised=asset.geometry?.animationClips||[];
   const clips=gltf.animations||[];
   if(!Array.isArray(advertised)||!Array.isArray(clips)||advertised.length!==clips.length||
@@ -24,11 +24,35 @@ export function instantiateAnimatedAsset(gltf,asset,{play=true}={}){
     throw Error('GLB animation clips differ from the validated asset catalog');
   const model=cloneSkeleton(gltf.scene);
   let mixer=null;
-  if(play&&clips.length===1){
+  let select=null;
+  if(binding&&(typeof binding!=='object'||Array.isArray(binding)||
+     Object.keys(binding).sort().join(',')!=='loopClip,selectClip'||
+     !['loopClip','selectClip'].every(key=>binding[key]===null||
+       typeof binding[key]==='string'&&clips.some(clip=>clip.name===binding[key]))||
+     !binding.loopClip&&!binding.selectClip||binding.loopClip===binding.selectClip))
+    throw Error('GLB animation binding differs from the validated asset catalog');
+  if(play&&(binding||clips.length===1)){
     mixer=new THREE.AnimationMixer(model);
-    mixer.clipAction(clips[0]).setLoop(THREE.LoopRepeat,Infinity).play();
+    const loopClip=binding?clips.find(clip=>clip.name===binding.loopClip):clips[0];
+    const selectClip=binding?.selectClip?clips.find(clip=>clip.name===binding.selectClip):null;
+    const loopAction=loopClip?mixer.clipAction(loopClip):null;
+    const selectAction=selectClip?mixer.clipAction(selectClip):null;
+    if(loopAction)loopAction.setLoop(THREE.LoopRepeat,Infinity).play();
+    if(selectAction){
+      selectAction.setLoop(THREE.LoopOnce,1);
+      selectAction.clampWhenFinished=true;
+      mixer.addEventListener('finished',event=>{
+        if(event.action!==selectAction)return;
+        selectAction.stop();
+        if(loopAction)loopAction.reset().play();
+      });
+      select=()=>{
+        loopAction?.stop();
+        selectAction.stop().reset().play();
+      };
+    }
   }
-  return {model,mixer};
+  return {model,mixer,select};
 }
 
 export function stopAnimatedAsset(mixer,model){

@@ -77,3 +77,32 @@ test('registered GLB appears in live catalog and restores with its immutable ID'
   world.registerAssets([{...asset,geometry:{animationClips:[{name:unicode,durationSeconds:1}]}}]);
   assert.equal(world.asset(asset.assetId).geometry.animationClips[0].name,unicode);
 });
+
+test('GLB animation binding is validated, persisted, undoable, and removable',()=>{
+  const world=new MatrixWorld(()=> 'dragon-1');
+  const sha='b'.repeat(64);
+  const asset={assetId:`web:dragon:${sha.slice(0,12)}`,displayName:'Dragon',description:'Animated GLB',
+    spawnScale:1,sha256:sha,byteLength:2048,url:`/api/web/assets/${sha}.glb`,
+    geometry:{animationClips:[{name:'Flight',durationSeconds:1},{name:'Roar',durationSeconds:.5}]}};
+  world.registerAssets([asset]);
+  assert.equal(world.snapshot().animationSchemaVersion,1);
+  assert.deepEqual(world.snapshot().assets.at(-1).animationClips,['Flight','Roar']);
+  assert.equal(world.execute(command('1','spawn',{assetId:asset.assetId,anchorId:ANCHOR_ID,transform:pose()})).ok,true);
+  const binding={loopClip:'Flight',selectClip:'Roar'};
+  assert.equal(world.execute(command('2','bind_animation',{objectId:'dragon-1',...binding})).ok,true);
+  assert.deepEqual(world.scene.objects[0].animation,binding);
+  const saved=structuredClone(world.scene);
+  assert.equal(world.execute(command('3','bind_animation',{objectId:'dragon-1',loopClip:'Missing',selectClip:null})).ok,false);
+  assert.deepEqual(world.scene,saved);
+  assert.equal(world.execute(command('4','undo')).ok,true);
+  assert.equal(world.scene.objects[0].animation,undefined);
+  assert.equal(world.execute(command('5','redo')).ok,true);
+  assert.deepEqual(world.scene.objects[0].animation,binding);
+  assert.equal(world.execute(command('6','clear')).ok,true);
+  assert.equal(world.execute(command('7','load',{scene:saved})).ok,true);
+  assert.deepEqual(world.scene.objects[0].animation,binding);
+  assert.equal(world.execute(command('8','bind_animation',{objectId:'dragon-1',loopClip:null,selectClip:null})).ok,true);
+  assert.equal(world.scene.objects[0].animation,undefined);
+  const bad=structuredClone(saved);bad.objects[0].animation.selectClip='Unknown';
+  assert.equal(world.execute(command('9','load',{scene:bad})).ok,false);
+});

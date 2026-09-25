@@ -167,6 +167,24 @@ def _mcp_approval_description(params: dict) -> tuple[str, bool]:
                        f"({s['x']}, {s['y']}, {s['z']}) at revision {arguments['scene_revision']}.")
             if len(summary) <= 200:
                 return summary, True
+    if (params.get("message") == 'Allow the matrix_webxr MCP server to run tool "matrix_bind_animation"?' and
+            isinstance(arguments, dict) and set(arguments) ==
+            {"room_id", "scene_revision", "object_id", "expected_asset_id", "loop_clip", "select_clip"} and
+            type(arguments["scene_revision"]) is int and arguments["scene_revision"] >= 0 and
+            all(isinstance(arguments[key], str) and
+                re.fullmatch(r"[A-Za-z0-9._:-]{1,128}", arguments[key])
+                for key in ("room_id", "object_id")) and
+            isinstance(arguments["expected_asset_id"], str) and
+            re.fullmatch(r"web:[a-z0-9][a-z0-9-]{0,39}:[0-9a-f]{12}", arguments["expected_asset_id"]) and
+            all(arguments[key] is None or isinstance(arguments[key], str) and
+                1 <= len(arguments[key]) <= 64 and arguments[key].isprintable()
+                for key in ("loop_clip", "select_clip")) and
+            (not arguments["loop_clip"] or arguments["loop_clip"] != arguments["select_clip"])):
+        summary = (f"Bind GLB animation on {arguments['object_id']} ({arguments['expected_asset_id']}) "
+                   f"in {arguments['room_id']} at revision {arguments['scene_revision']}: "
+                   f"loop={arguments['loop_clip']!r}, select={arguments['select_clip']!r}.")
+        if len(summary) <= 200:
+            return summary, True
     for action in ("attach", "stop", "remove"):
         if params.get("message") != f'Allow the matrix_webxr MCP server to run tool "matrix_{action}_component"?':
             continue
@@ -258,6 +276,7 @@ class LocalCodexAgentBackend:
                         "enabled_tools": ["matrix_scene_summary", "matrix_move_object", "matrix_move_status",
                                           "matrix_list_assets", "matrix_register_glb",
                                           "matrix_spawn_asset", "matrix_spawn_status",
+                                          "matrix_bind_animation", "matrix_animation_status",
                                           "matrix_publish_component", "matrix_list_components",
                                           "matrix_attach_component", "matrix_stop_component",
                                           "matrix_remove_component", "matrix_component_status"],
@@ -268,6 +287,7 @@ class LocalCodexAgentBackend:
             command += ["-c", 'mcp_servers.matrix_webxr.tools.matrix_move_object.approval_mode="prompt"']
             command += ["-c", 'mcp_servers.matrix_webxr.tools.matrix_register_glb.approval_mode="prompt"']
             command += ["-c", 'mcp_servers.matrix_webxr.tools.matrix_spawn_asset.approval_mode="prompt"']
+            command += ["-c", 'mcp_servers.matrix_webxr.tools.matrix_bind_animation.approval_mode="prompt"']
             for name in ("matrix_publish_component", "matrix_attach_component",
                          "matrix_stop_component", "matrix_remove_component"):
                 command += ["-c", f'mcp_servers.matrix_webxr.tools.{name}.approval_mode="prompt"']
