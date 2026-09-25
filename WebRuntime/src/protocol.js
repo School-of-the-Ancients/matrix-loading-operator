@@ -28,16 +28,17 @@ export class MatrixWorld {
     this.idFactory=idFactory;
     this.externalAssets=[];
     this.scene={schemaVersion:1,roomId:ROOM_ID,objects:[]};
+    this.game=null;
     this.selection={anchorId:ANCHOR_ID,objectId:'',position:{x:0,y:0,z:-2}};
     this.spatial=null;this.virtualScene=null;
     this.undo=[]; this.redo=[];
   }
   snapshot(viewer=null) {
     const anchors=this.availableAnchors();
-    const context=this.spatial?{mode:'ar',state:this.spatial.stale?'missing':'ready',message:this.spatial.stale?'A plane holding a scene object is no longer tracked; keep the scene for recovery and recheck the room.':this.spatial.anchors.length?`${this.spatial.anchors.length} WebXR room plane(s) detected. Virtual-floor objects remain visible as unanchored previews.`:'Waiting for Quest room planes. Virtual-floor objects remain visible as unanchored previews.',alignmentVerified:this.spatial.alignmentVerified}
+    const context=this.spatial?{mode:'ar',state:this.spatial.originUnavailable||this.spatial.stale?'missing':'ready',message:this.spatial.originUnavailable?'Saved room origin is unavailable. The old world is hidden and editing is paused until it is restored or explicitly archived for a new room.':this.spatial.stale?'A plane holding a scene object is no longer tracked; keep the scene for recovery and recheck the room.':this.spatial.anchors.length?`${this.spatial.anchors.length} WebXR room plane(s) detected. Virtual-floor objects remain visible as unanchored previews.`:'Waiting for Quest room planes. Virtual-floor objects remain visible as unanchored previews.',alignmentVerified:this.spatial.alignmentVerified&&!this.spatial.originUnavailable}
       :{mode:'white-room',state:'ready',message:'Browser virtual floor; physical room alignment is not verified.',alignmentVerified:false};
     const snapshot={scene:clone(this.scene),assets:clone([...ASSETS,...this.externalAssets].map(({assetId,displayName,description,spawnScale,localBounds})=>({assetId,displayName,description,spawnScale,...(localBounds?{localBounds}:{})}))),anchors:clone(anchors),selection:clone(this.selection),behaviorKinds:['rotate','bob'],roomContext:context};
-    if(this.spatial?.stale)snapshot.readOnly=true;
+    if(this.spatial?.stale||this.spatial?.originUnavailable)snapshot.readOnly=true;
     if (viewer) snapshot.viewer=viewer;
     return snapshot;
   }
@@ -62,7 +63,7 @@ export class MatrixWorld {
     if(this.spatial)return;
     this.virtualScene={scene:clone(this.scene),selection:clone(this.selection),undo:this.undo,redo:this.redo};
     this.scene={...clone(this.scene),roomId:`webxr-session-${this.idFactory()}`};
-    this.spatial={anchors:[],alignmentVerified:false};
+    this.spatial={anchors:[],alignmentVerified:false,originUnavailable:false};
     this.undo=[];this.redo=[];
   }
   leaveAR(){
@@ -96,6 +97,11 @@ export class MatrixWorld {
       this.selection={anchorId:support?.anchorId||'',objectId:'',position:{x:0,y:0,z:0}};
     }
     if(!anchors.length)this.spatial.alignmentVerified=false;
+  }
+  setOriginUnavailable(unavailable){
+    if(!this.spatial)return;
+    this.spatial.originUnavailable=!!unavailable;
+    if(unavailable)this.spatial.alignmentVerified=false;
   }
   setSelection(objectId,position,anchorId=this.spatial?this.selection.anchorId:ANCHOR_ID) {
     if (objectId && !this.scene.objects.some(o=>o.objectId===objectId)) throw Error('Unknown objectId');
@@ -145,13 +151,17 @@ export class MatrixWorld {
     try {
       if (!command || !validId(command.requestId)) throw Error('Invalid requestId');
       const op=command.op;
+      if(this.spatial?.originUnavailable&&!['get_scene','list_assets','list_targets'].includes(op))
+        throw Error('Saved room origin is unavailable; restore it or archive the old world before editing');
+      if(this.spatial?.stale&&['spawn','duplicate','set_transform','set_behavior','remove_behavior','delete','load','undo','redo','select'].includes(op))
+        throw Error('Room tracking is stale; editing is paused until the room is recovered');
       const mutation=['spawn','duplicate','set_transform','set_behavior','remove_behavior','delete','clear','load'].includes(op);
       const before=mutation?clone(this.scene):null;
       let object;
       switch(op) {
         case 'get_scene': case 'list_assets': case 'list_targets': break;
         case 'confirm_room':
-          if(!this.spatial||!this.spatial.anchors.some(anchor=>anchor.surface.kind==='support'))throw Error('No measured support surface to confirm');
+          if(!this.spatial||this.spatial.stale||!this.spatial.anchors.some(anchor=>anchor.surface.kind==='support'))throw Error('No ready measured support surface to confirm');
           this.spatial.alignmentVerified=true;break;
         case 'spawn':
           if (!this.asset(command.assetId)) throw Error('Unknown assetId');
@@ -163,7 +173,7 @@ export class MatrixWorld {
           this.scene.objects.push(object); result.objectId=object.objectId; break;
         case 'select':
           object=this.requireObject(command.objectId); result.objectId=object.objectId;
-          this.setSelection(object.objectId,object.transform.position); break;
+          this.setSelection(object.objectId,object.transform.position,object.anchorId); break;
         case 'duplicate':
           object=this.requireObject(command.objectId);
           if (this.scene.objects.length>=MAX_OBJECTS) throw Error('Scene object limit reached');

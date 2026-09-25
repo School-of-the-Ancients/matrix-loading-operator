@@ -13,10 +13,13 @@ class Element {
   append(...values){this.children.push(...values);}
   replaceChildren(...values){this.children=[...values];}
   setAttribute(){} scrollIntoView(){}
+  querySelector(selector){const match=/^option\[value="([^"]+)"\]$/.exec(selector);
+    return match?this.children.find(child=>child.tag==='option'&&child.value===match[1])||null:null;}
   querySelectorAll(selector){return this.children.flatMap(child=>[...(selector==='input'&&child.tag==='input'?[child]:[]),...child.querySelectorAll(selector)]);}
 }
 for(const match of html.matchAll(/<([a-z]+)[^>]*\bid="([^"]+)"/g)){const element=new Element(match[1]);element.id=match[2];}
 for(const mode of ['offline-rules','openai-compatible','codex-cli']){const option=new Element('option');option.value=mode;elements.get('mode').append(option);}
+for(const mode of ['virtual','mixed']){const option=new Element('option');option.value=mode;elements.get('captureMode').append(option);}
 const info={mode:'codex-cli',provider:'Codex CLI',configured:true,model:null,supportsImages:false,imageSupportReason:'Select a confirmed image-capable model.',availableModes:['codex-cli','offline-rules'],
   codexPreferences:{model:null,reasoningEffort:null},codexOptions:{models:[
     {id:'model-a',displayName:'Model A',supportsImages:true,reasoningEfforts:['low','medium','high'],defaultReasoningEffort:'medium'},
@@ -147,7 +150,7 @@ async function run(){
   assert.equal(element('capturePreview').hidden,false);
   assert.equal(element('includeCapture').checked,false,'A completed capture never opts in automatically');
   assert.equal(element('includeCapture').disabled,false);
-  assert.match(element('captureDetails').textContent,/640 × 360.*2 seconds old.*14 ms.*no physical passthrough/);
+  assert.match(element('captureDetails').textContent,/640 × 360.*2 seconds old.*14 ms.*no physical camera image/);
   const previewCalls=()=>calls.filter(call=>call.url==='/api/capture'&&call.body===undefined);
   assert.equal(previewCalls().at(-1).headers.Authorization,'Bearer panel-test-token','Image fetch uses the existing authenticated API helper');
   capture.ageSeconds=3;await vm.runInContext('refresh()',context);

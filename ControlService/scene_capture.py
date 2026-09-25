@@ -162,7 +162,7 @@ def physical_camera(value, captured_at, width, height, camera):
 
 
 def spatial_provenance(value):
-    check(isinstance(value, dict) and value.get("source") in ("mruk_scene_model_v1", "virtual"),
+    check(isinstance(value, dict) and value.get("source") in ("mruk_scene_model_v1", "virtual", "webxr_room_planes"),
           "Spatial provenance is missing")
     check(type(value.get("anchorCount")) is int and 0 <= value["anchorCount"] <= 128,
           "Invalid spatial anchor count")
@@ -190,8 +190,13 @@ def image(value):
           "Capture dimensions exceed 1280 pixels", 413)
     check(type(value.get("width")) is int and type(value.get("height")) is int
           and (value["width"], value["height"]) == (width, height), "Capture dimensions do not match JPEG")
-    mixed = value.get("source") == "quest_camera_composite"
-    check((mixed and value.get("includesPassthrough") is True and value.get("mode") == "mixed")
+    source = value.get("source")
+    unity_mixed = source == "quest_camera_composite"
+    web_pair = source == "webxr_camera_pair"
+    mixed = unity_mixed or web_pair
+    check((unity_mixed and value.get("includesPassthrough") is True and value.get("mode") == "mixed")
+          or (web_pair and value.get("includesPhysicalCamera") is True
+              and value.get("includesPassthrough") is False and value.get("mode") == "mixed")
           or (value.get("source") in ("unity_center_eye", "webxr_virtual_center_eye") and value.get("includesPassthrough") is False
               and value.get("mode", "virtual") in ("virtual", "")),
           "Capture source, mode and physical passthrough disclosure disagree")
@@ -206,8 +211,10 @@ def image(value):
     camera = value.get("camera")
     check(isinstance(camera, dict), "Capture camera pose is missing")
     pose = {key: vector(camera.get(key), "camera." + key) for key in ("position", "rotation", "forward")}
-    pose["coordinateFrame"] = ("webxr_reference_space; use snapshot.viewer frames for anchor-relative placement"
-                                if value.get("source") == "webxr_virtual_center_eye" else
+    pose["coordinateFrame"] = ("webxr_reference_space; virtual eye only; physical camera alignment is not calibrated"
+                                if web_pair else
+                                "webxr_reference_space; use snapshot.viewer frames for anchor-relative placement"
+                                if source == "webxr_virtual_center_eye" else
                                 "unity_world; use snapshot.viewer frames for anchor-relative placement")
     pose["fieldOfView"] = number(camera.get("fieldOfView"), "camera.fieldOfView", 1, 179)
     pose["aspect"] = number(camera.get("aspect"), "camera.aspect", .01, 100)
@@ -215,10 +222,19 @@ def image(value):
     pose["farClip"] = number(camera.get("farClip"), "camera.farClip", pose["nearClip"], 100000)
     result = {"mimeType": "image/jpeg", "dataBase64": encoded, "width": width, "height": height,
               "byteLength": len(raw), "capturedAtUtc": stamp, "camera": pose,
-              "source": value["source"], "includesPassthrough": mixed}
+              "source": source, "includesPassthrough": unity_mixed,
+              "includesPhysicalCamera": mixed}
     if mixed:
         result["mode"] = "mixed"
+    if unity_mixed:
         result["physicalCamera"] = physical_camera(value.get("physicalCamera"), parsed, width, height, pose)
+    if web_pair:
+        layout = value.get("layout")
+        check(layout == {"kind": "side-by-side", "cameraPanel": [0, 0, width // 2, height],
+                         "virtualPanel": [width // 2, 0, width // 2, height], "calibrated": False}
+              and width == 1280 and height == 480,
+              "WebXR camera pair must be an uncalibrated, labeled side-by-side image")
+        result["layout"] = layout
     provenance = value.get("spatialProvenance")
     check(provenance is None or isinstance(provenance, dict), "Invalid spatial provenance")
     if mixed or provenance and provenance.get("source"):
@@ -236,6 +252,10 @@ def image(value):
 
 
 def content_description(snapshot, capture=None):
+    if capture and capture.get("source") == "webxr_camera_pair":
+        return ("Separate Quest environment-camera frame on the left and Three.js virtual render on the right. "
+                "The views are not pixel aligned or calibrated; this is not the WebXR passthrough compositor layer. "
+                "Use room-plane geometry for spatial measurements. No physical depth or occlusion is included.")
     if capture and capture.get("includesPassthrough"):
         return ("Physical Quest left-camera photograph composited with virtual objects at its calibrated pose. "
                 "MRUK anchors describe the configured room model. No physical depth image or depth occlusion is included; "

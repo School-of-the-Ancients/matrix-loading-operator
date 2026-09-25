@@ -67,7 +67,7 @@ class BlenderAuthoringJobs:
         self.worker = threading.Semaphore(1)
         self.jobs = OrderedDict()
 
-    def submit(self, body):
+    def submit(self, body, codex_config=None):
         if not isinstance(body, dict) or set(body) != {"prompt"}:
             raise BlenderAuthoringError("Expected a Blender asset prompt")
         prompt = body["prompt"]
@@ -86,10 +86,10 @@ class BlenderAuthoringJobs:
             job = {"jobId": job_id, "phase": "queued", "prompt": prompt.strip(),
                    "createdAt": time.time(), "elapsedMs": None}
             self.jobs[job_id] = job
-        threading.Thread(target=self._run, args=(job_id,), name="matrix-blender", daemon=True).start()
+        threading.Thread(target=self._run, args=(job_id, codex_config), name="matrix-blender", daemon=True).start()
         return copy.deepcopy(job)
 
-    def _run(self, job_id):
+    def _run(self, job_id, codex_config):
         with self.worker:
             with self.lock:
                 job = self.jobs[job_id]
@@ -97,7 +97,8 @@ class BlenderAuthoringJobs:
                 prompt = job["prompt"]
                 started = time.monotonic()
             try:
-                recipe = self.designer(prompt)
+                recipe = (self.designer(prompt, config=codex_config) if codex_config is not None
+                          else self.designer(prompt))
                 validate_blueprint(recipe)
                 with self.lock:
                     job["phase"] = "building"

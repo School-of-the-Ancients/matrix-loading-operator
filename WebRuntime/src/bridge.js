@@ -5,6 +5,9 @@ export class MatrixBridge {
     sessionStorage.setItem('matrix-web-client-id',this.clientId);
     this.receipts=new Map(); this.running=false; this.timer=null;this.inFlight=false;this.lastExchange=0;this.getViewer=()=>null;
     this.getCapture=null;this.captureInFlight=false;this.captureReceipt=null;
+    this.getCaptureCapabilities=()=>({modes:['virtual'],device:'Matrix WebXR',
+      mixedStatus:'permission_required',reason:'Environment camera has not been tested in this browser.',
+      depthOcclusion:false});
   }
   async request(path, body) {
     const headers={}; const token=this.getToken();
@@ -20,8 +23,8 @@ export class MatrixBridge {
     const sentCapture=this.captureReceipt;
     const data=await this.request('/api/exchange',{clientId:this.clientId,snapshot:this.world.snapshot(viewer),results:sent,
       captureSupported:!!this.getCapture,
-      captureCapabilities:{modes:this.getCapture?['virtual']:[],device:'Matrix WebXR',mixedStatus:'unsupported',
-        reason:'Quest Browser does not expose passthrough pixels to this app',depthOcclusion:false},
+      captureCapabilities:this.getCapture?this.getCaptureCapabilities():
+        {modes:[],device:'Matrix WebXR',mixedStatus:'unsupported',reason:'No capture renderer',depthOcclusion:false},
       ...(sentCapture?{capture:sentCapture}:{})});
     for(const result of sent)this.receipts.delete(result.requestId);
     if(this.captureReceipt===sentCapture)this.captureReceipt=null;
