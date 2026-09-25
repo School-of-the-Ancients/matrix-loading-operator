@@ -6,7 +6,8 @@ import os
 from mcp.server.fastmcp import FastMCP
 from mcp.types import ToolAnnotations
 from matrix_tool_bridge import (component_action, component_status, list_assets, list_components,
-                                move_object, move_status, publish_component, read_scene, register_glb)
+                                move_object, move_status, publish_component, read_scene, register_glb,
+                                spawn_asset, spawn_status)
 
 
 server = FastMCP("matrix-webxr")
@@ -45,6 +46,28 @@ def matrix_move_object(room_id: str, scene_revision: int, object_id: str,
 def matrix_move_status(request_id: str) -> dict:
     """Read the runtime receipt for a Matrix move. Never retry a queued move."""
     return move_status(os.environ["MATRIX_CONTROL_URL"], os.environ["MATRIX_CONTROL_TOKEN"], request_id)
+
+
+@server.tool(annotations=ToolAnnotations(readOnlyHint=False, destructiveHint=False,
+                                         idempotentHint=False, openWorldHint=False))
+def matrix_spawn_asset(room_id: str, scene_revision: int, asset_id: str,
+                       transform: dict) -> dict:
+    """Spawn a registered GLB in the connected virtual Matrix room after approval.
+
+    The browser must already list this validated asset. Use current room/revision
+    from matrix_scene_summary and a bounded position/rotation/scale transform.
+    Check matrix_spawn_status; queued or unconfirmed does not mean spawned.
+    Physical-surface placement is a separate capability.
+    """
+    return spawn_asset(os.environ["MATRIX_CONTROL_URL"], os.environ["MATRIX_CONTROL_TOKEN"],
+                       {"room_id": room_id, "scene_revision": scene_revision,
+                        "asset_id": asset_id, "transform": transform})
+
+
+@server.tool(annotations=ToolAnnotations(readOnlyHint=True))
+def matrix_spawn_status(request_id: str) -> dict:
+    """Read a runtime receipt and observed object ID for a Matrix GLB spawn."""
+    return spawn_status(os.environ["MATRIX_CONTROL_URL"], os.environ["MATRIX_CONTROL_TOKEN"], request_id)
 
 
 @server.tool(annotations=ToolAnnotations(readOnlyHint=True))

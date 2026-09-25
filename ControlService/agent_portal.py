@@ -207,7 +207,12 @@ class AgentPortal:
                            "matrix_move_object supports an existing virtual-floor object. "
                            "Published numeric Matrix components can be attached to existing virtual-floor "
                            "objects with a distinct target; inspect their receipts and runtime status. "
-                           "Physical-surface placement and asset spawning are unavailable.\n"
+                           "A registered GLB can be spawned in the virtual room with matrix_spawn_asset. "
+                           "Physical-surface placement, GLB animation playback, and generic interaction "
+                           "events are not implemented in this runtime version. For requested capabilities "
+                           "outside the live runtime, use your normal PC repository and tools to build a "
+                           "reusable WebXR capability, test it, and offer a reviewable PR; do not claim the "
+                           "current world has executed it until a runtime receipt confirms it.\n"
                            f"<matrix_spatial_context>{encoded}</matrix_spatial_context>\n"
                            f"User request:\n{value}")
                 if len(message) > 16000:

@@ -467,6 +467,7 @@ class State:
         self.pending = collections.OrderedDict()
         self.results = collections.deque(maxlen=100)
         self.agent_move_ids = collections.OrderedDict()
+        self.agent_spawn_ids = collections.OrderedDict()
         self.agent_component_ids = collections.OrderedDict()
         self.revision = 0
         self.proposals = collections.OrderedDict()
@@ -813,6 +814,70 @@ class State:
             else:
                 result["status"] = "failed"
                 result["error"] = receipt["error"][:200]
+            return result
+
+    def agent_spawn(self, value):
+        """Queue a registered GLB on the virtual floor through the normal runtime."""
+        require(isinstance(value, dict) and set(value) ==
+                {"room_id", "scene_revision", "asset_id", "transform"},
+                "Invalid Matrix spawn request")
+        room_id = text(value["room_id"], "room_id")
+        asset_id = text(value["asset_id"], "asset_id")
+        revision = value["scene_revision"]
+        require(type(revision) is int and revision >= 0, "Invalid scene revision")
+        pose = transform(value["transform"])
+        with self.lock:
+            self.expire()
+            require(self.online() and self.latest is not None, self.room_unavailable_message(), 409)
+            current = self.latest
+            require(current["scene"]["roomId"] == room_id and self.revision == revision,
+                    "Matrix scene changed; inspect the current room and retry", 409)
+            require((current.get("roomContext") or {}).get("mode") == "white-room",
+                    "This Matrix tool currently spawns in the virtual room only", 409)
+            require(not current.get("readOnly") and not self.pending,
+                    "Matrix world is not ready for a new spawn", 409)
+            asset = next((item for item in self.web_assets.list() if item.get("assetId") == asset_id), None)
+            require(asset is not None, "GLB is not registered in the Matrix asset catalog", 409)
+            require(any(item["assetId"] == asset_id for item in current["assets"]),
+                    "Connected browser has not loaded this asset yet; refresh its catalog", 409)
+            try:
+                self.web_assets.file(asset["sha256"])
+            except WebAssetError as error:
+                raise APIError(409, str(error)) from None
+            queued = self.queue([{"op": "spawn", "assetId": asset_id,
+                                  "anchorId": "web-floor", "transform": pose}])["commands"][0]
+            request_id = queued["requestId"]
+            self.agent_spawn_ids[request_id] = {"roomId": room_id, "assetId": asset_id,
+                                                "transform": pose}
+            while len(self.agent_spawn_ids) > 64:
+                self.agent_spawn_ids.popitem(last=False)
+            return self.agent_spawn_status(request_id)
+
+    def agent_spawn_status(self, request_id):
+        require(isinstance(request_id, str) and re.fullmatch(r"[0-9a-f]{32}", request_id),
+                "Invalid Matrix spawn receipt ID")
+        with self.lock:
+            self.expire()
+            issued = self.agent_spawn_ids.get(request_id)
+            require(issued is not None, "Matrix spawn receipt is unavailable", 404)
+            receipt = next((item for item in reversed(self.results) if item["requestId"] == request_id), None)
+            result = {"requestId": request_id, "roomId": issued["roomId"],
+                      "assetId": issued["assetId"], "sceneRevision": self.revision}
+            if receipt is None:
+                result["status"] = "queued" if request_id in self.pending else "unconfirmed"
+            elif not receipt["ok"]:
+                result["status"] = "unconfirmed" if "outcome unknown" in receipt["error"] else "failed"
+                if result["status"] == "failed":
+                    result["error"] = receipt["error"][:200]
+            else:
+                object_id = receipt.get("objectId")
+                observed = (self.latest and self.latest["scene"]["roomId"] == issued["roomId"] and
+                            isinstance(object_id, str) and next((item for item in self.latest["scene"]["objects"]
+                            if item["objectId"] == object_id and item["assetId"] == issued["assetId"] and
+                            item["anchorId"] == "web-floor" and item["transform"] == issued["transform"]), None))
+                result["status"] = "succeeded" if observed else "unconfirmed"
+                if observed:
+                    result["objectId"] = object_id
             return result
 
     def agent_publish_component(self, value):

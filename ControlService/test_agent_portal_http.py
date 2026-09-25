@@ -135,6 +135,9 @@ class AgentPortalHTTPTests(unittest.TestCase):
         self.assertIn("User request:\nPut this over there", sent)
         self.assertIn("matrix_move_object supports an existing virtual-floor object", sent)
         self.assertIn("Published numeric Matrix components can be attached", sent)
+        self.assertIn("matrix_spawn_asset", sent)
+        self.assertIn("build a reusable WebXR capability", sent)
+        self.assertNotIn("asset spawning are unavailable", sent)
         self.assertNotIn("No typed Matrix world-action tool is available", sent)
         encoded = sent.split("<matrix_spatial_context>", 1)[1].split("</matrix_spatial_context>", 1)[0]
         grounded = json.loads(encoded)
