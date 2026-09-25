@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import argparse
+import ssl
 import collections
 import copy
 import hmac
@@ -27,6 +28,8 @@ from learning import LearningBridge, LearningError, identifier
 from codex_provider import CodexConfig, CodexProviderError, codex_options, select_codex_config
 import speech
 import scene_capture
+from web_assets import WebAssetCatalog, WebAssetError
+from web_authoring import WebAuthoringJobs, WebAuthoringError
 from content_service import ContentBridge, runtime_capabilities
 from content_catalog import ContentError
 from quest_connection import QuestConnection
@@ -259,9 +262,11 @@ def loopback(host):
 
 
 class State:
-    def __init__(self, directory, clock=time.monotonic, learning=None):
+    def __init__(self, directory, clock=time.monotonic, learning=None, web_assets_directory=None):
         self.directory = Path(directory)
         self.directory.mkdir(parents=True, exist_ok=True)
+        self.web_assets = WebAssetCatalog(web_assets_directory or Path(__file__).with_name("web_assets"))
+        self.web_authoring = WebAuthoringJobs(self.web_assets)
         self.clock = clock
         self.lock = threading.RLock()
         self.client_id = None
@@ -937,6 +942,7 @@ class Server(ThreadingHTTPServer):
     daemon_threads = True
     def __init__(self, address, state, token=""):
         self.is_loopback = loopback(address[0])
+        self.scheme = "http"
         require(self.is_loopback or len(token) >= 24, "Non-loopback binding requires SANDBOX_TOKEN of at least 24 characters")
         self.state, self.token = state, token
         self.quest_connection = QuestConnection()
@@ -984,7 +990,7 @@ class Handler(BaseHTTPRequestHandler):
     def client_api(self, path, method, body=None):
         require(loopback(self.client_address[0]), "Client API requires a companion on this PC", 403)
         origin = self.headers.get("Origin")
-        require(origin is None or origin.lower() == "http://" + self.headers.get("Host", "").lower(),
+        require(origin is None or origin.lower() == self.server.scheme + "://" + self.headers.get("Host", "").lower(),
                 "Cross-origin client API access is unsupported", 403)
         require(not urllib.parse.urlsplit(self.path).query, "Client API does not accept query parameters")
         if not path.startswith("/api/v1/"):
@@ -1036,6 +1042,19 @@ class Handler(BaseHTTPRequestHandler):
         try:
             self.validate_host()
             path = urllib.parse.urlsplit(self.path).path
+            if path in ("/web", "/web/") or path.startswith("/web/assets/"):
+                dist = Path(__file__).resolve().parent.parent / "WebRuntime" / "dist"
+                if path in ("/web", "/web/"):
+                    asset = dist / "index.html"
+                    content_type = "text/html; charset=utf-8"
+                else:
+                    name = path[len("/web/assets/"):]
+                    require(bool(re.fullmatch(r"[A-Za-z0-9._-]+", name)), "Invalid web asset", 404)
+                    asset = dist / "assets" / name
+                    content_type = "text/javascript; charset=utf-8" if name.endswith(".js") else "text/css; charset=utf-8" if name.endswith(".css") else "application/octet-stream"
+                require(asset.is_file(), "Build WebRuntime with npm run build first", 404)
+                self.send_data(200, asset.read_bytes(), content_type)
+                return
             if path in ("/", "/learning", "/content", "/clients") and loopback(self.client_address[0]):
                 page = "index.html" if path == "/" else "content.html" if path == "/content" else "clients.html" if path == "/clients" else "learning.html"
                 self.send_data(200, Path(__file__).with_name(page).read_bytes(), "text/html; charset=utf-8")
@@ -1049,6 +1068,24 @@ class Handler(BaseHTTPRequestHandler):
             self.authenticate()
             if path == "/api/state":
                 data = self.server.state.status()
+            elif path == "/api/web/assets":
+                try:
+                    data = {"assets": self.server.state.web_assets.list()}
+                except WebAssetError as error:
+                    raise APIError(500, str(error)) from None
+            elif path == "/api/web/authoring":
+                data = self.server.state.web_authoring.status()
+            elif path.startswith("/api/web/authoring/"):
+                data = self.server.state.web_authoring.status(path.rsplit("/", 1)[1])
+            elif path.startswith("/api/web/assets/"):
+                name = path[len("/api/web/assets/"):]
+                require(bool(re.fullmatch(r"[0-9a-f]{64}\.glb", name)), "Unknown web asset", 404)
+                try:
+                    asset = self.server.state.web_assets.file(name[:-4])
+                except WebAssetError as error:
+                    raise APIError(404, str(error)) from None
+                self.send_data(200, asset.read_bytes(), "model/gltf-binary")
+                return
             elif path == "/api/content":
                 data = self.server.state.content.status()
             elif path.startswith("/api/content/files/"):
@@ -1085,6 +1122,8 @@ class Handler(BaseHTTPRequestHandler):
             else:
                 raise APIError(404, "Not found")
             self.send_data(200, data)
+        except WebAuthoringError as error:
+            self.send_api_error(APIError(error.status, str(error)))
         except (APIError, LearningError, ContentError, ClientError) as error:
             self.send_api_error(error)
         except PlannerError as error:
@@ -1099,7 +1138,8 @@ class Handler(BaseHTTPRequestHandler):
             if not client_api_path(path):
                 self.authenticate()
             origin = self.headers.get("Origin")
-            require(origin is None or origin.lower() == "http://" + host, "Cross-origin mutation rejected", 403)
+            require(origin is None or origin.lower() == self.server.scheme + "://" + host,
+                    "Cross-origin mutation rejected", 403)
             require(self.headers.get_content_type() == "application/json", "Content-Type must be application/json", 415)
             require(not self.headers.get("Transfer-Encoding"), "Transfer encoding is unsupported", 400)
             try:
@@ -1125,6 +1165,8 @@ class Handler(BaseHTTPRequestHandler):
                 data = self.server.quest_connection.reconnect(self.server.server_port, state.online)
             elif path.startswith("/api/content/"):
                 data = state.content.post(path, body)
+            elif path == "/api/web/authoring":
+                data = state.web_authoring.submit(body)
             elif path == "/api/command":
                 data = state.queue(body["commands"] if set(body) == {"commands"} else [body])
             elif path == "/api/save":
@@ -1163,6 +1205,8 @@ class Handler(BaseHTTPRequestHandler):
             else:
                 raise APIError(404, "Not found")
             self.send_data(200, data)
+        except WebAuthoringError as error:
+            self.send_api_error(APIError(error.status, str(error)))
         except (APIError, LearningError, speech.SpeechError, CodexProviderError, ContentError, ClientError) as error:
             self.send_api_error(error)
         except (OSError, ValueError, RecursionError):
@@ -1174,12 +1218,23 @@ def main():
     parser.add_argument("--host", default="127.0.0.1")
     parser.add_argument("--port", type=int, default=8765)
     parser.add_argument("--scenes", type=Path, default=Path(__file__).with_name("scenes"))
+    parser.add_argument("--web-assets", type=Path, default=Path(__file__).with_name("web_assets"))
+    parser.add_argument("--tls-cert", type=Path, help="PEM certificate for HTTPS; use a certificate trusted by the headset")
+    parser.add_argument("--tls-key", type=Path, help="PEM private key for HTTPS")
     args = parser.parse_args()
+    if bool(args.tls_cert) != bool(args.tls_key):
+        parser.error("--tls-cert and --tls-key must be supplied together")
     try:
-        server = Server((args.host, args.port), State(args.scenes, learning=LearningBridge()), os.environ.get("SANDBOX_TOKEN", ""))
-    except (APIError, LearningError, OSError) as error:
+        server = Server((args.host, args.port), State(args.scenes, learning=LearningBridge(),
+                                                      web_assets_directory=args.web_assets), os.environ.get("SANDBOX_TOKEN", ""))
+        if args.tls_cert:
+            context = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
+            context.load_cert_chain(args.tls_cert, args.tls_key)
+            server.socket = context.wrap_socket(server.socket, server_side=True)
+            server.scheme = "https"
+    except (APIError, LearningError, OSError, ssl.SSLError) as error:
         parser.error(str(error))
-    print(f"AR Sandbox service listening on {args.host}:{server.server_port}; Ctrl+C to stop.")
+    print(f"AR Sandbox service listening on {server.scheme}://{args.host}:{server.server_port}; Ctrl+C to stop.")
     try:
         server.serve_forever()
     except KeyboardInterrupt:
