@@ -120,6 +120,33 @@ test('reload prefers the newer tab world after a durable write fails',()=>{
   assert.equal(loadStoredWorld(storage(),durable).value.scene.objects.length,1);
 });
 
+test('reload prefers the newer durable world after a tab write fails',()=>{
+  const tab=storage(),durable=storage(),world=new MatrixWorld(()=>crypto.randomUUID());
+  world.execute({requestId:'first',op:'spawn',assetId:'orb',anchorId:'web-floor',transform:pose});
+  assert.equal(saveStoredWorld(storedWorld(world),tab,durable),'');
+  world.execute({requestId:'second',op:'spawn',assetId:'chair',anchorId:'web-floor',transform:pose});
+  const failing={getItem:key=>tab.getItem(key),setItem(){throw Error('tab quota exceeded');}};
+  assert.match(saveStoredWorld(storedWorld(world),failing,durable),/Tab world save failed/);
+  const pending=loadStoredWorld(tab,durable);
+  assert.equal(pending.source,WORLD_KEY);
+  assert.equal(pending.value.scene.objects.length,2);
+  assert.equal(loadStoredWorld(tab,storage()).value.scene.objects.length,1);
+});
+
+test('malformed tab envelope falls back to the durable world',()=>{
+  const tab=storage(),durable=storage(),world=new MatrixWorld();
+  assert.equal(saveStoredWorld(storedWorld(world),tab,durable),'');
+  tab.setItem(TAB_WORLD_KEY,JSON.stringify({version:2,scene:null,game:null,savedAtMs:Date.now()+1000}));
+  assert.equal(loadStoredWorld(tab,durable).source,WORLD_KEY);
+});
+
+test('both failed browser writes report both missing copies',()=>{
+  const failing={getItem(){return null;},setItem(){throw Error('storage unavailable');}};
+  const warning=saveStoredWorld(storedWorld(new MatrixWorld()),failing,failing);
+  assert.match(warning,/Persistent browser save failed/);
+  assert.match(warning,/Tab world save failed/);
+});
+
 test('checkpoint restore clears selection missing from the restored scene, including after leaving AR',()=>{
   const world=new MatrixWorld(()=> 'later-object');
   const checkpoint=storedWorld(world);

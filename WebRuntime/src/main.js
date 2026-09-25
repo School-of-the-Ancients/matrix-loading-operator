@@ -105,8 +105,13 @@ function renderScene(){
   updateWorldControls();
   if(!pendingWorld){
     persistenceWarning=saveStoredWorld(storedWorld(world),sessionStorage,localStorage);
-    view.setOperatorWarning(persistenceWarning?'PERSISTENT SAVE FAILED · closing browser may lose world':restoreWarning?'Saved world rejected · new changes can save':'');
-    if(persistenceWarning)feedback('The current world changed, but durable storage failed.',true);
+    const durableFailed=persistenceWarning.includes('Persistent browser save failed');
+    view.setOperatorWarning(persistenceWarning?durableFailed?
+      'PERSISTENT SAVE FAILED · closing browser may lose world':'TAB COPY FAILED · durable world saved':
+      restoreWarning?'Saved world rejected · new changes can save':'');
+    if(persistenceWarning)feedback(durableFailed?
+      'The current world changed, but durable storage failed.':
+      'The tab recovery copy failed; the durable browser world was saved.',true);
   }
 }
 renderScene();
