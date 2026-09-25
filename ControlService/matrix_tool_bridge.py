@@ -66,6 +66,18 @@ def spawn_status(url: str, token: str, request_id: str) -> dict:
     return _request_json(url[:-6] + "/spawns/" + request_id, token)
 
 
+def bind_animation(url: str, token: str, value: dict) -> dict:
+    if not url.endswith("/scene"):
+        raise ValueError("Invalid Matrix tool bridge URL")
+    return _request_json(url[:-6] + "/bind-animation", token, value)
+
+
+def animation_status(url: str, token: str, request_id: str) -> dict:
+    if not url.endswith("/scene") or not re.fullmatch(r"[0-9a-f]{32}", request_id):
+        raise ValueError("Invalid Matrix animation receipt request")
+    return _request_json(url[:-6] + "/animations/" + request_id, token)
+
+
 def list_assets(url: str, token: str, offset: int = 0, limit: int = 24) -> dict:
     if not url.endswith("/scene"):
         raise ValueError("Invalid Matrix tool bridge URL")
@@ -117,8 +129,10 @@ def scene_summary(state) -> dict:
                 "roomMode": (snapshot.get("roomContext") or {}).get("mode") if online else None,
                 "objectCount": len(objects) if online else 0,
                 "componentSchemaVersion": snapshot.get("componentSchemaVersion") if online else None,
+                "animationSchemaVersion": snapshot.get("animationSchemaVersion") if online else None,
                 "objects": [{"objectId": item["objectId"], "assetId": item["assetId"],
                              "anchorId": item["anchorId"], "transform": item["transform"],
+                             **({"animation": item["animation"]} if "animation" in item else {}),
                              **({"component": {"componentId": item["component"]["componentId"],
                                                 "targetObjectId": item["component"]["targetObjectId"],
                                                 "status": item["component"]["status"],
@@ -178,6 +192,12 @@ class _Handler(BaseHTTPRequestHandler):
             except Exception as error:
                 self._send_json(getattr(error, "status", 500),
                                 {"error": str(error) if hasattr(error, "status") else "Matrix tool failed"})
+        elif re.fullmatch(r"/animations/[0-9a-f]{32}", self.path):
+            try:
+                self._send_json(200, self.server.state.agent_animation_status(self.path.rsplit("/", 1)[1]))
+            except Exception as error:
+                self._send_json(getattr(error, "status", 500),
+                                {"error": str(error) if hasattr(error, "status") else "Matrix tool failed"})
         elif re.fullmatch(r"/component-actions/[0-9a-f]{32}", self.path):
             try:
                 self._send_json(200, self.server.state.agent_component_status(self.path.rsplit("/", 1)[1]))
@@ -211,7 +231,7 @@ class _Handler(BaseHTTPRequestHandler):
     def do_POST(self):
         if not self._authorized():
             return
-        if self.path not in ("/move", "/spawn", "/register-glb", "/publish-component", "/component-action"):
+        if self.path not in ("/move", "/spawn", "/bind-animation", "/register-glb", "/publish-component", "/component-action"):
             self.send_error(404)
             return
         try:
@@ -232,6 +252,12 @@ class _Handler(BaseHTTPRequestHandler):
                 while result["status"] == "queued" and time.monotonic() < deadline:
                     time.sleep(.1)
                     result = self.server.state.agent_component_status(result["requestId"])
+            elif self.path == "/bind-animation":
+                result = self.server.state.agent_bind_animation(value)
+                deadline = time.monotonic() + MOVE_WAIT
+                while result["status"] == "queued" and time.monotonic() < deadline:
+                    time.sleep(.1)
+                    result = self.server.state.agent_animation_status(result["requestId"])
             elif self.path == "/spawn":
                 result = self.server.state.agent_spawn(value)
                 deadline = time.monotonic() + MOVE_WAIT

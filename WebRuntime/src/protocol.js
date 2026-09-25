@@ -23,6 +23,15 @@ const validTransform = t => t && vec(t.position,-100,100) && vec(t.rotation,-360
 const validId = s => typeof s === 'string' && s.length > 0 && s.length <= 128 && !/[\x00-\x1f]/.test(s);
 const validBehavior = b => b && ['rotate','bob'].includes(b.kind) && typeof b.enabled === 'boolean' && typeof b.paused === 'boolean' &&
   ['x','y','z'].includes(b.axis) && finite(b.speedDegreesPerSecond,-180,180) && finite(b.amplitudeMeters,0,.25) && finite(b.frequencyHz,.05,2);
+const validAnimationBinding=(binding,asset,allowEmpty=false)=>{
+  if(!binding||typeof binding!=='object'||Array.isArray(binding)||
+     Object.keys(binding).sort().join(',')!=='loopClip,selectClip')return false;
+  const clips=new Set((asset?.geometry?.animationClips||[]).map(clip=>clip.name));
+  if(!['loopClip','selectClip'].every(key=>binding[key]===null||
+      typeof binding[key]==='string'&&clips.has(binding[key])))return false;
+  if(!allowEmpty&&!binding.loopClip&&!binding.selectClip)return false;
+  return !binding.loopClip||binding.loopClip!==binding.selectClip;
+};
 
 export class MatrixWorld {
   constructor(idFactory=()=>crypto.randomUUID().replaceAll('-','')) {
@@ -38,7 +47,7 @@ export class MatrixWorld {
     const anchors=this.availableAnchors();
     const context=this.spatial?{mode:'ar',state:this.spatial.originUnavailable||this.spatial.stale?'missing':'ready',message:this.spatial.originUnavailable?'Saved room origin is unavailable. The old world is hidden and editing is paused until it is restored or explicitly archived for a new room.':this.spatial.stale?'A plane holding a scene object is no longer tracked; keep the scene for recovery and recheck the room.':this.spatial.anchors.length?`${this.spatial.anchors.length} WebXR room plane(s) detected. Virtual-floor objects remain visible as unanchored previews.`:'Waiting for Quest room planes. Virtual-floor objects remain visible as unanchored previews.',alignmentVerified:this.spatial.alignmentVerified&&!this.spatial.originUnavailable}
       :{mode:'white-room',state:'ready',message:'Browser virtual floor; physical room alignment is not verified.',alignmentVerified:false};
-    const snapshot={scene:clone(this.scene),assets:clone([...ASSETS,...this.externalAssets].map(({assetId,displayName,description,spawnScale,localBounds})=>({assetId,displayName,description,spawnScale,...(localBounds?{localBounds}:{})}))),anchors:clone(anchors),selection:clone(this.selection),behaviorKinds:['rotate','bob'],componentSchemaVersion:1,roomContext:context};
+    const snapshot={scene:clone(this.scene),assets:clone([...ASSETS,...this.externalAssets].map(({assetId,displayName,description,spawnScale,localBounds,geometry})=>({assetId,displayName,description,spawnScale,...(localBounds?{localBounds}:{}),...(geometry?.animationClips?{animationClips:geometry.animationClips.map(clip=>clip.name)}:{})}))),anchors:clone(anchors),selection:clone(this.selection),behaviorKinds:['rotate','bob'],componentSchemaVersion:1,animationSchemaVersion:1,roomContext:context};
     if(this.spatial?.stale||this.spatial?.originUnavailable)snapshot.readOnly=true;
     if (viewer) snapshot.viewer=viewer;
     return snapshot;
@@ -160,9 +169,9 @@ export class MatrixWorld {
       const op=command.op;
       if(this.spatial?.originUnavailable&&!['get_scene','list_assets','list_targets'].includes(op))
         throw Error('Saved room origin is unavailable; restore it or archive the old world before editing');
-      if(this.spatial?.stale&&['spawn','duplicate','set_transform','set_behavior','remove_behavior','attach_component','stop_component','remove_component','delete','load','undo','redo','select'].includes(op))
+      if(this.spatial?.stale&&['spawn','duplicate','set_transform','set_behavior','remove_behavior','attach_component','stop_component','remove_component','bind_animation','delete','load','undo','redo','select'].includes(op))
         throw Error('Room tracking is stale; editing is paused until the room is recovered');
-      const mutation=['spawn','duplicate','set_transform','set_behavior','remove_behavior','attach_component','stop_component','remove_component','delete','clear','load'].includes(op);
+      const mutation=['spawn','duplicate','set_transform','set_behavior','remove_behavior','attach_component','stop_component','remove_component','bind_animation','delete','clear','load'].includes(op);
       const before=mutation?clone(this.scene):null;
       let object;
       switch(op) {
@@ -230,6 +239,16 @@ export class MatrixWorld {
           object=this.requireObject(command.objectId);
           if(!object.component)throw Error('Object has no component');
           delete object.component;result.objectId=object.objectId;break;
+        case 'bind_animation':
+          object=this.requireObject(command.objectId);
+          if(object.anchorId!==ANCHOR_ID||!this.asset(object.assetId)?.url)
+            throw Error('Animation binding requires a virtual-floor GLB');
+          {const binding={loopClip:command.loopClip,selectClip:command.selectClip};
+            if(!validAnimationBinding(binding,this.asset(object.assetId),true))
+              throw Error('Invalid GLB animation binding');
+            if(binding.loopClip||binding.selectClip)object.animation=clone(binding);
+            else delete object.animation;}
+          result.objectId=object.objectId;break;
         case 'delete':
           object=this.requireObject(command.objectId);
           this.scene.objects=this.scene.objects.filter(o=>o.objectId!==object.objectId);
@@ -265,6 +284,8 @@ export class MatrixWorld {
       ids.add(o.objectId);
       if(o.behaviors && (!Array.isArray(o.behaviors)||o.behaviors.length>2||new Set(o.behaviors.map(b=>b.kind)).size!==o.behaviors.length||!o.behaviors.every(validBehavior))) throw Error('Invalid scene behavior');
       if(o.component){validateAttachment(o.component);if(o.anchorId!==ANCHOR_ID)throw Error('Component requires virtual-floor object');}
+      if(o.animation&&(o.anchorId!==ANCHOR_ID||!validAnimationBinding(o.animation,this.asset(o.assetId))))
+        throw Error('Invalid GLB animation binding');
     }
     for(const o of scene.objects)if(o.component){
       const target=scene.objects.find(item=>item.objectId===o.component.targetObjectId);

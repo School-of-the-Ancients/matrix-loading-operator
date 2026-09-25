@@ -50,6 +50,32 @@ test('clip mismatch fails closed and multiple clips wait for explicit binding',(
     {geometry:{animationClips:[{name:'Flight',durationSeconds:1}]}}),/differ/);
 });
 
+test('named selection clip plays once, restarts on reselection, and returns to loop',()=>{
+  const gltf=animatedRig();
+  const roar=new THREE.AnimationClip('Roar',.5,[new THREE.VectorKeyframeTrack(
+    'Wing.position',[0,.5],[0,0,0,0,2,0])]);
+  gltf.animations.push(roar);
+  const asset={geometry:{animationClips:[
+    {name:'Flight',durationSeconds:1},{name:'Roar',durationSeconds:.5}]}};
+  const binding={loopClip:'Flight',selectClip:'Roar'};
+  const first=instantiateAnimatedAsset(gltf,asset,{binding});
+  const second=instantiateAnimatedAsset(gltf,asset,{binding});
+  const wing=first.model.getObjectByName('Wing');
+  first.mixer.update(.2);
+  assert.ok(wing.position.y>0);
+  first.select();
+  first.mixer.update(.25);
+  assert.ok(Math.abs(wing.position.y-1)<.001);
+  first.select();
+  first.mixer.update(.5);
+  assert.equal(second.model.getObjectByName('Wing').position.y,0);
+  first.mixer.update(.25);
+  assert.ok(Math.abs(wing.position.y-.25)<.001);
+  assert.throws(()=>instantiateAnimatedAsset(gltf,asset,{binding:{loopClip:'Unknown',selectClip:'Roar'}}),/binding differs/);
+  stopAnimatedAsset(first.mixer,first.model);
+  stopAnimatedAsset(second.mixer,second.model);
+});
+
 test('Blender 5.2 exported GLB clip loads and advances in the Matrix mixer',async()=>{
   const raw=await readFile(new URL('./fixtures/animated_blender_probe.glb',import.meta.url));
   const bytes=raw.buffer.slice(raw.byteOffset,raw.byteOffset+raw.byteLength);

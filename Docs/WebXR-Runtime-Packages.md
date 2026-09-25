@@ -54,10 +54,15 @@ Blender remains the authoring tool when geometry, rigging, or clips warrant it;
 Three.js remains the executor. No animation, rigging, shader, physics, audio,
 or general script capability is claimed by schema 1.
 
-The first clip playback slice validates named GLB clips and loops a single
-clip on a virtual-floor instance. A Blender 5.2 background export was accepted
-by the catalog and its rotation clip advanced in the Three.js mixer test. This
-does not yet prove the Agent Portal to Blender MCP workflow, a multi-clip
-binding, or a wearer interaction. Next, bind clips and selection events through
-a reusable package or typed runtime contract, then prove the full Blender MCP
-flow. Desktop and Quest wearer evidence must be recorded separately.
+The clip playback slice validates named GLB clips and loops a single clip on
+a virtual-floor instance. A Blender 5.2 background export was accepted by the
+catalog and its rotation clip advanced in the Three.js mixer test. The next
+typed binding can choose a named loop clip and a one-shot selection clip on a
+virtual-floor GLB. Desktop click or XR select triggers the one-shot clip and
+returns to the loop; selecting such an object does not initiate a grab. The
+binding survives scene save/load and undo/redo, while playback phase and a
+partly played one-shot do not. Binding uses the normal command queue, a native
+Codex approval, and an observed runtime receipt. It does not add collision,
+physics, arbitrary input events, navigation, or physical-surface animation.
+The Agent Portal to Blender MCP workflow and Quest wearer interaction still
+need direct evidence. Desktop and Quest wearer results are reported separately.
