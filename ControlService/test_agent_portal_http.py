@@ -133,6 +133,8 @@ class AgentPortalHTTPTests(unittest.TestCase):
         self.assertEqual(self.post("/api/agent/turn", body)[0], 200)
         sent = self.state.agent_portal._backend.sent_texts[-1]
         self.assertIn("User request:\nPut this over there", sent)
+        self.assertIn("matrix_move_object currently supports an existing object on the virtual floor", sent)
+        self.assertNotIn("No typed Matrix world-action tool is available", sent)
         encoded = sent.split("<matrix_spatial_context>", 1)[1].split("</matrix_spatial_context>", 1)[0]
         grounded = json.loads(encoded)
         self.assertEqual(grounded["sceneRevision"], 7)
