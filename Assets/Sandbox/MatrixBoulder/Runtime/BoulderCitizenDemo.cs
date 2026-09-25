@@ -37,14 +37,15 @@ namespace ArSandbox.MatrixBoulder
 
         private void Start()
         {
+            smokeRun = Array.IndexOf(Environment.GetCommandLineArgs(), "-matrixBoulderSmoke") >= 0;
             if (georeference == null || flyCamera == null || citizenMaterial == null)
             {
                 status = "Citizen scene references are missing.";
                 Debug.LogError(status, this);
+                FailSmoke(status);
                 return;
             }
 
-            smokeRun = Array.IndexOf(Environment.GetCommandLineArgs(), "-matrixBoulderSmoke") >= 0;
             savePath = Path.Combine(Application.persistentDataPath, "MatrixBoulder",
                 smokeRun ? "citizens-smoke-v1.json" : "citizens-v1.json");
             if (File.Exists(savePath))
@@ -59,6 +60,7 @@ namespace ArSandbox.MatrixBoulder
                 {
                     status = "Citizen save is invalid; correct or move it before playing.";
                     Debug.LogError(status + " " + error.Message, this);
+                    FailSmoke(status);
                     return; // Never overwrite an unrecognized or damaged save.
                 }
             }
@@ -66,7 +68,11 @@ namespace ArSandbox.MatrixBoulder
             {
                 clock = new BoulderCitizenClock(BoulderCitizenClock.CreateSeed());
                 status = "Created two prototype residents";
-                Save();
+                if (!Save() && smokeRun)
+                {
+                    FailSmoke(status);
+                    return;
+                }
             }
 
             for (int i = 0; i < clock.State.citizens.Count; i++)
@@ -96,11 +102,15 @@ namespace ArSandbox.MatrixBoulder
                 smokeElapsed += Time.unscaledDeltaTime;
                 if (smokeElapsed >= 3f)
                 {
-                    Save();
+                    if (!Save())
+                    {
+                        FailSmoke(status);
+                        return;
+                    }
                     Debug.Log("MATRIX_BOULDER_CITIZEN_RUNTIME_OK " + status + " " +
                         clock.State.citizens[0].entityId);
                     smokeRun = false;
-                    Application.Quit();
+                    Application.Quit(0);
                 }
             }
         }
@@ -140,9 +150,17 @@ namespace ArSandbox.MatrixBoulder
             renderer.SetPropertyBlock(properties);
         }
 
-        private void Save()
+        private void FailSmoke(string reason)
         {
-            if (clock == null || string.IsNullOrEmpty(savePath)) return;
+            if (!smokeRun) return;
+            smokeRun = false;
+            Debug.LogError("MATRIX_BOULDER_CITIZEN_RUNTIME_FAILED " + reason, this);
+            Application.Quit(1);
+        }
+
+        private bool Save()
+        {
+            if (clock == null || string.IsNullOrEmpty(savePath)) return false;
             try
             {
                 Directory.CreateDirectory(Path.GetDirectoryName(savePath));
@@ -150,11 +168,13 @@ namespace ArSandbox.MatrixBoulder
                 File.WriteAllText(temporary, JsonUtility.ToJson(clock.State, true));
                 if (File.Exists(savePath)) File.Replace(temporary, savePath, null);
                 else File.Move(temporary, savePath);
+                return true;
             }
             catch (Exception error)
             {
                 status = "Citizen save failed; see Unity log.";
                 Debug.LogError(status + " " + error.Message, this);
+                return false;
             }
         }
 
