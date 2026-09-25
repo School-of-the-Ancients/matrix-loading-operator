@@ -16,6 +16,8 @@ python ControlService/server.py
 
 Open `http://127.0.0.1:8765/web/`. Click a floor point, enter `Summon a chair here`, choose **Create proposal**, review the command, and choose **Apply proposal**. The full Operator is still at `http://127.0.0.1:8765/`. To use its Codex planner, start the service with the existing `Start-CodexControlService.ps1` and choose **Codex AI on PC** in the web panel. Do not run a Unity runtime against the same service at the same time: the service grants one active runtime lease.
 
+On desktop, arrow keys or WASD move the camera, right-drag looks around, and left-drag moves an object across its current horizontal plane. Click a floor point to select where the next object goes. A completed drag updates the scene and can be undone or saved.
+
 The service stores named scenes in its existing PC scenes directory. The browser also retains the current scene in this tab's session storage so a refresh keeps the same object IDs until the tab is closed. This is separate from named PC saves.
 
 ## Add an asset while Matrix is running
@@ -38,7 +40,7 @@ This is a deliberately limited procedural baseline: the freeform visual brief is
 
 ## Quest and XR
 
-The client probes `immersive-ar` and `immersive-vr`. AR uses browser hit testing where available and shows a placement reticle; controller trigger selects an object or placement point. The current scene uses a session-local `web-floor` anchor and reports `white-room` capability to the Operator. It does **not** claim MRUK room geometry, persistent physical anchors, exact Unity prefab visuals, native Quest feature parity, or tested Quest 3 placement.
+The client probes `immersive-ar` and `immersive-vr`. AR uses browser hit testing where available and shows a placement reticle. In XR, point at an object and hold either controller trigger to move and rotate it; release to commit its new transform. The object keeps its initial offset from the controller while held. A committed move appears in the Operator snapshot and can be undone or saved. Trigger on the floor selects a placement point. The current scene uses a session-local `web-floor` anchor and reports `white-room` capability to the Operator. It does **not** claim MRUK room geometry, persistent physical anchors, exact Unity prefab visuals, native Quest feature parity, or tested Quest 3 placement.
 
 WebXR requires a secure origin on a headset. For a trusted HTTPS endpoint, the existing service can serve the built client and API from one origin:
 

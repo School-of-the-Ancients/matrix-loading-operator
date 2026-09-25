@@ -11,7 +11,7 @@ catch {sessionStorage.removeItem('matrix-web-scene');}
 
 let proposal=null;
 const feedback=(message,isError=false)=>{$('feedback').textContent=message;$('feedback').classList.toggle('error',isError);};
-const view=new MatrixView($('view'),world,()=>{proposal=null;$('proposal').classList.add('hidden');feedback(`Selected ${world.selection.objectId||'placement point'} at ${Object.values(world.selection.position).join(', ')} m.`);},()=>$('token').value.trim(),message=>feedback(message,true));
+const view=new MatrixView($('view'),world,()=>{proposal=null;$('proposal').classList.add('hidden');feedback(`Selected ${world.selection.objectId||'placement point'} at ${Object.values(world.selection.position).join(', ')} m.`);},()=>$('token').value.trim(),message=>feedback(message,true),(id,position)=>{proposal=null;$('proposal').classList.add('hidden');renderScene();feedback(`Moved ${id.slice(0,8)} to ${Object.values(position).join(', ')} m. Undo and Save are available.`);});
 view.sync();
 view.initXR($('xr-buttons')).catch(e=>feedback(e.message,true));
 
