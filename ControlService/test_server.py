@@ -1,5 +1,6 @@
 """HTTP end-to-end tests; no headset or live AI provider required."""
 import copy
+import http.client
 import json
 import os
 from pathlib import Path
@@ -169,7 +170,19 @@ class ServiceTests(unittest.TestCase):
         for name in ("../outside", "C:\\outside", "", "CON", "a/b", "a.json"):
             self.assertEqual(self.request("/api/save", {"name": name})[0], 400)
         self.assertEqual(self.request("/api/command", raw=b'{"op":"spawn","assetId":"cube","transform":NaN}')[0], 400)
-        self.assertEqual(self.request("/api/command", raw=b"x" * (MAX_BODY + 1))[0], 413)
+        # The service rejects an oversized Content-Length before reading a body.
+        # Sending the whole body can race that early response on Windows.
+        oversized = http.client.HTTPConnection("127.0.0.1", self.server.server_port, timeout=3)
+        try:
+            oversized.putrequest("POST", "/api/command")
+            oversized.putheader("Content-Type", "application/json")
+            oversized.putheader("Content-Length", str(MAX_BODY + 1))
+            oversized.endheaders()
+            response = oversized.getresponse()
+            self.assertEqual(response.status, 413)
+            response.read()
+        finally:
+            oversized.close()
         self.assertEqual(self.request("/api/command", raw=b"{")[0], 400)
 
     def test_auth_origin_host_and_static_page(self):
