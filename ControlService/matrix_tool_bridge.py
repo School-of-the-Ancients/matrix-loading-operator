@@ -9,23 +9,46 @@ from __future__ import annotations
 import hmac
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 import json
+import re
 import secrets
 import threading
+import time
 import urllib.request
 
 
 MAX_SUMMARY_OBJECTS = 24
+MOVE_WAIT = 5
 
 
-def read_scene(url: str, token: str) -> dict:
-    """Read only the private loopback listener, ignoring process proxy settings."""
-    request = urllib.request.Request(url, headers={"Authorization": "Bearer " + token})
+def _request_json(url: str, token: str, body: dict | None = None) -> dict:
+    """Contact only the private listener, ignoring process proxy settings."""
+    headers = {"Authorization": "Bearer " + token}
+    if body is not None:
+        headers["Content-Type"] = "application/json"
+    request = urllib.request.Request(url, headers=headers,
+                                     data=json.dumps(body, allow_nan=False).encode("utf-8") if body is not None else None)
     opener = urllib.request.build_opener(urllib.request.ProxyHandler({}))
-    with opener.open(request, timeout=3) as response:
+    with opener.open(request, timeout=8) as response:
         raw = response.read(64 * 1024 + 1)
     if len(raw) > 64 * 1024:
         raise ValueError("Matrix scene summary exceeded its limit")
     return json.loads(raw)
+
+
+def read_scene(url: str, token: str) -> dict:
+    return _request_json(url, token)
+
+
+def move_object(url: str, token: str, value: dict) -> dict:
+    if not url.endswith("/scene"):
+        raise ValueError("Invalid Matrix tool bridge URL")
+    return _request_json(url[:-6] + "/move", token, value)
+
+
+def move_status(url: str, token: str, request_id: str) -> dict:
+    if not url.endswith("/scene") or not re.fullmatch(r"[0-9a-f]{32}", request_id):
+        raise ValueError("Invalid Matrix move receipt request")
+    return _request_json(url[:-6] + "/moves/" + request_id, token)
 
 
 def scene_summary(state) -> dict:
@@ -61,21 +84,59 @@ class _Handler(BaseHTTPRequestHandler):
     def log_message(self, *_):
         pass
 
-    def do_GET(self):
+    def _authorized(self):
         expected = "Bearer " + self.server.token
         received = self.headers.get("Authorization", "")
-        if self.path != "/scene" or not hmac.compare_digest(received, expected):
+        if not hmac.compare_digest(received, expected):
             self.send_error(404)
-            return
-        raw = json.dumps(scene_summary(self.server.state), ensure_ascii=False,
+            return False
+        return True
+
+    def _send_json(self, status, value):
+        raw = json.dumps(value, ensure_ascii=False,
                          allow_nan=False, separators=(",", ":")).encode("utf-8")
-        self.send_response(200)
+        self.send_response(status)
         self.send_header("Content-Type", "application/json; charset=utf-8")
         self.send_header("Content-Length", str(len(raw)))
         self.send_header("Cache-Control", "no-store")
         self.send_header("X-Content-Type-Options", "nosniff")
         self.end_headers()
         self.wfile.write(raw)
+
+    def do_GET(self):
+        if not self._authorized():
+            return
+        if self.path == "/scene":
+            self._send_json(200, scene_summary(self.server.state))
+        elif re.fullmatch(r"/moves/[0-9a-f]{32}", self.path):
+            try:
+                self._send_json(200, self.server.state.agent_move_status(self.path.rsplit("/", 1)[1]))
+            except Exception as error:
+                self._send_json(getattr(error, "status", 500),
+                                {"error": str(error) if hasattr(error, "status") else "Matrix tool failed"})
+        else:
+            self.send_error(404)
+
+    def do_POST(self):
+        if not self._authorized():
+            return
+        if self.path != "/move":
+            self.send_error(404)
+            return
+        try:
+            length = int(self.headers.get("Content-Length", ""))
+            if not 0 < length <= 4096:
+                raise ValueError("Invalid Matrix move size")
+            value = json.loads(self.rfile.read(length))
+            result = self.server.state.agent_move(value)
+            deadline = time.monotonic() + MOVE_WAIT
+            while result["status"] == "queued" and time.monotonic() < deadline:
+                time.sleep(.1)
+                result = self.server.state.agent_move_status(result["requestId"])
+            self._send_json(200, result)
+        except Exception as error:
+            self._send_json(getattr(error, "status", 400 if isinstance(error, ValueError) else 500),
+                            {"error": str(error) if hasattr(error, "status") else "Invalid Matrix move request"})
 
 
 class MatrixToolBridge:

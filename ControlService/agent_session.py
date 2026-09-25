@@ -8,6 +8,7 @@ from __future__ import annotations
 
 from pathlib import Path
 import json
+import math
 import re
 import sys
 from typing import Protocol
@@ -85,14 +86,32 @@ def _approval_description(method: str, params: dict, cwd: Path) -> tuple[str, bo
 
 
 def _mcp_approval_description(params: dict) -> tuple[str, bool]:
-    """Only the exact read-only Matrix summary tool is reviewable in XR."""
+    """Only typed, bounded Matrix tools have XR-reviewable descriptions."""
     meta = params.get("_meta")
-    if (params.get("serverName") == "matrix_webxr" and isinstance(meta, dict) and
-            meta.get("codex_approval_kind") == "mcp_tool_call" and
-            meta.get("tool_params") == {} and
-            params.get("message") ==
+    if (params.get("serverName") != "matrix_webxr" or not isinstance(meta, dict) or
+            meta.get("codex_approval_kind") != "mcp_tool_call"):
+        return "Codex requests an MCP tool. Review it on PC before approval.", False
+    arguments = meta.get("tool_params")
+    if (arguments == {} and params.get("message") ==
             'Allow the matrix_webxr MCP server to run tool "matrix_scene_summary"?'):
         return "Read the current Matrix room summary. This does not change the world.", True
+    if (params.get("message") == 'Allow the matrix_webxr MCP server to run tool "matrix_move_object"?' and
+            isinstance(arguments, dict) and set(arguments) ==
+            {"room_id", "scene_revision", "object_id", "expected_asset_id", "position"} and
+            type(arguments["scene_revision"]) is int and arguments["scene_revision"] >= 0 and
+            all(isinstance(arguments[key], str) and
+                re.fullmatch(r"[A-Za-z0-9._:-]{1,128}", arguments[key])
+                for key in ("room_id", "object_id", "expected_asset_id")) and
+            isinstance(arguments["position"], dict) and set(arguments["position"]) == {"x", "y", "z"} and
+            all(type(arguments["position"][axis]) in (int, float) and
+                math.isfinite(arguments["position"][axis]) and
+                -100 <= arguments["position"][axis] <= 100 for axis in ("x", "y", "z"))):
+        point = arguments["position"]
+        summary = (f"Move {arguments['expected_asset_id']} ({arguments['object_id']}) in "
+                   f"{arguments['room_id']} to ({point['x']}, {point['y']}, {point['z']}) "
+                   f"at scene revision {arguments['scene_revision']}.")
+        if len(summary) <= 200:
+            return summary, True
     return "Codex requests an MCP tool. Review it on PC before approval.", False
 
 
@@ -158,11 +177,12 @@ class LocalCodexAgentBackend:
             script = Path(__file__).with_name("matrix_mcp.py")
             settings = {"command": sys.executable, "args": [str(script)],
                         "env_vars": ["MATRIX_CONTROL_URL", "MATRIX_CONTROL_TOKEN"],
-                        "enabled_tools": ["matrix_scene_summary"],
+                        "enabled_tools": ["matrix_scene_summary", "matrix_move_object", "matrix_move_status"],
                         "default_tools_approval_mode": "auto",
                         "startup_timeout_sec": 10}
             for key, value in settings.items():
                 command += ["-c", f"mcp_servers.matrix_webxr.{key}={json.dumps(value)}"]
+            command += ["-c", 'mcp_servers.matrix_webxr.tools.matrix_move_object.approval_mode="prompt"']
             environment = {"MATRIX_CONTROL_URL": matrix_bridge.url,
                            "MATRIX_CONTROL_TOKEN": matrix_bridge.token}
         command += ["app-server", "--stdio"]
