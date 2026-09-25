@@ -79,18 +79,31 @@ class ContentBridge:
 
     def planner_context(self, prompt="", installed_assets=None):
         """Bounded source suggestions and user searches; never download or install."""
+        with self.state.lock:
+            runtime = copy.deepcopy(self.runtime)
+            rows = copy.deepcopy(self.search_results.get("assets", []) if isinstance(self.search_results, dict) else [])
         normalized = " " + re.sub(r"[^a-z0-9]+", " ", prompt.casefold()).strip() + " "
         installed = any(" " + re.sub(r"[^a-z0-9]+", " ", name.casefold()).strip() + " " in normalized
                         for asset in (installed_assets or []) if isinstance(asset, dict)
                         for name in (asset.get("assetId"), asset.get("displayName")) if isinstance(name, str) and name)
         discovery_intent = bool(re.search(r"\b(add|create|find|give|import|make|place|put|search|show|spawn|summon)\b", prompt, re.I))
         alternative_intent = bool(re.search(r"\b(another|alternative|better|replace|replacement)\b", prompt, re.I))
-        ready = self.catalog.suggest_ready(prompt) if discovery_intent and (not installed or alternative_intent) and hasattr(self.catalog, "suggest_ready") else []
+        ready = (self.catalog.suggest_ready(prompt, limit=40, platform=runtime["platform"],
+                                            unity_version=runtime["unityVersion"])
+                 if runtime["supported"] and discovery_intent and (not installed or alternative_intent)
+                 and hasattr(self.catalog, "suggest_ready") else [])
+        environment_intent = bool(re.search(r"\b(skybox|sky|hdri|panorama|background|environment)\b", prompt, re.I))
+        material_intent = bool(re.search(r"\b(material|texture)\b", prompt, re.I))
+        if not environment_intent and not material_intent:
+            ready = [item for item in ready if item.get("category") == "objects"]
         public = self.catalog.suggest_public(prompt) if discovery_intent and (not installed or alternative_intent) and hasattr(self.catalog, "suggest_public") else []
-        with self.state.lock:
-            rows = self.search_results.get("assets", []) if isinstance(self.search_results, dict) else []
         selected, seen = [], set()
         for asset in ready + public + rows:
+            if asset.get("runtimeLoadable"):
+                pack = asset.get("metadata", {}).get("contentPack", {})
+                if (not runtime["supported"] or asset.get("targetPlatform") != runtime["platform"]
+                        or pack.get("unityVersion") != runtime["unityVersion"]):
+                    continue
             identity = (asset.get("providerId"), asset.get("assetId"), asset.get("version"), asset.get("targetPlatform"))
             if identity in seen:
                 continue

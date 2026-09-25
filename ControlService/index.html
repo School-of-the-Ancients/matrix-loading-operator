@@ -325,8 +325,8 @@ async function saveCodexSelection(){
 $('codexModel').onchange=()=>{renderReasoning();saveCodexSelection();};
 $('codexReasoning').onchange=saveCodexSelection;
 function renderVoice(voice){
-  const phases={listening:'Listening in the headset…',transcribing:'Transcribing speech…',planning:'Codex is planning from the captured selection…',processing:'Processing the voice request…',ready:'Voice proposal ready. Review before applying.',review_only:'Image review complete — no changes proposed.',applying:'Applying the reviewed voice proposal…',applied:'Voice proposal applied.',finished:'Voice proposal is no longer awaiting Apply.',needs_clarification:'The voice request needs more detail.',error:'Voice request failed.',failed:'Voice request failed.',cancelled:'Voice request cancelled.'};
-  $('voiceStatus').textContent=voice?(phases[voice.phase]||voice.summary||'Voice request received.'):'No voice request yet.';
+  const phases={listening:'Listening in the headset…',transcribing:'Transcribing speech…',planning:'Codex is planning from the captured selection…',importing:'Installing selected prefabs on the Quest…',processing:'Processing the voice request…',ready:'Voice proposal ready. Review before applying.',review_only:'Image review complete — no changes proposed.',applying:'Applying the reviewed voice proposal…',applied:'Voice proposal applied.',finished:'Voice proposal is no longer awaiting Apply.',needs_clarification:'The voice request needs more detail.',error:'Voice request failed.',failed:'Voice request failed.',cancelled:'Voice request cancelled.'};
+  $('voiceStatus').textContent=voice?(voice.phase==='planning'&&voice.progress?voice.progress+'…':phases[voice.phase]||voice.summary||'Voice request received.'):'No voice request yet.';
   $('voiceTranscript').hidden=!voice?.transcript;$('voiceTranscript').textContent=voice?.transcript?'Heard: “'+voice.transcript+'”':'';
   $('voiceError').hidden=!voice?.error;$('voiceError').textContent=voice?.error||'';
   $('voiceScreenshot').hidden=!voice;$('voiceScreenshot').textContent=voice?screenshotDescription(voice.screenshot):'';

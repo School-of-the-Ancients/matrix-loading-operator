@@ -45,6 +45,32 @@ class ContentServiceTests(unittest.TestCase):
     def install(self):
         return self.state.content.queue_install({"providerId": "test", "assetId": "props", "version": "1.0.0"})
 
+    def test_generic_scene_shortlist_uses_props_instead_of_panorama_domes(self):
+        panorama = {"providerId": "test", "assetId": "moon-lab", "version": "1", "title": "Moon Lab",
+                    "category": "environments", "runtimeLoadable": True, "targetPlatform": CAPS["platform"],
+                    "metadata": {"contentPack": {"unityVersion": CAPS["unityVersion"]}}}
+        model = {**panorama, "assetId": "microscope", "title": "Microscope", "category": "objects"}
+        with patch.object(self.catalog, "suggest_ready", return_value=[panorama, model], create=True), \
+             patch.object(self.catalog, "suggest_public", return_value=[], create=True):
+            ordinary = self.state.content.planner_context("Build a sci-fi scene and import stuff")
+            skybox = self.state.content.planner_context("Import a moon lab skybox")
+        self.assertEqual([item["assetId"] for item in ordinary], ["microscope"])
+        self.assertEqual([item["assetId"] for item in skybox], ["moon-lab", "microscope"])
+
+    def test_planner_shortlist_excludes_incompatible_runtime_packs(self):
+        compatible = {"providerId": "test", "assetId": "beacon", "version": "1", "title": "Beacon",
+                      "category": "objects", "runtimeLoadable": True, "targetPlatform": CAPS["platform"],
+                      "metadata": {"contentPack": {"unityVersion": CAPS["unityVersion"]}}}
+        wrong_platform = {**compatible, "assetId": "android-beacon", "targetPlatform": "Android"}
+        wrong_unity = {**compatible, "assetId": "old-beacon",
+                       "metadata": {"contentPack": {"unityVersion": "2022.3.0f1"}}}
+        with patch.object(self.catalog, "suggest_ready", return_value=[wrong_platform, wrong_unity, compatible], create=True) as ready, \
+             patch.object(self.catalog, "suggest_public", return_value=[], create=True):
+            found = self.state.content.planner_context("Import a beacon")
+        ready.assert_called_once_with("Import a beacon", limit=40, platform=CAPS["platform"],
+                                      unity_version=CAPS["unityVersion"])
+        self.assertEqual([row["assetId"] for row in found], ["beacon"])
+
     def wait(self):
         for _ in range(200):
             job = next(iter(self.state.content.jobs.values()))

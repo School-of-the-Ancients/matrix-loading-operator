@@ -202,17 +202,26 @@ the specification and compatibility checks in more detail.
 
 ## What can I ask the AI to do?
 
-The Operator searches the local Poly Haven prefab catalog before a typed AI
-summon request. When the best compatible pack is not installed, it installs
-that pack through the connected player, waits for the runtime to register the
-prefab, and then creates a placement proposal. Review and Apply the proposal
-to change the scene. No APK rebuild is needed for each compatible pack.
+The Operator searches the local Poly Haven prefab catalog before a typed or
+headset-voice AI request. For a scene needing missing props, the AI can choose
+up to four exact compatible local packs. The PC installs them sequentially,
+waits for each Quest acknowledgement, and asks the AI to compose again from
+the updated prefab catalog. Review and Apply the final scene proposal. No APK
+rebuild is needed for each compatible pack. A disconnected headset or changed
+scene stops this sequence with an explicit error; reconnect and request a new
+proposal instead of assuming an edit landed.
+Cancelling a voice request stops later pack selections and cancels the current
+PC preparation when it has not been sent to the player. A pack already being
+installed on the Quest can still finish; installed packs remain in its cache.
 
 - After searching: **“Which of these packs fits a small sci-fi control station?”**
 - After installing: **“Arrange three Sci-fi Beacons around the selected area.”**
 - With a placed prop selected: **“Make it bob gently above its current position.”**
 
 The automatic install path applies to **ready, compatible local prefab packs**.
+Generic prop requests shortlist object models rather than panorama domes or
+material sample tiles. Ask explicitly for a panorama or material to see those
+pack categories; a panorama dome is a scene object, not a true Unity skybox.
 The AI does not acquire Asset Store packages, author Unity prefabs, export new
 bundles, or start generation jobs. Assets that lack a ready pack still require
 the authoring workflow above. You still review and Apply scene changes. Save
@@ -225,6 +234,10 @@ output can be retrieved into the PC cache and previewed in the library. Generati
 a classroom image does **not** put that background in the headset or create room
 geometry. A texture-bearing static prop needs a compatible Unity export; runtime
 skybox switching, video surfaces, and generated 3D need additional integrations.
+A flat image cannot become a complete VR skybox by merely stretching it onto a
+sphere. A reviewed 360-degree equirectangular workflow or image extension step,
+plus a runtime skybox application path, is needed. No ComfyUI worker or reviewed
+360-degree workflow is enabled in this checkout's current service configuration.
 
 The eight category choices organize catalog entries and import work. They do not
 mean that eight runtime systems are available. This version installs **static

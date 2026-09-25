@@ -1,5 +1,27 @@
 # Matrix Operator checkpoints
 
+## Quest 3 live catalog and AI review (September 24, 2026)
+
+The virtual Quest app and native Matrix AR app both built as ARM64 APKs with 457
+Unity core checks each and were installed on a real Quest 3. The native AR app
+launched after the wearer granted spatial permission and published a 23-asset
+room snapshot; this session did not confirm physical alignment or install a
+pack in AR. The white room installed and placed a Poly Haven armchair, which
+the wearer judged recognizable and correctly sized.
+
+A real headset voice request for a sci-fi scene originally stopped after naming
+four packs. The revised service now lets the AI select exact compatible local
+packs, installs them into the connected Quest, and replans from the registered
+assets. Replaying that request installed four packs, applied 13 scene placements,
+captured the virtual result, and used image-capable AI review to identify an
+obstructing panorama dome. After one offline interruption, a fresh reviewed
+correction removed it and moved the workbench props nearer the viewer. The
+Quest acknowledged the four correction commands and the final virtual capture
+showed a recognizable lab. The [sanitized headset record](../Validation/quest3-autoload-20260924.json)
+and three virtual JPEGs in `Validation/` separate observed results from gaps.
+The ComfyUI connector currently has no enabled worker or reviewed 360-degree
+workflow in this service; a flat generated image is not yet a VR skybox.
+
 ## 4616 miniature world source candidate (September 24, 2026)
 
 The `codex/4616-miniature-world` branch adds 16 original miniature props to the seven bundled assets, bounded two-waypoint motion, and saved selection toggles for the lamp and chest. The Operator discovers the new IDs, bounds, behavior kinds and compatible interactions. The existing reviewed Apply, receipt, Undo and schema-1 save paths remain authoritative. The [inventory and repeatable demo](4616-Miniature-World.md) give the exact scope.

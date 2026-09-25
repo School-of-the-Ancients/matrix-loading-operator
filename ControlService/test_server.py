@@ -10,7 +10,7 @@ from unittest.mock import patch
 import urllib.error
 import urllib.request
 
-from server import APIError, LEASE_SECONDS, MAX_BODY, Server, State
+from server import APIError, LEASE_SECONDS, MAX_BODY, Server, State, plan
 
 
 SNAPSHOT = {"scene": {"schemaVersion": 1, "roomId": "test-room", "objects": []},
@@ -71,6 +71,58 @@ class ServiceTests(unittest.TestCase):
         self.assertTrue(proposal["requiresApply"])
         self.assertTrue(proposal["planId"])
         return proposal
+
+    def test_ai_imports_catalog_pack_then_replans_from_registered_prefab(self):
+        self.assertEqual(self.exchange()[0], 200)
+        candidate = {"providerId": "test", "assetId": "sci-prop", "version": "1", "runtimeLoadable": True,
+                     "targetPlatform": "StandaloneWindows64", "title": "Sci prop"}
+        identity = {key: candidate[key] for key in ("providerId", "assetId", "version")}
+        prefab = "test:sci-prop:1:model"
+        first = {"commands": [], "contentRequests": [identity], "summary": "Install a sci-fi prop.",
+                 "requiresApply": False, "status": "needs_clarification"}
+        second = {"commands": [{"op": "spawn", "assetId": prefab, "anchorId": "floor", "transform": TRANSFORM}],
+                  "contentRequests": [], "summary": "Place the imported sci-fi prop.",
+                  "requiresApply": True, "status": "ready"}
+
+        def install(_):
+            with self.state.lock:
+                self.state.latest["assets"].append({"assetId": prefab, "displayName": "Sci prop"})
+                self.state.revision += 1
+                self.state.content.jobs["job"] = {"requestId": "job", "phase": "ready", "error": ""}
+            return {"requestId": "job"}
+
+        with patch.object(self.state.content, "planner_context", return_value=[candidate]), \
+             patch.object(self.state.content, "queue_install", side_effect=install) as queued, \
+             patch("server.Planner.plan", side_effect=[first, second]) as planner:
+            proposal = plan(self.state, {"text": "Import sci-fi stuff", "mode": "codex-cli"})
+        queued.assert_called_once_with(identity)
+        self.assertEqual(planner.call_count, 2)
+        self.assertEqual(proposal["installedContent"], [identity])
+        self.assertEqual(proposal["commands"][0]["assetId"], prefab)
+        self.assertTrue(proposal["requiresApply"])
+
+    def test_cancelled_voice_planning_stops_preparing_content_install(self):
+        self.assertEqual(self.exchange()[0], 200)
+        identity = {"providerId": "test", "assetId": "sci-prop", "version": "1"}
+        first = {"commands": [], "contentRequests": [identity], "summary": "Install prop.",
+                 "requiresApply": False, "status": "needs_clarification"}
+        cancelled = [False]
+        request_id = "a" * 32
+
+        def install(_):
+            with self.state.lock:
+                self.state.content.jobs[request_id] = {"requestId": request_id, "phase": "preparing",
+                                                       "clientId": self.state.client_id, "error": ""}
+            cancelled[0] = True
+            return {"requestId": request_id}
+
+        with patch("server.Planner.plan", return_value=first), \
+             patch.object(self.state.content, "queue_install", side_effect=install), \
+             patch.object(self.state.content, "cancel") as stop:
+            with self.assertRaisesRegex(APIError, "cancelled"):
+                plan(self.state, {"text": "Import a sci-fi prop", "mode": "codex-cli"},
+                     cancelled=lambda: cancelled[0])
+        stop.assert_called_once_with(request_id)
 
     def apply_plan(self, proposal):
         return self.request("/api/apply_plan", {"planId": proposal["planId"]})

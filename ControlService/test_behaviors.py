@@ -262,7 +262,7 @@ class BehaviorValidationTests(unittest.TestCase):
             result = Planner(ProviderConfig("http://127.0.0.1:1", "test-only")).plan("rotate it", SNAPSHOT, mode="openai-compatible")
         self.assertEqual(remote.call_args.args[2]["runtimeSkillCatalog"]["skills"], [])
         self.assertFalse(result["requiresApply"])
-        self.assertEqual(set(_schema()["properties"]), {"commands", "summary", "assumptions"})
+        self.assertEqual(set(_schema()["properties"]), {"commands", "summary", "assumptions", "contentRequests"})
 
 
 class BehaviorServiceTests(unittest.TestCase):

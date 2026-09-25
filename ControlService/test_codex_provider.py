@@ -278,7 +278,8 @@ class PlanningTests(NativeConfigTestCase):
 
     def test_schema_contains_only_existing_operations(self):
         schema = provider._schema()
-        self.assertEqual(set(schema["required"]), {"commands", "summary", "assumptions"})
+        self.assertEqual(set(schema["required"]), {"commands", "summary", "assumptions", "contentRequests"})
+        self.assertEqual(schema["properties"]["contentRequests"]["maxItems"], 4)
         assumptions = schema["properties"]["assumptions"]
         self.assertEqual(assumptions["maxItems"], 8)
         self.assertEqual(assumptions["items"], {"type": "string", "minLength": 1, "maxLength": 200})
@@ -341,6 +342,28 @@ class ModelSelectionTests(NativeConfigTestCase):
         self.assertIn("over a day old", result["warning"])
         self.assertEqual(len(result["models"]), 1)
         self.assertNotIn("not read", json.dumps(result))
+
+    def test_recently_advertised_model_survives_a_shorter_valid_cache(self):
+        second = {**self.public_model, "slug": "model-b", "display_name": "Model B"}
+        self.write_cache([self.public_model, second])
+        self.assertEqual([item["id"] for item in self.options()["models"]], ["model-a", "model-b"])
+        self.write_cache([self.public_model])
+        result = self.options()
+        self.assertEqual([item["id"] for item in result["models"]], ["model-a", "model-b"])
+        self.assertIn("earlier in this service session", result["warning"])
+        self.assertEqual(self.select({"model": "model-b", "reasoningEffort": "high"}).model, "model-b")
+
+    def test_configured_default_remains_selectable_when_cache_lacks_it(self):
+        self.write_cache([self.public_model])
+        env = {**self.environ, "SANDBOX_AI_MODE": "codex-cli", "SANDBOX_CODEX_MODEL": "model-b"}
+        result = provider.codex_options(env)
+        fallback = next(item for item in result["models"] if item["id"] == "model-b")
+        self.assertTrue(fallback["configuredDefault"])
+        self.assertFalse(fallback["supportsImages"])
+        self.assertIn("absent from the current local cache", result["warning"])
+        self.assertEqual(provider.select_codex_config(provider.CodexConfig(self.executable, model="model-b"),
+                                                      {"model": "model-b", "reasoningEffort": "medium"},
+                                                      options=result).model, "model-b")
 
     def test_unavailable_home_directory_keeps_default_available(self):
         with patch.object(provider.Path, "home", side_effect=RuntimeError("Could not determine home directory.")):
