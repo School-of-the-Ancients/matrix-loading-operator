@@ -217,6 +217,7 @@ export class MatrixWorld {
         case 'stop_component':
           object=this.requireObject(command.objectId);
           if(!object.component)throw Error('Object has no component');
+          if(object.component.status==='failed')throw Error('Failed component must be removed');
           object.component.status='stopped';delete object.component.error;
           result.objectId=object.objectId;break;
         case 'remove_component':

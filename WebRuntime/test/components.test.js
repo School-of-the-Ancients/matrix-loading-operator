@@ -63,5 +63,7 @@ test('component budgets, unsupported capabilities and missing target fail closed
   assert.equal(world.execute({requestId:'delete',op:'delete',objectId:'o-1'}).ok,true);
   assert.equal(world.scene.objects[0].component.status,'failed');
   assert.equal(world.scene.objects[0].component.error,'Component target was deleted');
+  assert.equal(world.execute({requestId:'stop',op:'stop_component',objectId:'o-2'}).ok,false);
+  assert.equal(world.scene.objects[0].component.status,'failed');
   world.validateScene(world.scene);
 });
