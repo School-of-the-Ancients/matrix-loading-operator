@@ -1,6 +1,5 @@
-"""Private loopback bridge from the Matrix MCP tool to live WebXR state.
+"""Private loopback bridge from PC-local Codex MCP tools to Matrix state.
 
-Only a bounded read-only scene summary is available in this first tool slice.
 The separate listener avoids sharing the headset-facing API or its credentials
 with Codex's MCP subprocess, including when that API uses TLS.
 """
@@ -17,6 +16,7 @@ import urllib.request
 import urllib.parse
 
 from web_assets import WebAssetError
+from web_components import ComponentError
 
 
 MAX_SUMMARY_OBJECTS = 24
@@ -66,6 +66,30 @@ def register_glb(url: str, token: str, value: dict) -> dict:
     return _request_json(url[:-6] + "/register-glb", token, value)
 
 
+def publish_component(url: str, token: str, package: dict) -> dict:
+    if not url.endswith("/scene"):
+        raise ValueError("Invalid Matrix tool bridge URL")
+    return _request_json(url[:-6] + "/publish-component", token, {"package": package})
+
+
+def list_components(url: str, token: str, offset: int = 0, limit: int = 24) -> dict:
+    if not url.endswith("/scene"):
+        raise ValueError("Invalid Matrix tool bridge URL")
+    return _request_json(url[:-6] + f"/components?offset={offset}&limit={limit}", token)
+
+
+def component_action(url: str, token: str, value: dict) -> dict:
+    if not url.endswith("/scene"):
+        raise ValueError("Invalid Matrix tool bridge URL")
+    return _request_json(url[:-6] + "/component-action", token, value)
+
+
+def component_status(url: str, token: str, request_id: str) -> dict:
+    if not url.endswith("/scene") or not re.fullmatch(r"[0-9a-f]{32}", request_id):
+        raise ValueError("Invalid Matrix component receipt request")
+    return _request_json(url[:-6] + "/component-actions/" + request_id, token)
+
+
 def scene_summary(state) -> dict:
     with state.lock:
         state.expire()
@@ -80,8 +104,15 @@ def scene_summary(state) -> dict:
                 "roomId": scene.get("roomId") if online else None,
                 "roomMode": (snapshot.get("roomContext") or {}).get("mode") if online else None,
                 "objectCount": len(objects) if online else 0,
+                "componentSchemaVersion": snapshot.get("componentSchemaVersion") if online else None,
                 "objects": [{"objectId": item["objectId"], "assetId": item["assetId"],
-                             "anchorId": item["anchorId"], "transform": item["transform"]}
+                             "anchorId": item["anchorId"], "transform": item["transform"],
+                             **({"component": {"componentId": item["component"]["componentId"],
+                                                "targetObjectId": item["component"]["targetObjectId"],
+                                                "status": item["component"]["status"],
+                                                **({"error": item["component"]["error"]}
+                                                   if "error" in item["component"] else {})}}
+                                if "component" in item else {})}
                             for item in objects[:MAX_SUMMARY_OBJECTS]] if online else [],
                 "truncated": len(objects) > MAX_SUMMARY_OBJECTS if online else False}
 
@@ -129,6 +160,23 @@ class _Handler(BaseHTTPRequestHandler):
             except Exception as error:
                 self._send_json(getattr(error, "status", 500),
                                 {"error": str(error) if hasattr(error, "status") else "Matrix tool failed"})
+        elif re.fullmatch(r"/component-actions/[0-9a-f]{32}", self.path):
+            try:
+                self._send_json(200, self.server.state.agent_component_status(self.path.rsplit("/", 1)[1]))
+            except Exception as error:
+                self._send_json(getattr(error, "status", 500),
+                                {"error": str(error) if hasattr(error, "status") else "Matrix tool failed"})
+        elif self.path.startswith("/components?"):
+            try:
+                query = urllib.parse.parse_qs(self.path[12:], strict_parsing=True)
+                if set(query) != {"offset", "limit"} or any(len(values) != 1 for values in query.values()):
+                    raise ValueError()
+                self._send_json(200, self.server.state.agent_list_components(int(query["offset"][0]),
+                                                                              int(query["limit"][0])))
+            except Exception as error:
+                known = hasattr(error, "status") or isinstance(error, ComponentError)
+                self._send_json(getattr(error, "status", 400 if known or isinstance(error, ValueError) else 500),
+                                {"error": str(error) if known else "Invalid component page"})
         elif self.path.startswith("/assets?"):
             try:
                 query = urllib.parse.parse_qs(self.path[8:], strict_parsing=True)
@@ -145,19 +193,27 @@ class _Handler(BaseHTTPRequestHandler):
     def do_POST(self):
         if not self._authorized():
             return
-        if self.path not in ("/move", "/register-glb"):
+        if self.path not in ("/move", "/register-glb", "/publish-component", "/component-action"):
             self.send_error(404)
             return
         try:
             length = int(self.headers.get("Content-Length", ""))
             # Escaped Unicode in valid 500-character descriptions can exceed
             # the move endpoint's small request budget.
-            limit = 32 * 1024 if self.path == "/register-glb" else 4096
+            limit = 32 * 1024 if self.path == "/register-glb" else 8192 if self.path == "/publish-component" else 4096
             if not 0 < length <= limit:
                 raise ValueError("Invalid Matrix tool request size")
             value = json.loads(self.rfile.read(length))
             if self.path == "/register-glb":
                 result = self.server.state.agent_register_glb(value)
+            elif self.path == "/publish-component":
+                result = self.server.state.agent_publish_component(value)
+            elif self.path == "/component-action":
+                result = self.server.state.agent_component_action(value)
+                deadline = time.monotonic() + MOVE_WAIT
+                while result["status"] == "queued" and time.monotonic() < deadline:
+                    time.sleep(.1)
+                    result = self.server.state.agent_component_status(result["requestId"])
             else:
                 result = self.server.state.agent_move(value)
                 deadline = time.monotonic() + MOVE_WAIT
@@ -166,7 +222,7 @@ class _Handler(BaseHTTPRequestHandler):
                     result = self.server.state.agent_move_status(result["requestId"])
             self._send_json(200, result)
         except Exception as error:
-            known = hasattr(error, "status") or isinstance(error, WebAssetError)
+            known = hasattr(error, "status") or isinstance(error, (WebAssetError, ComponentError))
             self._send_json(getattr(error, "status", 400 if known or isinstance(error, ValueError) else 500),
                             {"error": str(error) if known else "Invalid Matrix tool request"})
 

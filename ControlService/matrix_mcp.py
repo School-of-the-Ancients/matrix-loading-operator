@@ -5,7 +5,8 @@ import os
 
 from mcp.server.fastmcp import FastMCP
 from mcp.types import ToolAnnotations
-from matrix_tool_bridge import list_assets, move_object, move_status, read_scene, register_glb
+from matrix_tool_bridge import (component_action, component_status, list_assets, list_components,
+                                move_object, move_status, publish_component, read_scene, register_glb)
 
 
 server = FastMCP("matrix-webxr")
@@ -68,6 +69,74 @@ def matrix_register_glb(source_path: str, expected_sha256: str, name: str,
                         {"source_path": source_path, "expected_sha256": expected_sha256,
                          "name": name, "description": description,
                          "spawn_scale": spawn_scale, "local_bounds": local_bounds})
+
+
+@server.tool(annotations=ToolAnnotations(readOnlyHint=False, destructiveHint=False,
+                                         idempotentHint=True, openWorldHint=False))
+def matrix_publish_component(package: dict) -> dict:
+    """Publish an immutable Matrix numeric component package after native approval.
+
+    Schema 1 has name, schemaVersion=1 and outputs mapping transform channels to
+    bounded expression trees. Nodes: const(value), time, self(path), target(path),
+    sin(arg), cos(arg), add(args), mul(args). No executable JavaScript is accepted.
+    Publishing alone does not change the live scene. Repeating identical content
+    returns the same component ID.
+    """
+    return publish_component(os.environ["MATRIX_CONTROL_URL"],
+                             os.environ["MATRIX_CONTROL_TOKEN"], package)
+
+
+@server.tool(annotations=ToolAnnotations(readOnlyHint=True))
+def matrix_list_components(offset: int = 0, limit: int = 24) -> dict:
+    """List published Matrix WebXR component versions and output channels."""
+    return list_components(os.environ["MATRIX_CONTROL_URL"],
+                           os.environ["MATRIX_CONTROL_TOKEN"], offset, limit)
+
+
+@server.tool(annotations=ToolAnnotations(readOnlyHint=False, destructiveHint=False,
+                                         idempotentHint=False, openWorldHint=False))
+def matrix_attach_component(room_id: str, scene_revision: int, object_id: str,
+                            expected_asset_id: str, component_id: str,
+                            target_object_id: str) -> dict:
+    """Attach a published component to one virtual-floor object after native approval.
+
+    Use current room ID and revision from matrix_scene_summary. The target must
+    be a different virtual-floor object. Check the returned receipt; queued or
+    unconfirmed does not mean the behavior is running.
+    """
+    return component_action(os.environ["MATRIX_CONTROL_URL"], os.environ["MATRIX_CONTROL_TOKEN"],
+                            {"action": "attach", "room_id": room_id, "scene_revision": scene_revision,
+                             "object_id": object_id, "expected_asset_id": expected_asset_id,
+                             "component_id": component_id, "target_object_id": target_object_id})
+
+
+@server.tool(annotations=ToolAnnotations(readOnlyHint=False, destructiveHint=False,
+                                         idempotentHint=False, openWorldHint=False))
+def matrix_stop_component(room_id: str, scene_revision: int, object_id: str,
+                          expected_asset_id: str, component_id: str) -> dict:
+    """Stop one running component and restore its object's saved base transform."""
+    return component_action(os.environ["MATRIX_CONTROL_URL"], os.environ["MATRIX_CONTROL_TOKEN"],
+                            {"action": "stop", "room_id": room_id, "scene_revision": scene_revision,
+                             "object_id": object_id, "expected_asset_id": expected_asset_id,
+                             "component_id": component_id})
+
+
+@server.tool(annotations=ToolAnnotations(readOnlyHint=False, destructiveHint=False,
+                                         idempotentHint=False, openWorldHint=False))
+def matrix_remove_component(room_id: str, scene_revision: int, object_id: str,
+                            expected_asset_id: str, component_id: str) -> dict:
+    """Remove the exact attached component, including a stopped or failed one."""
+    return component_action(os.environ["MATRIX_CONTROL_URL"], os.environ["MATRIX_CONTROL_TOKEN"],
+                            {"action": "remove", "room_id": room_id, "scene_revision": scene_revision,
+                             "object_id": object_id, "expected_asset_id": expected_asset_id,
+                             "component_id": component_id})
+
+
+@server.tool(annotations=ToolAnnotations(readOnlyHint=True))
+def matrix_component_status(request_id: str) -> dict:
+    """Read an attach/stop/remove runtime receipt and observed component state."""
+    return component_status(os.environ["MATRIX_CONTROL_URL"],
+                            os.environ["MATRIX_CONTROL_TOKEN"], request_id)
 
 
 if __name__ == "__main__":

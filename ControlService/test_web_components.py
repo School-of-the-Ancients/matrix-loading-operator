@@ -62,6 +62,12 @@ class WebComponentTests(unittest.TestCase):
                 state.queue([attach])
             current["componentSchemaVersion"] = 1
             state.exchange({"clientId": "web-test", "snapshot": current})
+            published = state.web_components.publish(PACKAGE)
+            attach["componentId"] = published["componentId"]
+            with self.assertRaises(APIError):
+                state.queue([{**attach, "componentId": ID}])
+            with self.assertRaises(APIError):
+                state.queue([{**attach, "package": {**PACKAGE, "name": "Forged"}}])
             queued = state.queue([attach])["commands"][0]
             self.assertEqual(queued["op"], "attach_component")
             self.assertEqual(queued["package"], PACKAGE)
