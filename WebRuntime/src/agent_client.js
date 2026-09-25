@@ -38,11 +38,12 @@ export class AgentClient {
     try{return await this.restore();}
     finally{this.polling=false;}
   }
-  async send(text){
+  async send(text,context=null){
     if(!this.sessionId)await this.connect();
     if(typeof text!=='string'||!text.trim()||text.length>16000)throw Error('Enter a message up to 16000 characters.');
     try{
-      await this.request('/api/agent/turn',{sessionId:this.sessionId,text});
+      await this.request('/api/agent/turn',{sessionId:this.sessionId,text,
+        ...(context?{context}:{})});
       return await this.restore();
     }catch(error){this._fail(error);throw error;}
   }

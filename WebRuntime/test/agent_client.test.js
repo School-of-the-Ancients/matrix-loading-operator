@@ -28,11 +28,14 @@ test('agent session persists only an opaque Matrix ID and sends follow-ups to it
   await client.connect();
   assert.deepEqual(store.writes,[[AGENT_SESSION_KEY,id]]);
   await client.send('Make this taller');
+  await client.send('Put this there',{schemaVersion:1,roomId:'room-1'});
   assert.equal(await client.transcribe('wav-data'),'Put this there');
   await client.decide(42,'turn-1',false);
   await client.cancel();
   assert.deepEqual(calls.filter(([path])=>path==='/api/agent/turn')[0][1],
     {sessionId:id,text:'Make this taller'});
+  assert.deepEqual(calls.filter(([path])=>path==='/api/agent/turn')[1][1],
+    {sessionId:id,text:'Put this there',context:{schemaVersion:1,roomId:'room-1'}});
   assert.deepEqual(calls.filter(([path])=>path==='/api/agent/approval')[0][1],
     {sessionId:id,approvalId:42,turnId:'turn-1',approve:false});
   assert.deepEqual(calls.filter(([path])=>path==='/api/agent/transcribe')[0][1],

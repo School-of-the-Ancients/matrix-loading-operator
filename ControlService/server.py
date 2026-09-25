@@ -297,6 +297,83 @@ def local_agent_backend():
     return LocalCodexAgentBackend(config, Path(__file__).resolve().parent.parent)
 
 
+def agent_turn_context(state, value):
+    """Reduce one wearer-owned semantic hit to bounded, advisory agent data."""
+    require(isinstance(value, dict) and set(value) == {"schemaVersion", "inputSource", "clientId",
+            "roomId", "selectedObjectId", "pointingTarget", "viewerFrame"},
+            "Invalid Matrix Agent context")
+    require(type(value["schemaVersion"]) is int and value["schemaVersion"] == 1,
+            "Unsupported Matrix Agent context version")
+    require(value["inputSource"] in ("text", "voice_transcript"), "Invalid Agent input source")
+    client_id = text(value["clientId"], "Agent clientId")
+    room_id = text(value["roomId"], "Agent roomId")
+    selected_id = value["selectedObjectId"]
+    require(selected_id is None or isinstance(selected_id, str), "Invalid selected object")
+    if selected_id is not None:
+        selected_id = text(selected_id, "selected object")
+    with state.lock:
+        state.expire()
+        require(state.online() and state.client_id == client_id and state.latest,
+                "Matrix world is not connected for spatial context", 409)
+        current = state.latest
+        require(current["scene"]["roomId"] == room_id, "Matrix room changed; point and retry", 409)
+        objects = {item["objectId"]: item for item in current["scene"]["objects"]}
+        anchors = {item["anchorId"] for item in current["anchors"]}
+        require(selected_id is None or selected_id in objects,
+                "Selected Matrix object is no longer available", 409)
+        target = value["pointingTarget"]
+        if target is not None:
+            require(isinstance(target, dict) and set(target) == {"anchorId", "objectId", "position"},
+                    "Invalid pointing target")
+            anchor_id = text(target["anchorId"], "pointing anchorId")
+            object_id = target["objectId"]
+            require(object_id is None or isinstance(object_id, str), "Invalid pointed object")
+            if object_id is not None:
+                object_id = text(object_id, "pointed object")
+            require(anchor_id in anchors, "Pointed Matrix anchor is no longer available", 409)
+            require(object_id is None or object_id in objects and objects[object_id]["anchorId"] == anchor_id,
+                    "Pointed Matrix object is no longer available", 409)
+            target = {"anchorId": anchor_id, "objectId": object_id,
+                      "position": vector(target["position"], "position")}
+        frame = value["viewerFrame"]
+        if frame is not None:
+            try:
+                checked = validate_viewer({"frames": [frame]}, anchors)
+            except PlannerError as error:
+                raise APIError(400, str(error)) from None
+            frame = checked["frames"][0]
+        def object_summary(item):
+            return {"objectId": item["objectId"], "assetId": item["assetId"],
+                    "anchorId": item["anchorId"], "transform": item["transform"]}
+        scene_objects = current["scene"]["objects"]
+        priority_ids = [identifier for identifier in
+                        (selected_id, target["objectId"] if target else None) if identifier]
+        summary_objects = []
+        included = set()
+        for identifier in priority_ids:
+            if identifier not in included:
+                summary_objects.append(objects[identifier])
+                included.add(identifier)
+        for item in scene_objects:
+            if len(summary_objects) >= 8:
+                break
+            if item["objectId"] not in included:
+                summary_objects.append(item)
+                included.add(item["objectId"])
+        room = current.get("roomContext") or {}
+        return {"schemaVersion": 1, "kind": "matrix_spatial_context",
+                "inputSource": value["inputSource"], "roomId": room_id,
+                "sceneRevision": state.revision,
+                "room": {"mode": room.get("mode", "unknown"), "state": room.get("state", "unknown"),
+                         "alignmentVerified": room.get("alignmentVerified", False),
+                         "readOnly": current.get("readOnly", False)},
+                "selectedObject": object_summary(objects[selected_id]) if selected_id else None,
+                "pointingTarget": target, "viewerFrame": frame,
+                "sceneSummary": {"objectCount": len(scene_objects),
+                                 "objects": [object_summary(item) for item in summary_objects],
+                                 "omittedObjectCount": max(0, len(scene_objects) - 8)}}
+
+
 def agent_portal_action(state, path, body):
     portal = state.agent_portal
     if path == "/api/agent/transcribe":
@@ -317,8 +394,10 @@ def agent_portal_action(state, path, body):
         require(set(body) in ({"sessionId"}, {"sessionId", "cursor"}), "Invalid Agent status request")
         return portal.status(body["sessionId"], body.get("cursor", 0))
     if path == "/api/agent/turn":
-        require(set(body) == {"sessionId", "text"}, "Invalid Agent turn request")
-        return portal.send_text(body["sessionId"], body["text"])
+        require(set(body) in ({"sessionId", "text"}, {"sessionId", "text", "context"}),
+                "Invalid Agent turn request")
+        context = agent_turn_context(state, body["context"]) if "context" in body else None
+        return portal.send_text(body["sessionId"], body["text"], context)
     if path == "/api/agent/approval":
         require(set(body) == {"sessionId", "approvalId", "turnId", "approve"}, "Invalid Agent approval request")
         return portal.decide(body["sessionId"], body["approvalId"], body["turnId"], body["approve"])

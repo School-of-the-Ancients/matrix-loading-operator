@@ -9,7 +9,7 @@ import urllib.request
 from unittest.mock import patch
 
 from agent_portal import AgentPortal
-from server import Server, State
+from server import Server, State, agent_turn_context, snapshot
 from test_agent_portal import FakeBackend
 
 
@@ -85,6 +85,72 @@ class AgentPortalHTTPTests(unittest.TestCase):
             decode.assert_called_once_with("recording")
             transcribe.assert_called_once_with(b"wav")
             self.assertFalse(self.state.voice_jobs)
+
+    def test_spatial_turn_is_bounded_validated_and_keeps_user_transcript_clean(self):
+        room = {"scene": {"schemaVersion": 1, "roomId": "web-virtual-room-v1",
+                          "objects": [{"objectId": "chair-1", "assetId": "chair", "anchorId": "web-floor",
+                                       "transform": {"position": {"x": 1, "y": 0, "z": -2},
+                                                     "rotation": {"x": 0, "y": 0, "z": 0},
+                                                     "scale": {"x": 1, "y": 1, "z": 1}}}]},
+                "assets": [{"assetId": "chair", "displayName": "Chair"}],
+                "anchors": [{"anchorId": "web-floor", "displayName": "Virtual floor"}],
+                "selection": {"anchorId": "web-floor", "objectId": "chair-1",
+                              "position": {"x": 1, "y": 0, "z": -2}},
+                "roomContext": {"mode": "white-room", "state": "ready",
+                                "alignmentVerified": False, "message": "Virtual room"}}
+        self.state.latest = snapshot(room)
+        self.state.client_id = "web-client"
+        self.state.last_seen = self.state.clock()
+        self.state.revision = 7
+        session_id = self.post("/api/agent/session", {})[1]["sessionId"]
+        context = {"schemaVersion": 1, "inputSource": "voice_transcript", "clientId": "web-client",
+                   "roomId": "web-virtual-room-v1", "selectedObjectId": "chair-1",
+                   "pointingTarget": {"anchorId": "web-floor", "objectId": None,
+                                      "position": {"x": 2, "y": 0, "z": -3}},
+                   "viewerFrame": {"anchorId": "web-floor", "position": {"x": 0, "y": 1.7, "z": 0},
+                                   "forward": {"x": 0, "y": 0, "z": -1}}}
+        body = {"sessionId": session_id, "text": "Put this over there", "context": context}
+        self.assertEqual(self.post("/api/agent/turn", {**body, "context": {**context, "schemaVersion": 2}})[0], 400)
+        self.assertEqual(self.post("/api/agent/turn", {**body, "context": {**context, "roomId": "other"}})[0], 409)
+        self.assertEqual(self.post("/api/agent/turn", {**body, "context": {**context, "clientId": "other"}})[0], 409)
+        self.assertEqual(self.post("/api/agent/turn", {**body, "context": {**context, "selectedObjectId": "missing"}})[0], 409)
+        self.assertEqual(self.post("/api/agent/turn", {**body, "text": "x" * 15990})[0], 400)
+        self.assertEqual(self.post("/api/agent/turn", body)[0], 200)
+        sent = self.state.agent_portal._backend.sent_texts[-1]
+        self.assertIn("User request:\nPut this over there", sent)
+        encoded = sent.split("<matrix_spatial_context>", 1)[1].split("</matrix_spatial_context>", 1)[0]
+        grounded = json.loads(encoded)
+        self.assertEqual(grounded["sceneRevision"], 7)
+        self.assertEqual(grounded["selectedObject"]["objectId"], "chair-1")
+        self.assertEqual(grounded["pointingTarget"]["position"], {"x": 2, "y": 0, "z": -3})
+        self.assertEqual(grounded["inputSource"], "voice_transcript")
+        self.assertEqual(grounded["sceneSummary"]["objectCount"], 1)
+        self.assertNotIn("Virtual room", sent)
+        status = self.post("/api/agent/status", {"sessionId": session_id})[1]
+        self.assertEqual(status["transcript"][-1]["user"], "Put this over there")
+
+    def test_pointed_object_is_in_bounded_summary_even_after_first_eight(self):
+        pose = {"position": {"x": 0, "y": 0, "z": 0},
+                "rotation": {"x": 0, "y": 0, "z": 0},
+                "scale": {"x": 1, "y": 1, "z": 1}}
+        objects = [{"objectId": f"chair-{index}", "assetId": "chair",
+                    "anchorId": "web-floor", "transform": pose} for index in range(12)]
+        self.state.latest = snapshot({"scene": {"schemaVersion": 1, "roomId": "room-1", "objects": objects},
+                                      "assets": [{"assetId": "chair", "displayName": "Chair"}],
+                                      "anchors": [{"anchorId": "web-floor", "displayName": "Floor"}],
+                                      "selection": {"objectId": "chair-10", "anchorId": "web-floor",
+                                                    "position": pose["position"]}})
+        self.state.client_id = "web-client"
+        self.state.last_seen = self.state.clock()
+        context = {"schemaVersion": 1, "inputSource": "text", "clientId": "web-client",
+                   "roomId": "room-1", "selectedObjectId": "chair-10",
+                   "pointingTarget": {"anchorId": "web-floor", "objectId": "chair-11",
+                                      "position": pose["position"]}, "viewerFrame": None}
+        grounded = agent_turn_context(self.state, context)
+        included = [item["objectId"] for item in grounded["sceneSummary"]["objects"]]
+        self.assertEqual(included[:2], ["chair-10", "chair-11"])
+        self.assertEqual(len(included), 8)
+        self.assertEqual(grounded["sceneSummary"]["omittedObjectCount"], 4)
 
 
 if __name__ == "__main__":

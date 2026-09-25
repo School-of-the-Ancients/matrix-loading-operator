@@ -18,6 +18,7 @@ class FakeBackend:
         self.closed = False
         self.resume_calls = []
         self.start_calls = 0
+        self.sent_texts = []
 
     def start(self):
         pass
@@ -33,6 +34,7 @@ class FakeBackend:
         return identifier
 
     def send_text(self, identifier, text):
+        self.sent_texts.append(text)
         self.turn_number += 1
         self.approval = {"approvalId": 100 + self.turn_number, "conversationId": identifier,
                          "turnId": f"native-turn-{self.turn_number}", "action": "running_command",

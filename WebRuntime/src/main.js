@@ -5,6 +5,7 @@ import {MatrixBridge} from './bridge.js';
 import {VoiceRecorder} from './voice.js';
 import {CameraStream} from './camera_stream.js';
 import {AgentClient,agentActivityLabel} from './agent_client.js';
+import {captureAgentContext} from './agent_context.js';
 import {loadStoredWorld,saveStoredWorld,restoreStoredWorld,restoreBestStoredWorld,storedWorld,
   saveCheckpoint,loadCheckpoint} from './scene_store.js';
 import {loadConversation,rememberTurn,clearConversation} from './conversation.js';
@@ -26,7 +27,7 @@ let roomRecoveryChoice='';
 let clearArchivesArmedUntil=0;
 let persistenceWarning='',restoreWarning='';
 let cameraBusy=false;
-const recorder=new VoiceRecorder();let voiceStarting=false,voiceRecording=false,voiceStopRequested=false,voiceJob=null,voiceSnapshot=null,voiceDestination='planner';
+const recorder=new VoiceRecorder();let voiceStarting=false,voiceRecording=false,voiceStopRequested=false,voiceJob=null,voiceSnapshot=null,voiceDestination='planner',voiceAgentContext=null;
 let replyContext=null,replySource=null;
 let agentClient=null,agentActionBusy=false,agentVoiceStatus='';
 function unlockReplyAudio(){
@@ -216,7 +217,10 @@ async function agentAction(action){
 function sendAgent(){
   const text=$('agent-input').value.trim();
   if(!text){feedback('Enter a message for Codex first.',true);return;}
-  agentAction(async()=>{await agentClient.send(text);$('agent-input').value='';});
+  const context=$('agent-include-context').checked?
+    captureAgentContext(world,view,bridge.clientId,'text'):null;
+  agentAction(async()=>{await agentClient.send(text,context);$('agent-input').value='';
+    feedback(context?'Sent to Codex with Matrix spatial context.':'Sent to Codex.');});
 }
 function decideAgent(approve){
   const pending=agentClient.status?.pendingApprovals?.[0];
@@ -552,6 +556,7 @@ async function beginVoice(){
     voiceStatus('Reconnect to Codex first.',true);return;
   }
   if(voiceDestination==='agent'&&agentClient.status.activeTurnId){voiceStatus('Wait for Codex or stop the current turn.',true);return;}
+  voiceAgentContext=voiceDestination==='agent'?captureAgentContext(world,view,bridge.clientId,'voice_transcript'):null;
   unlockReplyAudio();
   voiceStarting=true;voiceStopRequested=false;voiceButtons();voiceStatus('Requesting microphone…');
   try{await recorder.start();voiceRecording=true;voiceSnapshot=world.snapshot(view.viewer());voiceStatus('Recording… release the controller or tap Send.');}
@@ -567,15 +572,15 @@ async function endVoice(){
       voiceJob='agent-transcribe';voiceButtons();
       const transcript=await agentClient.transcribe(audioBase64);
       voiceStatus(`Heard: ${transcript}`);
-      await agentClient.send(transcript);
-      voiceStatus('Sent to Codex.');
+      await agentClient.send(transcript,voiceAgentContext);
+      voiceStatus('Sent to Codex with Matrix spatial context.');
     }else{
       const job=await bridge.request('/api/voice',{clientId:bridge.clientId,snapshot:voiceSnapshot,audioBase64,conversation,webRuntime:true});
       voiceJob=job.jobId;voiceButtons();await pollVoice(voiceJob);
     }
   }
   catch(error){voiceStatus(error.message,true);}
-  finally{voiceJob=null;voiceSnapshot=null;voiceButtons();}
+  finally{voiceJob=null;voiceSnapshot=null;voiceAgentContext=null;voiceButtons();}
 }
 async function pollVoice(jobId){
   for(let attempt=0;attempt<120;attempt++){
