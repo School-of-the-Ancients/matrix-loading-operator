@@ -694,6 +694,22 @@ def wants_blender_asset(prompt):
     return bool(re.search(r"\b(blender|blend|3d model|3d asset|mesh|new prefab|new model)\b", prompt, re.I))
 
 
+_BLENDER_SESSION_SELECTION = object()
+
+
+def blender_codex_config(state, selection=_BLENDER_SESSION_SELECTION):
+    try:
+        config = CodexConfig.from_environment()
+        require(config is not None, "Configure the PC Codex CLI before creating a Blender asset", 503)
+        config.validate()
+        if selection is _BLENDER_SESSION_SELECTION:
+            with state.lock:
+                selection = copy.deepcopy(state.codex_preferences)
+        return select_codex_config(config, selection)
+    except CodexProviderError as error:
+        raise APIError(error.status, str(error)) from None
+
+
 def plan(state, body, request_context=None, content_stage=0, progress=None, cancelled=None):
     def check_cancelled():
         require(cancelled is None or not cancelled(), "Voice request cancelled", 409)
@@ -714,7 +730,9 @@ def plan(state, body, request_context=None, content_stage=0, progress=None, canc
             not (web_runtime and wants_game(prompt)) and wants_blender_asset(prompt)):
         check_cancelled()
         try:
-            job = state.blender_authoring.submit({"prompt": prompt})
+            selection = body["codex"] if "codex" in body else _BLENDER_SESSION_SELECTION
+            config = blender_codex_config(state, selection)
+            job = state.blender_authoring.submit({"prompt": prompt}, config)
         except BlenderAuthoringError as error:
             raise APIError(error.status, str(error)) from None
         return {"status": "authoring", "authoringJobId": job["jobId"], "commands": [],
@@ -1257,7 +1275,7 @@ class Handler(BaseHTTPRequestHandler):
             elif path == "/api/web/authoring":
                 data = state.web_authoring.submit(body)
             elif path == "/api/web/blender":
-                data = state.blender_authoring.submit(body)
+                data = state.blender_authoring.submit(body, blender_codex_config(state))
             elif path == "/api/command":
                 data = state.queue(body["commands"] if set(body) == {"commands"} else [body])
             elif path == "/api/save":
