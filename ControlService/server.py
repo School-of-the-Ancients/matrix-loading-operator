@@ -430,6 +430,7 @@ class State:
         self.runtime = None
         self.pending = collections.OrderedDict()
         self.results = collections.deque(maxlen=100)
+        self.agent_move_ids = collections.OrderedDict()
         self.revision = 0
         self.proposals = collections.OrderedDict()
         self.learning = learning
@@ -699,6 +700,68 @@ class State:
                 self.pending[item["requestId"]] = item
             self.revision += 1
             return {"commands": copy.deepcopy(checked)}
+
+    def agent_move(self, value):
+        """Queue one virtual-floor move through the normal Matrix command path."""
+        require(isinstance(value, dict) and set(value) ==
+                {"room_id", "scene_revision", "object_id", "expected_asset_id", "position"},
+                "Invalid Matrix move request")
+        room_id = text(value["room_id"], "room_id")
+        object_id = text(value["object_id"], "object_id")
+        asset_id = text(value["expected_asset_id"], "expected_asset_id")
+        revision = value["scene_revision"]
+        require(type(revision) is int and revision >= 0, "Invalid scene revision")
+        require(isinstance(value["position"], dict) and set(value["position"]) == {"x", "y", "z"},
+                "Invalid Matrix move position")
+        position = vector(value["position"], "position")
+        with self.lock:
+            self.expire()
+            require(self.online() and self.latest is not None, self.room_unavailable_message(), 409)
+            current = self.latest
+            require(current["scene"]["roomId"] == room_id and self.revision == revision,
+                    "Matrix scene changed; inspect the current room and retry", 409)
+            require((current.get("roomContext") or {}).get("mode") == "white-room",
+                    "This Matrix tool currently moves virtual-room objects only", 409)
+            require(not current.get("readOnly") and not self.pending,
+                    "Matrix world is not ready for a new move", 409)
+            item = next((item for item in current["scene"]["objects"] if item["objectId"] == object_id), None)
+            require(item is not None and item["assetId"] == asset_id and item["anchorId"] == "web-floor",
+                    "The requested virtual-floor object is no longer available", 409)
+            transform = copy.deepcopy(item["transform"])
+            transform["position"] = position
+            queued = self.queue([{"op": "set_transform", "objectId": object_id,
+                                  "transform": transform}])["commands"][0]
+            request_id = queued["requestId"]
+            self.agent_move_ids[request_id] = {"roomId": room_id, "objectId": object_id,
+                                               "position": position}
+            while len(self.agent_move_ids) > 64:
+                self.agent_move_ids.popitem(last=False)
+            return self.agent_move_status(request_id)
+
+    def agent_move_status(self, request_id):
+        require(isinstance(request_id, str) and re.fullmatch(r"[0-9a-f]{32}", request_id),
+                "Invalid Matrix move receipt ID")
+        with self.lock:
+            self.expire()
+            issued = self.agent_move_ids.get(request_id)
+            require(issued is not None, "Matrix move receipt is unavailable", 404)
+            receipt = next((item for item in reversed(self.results) if item["requestId"] == request_id), None)
+            result = {"requestId": request_id, "roomId": issued["roomId"],
+                      "objectId": issued["objectId"], "sceneRevision": self.revision}
+            if receipt is None:
+                result["status"] = "queued" if request_id in self.pending else "unconfirmed"
+            elif receipt["ok"]:
+                observed = self.latest and self.latest["scene"]["roomId"] == issued["roomId"] and next(
+                    (item for item in self.latest["scene"]["objects"]
+                     if item["objectId"] == issued["objectId"] and
+                     item["transform"]["position"] == issued["position"]), None)
+                result["status"] = "succeeded" if observed else "unconfirmed"
+            elif "outcome unknown" in receipt["error"]:
+                result["status"] = "unconfirmed"
+            else:
+                result["status"] = "failed"
+                result["error"] = receipt["error"][:200]
+            return result
 
     def status(self):
         with self.lock:

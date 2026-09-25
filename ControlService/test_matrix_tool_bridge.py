@@ -64,6 +64,7 @@ class MatrixToolBridgeTests(unittest.TestCase):
         command = backend.transport.command
         self.assertIn("app-server", command)
         self.assertTrue(any("mcp_servers.matrix_webxr.command=" in part for part in command))
+        self.assertTrue(any("tools.matrix_move_object.approval_mode=" in part for part in command))
         self.assertNotIn(self.bridge.token, " ".join(command))
         self.assertEqual(backend.transport.environment["MATRIX_CONTROL_TOKEN"], self.bridge.token)
 
