@@ -70,6 +70,10 @@ class MatrixCatalogToolTests(unittest.TestCase):
             self.assertEqual(result["sha256"], self.digest)
             page = list_assets(bridge.url, bridge.token)
             self.assertEqual(page["assets"][0]["assetId"], result["assetId"])
+            large = register_glb(bridge.url, bridge.token,
+                                 self.request(name="Emoji Triangle", description="😀" * 500))
+            self.assertEqual(large["status"], "registered")
+            self.assertEqual(list_assets(bridge.url, bridge.token)["total"], 2)
             with self.assertRaises(urllib.error.HTTPError):
                 list_assets(bridge.url, "wrong-token")
 
@@ -86,6 +90,12 @@ class MatrixCatalogToolTests(unittest.TestCase):
         self.assertNotIn(str(self.root), summary)
         self.assertFalse(_mcp_approval_description({**approval, "_meta": {
             **approval["_meta"], "tool_params": {**args, "description": "more detail"}}})[1])
+        for changed in ({"name": "Tri\u202eangle"},
+                        {"source_path": str(self.source.with_name("tri\u202eangle.glb"))}):
+            summary, reviewable = _mcp_approval_description({**approval, "_meta": {
+                **approval["_meta"], "tool_params": {**args, **changed}}})
+            self.assertFalse(reviewable)
+            self.assertNotIn("\u202e", summary)
 
 
 if __name__ == "__main__":

@@ -150,8 +150,11 @@ class _Handler(BaseHTTPRequestHandler):
             return
         try:
             length = int(self.headers.get("Content-Length", ""))
-            if not 0 < length <= 4096:
-                raise ValueError("Invalid Matrix move size")
+            # Escaped Unicode in valid 500-character descriptions can exceed
+            # the move endpoint's small request budget.
+            limit = 32 * 1024 if self.path == "/register-glb" else 4096
+            if not 0 < length <= limit:
+                raise ValueError("Invalid Matrix tool request size")
             value = json.loads(self.rfile.read(length))
             if self.path == "/register-glb":
                 result = self.server.state.agent_register_glb(value)

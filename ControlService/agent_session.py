@@ -119,10 +119,10 @@ def _mcp_approval_description(params: dict) -> tuple[str, bool]:
         source, name, digest = (arguments[key] for key in ("source_path", "name", "expected_sha256"))
         scale = arguments.get("spawn_scale", 1)
         if (isinstance(source, str) and 1 <= len(source) <= 1024 and
-                not any(ord(char) < 32 for char in source) and Path(source).is_absolute() and
+                source.isprintable() and Path(source).is_absolute() and
                 not str(Path(source).drive).startswith("\\\\") and Path(source).suffix.lower() == ".glb" and
                 isinstance(name, str) and 1 <= len(name) <= 80 and
-                not any(ord(char) < 32 for char in name) and
+                name.isprintable() and
                 isinstance(digest, str) and re.fullmatch(r"[0-9a-f]{64}", digest) and
                 arguments.get("description", "") == "" and arguments.get("local_bounds") is None and
                 type(scale) in (int, float) and scale == 1):
