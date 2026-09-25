@@ -19,6 +19,7 @@ test('agent session persists only an opaque Matrix ID and sends follow-ups to it
     if(path==='/api/agent/session')return status();
     if(path==='/api/agent/status')return status();
     if(path==='/api/agent/turn')return {sessionId:id,turnId:'turn-1',activity:'working'};
+    if(path==='/api/agent/transcribe')return {transcript:'Put this there'};
     if(path==='/api/agent/approval')return status();
     if(path==='/api/agent/cancel')return status();
     throw Error('unexpected path');
@@ -27,12 +28,15 @@ test('agent session persists only an opaque Matrix ID and sends follow-ups to it
   await client.connect();
   assert.deepEqual(store.writes,[[AGENT_SESSION_KEY,id]]);
   await client.send('Make this taller');
+  assert.equal(await client.transcribe('wav-data'),'Put this there');
   await client.decide(42,'turn-1',false);
   await client.cancel();
   assert.deepEqual(calls.filter(([path])=>path==='/api/agent/turn')[0][1],
     {sessionId:id,text:'Make this taller'});
   assert.deepEqual(calls.filter(([path])=>path==='/api/agent/approval')[0][1],
     {sessionId:id,approvalId:42,turnId:'turn-1',approve:false});
+  assert.deepEqual(calls.filter(([path])=>path==='/api/agent/transcribe')[0][1],
+    {sessionId:id,audioBase64:'wav-data'});
   assert.equal(calls.filter(([path])=>path==='/api/agent/cancel')[0][1].turnId,'turn-1');
   assert.equal(client.status.transcript[0].assistant,'Hi');
   assert.equal(agentActivityLabel('using_blender'),'Using Blender');

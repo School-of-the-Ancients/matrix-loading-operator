@@ -46,6 +46,15 @@ export class AgentClient {
       return await this.restore();
     }catch(error){this._fail(error);throw error;}
   }
+  async transcribe(audioBase64){
+    if(!this.sessionId)await this.connect();
+    try{
+      const result=await this.request('/api/agent/transcribe',{sessionId:this.sessionId,audioBase64});
+      if(typeof result?.transcript!=='string'||!result.transcript.trim()||result.transcript.length>4000)
+        throw Error('Invalid Agent Portal transcription');
+      return result.transcript;
+    }catch(error){this._fail(error);throw error;}
+  }
   async decide(approvalId,turnId,approve){
     if(!this.sessionId||typeof approve!=='boolean')throw Error('Invalid Agent approval');
     try{

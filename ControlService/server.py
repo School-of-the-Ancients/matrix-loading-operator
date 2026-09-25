@@ -299,6 +299,17 @@ def local_agent_backend():
 
 def agent_portal_action(state, path, body):
     portal = state.agent_portal
+    if path == "/api/agent/transcribe":
+        require(set(body) == {"sessionId", "audioBase64"}, "Invalid Agent transcription request")
+        portal.status(body["sessionId"])
+        audio = speech.decode_audio(body["audioBase64"])
+        speech.configuration()
+        require(state.voice_worker.acquire(blocking=False),
+                "Speech recognition is still busy; try again shortly", 409)
+        try:
+            return {"transcript": speech.transcribe(audio)}
+        finally:
+            state.voice_worker.release()
     if path == "/api/agent/session":
         require(body == {}, "Agent session start expects an empty object")
         return portal.open()

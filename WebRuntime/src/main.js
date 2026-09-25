@@ -26,9 +26,9 @@ let roomRecoveryChoice='';
 let clearArchivesArmedUntil=0;
 let persistenceWarning='',restoreWarning='';
 let cameraBusy=false;
-const recorder=new VoiceRecorder();let voiceStarting=false,voiceRecording=false,voiceStopRequested=false,voiceJob=null,voiceSnapshot=null;
+const recorder=new VoiceRecorder();let voiceStarting=false,voiceRecording=false,voiceStopRequested=false,voiceJob=null,voiceSnapshot=null,voiceDestination='planner';
 let replyContext=null,replySource=null;
-let agentClient=null,agentActionBusy=false;
+let agentClient=null,agentActionBusy=false,agentVoiceStatus='';
 function unlockReplyAudio(){
   if(!$('speak-replies').checked)return;
   const AudioContextClass=window.AudioContext||window.webkitAudioContext;
@@ -179,19 +179,27 @@ function renderAgent(){
   const status=agentClient?.status,turns=status?.transcript||[],pending=status?.pendingApprovals?.[0];
   const activity=agentClient?.error?'Connection needs attention':status?agentActivityLabel(status.activity):'Not connected';
   $('agent-activity').textContent=activity;
-  const transcript=turns.slice(-4).map(turn=>`You: ${turn.user}${turn.userTruncated?'\n[Part of request omitted from this view]':''}\n\nCodex: ${turn.assistant||'…'}${turn.assistantTruncated?'\n[Earlier reply text omitted]':''}`).join('\n\n────────\n\n');
+  const transcript=turns.slice(-4).map(turn=>{
+    const user=turn.user.slice(0,1000),assistant=turn.assistant.slice(-2500);
+    return `You: ${user}${turn.user.length>1000||turn.userTruncated?'\n[Part of request omitted from this view]':''}\n\nCodex: ${assistant||'…'}${turn.assistant.length>2500||turn.assistantTruncated?'\n[Earlier reply text omitted]':''}`;
+  }).join('\n\n────────\n\n');
   const content=agentClient?.error?`Agent Portal: ${agentClient.error}\n\n${transcript}`:
-    transcript||'Connect to start a Codex conversation.';
+    transcript||(status?'Ready. Send a message to Codex.':'Connect to start a Codex conversation.');
   $('agent-transcript').textContent=content;
+  $('agent-connect').textContent=status?'Reconnect Codex':'Start or resume Codex';
   $('agent-approval').classList.toggle('hidden',!pending);
   $('agent-approval-summary').textContent=pending?agentApprovalText(pending.action):'';
   $('agent-connect').disabled=agentActionBusy;
-  $('agent-send').disabled=agentActionBusy||!!status?.activeTurnId;
+  $('agent-send').disabled=agentActionBusy||!status||!!agentClient.error||!!status.activeTurnId;
   $('agent-stop').disabled=agentActionBusy||!status?.activeTurnId;
   $('agent-approve').disabled=agentActionBusy;
   $('agent-deny').disabled=agentActionBusy;
-  view.setOperatorAgentStatus({activity,content:pending?`${agentApprovalText(pending.action)}\n\n${content}`:content,
-    pending:!!pending,active:!!status?.activeTurnId});
+  const latest=turns.at(-1);
+  const inWorld=latest?`You: ${latest.user.slice(0,180)}${latest.user.length>180?'…':''}\n\nCodex: ${(latest.assistant||'…').slice(-900)}`:
+    status?'Ready. Hold the trigger or grip to speak to Codex.':'Connect to Codex on the PC.';
+  view.setOperatorAgentStatus({activity,content:[agentVoiceStatus,pending?agentApprovalText(pending.action):'',
+    agentClient?.error?`Connection: ${agentClient.error}`:'',inWorld].filter(Boolean).join('\n\n'),
+    pending:!!pending,active:!!status?.activeTurnId,connected:!!status&&!agentClient.error});
 }
 agentClient=new AgentClient((path,body)=>bridge.request(path,body),localStorage,renderAgent);
 renderAgent();
@@ -491,7 +499,8 @@ function clearExportedRoomArchives(){
   catch(error){feedback(`Could not clear recovery archives: ${error.message}`,true);}
 }
 function panelAction(action){
-  if(action==='agent-approve')decideAgent(true);
+  if(action==='agent-connect')agentAction(()=>agentClient.connect());
+  else if(action==='agent-approve')decideAgent(true);
   else if(action==='agent-deny')decideAgent(false);
   else if(action==='agent-stop')agentAction(()=>agentClient.cancel());
   else if(action==='apply')applyProposal();
@@ -527,10 +536,20 @@ $('speak-replies').addEventListener('change',()=>{view.setVoiceOutputEnabled($('
 $('prompt').addEventListener('keydown',event=>{if(event.key==='Enter'&&(event.ctrlKey||event.metaKey))propose();});
 $('discard').addEventListener('click',()=>{discardProposal();feedback('Proposal discarded.');});
 $('apply').addEventListener('click',applyProposal);
-function voiceStatus(message,isError=false){$('voice-status').textContent=message;$('xr-voice-status').textContent=message;feedback(message,isError);operatorMessageUntil=performance.now()+8000;view.setOperatorStatus(message,isError?'error':voiceRecording?'recording':'idle');}
+function voiceStatus(message,isError=false){
+  $('voice-status').textContent=message;$('xr-voice-status').textContent=message;
+  feedback(message,isError);operatorMessageUntil=performance.now()+8000;
+  view.setOperatorStatus(message,isError?'error':voiceRecording?'recording':'idle');
+  if(voiceDestination==='agent'){agentVoiceStatus=message;renderAgent();}
+}
 function voiceButtons(){for(const id of ['voice-button','xr-voice']){$(id).textContent=voiceStarting||voiceRecording?'Tap to send':'Tap to speak';$(id).disabled=!!voiceJob;}}
 async function beginVoice(){
   if(voiceStarting||voiceRecording||voiceJob)return;
+  voiceDestination=view.isOperatorAgentMode()?'agent':'planner';
+  if(voiceDestination==='agent'&&(!agentClient?.status||agentClient.error)){
+    voiceStatus('Reconnect to Codex first.',true);return;
+  }
+  if(voiceDestination==='agent'&&agentClient.status.activeTurnId){voiceStatus('Wait for Codex or stop the current turn.',true);return;}
   unlockReplyAudio();
   voiceStarting=true;voiceStopRequested=false;voiceButtons();voiceStatus('Requesting microphone…');
   try{await recorder.start();voiceRecording=true;voiceSnapshot=world.snapshot(view.viewer());voiceStatus('Recording… release the controller or tap Send.');}
@@ -541,8 +560,18 @@ async function endVoice(){
   if(voiceStarting){voiceStopRequested=true;return;}
   if(!voiceRecording)return;
   voiceRecording=false;voiceButtons();voiceStatus('Transcribing on PC…');
-  try{const audioBase64=await recorder.stop();const job=await bridge.request('/api/voice',{clientId:bridge.clientId,snapshot:voiceSnapshot,audioBase64,conversation,webRuntime:true});
-    voiceJob=job.jobId;voiceButtons();await pollVoice(voiceJob);}
+  try{const audioBase64=await recorder.stop();
+    if(voiceDestination==='agent'){
+      voiceJob='agent-transcribe';voiceButtons();
+      const transcript=await agentClient.transcribe(audioBase64);
+      voiceStatus(`Heard: ${transcript}`);
+      await agentClient.send(transcript);
+      voiceStatus('Sent to Codex.');
+    }else{
+      const job=await bridge.request('/api/voice',{clientId:bridge.clientId,snapshot:voiceSnapshot,audioBase64,conversation,webRuntime:true});
+      voiceJob=job.jobId;voiceButtons();await pollVoice(voiceJob);
+    }
+  }
   catch(error){voiceStatus(error.message,true);}
   finally{voiceJob=null;voiceSnapshot=null;voiceButtons();}
 }

@@ -48,7 +48,7 @@ function operatorPanel(){
   mesh.renderOrder=100;mesh.userData.operatorVoice=true;
   const group=new THREE.Group();group.add(mesh);group.visible=false;
   let message='Aim here, hold trigger, and ask for a scene.',tone='idle',page=0,mode='chat',proposal=null;
-  let agent={activity:'Not connected',content:'Start or resume Codex in the desktop panel.',pending:false,active:false};
+  let agent={activity:'Not connected',content:'Connect to Codex on the PC.',pending:false,active:false,connected:false};
   let pinLabel='PIN TO WALL',voiceLabel='VOICE ON',originLabel='ROOM ORIGIN UNKNOWN',conversationCount=0;
   let gameStatus='No game running.',worldInfo={objects:0,canConfirm:false,alignment:'No room scan'},worldWarning='';
   let cameraStatus='Camera not tested',cameraActive=false;
@@ -128,7 +128,8 @@ function operatorPanel(){
         button('agent-stop','STOP',554,636,210,90);
         button('next','NEXT',776,636,213,90);
       }else{
-        button('agent-stop',agent.active?'STOP TURN':'TYPE ON DESKTOP',35,636,472,90,agent.active);
+        button(agent.active?'agent-stop':agent.connected?'voice':'agent-connect',
+          agent.active?'STOP TURN':agent.connected?'HOLD TO SPEAK':'CONNECT CODEX',35,636,472,90,agent.active);
         button('pin',pinLabel,519,636,210,90);
         button('next','NEXT',741,636,248,90);
       }
@@ -155,9 +156,13 @@ function operatorPanel(){
   const setGameStatus=next=>{if(gameStatus!==next){gameStatus=next;paint();}};
   const setWarning=next=>{if(worldWarning!==next){worldWarning=next;paint();}};
   const setCameraStatus=(next,active)=>{if(cameraStatus!==next||cameraActive!==active){cameraStatus=next;cameraActive=active;paint();}};
-  const setAgentStatus=next=>{agent=next;page=0;if(mode==='agent')paint();};
+  const setAgentStatus=next=>{if(JSON.stringify(agent)!==JSON.stringify(next)){
+    if(agent.pending!==next.pending)page=0;
+    agent=next;if(mode==='agent')paint();
+  }};
   const toggleWorld=()=>{mode=mode==='world'?'chat':'world';page=0;paint();};
   const toggleAgent=()=>{mode=mode==='agent'?'chat':'agent';page=0;paint();};
+  const isAgentMode=()=>mode==='agent';
   const openProposal=()=>{if(proposal){mode='proposal';page=0;paint();}};
   const hit=uv=>{
     if(!uv)return null;const x=uv.x*1024,y=(1-uv.y)*768;
@@ -166,7 +171,7 @@ function operatorPanel(){
   const nextPage=()=>{page++;paint();};
   paint();
   return {group,mesh,setMessage,setPinLabel,setVoiceLabel,setOriginLabel,setConversationCount,
-    setProposal,setWorldInfo,setGameStatus,setWarning,setCameraStatus,setAgentStatus,toggleWorld,toggleAgent,openProposal,hit,nextPage};
+    setProposal,setWorldInfo,setGameStatus,setWarning,setCameraStatus,setAgentStatus,toggleWorld,toggleAgent,isAgentMode,openProposal,hit,nextPage};
 }
 const v3=v=>new THREE.Vector3(v.x,v.y,v.z);
 const plain=v=>({x:Number(v.x.toFixed(3)),y:Number(v.y.toFixed(3)),z:Number(v.z.toFixed(3))});
@@ -375,6 +380,7 @@ export class MatrixView {
   setOperatorWarning(warning){this.operatorPanel.setWarning(warning);}
   setOperatorCameraStatus(status,active){this.operatorPanel.setCameraStatus(status,active);}
   setOperatorAgentStatus(status){this.operatorPanel.setAgentStatus(status);}
+  isOperatorAgentMode(){return this.operatorPanel.isAgentMode();}
   setVoiceOutputEnabled(enabled){this.operatorPanel.setVoiceLabel(enabled?'VOICE ON':'VOICE OFF');}
   positionOperatorPanel(){
     if(!this.xrViewer)return;
