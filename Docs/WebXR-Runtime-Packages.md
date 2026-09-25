@@ -54,7 +54,10 @@ Blender remains the authoring tool when geometry, rigging, or clips warrant it;
 Three.js remains the executor. No animation, rigging, shader, physics, audio,
 or general script capability is claimed by schema 1.
 
-The next proof should take an actual Blender MCP-exported animated GLB through
-the existing GLB validator/catalog, verify its animation data, add bounded
-clip playback in Three.js, and bind that clip through a package. Desktop and
-Quest wearer evidence must be recorded separately.
+The first clip playback slice validates named GLB clips and loops a single
+clip on a virtual-floor instance. A Blender 5.2 background export was accepted
+by the catalog and its rotation clip advanced in the Three.js mixer test. This
+does not yet prove the Agent Portal to Blender MCP workflow, a multi-clip
+binding, or a wearer interaction. Next, bind clips and selection events through
+a reusable package or typed runtime contract, then prove the full Blender MCP
+flow. Desktop and Quest wearer evidence must be recorded separately.

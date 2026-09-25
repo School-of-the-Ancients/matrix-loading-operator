@@ -55,6 +55,12 @@ export class MatrixWorld {
            !vec(entry.localBounds.size,.001,20)))||
          !/^[0-9a-f]{64}$/.test(entry.sha256)||entry.url!==`/api/web/assets/${entry.sha256}.glb`||
          !Number.isInteger(entry.byteLength)||entry.byteLength<20||entry.byteLength>16*1024*1024)throw Error('Invalid web asset entry');
+      const clips=entry.geometry?.animationClips;
+      if(clips!==undefined&&(!Array.isArray(clips)||clips.length>8||
+        new Set(clips.map(clip=>clip?.name)).size!==clips.length||
+        !clips.every(clip=>typeof clip?.name==='string'&&clip.name.length>=1&&clip.name.length<=64&&
+          !/\p{C}/u.test(clip.name)&&finite(clip.durationSeconds,0,120))))
+        throw Error('Invalid web asset animation metadata');
       ids.add(entry.assetId);checked.push(clone(entry));
     }
     this.externalAssets=checked;

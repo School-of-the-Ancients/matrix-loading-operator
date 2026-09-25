@@ -27,7 +27,64 @@ def glb(external=False):
     return struct.pack("<4sII", b"glTF", 2, total) + struct.pack("<I4s", len(encoded), b"JSON") + encoded + struct.pack("<I4s", len(binary), b"BIN\x00") + binary
 
 
+def animated_glb(edit=None):
+    source = glb()
+    json_length = struct.unpack_from("<I", source, 12)[0]
+    document = json.loads(source[20:20 + json_length])
+    binary = source[28 + json_length:]
+    offset = len(binary)
+    binary += struct.pack("<2f6f", 0, 1, 0, 0, 0, 0, .2, 0)
+    document["buffers"][0]["byteLength"] = len(binary)
+    document["bufferViews"] += [
+        {"buffer": 0, "byteOffset": offset, "byteLength": 8},
+        {"buffer": 0, "byteOffset": offset + 8, "byteLength": 24}]
+    document["accessors"] += [
+        {"bufferView": 2, "componentType": 5126, "count": 2,
+         "type": "SCALAR", "min": [0], "max": [1]},
+        {"bufferView": 3, "componentType": 5126, "count": 2, "type": "VEC3"}]
+    document["nodes"][0]["name"] = "Wing"
+    document["animations"] = [{"name": "Flight", "samplers": [{"input": 2, "output": 3}],
+        "channels": [{"sampler": 0, "target": {"node": 0, "path": "translation"}}]}]
+    if edit:
+        edit(document)
+    encoded = json.dumps(document, separators=(",", ":")).encode()
+    encoded += b" " * (-len(encoded) % 4)
+    total = 12 + 8 + len(encoded) + 8 + len(binary)
+    return struct.pack("<4sII", b"glTF", 2, total) + struct.pack("<I4s", len(encoded), b"JSON") + encoded + struct.pack("<I4s", len(binary), b"BIN\x00") + binary
+
+
 class WebAssetTests(unittest.TestCase):
+    def test_animated_glb_catalogs_one_bounded_named_clip(self):
+        with tempfile.TemporaryDirectory() as directory:
+            source = Path(directory) / "animated.glb"
+            source.write_bytes(animated_glb())
+            catalog = WebAssetCatalog(Path(directory) / "catalog")
+            entry = catalog.register(source, "Flying object")
+            self.assertEqual(entry["geometry"]["animationClips"],
+                             [{"name": "Flight", "durationSeconds": 1}])
+            manifest = catalog.root / "manifest.json"
+            old = catalog.list()
+            old[0]["geometry"].pop("animationClips")
+            manifest.write_text(json.dumps(old), encoding="utf-8")
+            restored = catalog.register(source, "Flying object")
+            self.assertEqual(restored["geometry"]["animationClips"], entry["geometry"]["animationClips"])
+
+    def test_animation_name_duration_and_channel_limits_fail_before_catalog(self):
+        changes = [
+            lambda doc: doc["animations"][0].update(name="\u202eHidden"),
+            lambda doc: doc["animations"][0].update(name=""),
+            lambda doc: doc["accessors"][2].update(max=[121]),
+            lambda doc: doc["animations"][0]["channels"][0]["target"].update(path="pointer"),
+        ]
+        with tempfile.TemporaryDirectory() as directory:
+            source = Path(directory) / "invalid.glb"
+            catalog = WebAssetCatalog(Path(directory) / "catalog")
+            for change in changes:
+                source.write_bytes(animated_glb(change))
+                with self.assertRaisesRegex(WebAssetError, "animation"):
+                    catalog.register(source, "Invalid")
+            self.assertEqual(catalog.list(), [])
+
     def test_register_and_read_content_addressed_glb(self):
         with tempfile.TemporaryDirectory() as directory:
             source = Path(directory) / "triangle.glb"

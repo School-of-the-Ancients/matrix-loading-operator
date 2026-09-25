@@ -71,4 +71,6 @@ test('registered GLB appears in live catalog and restores with its immutable ID'
   assert.equal(world.execute(command('3','load',{scene:saved})).ok,true);
   assert.equal(world.scene.objects[0].assetId,asset.assetId);
   assert.throws(()=>world.registerAssets([{...asset,url:'https://another.example/model.glb'}]),/Invalid web asset/);
+  assert.throws(()=>world.registerAssets([{...asset,geometry:{animationClips:[
+    {name:'Flight',durationSeconds:1},{name:'Flight',durationSeconds:1}]}}]),/animation metadata/);
 });
