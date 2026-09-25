@@ -1,6 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {MatrixWorld} from '../src/protocol.js';
+import {validateRenderedFootprint} from '../src/view.js';
 import {viewerPose,planeData,insideBoundary,footprintInsideBoundary,
   matchPlaneAnchor,samePlaneShape,measuredFloorHeight} from '../src/spatial.js';
 
@@ -121,4 +122,11 @@ test('moving, duplicating, or loading a support object cannot bypass footprint v
   assert.match(world.execute({requestId:'load',op:'load',scene:invalidScene}).error,/footprint/);
   assert.equal(world.scene.objects.length,1);
   assert.equal(world.scene.objects[0].transform.position.x,1.4);
+});
+
+test('rendered GLB geometry cannot exceed the registered support footprint',()=>{
+  const asset={localBounds:{center:{x:0,y:.5,z:0},size:{x:1,y:1,z:1}}};
+  assert.doesNotThrow(()=>validateRenderedFootprint(asset,{x:1,y:1,z:1}));
+  assert.throws(()=>validateRenderedFootprint(asset,{x:1.02,y:1,z:1}),/registered bounds/);
+  assert.throws(()=>validateRenderedFootprint(asset,{x:1,y:1,z:1.02}),/registered bounds/);
 });
