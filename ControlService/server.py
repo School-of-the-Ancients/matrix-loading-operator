@@ -295,6 +295,9 @@ def local_agent_backend(state=None):
     config = CodexConfig.from_environment()
     if config is None:
         raise AgentPortalError(503, "Configure the local Codex provider for Agent Portal")
+    config.validate()
+    if state is not None and state.matrix_tool_bridge is None:
+        state.matrix_tool_bridge = MatrixToolBridge(state)
     return LocalCodexAgentBackend(config, Path(__file__).resolve().parent.parent,
                                   getattr(state, "matrix_tool_bridge", None))
 
@@ -1173,11 +1176,6 @@ class Server(ThreadingHTTPServer):
         self.state, self.token = state, token
         self.quest_connection = QuestConnection()
         super().__init__(address, Handler)
-        try:
-            self.state.matrix_tool_bridge = MatrixToolBridge(state)
-        except Exception:
-            super().server_close()
-            raise
 
     def server_close(self):
         self.state.agent_portal.close()

@@ -10,7 +10,7 @@ from unittest.mock import patch
 from agent_session import LocalCodexAgentBackend
 from codex_provider import CodexConfig
 from matrix_tool_bridge import MatrixToolBridge, scene_summary
-from server import State
+from server import State, local_agent_backend
 from test_server import SNAPSHOT
 
 
@@ -65,6 +65,16 @@ class MatrixToolBridgeTests(unittest.TestCase):
         self.assertTrue(any("mcp_servers.matrix_webxr.command=" in part for part in command))
         self.assertNotIn(self.bridge.token, " ".join(command))
         self.assertEqual(backend.transport.environment["MATRIX_CONTROL_TOKEN"], self.bridge.token)
+
+    def test_agent_backend_starts_private_listener_only_when_needed(self):
+        other = State(self.temp.name)
+        self.assertIsNone(other.matrix_tool_bridge)
+        config = CodexConfig(str(Path(self.temp.name) / "codex.exe"))
+        with patch("server.CodexConfig.from_environment", return_value=config), \
+             patch.object(CodexConfig, "validate"):
+            local_agent_backend(other)
+        self.assertIsNotNone(other.matrix_tool_bridge)
+        other.matrix_tool_bridge.close()
 
 
 if __name__ == "__main__":
