@@ -80,7 +80,7 @@ class MatrixMoveTests(unittest.TestCase):
 
     def test_physical_room_is_out_of_scope_and_lease_loss_is_unconfirmed(self):
         self.state.latest["roomContext"]["mode"] = "ar"
-        with self.assertRaisesRegex(APIError, "virtual-room"):
+        with self.assertRaisesRegex(APIError, "ready WebXR virtual floor"):
             self.state.agent_move(self.request())
         self.state.latest["roomContext"]["mode"] = "white-room"
         queued = self.state.agent_move(self.request())

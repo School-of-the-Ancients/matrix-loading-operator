@@ -493,6 +493,36 @@ def agent_portal_action(state, path, body):
     raise APIError(404, "Not found")
 
 
+def web_virtual_floor_ready(snapshot):
+    """A tracked WebXR AR room can edit unanchored virtual-floor previews."""
+    room = snapshot.get("roomContext") or {}
+    if room.get("mode") == "white-room":
+        return True
+    return (room.get("mode") == "ar" and room.get("state") == "ready" and
+            snapshot["scene"]["roomId"].startswith("webxr-session-") and
+            any(anchor["anchorId"] == "web-floor" for anchor in snapshot["anchors"]))
+
+
+def virtual_floor_command(snapshot, item):
+    """Allow only commands proven to stay on the virtual floor before AR alignment."""
+    if not web_virtual_floor_ready(snapshot):
+        return False
+    if item["op"] == "spawn":
+        return item["anchorId"] == "web-floor" and "placement" not in item
+    objects = {obj["objectId"]: obj for obj in snapshot["scene"]["objects"]}
+    target = objects.get(item.get("objectId"))
+    if target is None or target["anchorId"] != "web-floor":
+        return False
+    if item["op"] == "set_transform":
+        return item.get("anchorId", "web-floor") == "web-floor" and "placement" not in item
+    if item["op"] == "attach_component":
+        other = objects.get(item["targetObjectId"])
+        return (other is not None and other["anchorId"] == "web-floor" and
+                other["objectId"] != target["objectId"])
+    return item["op"] in {"duplicate", "set_behavior", "remove_behavior",
+                          "stop_component", "remove_component", "bind_animation", "delete"}
+
+
 class State:
     def __init__(self, directory, clock=time.monotonic, learning=None, web_assets_directory=None):
         self.directory = Path(directory)
@@ -769,8 +799,8 @@ class State:
                 elif item["op"] in {"attach_component", "stop_component", "remove_component"}:
                     require(self.latest.get("componentSchemaVersion") == 1,
                             "Connected runtime does not support components", 409)
-                    require((self.latest.get("roomContext") or {}).get("mode") == "white-room",
-                            "Components currently require the virtual room", 409)
+                    require(web_virtual_floor_ready(self.latest),
+                            "Components currently require a ready WebXR virtual floor", 409)
                     if item["op"] == "attach_component":
                         try:
                             registered = self.web_components.get(item["componentId"])
@@ -780,8 +810,8 @@ class State:
                                 "Component package does not match its published version", 409)
                 elif item["op"] == "bind_animation":
                     require(self.latest.get("animationSchemaVersion") == 1 and
-                            (self.latest.get("roomContext") or {}).get("mode") == "white-room",
-                            "Connected WebXR virtual room does not support animation bindings", 409)
+                            web_virtual_floor_ready(self.latest),
+                            "Connected WebXR virtual floor does not support animation bindings", 409)
                     obj = next((obj for obj in self.latest["scene"]["objects"]
                                 if obj["objectId"] == item["objectId"]), None)
                     require(obj is not None and obj["anchorId"] == "web-floor",
@@ -809,7 +839,8 @@ class State:
                     require(room and room["mode"] == "ar" and room["state"] == "ready",
                             "Load a real room and inspect its outlines before confirming alignment", 409)
                 elif room and room["mode"] == "ar" and not room.get("alignmentVerified"):
-                    require(item["op"] in {"clear", "select", "get_scene", "list_assets", "list_targets"},
+                    require(item["op"] in {"clear", "select", "get_scene", "list_assets", "list_targets"}
+                            or virtual_floor_command(self.latest, item),
                             "Check the labeled outlines in the headset, then confirm room alignment on this panel", 409)
             require(len(self.pending) + len(checked) <= MAX_PENDING, "Command queue full", 409)
             for item in checked:
@@ -837,8 +868,8 @@ class State:
             current = self.latest
             require(current["scene"]["roomId"] == room_id and self.revision == revision,
                     "Matrix scene changed; inspect the current room and retry", 409)
-            require((current.get("roomContext") or {}).get("mode") == "white-room",
-                    "This Matrix tool currently moves virtual-room objects only", 409)
+            require(web_virtual_floor_ready(current),
+                    "This Matrix tool requires a ready WebXR virtual floor", 409)
             require(not current.get("readOnly") and not self.pending,
                     "Matrix world is not ready for a new move", 409)
             item = next((item for item in current["scene"]["objects"] if item["objectId"] == object_id), None)
@@ -896,8 +927,8 @@ class State:
             current = self.latest
             require(current["scene"]["roomId"] == room_id and self.revision == revision,
                     "Matrix scene changed; inspect the current room and retry", 409)
-            require((current.get("roomContext") or {}).get("mode") == "white-room",
-                    "This Matrix tool currently spawns in the virtual room only", 409)
+            require(web_virtual_floor_ready(current),
+                    "This Matrix tool requires a ready WebXR virtual floor", 409)
             require(not current.get("readOnly") and not self.pending,
                     "Matrix world is not ready for a new spawn", 409)
             asset = next((item for item in self.web_assets.list() if item.get("assetId") == asset_id), None)
@@ -963,8 +994,8 @@ class State:
             require(current["scene"]["roomId"] == room_id and self.revision == revision,
                     "Matrix scene changed; inspect the current room and retry", 409)
             require(current.get("animationSchemaVersion") == 1 and
-                    (current.get("roomContext") or {}).get("mode") == "white-room",
-                    "Connected WebXR virtual room does not support animation bindings", 409)
+                    web_virtual_floor_ready(current),
+                    "Connected WebXR virtual floor does not support animation bindings", 409)
             require(not current.get("readOnly") and not self.pending,
                     "Matrix world is not ready for an animation change", 409)
             item = next((item for item in current["scene"]["objects"] if item["objectId"] == object_id), None)
@@ -1051,8 +1082,8 @@ class State:
             require(current["scene"]["roomId"] == room_id and self.revision == revision,
                     "Matrix scene changed; inspect the current room and retry", 409)
             require(current.get("componentSchemaVersion") == 1 and
-                    (current.get("roomContext") or {}).get("mode") == "white-room",
-                    "Connected WebXR virtual room does not support components", 409)
+                    web_virtual_floor_ready(current),
+                    "Connected WebXR virtual floor does not support components", 409)
             require(not current.get("readOnly") and not self.pending,
                     "Matrix world is not ready for a component action", 409)
             objects = current["scene"]["objects"]
