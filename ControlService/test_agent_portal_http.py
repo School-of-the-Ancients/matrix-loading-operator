@@ -6,6 +6,7 @@ import threading
 import unittest
 import urllib.error
 import urllib.request
+from unittest.mock import patch
 
 from agent_portal import AgentPortal
 from server import Server, State
@@ -70,6 +71,20 @@ class AgentPortalHTTPTests(unittest.TestCase):
         self.assertEqual(code, 200)
         self.assertEqual(resumed["sessionId"], session_id)
         self.assertEqual(self.post("/api/agent/session", {"unexpected": 1})[0], 400)
+
+    def test_agent_transcription_reuses_pc_speech_without_planning(self):
+        session_id = self.post("/api/agent/session", {})[1]["sessionId"]
+        with patch("server.speech.decode_audio", return_value=b"wav") as decode, \
+             patch("server.speech.configuration"), \
+             patch("server.speech.transcribe", return_value="Move this there") as transcribe:
+            body = {"sessionId": session_id, "audioBase64": "recording"}
+            self.assertEqual(self.post("/api/agent/transcribe", body, auth=False)[0], 401)
+            self.assertEqual(self.post("/api/agent/transcribe", {**body, "sessionId": "wrong"})[0], 404)
+            self.assertEqual(self.post("/api/agent/transcribe", body),
+                             (200, {"transcript": "Move this there"}))
+            decode.assert_called_once_with("recording")
+            transcribe.assert_called_once_with(b"wav")
+            self.assertFalse(self.state.voice_jobs)
 
 
 if __name__ == "__main__":

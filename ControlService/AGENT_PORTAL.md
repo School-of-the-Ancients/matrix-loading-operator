@@ -35,12 +35,20 @@ file size; omitted request/reply text is marked in the session snapshot.
 The five `/api/agent/*` POST routes use the service's existing bearer-token and
 same-origin checks. The browser must store only the opaque Matrix session ID;
 the local Codex executable and configured MCP credentials remain on the PC.
-Approval responses currently expose an action category and turn identity. Raw
-command text and tool arguments remain PC-only. The in-world approval panel
-still needs a useful safe description before wearer acceptance is complete.
-The in-world Operator UI and voice transcription routing are the next slice. Matrix tools,
-Blender-specific workflows, spatial grounding, and rich artifacts come after
-the generic portal.
+Approval responses expose a bounded operation summary and turn identity. Raw
+command text and tool arguments remain PC-only. The only XR-approvable command
+form currently recognized is creation of one new file inside the Matrix
+repository with short literal text. Unknown commands, overwrites, outside-repo
+targets, and file-change approvals show a PC-review message and cannot be
+approved through the browser; Deny and Stop remain available. Broader useful
+approval descriptions need their own reviewed allowlist before wearer
+acceptance is complete.
+The `/web/` Operator now shows a compact Agent page with recent text, activity,
+Approve/Deny, Stop, and a PC speech transcription path that sends spoken text
+to the same Codex conversation. The browser stores only an opaque Matrix
+session ID; when a service bearer token is configured, it must be re-entered
+after page refresh. Matrix tools, spatial grounding, Blender-specific agent
+workflows, and rich artifacts remain later slices.
 
 ## Installed-version observations
 
@@ -53,6 +61,8 @@ rollout found`. The portal must retain its own bounded, browser-safe transcript
 for reconnect and must not claim that an empty thread is durable.
 
 The app-server protocol remains PC-local; the browser API carries normalized
-portal data. There is no in-world Operator UI or Quest test in this slice. The
-fake-server tests cover approval response shape and routing; a real native
-approval request remains an acceptance check for the completed portal.
+portal data. An isolated desktop browser test on the installed Codex version
+started a session, streamed a reply, followed up, resumed after refresh,
+displayed and denied a native command approval, and cancelled a long turn.
+The denied scratch-file command left the file absent. This was not a Quest
+hardware test, and browser microphone/voice operation remains unverified.

@@ -1,13 +1,16 @@
 """The browser-safe contract contains no opaque Codex or MCP event payloads."""
+import tempfile
 import unittest
+from pathlib import Path
 from types import SimpleNamespace
 
-from agent_session import LocalCodexAgentBackend, normalize_event
+from agent_session import LocalCodexAgentBackend, normalize_event, _approval_description
 
 
 class FakeTransport:
     def __init__(self):
         self.calls = []
+        self.cwd = Path.cwd()
 
     def events_since(self, cursor):
         self.calls.append(("events", cursor))
@@ -65,6 +68,7 @@ class AgentSessionTests(unittest.TestCase):
         approvals = backend.pending_approvals()
         self.assertEqual(approvals[0]["approvalId"], 42)
         self.assertEqual(approvals[0]["conversationId"], "thread-1")
+        self.assertFalse(approvals[0]["reviewable"])
         self.assertNotIn("secret", str(approvals))
         cursor, polled = backend.poll(0)
         self.assertEqual(cursor, 5)
@@ -86,6 +90,33 @@ class AgentSessionTests(unittest.TestCase):
             backend = LocalCodexAgentBackend.__new__(LocalCodexAgentBackend)
             backend.transport = FakeTransport()
             backend.decide(42, "thread-1", "turn-1", "yes")
+
+    def test_only_one_new_literal_file_inside_repo_has_xr_approval_summary(self):
+        with tempfile.TemporaryDirectory() as folder:
+            root = Path(folder)
+            target = root / "approval-test.txt"
+            command = f"[System.IO.File]::WriteAllText('{target}', 'test')"
+            summary, reviewable = _approval_description(
+                "item/commandExecution/requestApproval", {"command": command}, root)
+            self.assertTrue(reviewable)
+            self.assertIn("approval-test.txt", summary)
+            self.assertNotIn(str(root), summary)
+            self.assertNotIn("'test'", summary)
+            bundled = root / "codex-runtimes" / "runtime" / "dependencies" / "native" / "powershell" / "pwsh.exe"
+            wrapped = f'"{bundled}" -Command "{command}"'
+            self.assertTrue(_approval_description(
+                "item/commandExecution/requestApproval", {"command": wrapped}, root)[1])
+            untrusted_shell = f'"{root / "pwsh.exe"}" -Command "{command}"'
+            self.assertFalse(_approval_description(
+                "item/commandExecution/requestApproval", {"command": untrusted_shell}, root)[1])
+            for unsafe in (command + "; Remove-Item secret", "echo secret",
+                           f"[System.IO.File]::WriteAllText('{root.parent / 'outside.txt'}', 'test')"):
+                _, reviewable = _approval_description(
+                    "item/commandExecution/requestApproval", {"command": unsafe}, root)
+                self.assertFalse(reviewable)
+            target.write_text("existing", encoding="utf-8")
+            self.assertFalse(_approval_description(
+                "item/commandExecution/requestApproval", {"command": command}, root)[1])
 
 
 if __name__ == "__main__":
