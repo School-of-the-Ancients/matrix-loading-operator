@@ -20,15 +20,19 @@ On desktop, arrow keys or WASD move the camera, right-drag looks around, left-dr
 
 The service stores named scenes in its existing PC scenes directory. The browser also retains the current scene in this tab's session storage so a refresh keeps the same object IDs until the tab is closed. This is separate from named PC saves.
 
+## Speak to Operator
+
+In the 2D browser page, tap **Tap to speak**, speak, then tap **Tap to send**; Quest Browser's long-press text selection makes a held page button unreliable. Inside AR/VR, aim a controller at the Operator panel and hold the trigger, or hold either controller grip. Release after a 0.25–15 second request. The in-world panel keeps the transcript and Codex response visible until the next request; **Next** cycles longer replies. Press **Pin to wall** to place it on a measured wall facing you (or fix it in space if no wall is in view), then **Follow me** to bring it back. In VR, **Pin here** fixes it in the virtual room. The panel also shows recording, connection, proposal and runtime receipt status even when Quest Browser does not show a DOM overlay. The browser sends a bounded 16 kHz mono WAV to the existing PC-local Whisper worker; the audio is processed in memory. The Codex planner receives the transcript with the current scene, selected surface, and tracked viewpoint. When **Automatically apply safe scene requests** is checked, validated spawn, transform, select, duplicate, and animation commands are queued automatically. Deletion, clearing, and scene loads still stop at the proposal review. Runtime receipts report whether objects actually appeared. Quest Browser microphone and controller grip behavior need headset validation.
+
 ## Add an asset while Matrix is running
 
 Export a **static, self-contained GLB** from Blender. Use metres, and place the object's base near Y=0. Embed textures in the GLB. Then register the file on the PC:
 
 ```powershell
-python ControlService/register_web_asset.py 'C:\path\to\glass-arch.glb' --name 'Glass Arch' --description 'A translucent display arch'
+python ControlService/register_web_asset.py 'C:\path\to\glass-arch.glb' --name 'Glass Arch' --description 'A translucent display arch' --spawn-scale 0.5 --local-bounds '{"center":{"x":0,"y":1,"z":0},"size":{"x":2,"y":2,"z":1}}'
 ```
 
-Registration validates the GLB header, embedded resources, size and mesh budget, copies it into an immutable content-addressed catalog, and prints its `assetId`. The running browser polls the catalog every 10 seconds, or use **Refresh assets**. The next Operator proposal can spawn that ID without a browser or APK rebuild. The browser fetches the GLB from the same authenticated service, checks rendered bounds (each axis at most 20 m), and places its base at the selected point. A named Matrix scene preserves the exact versioned asset ID; restoring it requires the same registered GLB.
+Registration validates the GLB header, embedded resources, size and mesh budget, copies it into an immutable content-addressed catalog, and prints its `assetId`. Measure `localBounds` after the browser's horizontal recentering and floor alignment; the example spans 2 × 2 × 1 m with its base at Y=0. Bounds let the Operator check that the scaled footprint fits a real support surface. The running browser polls the catalog every 10 seconds, or use **Refresh assets**. The next Operator proposal can spawn that ID without a browser or APK rebuild. The browser fetches the GLB from the same authenticated service, checks rendered bounds (each axis at most 20 m), and places its base at the selected point. A named Matrix scene preserves the exact versioned asset ID; restoring it requires the same registered GLB.
 
 The image generation and Blender work can be automated as a queued authoring job that produces this GLB. This slice provides the import/hot-load boundary; it does not yet run Blender MCP, call an image model, or claim screenshot matching or 60 fps on Quest.
 
@@ -40,7 +44,11 @@ This is a deliberately limited procedural baseline: the freeform visual brief is
 
 ## Quest and XR
 
-The client probes `immersive-ar` and `immersive-vr`. AR uses browser hit testing where available and shows a placement reticle. In XR, point at an object and hold either controller trigger to move and rotate it; release to commit its new transform. The object keeps its initial offset from the controller while held. A committed move appears in the Operator snapshot and can be undone or saved. Trigger on the floor selects a placement point. The current scene uses a session-local `web-floor` anchor and reports `white-room` capability to the Operator. It does **not** claim MRUK room geometry, persistent physical anchors, exact Unity prefab visuals, native Quest feature parity, or tested Quest 3 placement.
+The client probes `immersive-ar` and `immersive-vr`. AR requests Quest Browser's `plane-detection` feature and Space Setup permission, then displays labeled outlines for the planes returned by WebXR. If no planes appear after three seconds, it asks Quest to open Room Setup when that API is available. The AR runtime sends plane boundaries, labels, and tracked head pose to the Operator. Check that the outlines match the room, then click **Outlines align — enable editing** in the full Operator. Point a controller at a support plane to select a placement point. Until alignment is confirmed, real-room edits are disabled. In XR, point at an object and hold either trigger to grab it; release to commit the transform.
+
+The AR scene and its plane IDs last for one WebXR session. When Quest replaces plane objects within that session, the client keeps an ID only if label and measured shape uniquely match; ambiguous matches pause editing for recovery. Ending AR restores the desktop virtual scene; entering AR again starts a fresh empty room scene. A saved AR scene cannot be restored into a later browser session because these plane IDs are not persistent spatial anchors. The browser does not provide MRUK geometry, physical-camera screenshots, depth occlusion, or native Quest feature parity. Room planes and aligned outlines were observed on Quest 3; stable object visibility after relocalization and voice control still need headset validation.
+
+For local development without a cable after the first setup, Meta supports ADB over Wi-Fi. With USB connected and developer mode enabled, run `adb shell ip route` to find the headset's Wi-Fi IP, then `adb tcpip 5555`, `adb connect <quest-ip>:5555`, and `adb -s <quest-ip>:5555 reverse tcp:8765 tcp:8765` (substitute the service's actual port). Unplug USB and open `http://127.0.0.1:8765/web/` in Quest Browser. The PC service remains bound to loopback; the wireless ADB reverse tunnel carries this local development connection. Reconnect ADB after a headset reboot or Wi-Fi change. Air Link does not forward Quest Browser's localhost address. A trusted HTTPS endpoint is the direct network option below.
 
 WebXR requires a secure origin on a headset. For a trusted HTTPS endpoint, the existing service can serve the built client and API from one origin:
 
@@ -56,7 +64,7 @@ Open `https://<certificate-hostname>:8765/web/` on Quest and enter the token in 
 - Browser visuals are light procedural stand-ins for the seven shared catalog IDs. Static Unity AssetBundles are not GLB files and cannot be directly loaded here. New Blender-authored static GLBs use the separate web catalog above.
 - The Operator's existing planner can arrange, edit and save these catalog objects. The procedural authoring controls provide three typed shape recipes; arbitrary geometry and sandboxed generated behaviors require a separate typed command/capability contract before an AI can request them through the shared service.
 - The runtime supports Rotate and Bob scene configuration; the current browser animation restarts its phase after an edit or reload. Unity's pause/resume phase behavior is more complete.
-- The browser runtime publishes a virtual floor even while showing AR passthrough. Saved positions are not guaranteed to align with the same physical spot after ending and restarting an XR session. Quest 3 hardware validation and persistent-anchor mapping are tracked in [issue #44](https://github.com/School-of-the-Ancients/matrix-loading-operator/issues/44).
+- Desktop and VR use a virtual `web-floor` anchor. AR uses measured WebXR planes; their positions are only valid within the current session. Quest 3 validation and persistent-anchor mapping are tracked in [issue #44](https://github.com/School-of-the-Ancients/matrix-loading-operator/issues/44).
 
 ## Checks
 

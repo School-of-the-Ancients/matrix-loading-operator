@@ -74,6 +74,49 @@ class WebRuntimeContractTests(unittest.TestCase):
         self.assertEqual(command["anchorId"], "web-floor")
         self.assertTrue(command["requestId"])
 
+    def test_webxr_room_requires_alignment_and_keeps_proposal_revision_when_plane_pose_refines(self):
+        room = copy.deepcopy(SNAPSHOT)
+        room["scene"]["roomId"] = "webxr-session-test"
+        room["anchors"] = [{"anchorId": "webxr-plane-floor", "displayName": "FLOOR", "source": "webxr",
+                            "semanticLabels": ["FLOOR"], "surface": {"kind": "support", "boundary": [
+                                {"x": -2, "y": 0, "z": -2}, {"x": 2, "y": 0, "z": -2},
+                                {"x": 2, "y": 0, "z": 2}, {"x": -2, "y": 0, "z": 2}]},
+                            "roomPose": {"position": {"x": 0, "y": 0, "z": 0},
+                                         "rotation": {"x": 0, "y": 0, "z": 0},
+                                         "scale": {"x": 1, "y": 1, "z": 1}}}]
+        room["selection"] = {"anchorId": "webxr-plane-floor", "objectId": "",
+                             "position": {"x": 0, "y": 0, "z": 0}}
+        room["roomContext"] = {"mode": "ar", "state": "ready", "message": "1 WebXR room plane",
+                               "alignmentVerified": False}
+        code, body = self.post("/api/exchange", {"clientId": "web-client", "snapshot": room,
+                                                  "results": [], "captureSupported": False})
+        self.assertEqual(code, 200, body)
+        command = {"op": "spawn", "assetId": "chair", "anchorId": "webxr-plane-floor",
+                   "placement": "surface", "transform": {"position": {"x": 0, "y": 0, "z": 0},
+                   "rotation": {"x": 0, "y": 0, "z": 0}, "scale": {"x": 1, "y": 1, "z": 1}}}
+        self.assertEqual(self.post("/api/command", command)[0], 409)
+        code, queued = self.post("/api/command", {"op": "confirm_room"})
+        self.assertEqual(code, 200, queued)
+        request_id = queued["commands"][0]["requestId"]
+        room["roomContext"]["alignmentVerified"] = True
+        code, delivered = self.post("/api/exchange", {"clientId": "web-client", "snapshot": room,
+                                                      "results": [{"requestId": request_id, "ok": True}],
+                                                      "captureSupported": False})
+        self.assertEqual(code, 200, delivered)
+        revision = self.server.state.revision
+        refined = copy.deepcopy(room)
+        refined["anchors"][0]["roomPose"]["position"]["x"] += .03
+        refined["anchors"][0]["surface"]["boundary"][0]["x"] += .03
+        self.assertEqual(self.post("/api/exchange", {"clientId": "web-client", "snapshot": refined,
+                                                     "results": [], "captureSupported": False})[0], 200)
+        self.assertEqual(self.server.state.revision, revision)
+        code, queued = self.post("/api/command", command)
+        self.assertEqual(code, 200, queued)
+        code, delivered = self.post("/api/exchange", {"clientId": "web-client", "snapshot": refined,
+                                                      "results": [], "captureSupported": False})
+        self.assertEqual(code, 200, delivered)
+        self.assertEqual(delivered["commands"][0]["placement"], "surface")
+
     def test_registered_asset_is_visible_without_service_restart(self):
         source = Path(self.temp.name) / "test.glb"
         source.write_bytes(glb())

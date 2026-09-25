@@ -260,7 +260,7 @@ def validate_local_bounds(value):
 
 
 def validate_anchor_metadata(value):
-    """Optional, measured MRUK geometry; legacy virtual anchors remain unchanged.
+    """Optional measured room geometry; legacy virtual anchors remain unchanged.
 
     The runtime owns coordinate conversion and final surface queries. This only
     validates the data crossing the PC boundary; it does not synthesize a room.
@@ -268,7 +268,7 @@ def validate_anchor_metadata(value):
     source = value.get("source")
     if source in (None, ""):
         return {}
-    _require(source == "mruk", "Unknown room anchor source")
+    _require(source in {"mruk", "webxr"}, "Unknown room anchor source")
     labels = value.get("semanticLabels")
     _require(isinstance(labels, list) and 0 < len(labels) <= 32, "Invalid room semantic labels")
     labels = [_text(label, "room semantic label", limit=64) for label in labels]
@@ -612,8 +612,8 @@ def validate_commands(commands, snapshot, saved_scenes=None, selection=None):
 
 
 def _validate_surface_placement(value, result, anchor, asset, snapshot):
-    """Keep final geometry resolution in the runtime's measured MRUK frame."""
-    physical = anchor.get("source") == "mruk"
+    """Keep final geometry resolution in the runtime's measured plane frame."""
+    physical = anchor.get("source") in {"mruk", "webxr"}
     if physical:
         _require(anchor["surface"]["kind"] == "support",
                  "This room anchor is for context and outlines only; select a measured support surface")
@@ -625,7 +625,7 @@ def _validate_surface_placement(value, result, anchor, asset, snapshot):
     if "placement" in value:
         _require(value["placement"] == "surface", "Unknown placement mode")
         _require(physical and anchor["surface"]["kind"] == "support",
-                 "Surface placement needs a measured MRUK support target")
+                 "Surface placement needs a measured MRUK or WebXR support target")
         _require(asset.get("localBounds") is not None, "Surface placement needs measured prefab bounds")
         _require(result["transform"]["position"]["y"] >= 0, "Surface clearance cannot be negative")
         result["placement"] = "surface"
@@ -728,8 +728,9 @@ State that placement uses the user's viewpoint at request time. Subsequent head 
 If an explicitly viewer-relative request has no matching tracked viewer frame, return no commands and explain that
 the headset must be awake with tracking (or the updated runtime must be installed). Do not substitute a selected point.
 PHYSICAL ROOM CONTEXT:
-An anchor with source:'mruk' is a measured physical room target. Its anchorId is the actual room-anchor identity,
-semanticLabels are measured labels, and surface describes measured geometry in that anchor's own coordinates.
+An anchor with source:'mruk' or source:'webxr' is a measured physical room target. MRUK IDs can refer to the
+configured room across sessions; WebXR plane IDs and coordinates in this browser runtime are session-local.
+semanticLabels and surface describe measured geometry in that anchor's own coordinates.
 Never confuse a physical TABLE anchor with a table asset or virtual table object: 'my table', 'the real table', and
 'my room' refer to measured room geometry. Do not spawn replacement physical furniture or invent a room anchor.
 If there is exactly one matching physical support, use it. If several match, use the controller-selected matching
@@ -749,7 +750,7 @@ coordinates, never roomPose coordinates. A boundary may be concave; do not assum
 For 'on my table', 'on the real floor', and moving an object along its physical support, use placement:'surface'.
 Choose X/Z inside the measured boundary with room for the prefab's scaled, rotated footprint. With this hint Y is
 nonnegative clearance above the surface, not a pivot height: use Y=0 for contact, including moving along its top.
-The existing runtime resolves the prefab pivot's resting height and checks the full footprint against MRUK;
+The runtime resolves the prefab pivot's resting height and checks the footprint against the measured support;
 it may reject an oversized or unsupported placement. Do not claim success before the executor acknowledges it.
 Surface placement requires known prefab localBounds. Use another suitable known piece or explain missing bounds.
 For an explicit lift or floating placement, omit placement and give the desired final anchor-local pivot position;
@@ -1024,7 +1025,7 @@ def _spawn_plan(reference, target, snapshot):
     scale = assets[0].get("spawnScale", 0.2)
     pose = {"position": position, "rotation": {"x": 0, "y": 0, "z": 0}, "scale": {"x": scale, "y": scale, "z": scale}}
     command = {"op": "spawn", "assetId": assets[0]["assetId"], "anchorId": anchor, "transform": pose}
-    if next(item for item in snapshot["anchors"] if item["anchorId"] == anchor).get("source") == "mruk":
+    if next(item for item in snapshot["anchors"] if item["anchorId"] == anchor).get("source") in {"mruk", "webxr"}:
         # The selected point is on the support plane, not the prefab pivot.
         # Existing validation requires known bounds/alignment; Unity owns the final fit.
         command["placement"] = "surface"

@@ -1,6 +1,7 @@
 // This is the browser adapter for Matrix scene schema 1 and the existing
 // /api/exchange command set. Keep changes to this contract coordinated with
 // ControlService/server.py and Assets/Sandbox/Runtime/SandboxWorld.cs.
+import {insideBoundary} from './spatial.js';
 export const ROOM_ID = 'web-virtual-room-v1';
 export const ANCHOR_ID = 'web-floor';
 export const MAX_OBJECTS = 100;
@@ -28,10 +29,15 @@ export class MatrixWorld {
     this.externalAssets=[];
     this.scene={schemaVersion:1,roomId:ROOM_ID,objects:[]};
     this.selection={anchorId:ANCHOR_ID,objectId:'',position:{x:0,y:0,z:-2}};
+    this.spatial=null;this.virtualScene=null;
     this.undo=[]; this.redo=[];
   }
   snapshot(viewer=null) {
-    const snapshot={scene:clone(this.scene),assets:clone([...ASSETS,...this.externalAssets].map(({assetId,displayName,description,spawnScale,localBounds})=>({assetId,displayName,description,spawnScale,...(localBounds?{localBounds}:{})}))),anchors:[{anchorId:ANCHOR_ID,displayName:'Virtual floor'}],selection:clone(this.selection),behaviorKinds:['rotate','bob'],roomContext:{mode:'white-room',state:'ready',message:'Browser virtual floor; physical room alignment is not verified.',alignmentVerified:false}};
+    const anchors=this.spatial?.anchors||[{anchorId:ANCHOR_ID,displayName:'Virtual floor'}];
+    const context=this.spatial?{mode:'ar',state:this.spatial.stale?'missing':'ready',message:this.spatial.stale?'A plane holding a scene object is no longer tracked; keep the scene for recovery and recheck the room.':anchors.length?`${anchors.length} WebXR room plane(s) detected; session-local coordinates.`:'Waiting for Quest room planes. Check Space Setup and browser permission.',alignmentVerified:this.spatial.alignmentVerified}
+      :{mode:'white-room',state:'ready',message:'Browser virtual floor; physical room alignment is not verified.',alignmentVerified:false};
+    const snapshot={scene:clone(this.scene),assets:clone([...ASSETS,...this.externalAssets].map(({assetId,displayName,description,spawnScale,localBounds})=>({assetId,displayName,description,spawnScale,...(localBounds?{localBounds}:{})}))),anchors:clone(anchors),selection:clone(this.selection),behaviorKinds:['rotate','bob'],roomContext:context};
+    if(this.spatial?.stale)snapshot.readOnly=true;
     if (viewer) snapshot.viewer=viewer;
     return snapshot;
   }
@@ -42,7 +48,9 @@ export class MatrixWorld {
     for(const entry of entries){
       if(!entry||!validId(entry.assetId)||!entry.assetId.startsWith('web:')||ids.has(entry.assetId)||
          typeof entry.displayName!=='string'||entry.displayName.length>80||
-         typeof entry.description!=='string'||entry.description.length>500||entry.spawnScale!==1||
+         typeof entry.description!=='string'||entry.description.length>500||!finite(entry.spawnScale,.01,20)||
+         (entry.localBounds!==undefined&&(!entry.localBounds||!vec(entry.localBounds.center,-20,20)||
+           !vec(entry.localBounds.size,.001,20)))||
          !/^[0-9a-f]{64}$/.test(entry.sha256)||entry.url!==`/api/web/assets/${entry.sha256}.glb`||
          !Number.isInteger(entry.byteLength)||entry.byteLength<20||entry.byteLength>16*1024*1024)throw Error('Invalid web asset entry');
       ids.add(entry.assetId);checked.push(clone(entry));
@@ -50,10 +58,68 @@ export class MatrixWorld {
     this.externalAssets=checked;
   }
   asset(id){return ASSETS.find(a=>a.assetId===id)||this.externalAssets.find(a=>a.assetId===id);}
-  setSelection(objectId,position) {
+  enterAR(){
+    if(this.spatial)return;
+    this.virtualScene={scene:clone(this.scene),selection:clone(this.selection),undo:this.undo,redo:this.redo};
+    this.spatial={anchors:[],alignmentVerified:false};
+    this.scene={schemaVersion:1,roomId:`webxr-session-${this.idFactory()}`,objects:[]};
+    this.selection={anchorId:'',objectId:'',position:{x:0,y:0,z:0}};this.undo=[];this.redo=[];
+  }
+  leaveAR(){
+    if(!this.spatial)return;
+    const saved=this.virtualScene;this.spatial=null;this.virtualScene=null;
+    this.scene=saved.scene;this.selection=saved.selection;this.undo=saved.undo;this.redo=saved.redo;
+  }
+  setSpatialAnchors(anchors){
+    if(!this.spatial)return;
+    const stable=anchors.map(anchor=>{
+      const old=this.spatial.anchors.find(item=>item.anchorId===anchor.anchorId);
+      if(!old||old.displayName!==anchor.displayName||old.surface.kind!==anchor.surface.kind||old.surface.boundary.length!==anchor.surface.boundary.length)return anchor;
+      const close=(a,b,tolerance)=>['x','y','z'].every(key=>Math.abs(a[key]-b[key])<tolerance);
+      if(!close(old.roomPose.position,anchor.roomPose.position,.02)||!close(old.roomPose.rotation,anchor.roomPose.rotation,1))return anchor;
+      if(!anchor.surface.boundary.every((point,index)=>close(point,old.surface.boundary[index],.02)))return anchor;
+      return old;
+    });
+    const missing=this.scene.objects.map(object=>object.anchorId).filter(id=>!anchors.some(anchor=>anchor.anchorId===id));
+    const retained=this.spatial.anchors.filter(anchor=>missing.includes(anchor.anchorId));
+    this.spatial.stale=missing.length>0;
+    if(this.spatial.stale)this.spatial.alignmentVerified=false;
+    this.spatial.anchors=clone([...stable,...retained]);
+    if(!anchors.some(anchor=>anchor.anchorId===this.selection.anchorId)){
+      const support=anchors.find(anchor=>anchor.surface.kind==='support'&&anchor.semanticLabels.includes('FLOOR'))||
+        anchors.find(anchor=>anchor.surface.kind==='support');
+      this.selection={anchorId:support?.anchorId||'',objectId:'',position:{x:0,y:0,z:0}};
+    }
+    if(!anchors.length)this.spatial.alignmentVerified=false;
+  }
+  setSelection(objectId,position,anchorId=this.spatial?this.selection.anchorId:ANCHOR_ID) {
     if (objectId && !this.scene.objects.some(o=>o.objectId===objectId)) throw Error('Unknown objectId');
     if (!vec(position,-100,100)) throw Error('Invalid selection position');
-    this.selection={anchorId:ANCHOR_ID,objectId:objectId||'',position:clone(position)};
+    if(!this.availableAnchors().some(anchor=>anchor.anchorId===anchorId))throw Error('Unknown selection anchorId');
+    this.selection={anchorId,objectId:objectId||'',position:clone(position)};
+  }
+  availableAnchors(){return this.spatial?.anchors||[{anchorId:ANCHOR_ID,displayName:'Virtual floor'}];}
+  resolvedTransform(command,assetId,anchorId){
+    const transform=clone(command.transform);
+    const anchor=this.availableAnchors().find(item=>item.anchorId===anchorId);
+    if(!anchor)throw Error('Unknown anchorId');
+    if(!this.spatial)return transform;
+    if(!this.spatial.alignmentVerified)throw Error('Confirm room alignment first');
+    if(command.placement!==undefined&&command.placement!=='surface')throw Error('Unknown placement mode');
+    if(command.placement==='surface'){
+      if(anchor.surface.kind!=='support')throw Error('Choose a measured support surface');
+      const bounds=this.asset(assetId)?.localBounds;if(!bounds)throw Error('This asset has no measured bounds for surface placement');
+      if(Math.abs(transform.rotation.x)>.01||Math.abs(transform.rotation.z)>.01)throw Error('Surface placement needs an upright object');
+      if(transform.position.y<0)throw Error('Surface clearance cannot be negative');
+      const halfX=bounds.size.x*transform.scale.x/2,halfZ=bounds.size.z*transform.scale.z/2;
+      const radians=transform.rotation.y*Math.PI/180,cos=Math.cos(radians),sin=Math.sin(radians);
+      for(const x of [-halfX,halfX])for(const z of [-halfZ,halfZ]){
+        const px=transform.position.x+x*cos-z*sin,pz=transform.position.z+x*sin+z*cos;
+        if(!insideBoundary({x:px,z:pz},anchor.surface.boundary))throw Error('Object footprint extends beyond measured surface');
+      }
+      transform.position.y-=((bounds.center.y-bounds.size.y/2)*transform.scale.y);
+    }
+    return transform;
   }
   execute(command) {
     const result={requestId:command?.requestId||'',ok:false,error:'',objectId:''};
@@ -65,12 +131,15 @@ export class MatrixWorld {
       let object;
       switch(op) {
         case 'get_scene': case 'list_assets': case 'list_targets': break;
+        case 'confirm_room':
+          if(!this.spatial||!this.spatial.anchors.some(anchor=>anchor.surface.kind==='support'))throw Error('No measured support surface to confirm');
+          this.spatial.alignmentVerified=true;break;
         case 'spawn':
           if (!this.asset(command.assetId)) throw Error('Unknown assetId');
-          if (command.anchorId!==ANCHOR_ID) throw Error('Unknown anchorId');
+          if (!this.availableAnchors().some(anchor=>anchor.anchorId===command.anchorId)) throw Error('Unknown anchorId');
           if (!validTransform(command.transform)) throw Error('Invalid transform');
           if (this.scene.objects.length>=MAX_OBJECTS) throw Error('Scene object limit reached');
-          object={objectId:this.idFactory(),assetId:command.assetId,anchorId:ANCHOR_ID,transform:clone(command.transform)};
+          object={objectId:this.idFactory(),assetId:command.assetId,anchorId:command.anchorId,transform:this.resolvedTransform(command,command.assetId,command.anchorId)};
           if (!validId(object.objectId)||this.scene.objects.some(o=>o.objectId===object.objectId)) throw Error('Invalid generated objectId');
           this.scene.objects.push(object); result.objectId=object.objectId; break;
         case 'select':
@@ -86,8 +155,8 @@ export class MatrixWorld {
         case 'set_transform':
           object=this.requireObject(command.objectId);
           if (!validTransform(command.transform)) throw Error('Invalid transform');
-          if (command.anchorId && command.anchorId!==ANCHOR_ID) throw Error('Unknown anchorId');
-          object.transform=clone(command.transform); result.objectId=object.objectId; break;
+          if (command.anchorId && command.anchorId!==object.anchorId) throw Error('Changing an object anchor is not supported');
+          object.transform=this.resolvedTransform(command,object.assetId,object.anchorId); result.objectId=object.objectId; break;
         case 'set_behavior':
           object=this.requireObject(command.objectId);
           if (!validBehavior(command.behavior)) throw Error('Invalid behavior');
@@ -118,10 +187,10 @@ export class MatrixWorld {
   }
   requireObject(id) {const object=this.scene.objects.find(o=>o.objectId===id); if(!object)throw Error('Unknown objectId'); return object;}
   validateScene(scene) {
-    if (!scene||scene.schemaVersion!==1||scene.roomId!==ROOM_ID||!Array.isArray(scene.objects)||scene.objects.length>MAX_OBJECTS) throw Error('Incompatible scene');
+    if (!scene||scene.schemaVersion!==1||scene.roomId!==this.scene.roomId||!Array.isArray(scene.objects)||scene.objects.length>MAX_OBJECTS) throw Error('Incompatible scene');
     const ids=new Set();
     for(const o of scene.objects) {
-      if(!validId(o.objectId)||ids.has(o.objectId)||!this.asset(o.assetId)||o.anchorId!==ANCHOR_ID||!validTransform(o.transform)) throw Error('Invalid scene object');
+      if(!validId(o.objectId)||ids.has(o.objectId)||!this.asset(o.assetId)||!this.availableAnchors().some(anchor=>anchor.anchorId===o.anchorId)||!validTransform(o.transform)) throw Error('Invalid scene object');
       ids.add(o.objectId);
       if(o.behaviors && (!Array.isArray(o.behaviors)||o.behaviors.length>2||new Set(o.behaviors.map(b=>b.kind)).size!==o.behaviors.length||!o.behaviors.every(validBehavior))) throw Error('Invalid scene behavior');
     }

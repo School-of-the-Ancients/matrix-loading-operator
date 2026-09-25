@@ -58,10 +58,13 @@ test('selection and duplicate use acknowledged IDs and never alter another objec
 test('registered GLB appears in live catalog and restores with its immutable ID',()=>{
   const world=new MatrixWorld(()=> 'web-object-1');
   const sha='a'.repeat(64);
-  const asset={assetId:`web:glass-arch:${sha.slice(0,12)}`,displayName:'Glass Arch',description:'A Blender-made arch.',spawnScale:1,
+  const asset={assetId:`web:glass-arch:${sha.slice(0,12)}`,displayName:'Glass Arch',description:'A Blender-made arch.',spawnScale:.5,
+    localBounds:{center:{x:0,y:1,z:0},size:{x:2,y:2,z:1}},
     sha256:sha,byteLength:1024,url:`/api/web/assets/${sha}.glb`};
   world.registerAssets([asset]);
   assert.equal(world.snapshot().assets.at(-1).assetId,asset.assetId);
+  assert.equal(world.snapshot().assets.at(-1).spawnScale,.5);
+  assert.deepEqual(world.snapshot().assets.at(-1).localBounds,asset.localBounds);
   assert.equal(world.execute(command('1','spawn',{assetId:asset.assetId,anchorId:ANCHOR_ID,transform:pose()})).ok,true);
   const saved=structuredClone(world.scene);
   world.execute(command('2','clear'));

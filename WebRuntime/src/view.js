@@ -3,6 +3,7 @@ import {ARButton} from 'three/addons/webxr/ARButton.js';
 import {VRButton} from 'three/addons/webxr/VRButton.js';
 import {GLTFLoader} from 'three/addons/loaders/GLTFLoader.js';
 import {beginGrab,moveGrab,finishGrab,beginPointerGrab,movePointerGrab,movePointerGrabVertical,finishPointerGrab,moveDesktopCamera} from './grab.js';
+import {viewerPose,planeData,insideBoundary,matchPlaneAnchor,samePlaneShape} from './spatial.js';
 
 const wood=()=>new THREE.MeshStandardMaterial({color:0xa56f45,roughness:.78});
 const metal=()=>new THREE.MeshStandardMaterial({color:0x738995,roughness:.45,metalness:.45});
@@ -26,14 +27,58 @@ function makeAsset(id){
   else throw Error(`Unknown asset: ${id}`);
   return group;
 }
-function disposeGroup(root){root.traverse(node=>{if(node.geometry&&!node.userData.cachedGeometry)node.geometry.dispose();if(node.material){const materials=Array.isArray(node.material)?node.material:[node.material];for(const material of materials)material.dispose();}});}
+function disposeGroup(root){root.traverse(node=>{if(node.geometry&&!node.userData.cachedGeometry)node.geometry.dispose();if(node.material){const materials=Array.isArray(node.material)?node.material:[node.material];for(const material of materials){if(node.userData.ownedTexture)material.map?.dispose();material.dispose();}}});}
+function planeLabel(label){
+  const canvas=document.createElement('canvas');canvas.width=512;canvas.height=96;
+  const ctx=canvas.getContext('2d');ctx.fillStyle='#102936';ctx.fillRect(0,0,512,96);ctx.strokeStyle='#5ef7d7';ctx.lineWidth=4;ctx.strokeRect(2,2,508,92);
+  ctx.fillStyle='#e9ffff';ctx.font='bold 38px sans-serif';ctx.textAlign='center';ctx.textBaseline='middle';ctx.fillText(label.slice(0,24),256,48);
+  const texture=new THREE.CanvasTexture(canvas);const sprite=new THREE.Sprite(new THREE.SpriteMaterial({map:texture,transparent:true,depthTest:false}));
+  sprite.userData.ownedTexture=true;sprite.scale.set(.7,.13,1);sprite.position.set(0,.075,0);return sprite;
+}
+function operatorPanel(){
+  const canvas=document.createElement('canvas');canvas.width=1024;canvas.height=768;
+  const texture=new THREE.CanvasTexture(canvas);texture.colorSpace=THREE.SRGBColorSpace;
+  const mesh=new THREE.Mesh(new THREE.PlaneGeometry(.78,.58),new THREE.MeshBasicMaterial({map:texture,transparent:true,depthTest:false,depthWrite:false,side:THREE.DoubleSide}));
+  mesh.renderOrder=100;mesh.userData.operatorVoice=true;
+  const group=new THREE.Group();group.add(mesh);group.visible=false;
+  let message='Aim here, hold trigger, and ask for a scene.',tone='idle',page=0,pinLabel='PIN TO WALL';
+  const paint=()=>{
+    const ctx=canvas.getContext('2d');ctx.fillStyle='#071923';ctx.fillRect(0,0,1024,768);
+    ctx.strokeStyle=tone==='error'?'#ffad8d':'#55e9d2';ctx.lineWidth=9;ctx.strokeRect(10,10,1004,748);
+    ctx.fillStyle='#75f4df';ctx.font='bold 51px sans-serif';ctx.fillText('◈  OPERATOR',55,90);
+    ctx.font=message.length>500?'25px sans-serif':'31px sans-serif';ctx.fillStyle='#dff7f8';
+    const lines=[];
+    for(const paragraph of message.split('\n')){
+      let line='';
+      for(const word of paragraph.split(/\s+/)){
+        const next=line?`${line} ${word}`:word;
+        if(ctx.measureText(next).width>900&&line){lines.push(line);line=word;}else line=next;
+      }
+      lines.push(line);
+    }
+    const perPage=message.length>500?14:13,pages=Math.max(1,Math.ceil(lines.length/perPage));page%=pages;
+    const step=message.length>500?30:36;
+    lines.slice(page*perPage,(page+1)*perPage).forEach((line,index)=>ctx.fillText(line,55,150+index*step));
+    ctx.fillStyle='#8bb8c2';ctx.font='24px sans-serif';ctx.fillText(`Page ${page+1}/${pages}`,55,606);
+    ctx.fillStyle=tone==='recording'?'#ff8f7c':'#53dcc5';ctx.fillRect(35,636,472,90);
+    ctx.fillStyle='#245568';ctx.fillRect(519,636,292,90);ctx.fillRect(823,636,166,90);
+    ctx.fillStyle='#062b34';ctx.font='bold 31px sans-serif';ctx.textAlign='center';ctx.fillText('HOLD TO SPEAK',271,693);
+    ctx.fillStyle='#e9f9fa';ctx.font='bold 26px sans-serif';ctx.fillText(pinLabel,665,691);ctx.fillText('NEXT',906,691);ctx.textAlign='left';
+    texture.needsUpdate=true;
+  };
+  const setMessage=(next,nextTone='idle')=>{message=String(next);tone=nextTone;page=0;paint();};
+  const setPinLabel=next=>{pinLabel=next;paint();};
+  const nextPage=()=>{page++;paint();};
+  paint();
+  return {group,mesh,setMessage,setPinLabel,nextPage};
+}
 const v3=v=>new THREE.Vector3(v.x,v.y,v.z);
 const plain=v=>({x:Number(v.x.toFixed(3)),y:Number(v.y.toFixed(3)),z:Number(v.z.toFixed(3))});
 
 export class MatrixView {
-  constructor(container,world,onSelection,getToken=()=>'',onAssetError=()=>{},onSceneEdit=()=>{}){
-    this.world=world;this.onSelection=onSelection;this.getToken=getToken;this.onAssetError=onAssetError;this.onSceneEdit=onSceneEdit;
-    this.container=container;this.objectRoots=new Map();this.hitSource=null;this.reticleVisible=false;
+  constructor(container,world,onSelection,getToken=()=>'',onAssetError=()=>{},onSceneEdit=()=>{},onRuntimeChange=()=>{},onVoiceStart=()=>{},onVoiceEnd=()=>{}){
+    this.world=world;this.onSelection=onSelection;this.getToken=getToken;this.onAssetError=onAssetError;this.onSceneEdit=onSceneEdit;this.onRuntimeChange=onRuntimeChange;this.onVoiceStart=onVoiceStart;this.onVoiceEnd=onVoiceEnd;this.onFrame=()=>{};
+    this.container=container;this.objectRoots=new Map();this.anchorRoots=new Map();this.planeOutlines=new Map();this.planeIds=new WeakMap();this.nextPlaneId=0;this.hitSource=null;this.reticleVisible=false;this.xrViewer=null;this.reticleAnchorId='';this.lastPlaneTime=0;
     this.modelCache=new Map();
     this.scene=new THREE.Scene();this.scene.background=new THREE.Color(0x0a1b29);
     this.camera=new THREE.PerspectiveCamera(65,1,.02,300);this.camera.position.set(0,1.7,3.7);this.camera.lookAt(0,.8,-1.3);
@@ -45,6 +90,7 @@ export class MatrixView {
     this.floor=new THREE.Mesh(new THREE.PlaneGeometry(200,200),new THREE.MeshStandardMaterial({color:0x163149,roughness:1}));this.floor.rotation.x=-Math.PI/2;this.floor.receiveShadow=true;this.scene.add(this.floor);
     this.grid=new THREE.GridHelper(200,200,0x2e8499,0x24506a);this.grid.position.y=.002;this.scene.add(this.grid);
     this.reticle=new THREE.Mesh(new THREE.RingGeometry(.06,.075,32),new THREE.MeshBasicMaterial({color:0x5ef7d7,side:THREE.DoubleSide}));this.reticle.rotation.x=-Math.PI/2;this.reticle.visible=false;this.scene.add(this.reticle);
+    this.operatorPanel=operatorPanel();this.scene.add(this.operatorPanel.group);this.operatorVoiceController=null;this.operatorMount={kind:'head'};
     this.raycaster=new THREE.Raycaster();this.pointer=new THREE.Vector2();
     this.controllers=[0,1].map(index=>this.renderer.xr.getController(index));
     this.controllerRays=[];
@@ -54,7 +100,9 @@ export class MatrixView {
         new THREE.LineBasicMaterial({color:0x5ef7d7,transparent:true,opacity:.7}));
       ray.visible=false;controller.add(ray);this.controllerRays.push(ray);
       controller.addEventListener('selectstart',()=>this.selectFromController(controller));
-      controller.addEventListener('selectend',()=>this.releaseGrab(controller));
+      controller.addEventListener('selectend',()=>{this.releaseOperatorVoice(controller);this.releaseGrab(controller);});
+      controller.addEventListener('squeezestart',()=>this.onVoiceStart());
+      controller.addEventListener('squeezeend',()=>this.onVoiceEnd());
     }
     this.grab=null;this.pointerGrab=null;this.pointerLook=null;
     this.renderer.xr.addEventListener('sessionstart',()=>this.onSessionStart());
@@ -78,22 +126,119 @@ export class MatrixView {
   async initXR(buttons){
     if(!navigator.xr){buttons.textContent='WebXR unavailable in this browser';return;}
     const [ar,vr]=await Promise.all(['immersive-ar','immersive-vr'].map(mode=>navigator.xr.isSessionSupported(mode).catch(()=>false)));
-    if(ar){const button=ARButton.createButton(this.renderer,{optionalFeatures:['hit-test','anchors','local-floor']});button.textContent='Enter AR';buttons.append(button);}
-    if(vr){const button=VRButton.createButton(this.renderer);button.textContent='Enter VR';buttons.append(button);}
+    const overlay=document.getElementById('xr-overlay');
+    if(ar){const button=ARButton.createButton(this.renderer,{requiredFeatures:['plane-detection'],optionalFeatures:['hit-test','anchors','local-floor','dom-overlay'],domOverlay:{root:overlay}});button.textContent='Enter AR';buttons.append(button);}
+    if(vr){const button=VRButton.createButton(this.renderer,{optionalFeatures:['dom-overlay'],domOverlay:{root:overlay}});button.textContent='Enter VR';buttons.append(button);}
     if(!ar&&!vr)buttons.textContent='XR requires a compatible headset browser';
   }
   async onSessionStart(){
     const session=this.renderer.xr.getSession();this.isAR=session.environmentBlendMode!=='opaque';
+    if(session.domOverlayState)document.getElementById('xr-overlay').style.display='';
+    this.operatorPanel.group.visible=true;
+    this.operatorMount={kind:'head'};this.operatorPanel.setPinLabel(this.isAR?'PIN TO WALL':'PIN HERE');
+    this.sessionStartedAt=performance.now();this.roomCaptureRequested=false;
+    if(this.isAR){this.world.enterAR();this.sync();this.onRuntimeChange();}
     for(const ray of this.controllerRays)ray.visible=true;
     this.floor.visible=!this.isAR;this.grid.visible=!this.isAR;this.scene.background=this.isAR?null:new THREE.Color(0x0a1b29);
-    document.getElementById('view-label').textContent=this.isAR?'WEBXR AR · SESSION-LOCAL PLACEMENT':'WEBXR VR · VIRTUAL ROOM';
+    document.getElementById('view-label').textContent=this.isAR?'WEBXR AR · SCANNING ROOM PLANES':'WEBXR VR · VIRTUAL ROOM';
     if(this.isAR){try{const viewer=await session.requestReferenceSpace('viewer');this.hitSource=await session.requestHitTestSource({space:viewer});}catch{this.hitSource=null;}}
   }
-  onSessionEnd(){if(this.grab)this.releaseGrab(this.grab.controller);for(const ray of this.controllerRays)ray.visible=false;this.hitSource?.cancel();this.hitSource=null;this.reticle.visible=false;this.isAR=false;this.floor.visible=true;this.grid.visible=true;this.scene.background=new THREE.Color(0x0a1b29);document.getElementById('view-label').textContent='DESKTOP · VIRTUAL ROOM';}
+  onSessionEnd(){if(this.operatorVoiceController)this.releaseOperatorVoice(this.operatorVoiceController);this.operatorPanel.group.visible=false;this.operatorMount={kind:'head'};this.operatorPanel.setPinLabel('PIN TO WALL');if(this.grab)this.releaseGrab(this.grab.controller);for(const ray of this.controllerRays)ray.visible=false;this.hitSource?.cancel();this.hitSource=null;this.reticle.visible=false;this.reticleVisible=false;this.reticleAnchorId='';this.xrViewer=null;this.planeIds=new WeakMap();this.nextPlaneId=0;this.clearPlanes();this.isAR=false;this.world.leaveAR();this.sync();this.onRuntimeChange();document.getElementById('xr-overlay').style.display='none';this.floor.visible=true;this.grid.visible=true;this.scene.background=new THREE.Color(0x0a1b29);document.getElementById('view-label').textContent='DESKTOP · VIRTUAL ROOM';}
+  setOperatorStatus(message,tone='idle'){this.operatorPanel.setMessage(message,tone);}
+  positionOperatorPanel(){
+    if(!this.xrViewer)return;
+    const group=this.operatorPanel.group,head=this.xrViewer;
+    if(this.operatorMount.kind==='head'){
+      group.position.copy(head.position).add(new THREE.Vector3(.53,-.16,-1.2).applyQuaternion(head.quaternion));
+      group.quaternion.copy(head.quaternion);
+    }else if(this.operatorMount.kind==='wall'){
+      const mount=this.operatorMount,root=this.planeOutlines.get(mount.anchorId);
+      if(root){
+        group.position.copy(root.localToWorld(new THREE.Vector3(mount.x,.025*mount.sign,mount.z)));
+        const normal=new THREE.Vector3(0,1,0).applyQuaternion(root.getWorldQuaternion(new THREE.Quaternion())).multiplyScalar(mount.sign);
+        group.quaternion.setFromRotationMatrix(new THREE.Matrix4().lookAt(group.position,group.position.clone().sub(normal),new THREE.Vector3(0,1,0)));
+      }
+    }
+    group.updateMatrixWorld(true);
+  }
+  toggleOperatorPin(){
+    if(this.operatorMount.kind!=='head'){
+      this.operatorMount={kind:'head'};this.operatorPanel.setPinLabel(this.isAR?'PIN TO WALL':'PIN HERE');this.positionOperatorPanel();return;
+    }
+    this.positionOperatorPanel();
+    const head=this.xrViewer;let best=null;
+    if(this.isAR&&head)for(const anchor of this.world.spatial?.anchors||[]){
+      if(anchor.surface.kind!=='wall'||!anchor.semanticLabels.includes('WALL'))continue;
+      const root=this.planeOutlines.get(anchor.anchorId);if(!root)continue;
+      const boundary=anchor.surface.boundary,xs=boundary.map(p=>p.x),zs=boundary.map(p=>p.z);
+      const minX=Math.min(...xs)+.45,maxX=Math.max(...xs)-.45,minZ=Math.min(...zs)+.35,maxZ=Math.max(...zs)-.35;
+      if(minX>=maxX||minZ>=maxZ)continue;
+      const local=root.worldToLocal(head.position.clone());local.x=THREE.MathUtils.clamp(local.x,minX,maxX);local.y=0;local.z=THREE.MathUtils.clamp(local.z,minZ,maxZ);
+      if(!insideBoundary(local,boundary))continue;
+      const point=root.localToWorld(local.clone()),to=point.clone().sub(head.position),distance=to.length();
+      if(distance<.4||distance>3.5)continue;
+      const facing=head.direction.dot(to.normalize());if(facing<.2)continue;
+      const score=distance+(1-facing)*4;
+      if(!best||score<best.score){
+        const normal=new THREE.Vector3(0,1,0).applyQuaternion(root.getWorldQuaternion(new THREE.Quaternion()));
+        best={kind:'wall',anchorId:anchor.anchorId,x:local.x,z:local.z,sign:normal.dot(head.position.clone().sub(point))>=0?1:-1,score};
+      }
+    }
+    this.operatorMount=best||{kind:'world'};
+    this.operatorPanel.setPinLabel('FOLLOW ME');this.positionOperatorPanel();
+  }
+  clearPlanes(){for(const group of this.planeOutlines.values()){this.scene.remove(group);disposeGroup(group);}this.planeOutlines.clear();}
+  anchorPose(group,anchor){const pose=anchor.roomPose;group.position.copy(v3(pose.position));group.rotation.set(...['x','y','z'].map(key=>THREE.MathUtils.degToRad(pose.rotation[key])),'XYZ');group.updateMatrixWorld(true);}
+  updatePlanes(time,frame,ref){
+    if(!this.isAR||time-this.lastPlaneTime<350)return;
+    this.lastPlaneTime=time;
+    const detected=frame.detectedPlanes||frame.session?.detectedPlanes;
+    if(!detected)return;
+    const raw=[];
+    for(const plane of detected){if(raw.length>=64)break;const data=planeData(plane,frame,ref,'');if(data)raw.push({plane,data});}
+    const anchors=[],present=new Set(),previous=this.world.spatial?.anchors||[],used=new Set();
+    const pinned=previous.filter(anchor=>this.world.scene.objects.some(object=>object.anchorId===anchor.anchorId));
+    for(const {plane,data} of raw){
+      const unique=raw.filter(item=>samePlaneShape(item.data,data)).length===1;
+      let id=this.planeIds.get(plane);
+      if(unique){const recovery=matchPlaneAnchor(data,pinned,used);if(recovery)id=recovery;
+        else if(!id)id=matchPlaneAnchor(data,previous,used);}
+      if(!id||used.has(id))id=`webxr-plane-${++this.nextPlaneId}`;
+      this.planeIds.set(plane,id);used.add(id);
+      const {quaternion,...anchor}=data;anchor.anchorId=id;anchors.push(anchor);present.add(id);
+      const key=JSON.stringify([anchor.displayName,anchor.surface.kind,anchor.surface.boundary]);
+      let group=this.planeOutlines.get(id);
+      if(group?.userData.key===key){this.anchorPose(group,anchor);const root=this.anchorRoots.get(id);if(root)this.anchorPose(root,anchor);continue;}
+      if(group){this.scene.remove(group);disposeGroup(group);}
+      group=new THREE.Group();this.anchorPose(group,anchor);group.userData.anchorId=id;group.userData.key=key;
+      const corners=anchor.surface.boundary.map(vertex=>new THREE.Vector3(vertex.x,.004,vertex.z));
+      const outline=new THREE.LineLoop(new THREE.BufferGeometry().setFromPoints(corners),new THREE.LineBasicMaterial({color:anchor.surface.kind==='support'?0x5ef7d7:0x65aaff,transparent:true,opacity:.85}));group.add(outline);
+      const label=planeLabel(anchor.displayName);group.userData.label=label;group.add(label);
+      if(anchor.surface.kind==='support'){
+        const shape=new THREE.Shape();shape.moveTo(corners[0].x,corners[0].z);for(const corner of corners.slice(1))shape.lineTo(corner.x,corner.z);
+        const geometry=new THREE.ShapeGeometry(shape);geometry.rotateX(Math.PI/2);
+        const mesh=new THREE.Mesh(geometry,new THREE.MeshBasicMaterial({color:0x5ef7d7,transparent:true,opacity:.025,side:THREE.DoubleSide,depthWrite:false}));mesh.userData.anchorId=id;group.add(mesh);
+      }
+      this.scene.add(group);this.planeOutlines.set(id,group);
+      const root=this.anchorRoots.get(id);if(root)this.anchorPose(root,anchor);
+    }
+    for(const [id,group] of this.planeOutlines)if(!present.has(id)){this.scene.remove(group);disposeGroup(group);this.planeOutlines.delete(id);}
+    this.world.setSpatialAnchors(anchors);
+    const floor=anchors.find(anchor=>anchor.semanticLabels.includes('FLOOR'))?.anchorId;
+    for(const [id,group] of this.planeOutlines)group.userData.label.visible=id===floor||id===this.world.selection.anchorId;
+    document.getElementById('view-label').textContent=anchors.length?`WEBXR AR · ${anchors.length} ROOM PLANES`:'WEBXR AR · NO ROOM PLANES';
+    if(!anchors.length&&!this.roomCaptureRequested&&time-this.sessionStartedAt>3000&&typeof frame.session?.initiateRoomCapture==='function'){
+      this.roomCaptureRequested=true;
+      Promise.resolve(frame.session.initiateRoomCapture()).catch(error=>this.onAssetError(`Quest Room Setup: ${error.message}`));
+    }
+  }
   sync(){
     this.grab=null;this.pointerGrab=null;
-    for(const root of this.objectRoots.values()){this.scene.remove(root);disposeGroup(root);}
+    for(const root of this.objectRoots.values()){root.parent?.remove(root);disposeGroup(root);}
     this.objectRoots.clear();
+    for(const root of this.anchorRoots.values())this.scene.remove(root);
+    this.anchorRoots.clear();
+    if(this.world.spatial)for(const anchor of this.world.spatial.anchors){const root=new THREE.Group();this.anchorPose(root,anchor);this.scene.add(root);this.anchorRoots.set(anchor.anchorId,root);}
     for(const object of this.world.scene.objects){
       const root=new THREE.Group();root.userData.objectId=object.objectId;root.position.copy(v3(object.transform.position));
       root.rotation.set(...['x','y','z'].map(k=>THREE.MathUtils.degToRad(object.transform.rotation[k])),'XYZ');
@@ -104,7 +249,7 @@ export class MatrixView {
         const placeholder=new THREE.Mesh(new THREE.BoxGeometry(.35,.35,.35),new THREE.MeshBasicMaterial({color:0x5ee3cf,wireframe:true}));placeholder.position.y=.175;visual.add(placeholder);
       }
       visual.userData.objectId=object.objectId;root.add(visual);root.userData.visual=visual;root.userData.behaviors=object.behaviors||[];
-      this.scene.add(root);this.objectRoots.set(object.objectId,root);
+      (this.anchorRoots.get(object.anchorId)||this.scene).add(root);this.objectRoots.set(object.objectId,root);
       if(asset.url)this.loadExternal(asset,root,visual,object.objectId);
     }
     this.highlight();
@@ -184,6 +329,13 @@ export class MatrixView {
     controller.updateMatrixWorld(true);const origin=new THREE.Vector3().setFromMatrixPosition(controller.matrixWorld);
     const direction=new THREE.Vector3(0,0,-1).applyQuaternion(controller.getWorldQuaternion(new THREE.Quaternion()));
     this.raycaster.set(origin,direction);
+    const panelHit=this.operatorPanel.group.visible&&this.raycaster.intersectObject(this.operatorPanel.mesh)[0];
+    if(panelHit){
+      if(panelHit.uv?.y<.19&&panelHit.uv.x>.80)this.operatorPanel.nextPage();
+      else if(panelHit.uv?.y<.19&&panelHit.uv.x>.50)this.toggleOperatorPin();
+      else {this.operatorVoiceController=controller;this.onVoiceStart();}
+      return;
+    }
     const id=this.selectFromRay();
     if(id)this.grab={...beginGrab(controller,this.objectRoots.get(id)),objectId:id};
   }
@@ -196,31 +348,52 @@ export class MatrixView {
     if(!transform)return;
     this.commitMove(grab.objectId,transform);
   }
+  releaseOperatorVoice(controller){
+    if(this.operatorVoiceController!==controller)return;
+    this.operatorVoiceController=null;this.onVoiceEnd();
+  }
   commitMove(objectId,transform){
     const result=this.world.execute({requestId:crypto.randomUUID(),op:'set_transform',objectId,transform});
     if(!result.ok){this.sync();this.onAssetError(`Could not move object: ${result.error}`);return;}
-    this.world.setSelection(objectId,transform.position);
+    this.world.setSelection(objectId,transform.position,this.world.requireObject(objectId).anchorId);
     this.onSceneEdit(objectId,transform.position);
   }
   selectFromRay(){
     const roots=[...this.objectRoots.values()];const hits=this.raycaster.intersectObjects(roots,true);
     if(hits.length){let node=hits[0].object;while(node&&!node.userData.objectId)node=node.parent;
-      const id=node?.userData.objectId;if(id){const object=this.world.requireObject(id);this.world.setSelection(id,object.transform.position);this.highlight();this.onSelection();return id;}}
-    if(this.isAR&&this.reticleVisible){this.world.setSelection('',plain(this.reticle.position));this.highlight();this.onSelection();return;}
+      const id=node?.userData.objectId;if(id){const object=this.world.requireObject(id);this.world.setSelection(id,object.transform.position,object.anchorId);this.highlight();this.onSelection();return id;}}
+    if(this.isAR){const hits=this.raycaster.intersectObjects([...this.planeOutlines.values()],true);
+      const hit=hits.find(item=>item.object.isMesh&&item.object.userData.anchorId);
+      if(hit){const anchorId=hit.object.userData.anchorId;const root=this.planeOutlines.get(anchorId);const local=root.worldToLocal(hit.point.clone());this.world.setSelection('',plain(local),anchorId);this.onSelection();return;}
+      if(this.reticleVisible&&this.reticleAnchorId){const root=this.planeOutlines.get(this.reticleAnchorId);this.world.setSelection('',plain(root.worldToLocal(this.reticle.position.clone())),this.reticleAnchorId);this.onSelection();return;}}
     const floorHit=this.isAR?null:this.raycaster.intersectObject(this.floor)[0];
     if(floorHit){const position=plain(floorHit.point);if(['x','y','z'].every(k=>Math.abs(position[k])<=100)){this.world.setSelection('',position);this.highlight();this.onSelection();}}
   }
   viewer(){
+    if(this.isAR){if(!this.xrViewer)return null;const frames=[];
+      for(const anchor of this.world.spatial?.anchors||[]){if(anchor.surface.kind!=='support')continue;
+        const root=this.planeOutlines.get(anchor.anchorId);if(!root)continue;
+        const position=root.worldToLocal(this.xrViewer.position.clone());const direction=this.xrViewer.direction.clone().applyQuaternion(root.getWorldQuaternion(new THREE.Quaternion()).invert()).normalize();
+        const forward=direction.clone().setY(0);if(forward.length()<.01)forward.set(0,0,-1);forward.normalize();
+        frames.push({anchorId:anchor.anchorId,position:plain(position),forward:plain(forward),lookDirection:plain(direction)});
+      }
+      return frames.length?{frames}:null;
+    }
     const camera=this.renderer.xr.isPresenting?this.renderer.xr.getCamera():this.camera;
     const position=camera.getWorldPosition(new THREE.Vector3());const direction=new THREE.Vector3(0,0,-1).applyQuaternion(camera.getWorldQuaternion(new THREE.Quaternion()));
     const horizontal=direction.clone().setY(0);if(horizontal.length()<.01)horizontal.set(0,0,-1);horizontal.normalize();
     return {frames:[{anchorId:'web-floor',position:plain(position),forward:plain(horizontal),lookDirection:plain(direction.normalize())}]};
   }
   animate(time,frame){
+    if(frame&&this.renderer.xr.isPresenting)this.onFrame();
     if(this.lastFrameTime!==null&&!this.renderer.xr.isPresenting)moveDesktopCamera(this.camera,this.keys,(time-this.lastFrameTime)/1000);
     this.lastFrameTime=time;
-    if(this.hitSource&&frame){const hits=frame.getHitTestResults(this.hitSource);const ref=this.renderer.xr.getReferenceSpace();const pose=hits[0]?.getPose(ref);
-      this.reticleVisible=!!pose;this.reticle.visible=!!pose;if(pose){this.reticle.position.setFromMatrixPosition(new THREE.Matrix4().fromArray(pose.transform.matrix));}}
+    if(frame&&this.renderer.xr.isPresenting){const ref=this.renderer.xr.getReferenceSpace();if(ref){this.xrViewer=viewerPose(frame,ref);this.positionOperatorPanel();this.updatePlanes(time,frame,ref);}}
+    if(this.hitSource&&frame){const hits=frame.getHitTestResults(this.hitSource);const ref=this.renderer.xr.getReferenceSpace();const pose=ref&&hits[0]?.getPose(ref);
+      this.reticleVisible=!!pose;this.reticle.visible=!!pose;this.reticleAnchorId='';if(pose){this.reticle.position.setFromMatrixPosition(new THREE.Matrix4().fromArray(pose.transform.matrix));
+        for(const anchor of this.world.spatial?.anchors||[]){if(anchor.surface.kind!=='support')continue;const root=this.planeOutlines.get(anchor.anchorId);if(!root)continue;
+          const local=root.worldToLocal(this.reticle.position.clone());if(Math.abs(local.y)<.12&&insideBoundary(local,anchor.surface.boundary)){this.reticleAnchorId=anchor.anchorId;break;}}
+      }}
     if(this.grab)moveGrab(this.grab);
     for(const root of this.objectRoots.values()){
       const visual=root.userData.visual;visual.position.y=0;visual.rotation.set(0,0,0);

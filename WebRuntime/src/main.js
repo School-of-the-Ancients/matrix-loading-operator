@@ -2,6 +2,7 @@ import './style.css';
 import {MatrixWorld} from './protocol.js';
 import {MatrixView} from './view.js';
 import {MatrixBridge} from './bridge.js';
+import {VoiceRecorder} from './voice.js';
 
 const $=id=>document.getElementById(id);
 const world=new MatrixWorld();
@@ -9,21 +10,28 @@ let pendingScene=null;
 try {pendingScene=JSON.parse(sessionStorage.getItem('matrix-web-scene')||'null');}
 catch {sessionStorage.removeItem('matrix-web-scene');}
 
-let proposal=null;
+let proposal=null,operatorMessageUntil=0,lastOperatorReply='',lastConnectionOnline=null;
+const recorder=new VoiceRecorder();let voiceStarting=false,voiceRecording=false,voiceStopRequested=false,voiceJob=null,voiceSnapshot=null;
 const feedback=(message,isError=false)=>{$('feedback').textContent=message;$('feedback').classList.toggle('error',isError);};
-const view=new MatrixView($('view'),world,()=>{proposal=null;$('proposal').classList.add('hidden');feedback(`Selected ${world.selection.objectId||'placement point'} at ${Object.values(world.selection.position).join(', ')} m.`);},()=>$('token').value.trim(),message=>feedback(message,true),(id,position)=>{proposal=null;$('proposal').classList.add('hidden');renderScene();feedback(`Moved ${id.slice(0,8)} to ${Object.values(position).join(', ')} m. Undo and Save are available.`);});
+const view=new MatrixView($('view'),world,()=>{proposal=null;$('proposal').classList.add('hidden');feedback(`Selected ${world.selection.objectId||'placement point'} at ${Object.values(world.selection.position).join(', ')} m.`);},()=>$('token').value.trim(),message=>feedback(message,true),(id,position)=>{proposal=null;$('proposal').classList.add('hidden');renderScene();feedback(`Moved ${id.slice(0,8)} to ${Object.values(position).join(', ')} m. Undo and Save are available.`);},()=>{proposal=null;$('proposal').classList.add('hidden');renderScene();},beginVoice,endVoice);
 view.sync();
 view.initXR($('xr-buttons')).catch(e=>feedback(e.message,true));
 
-function renderScene(){view.sync();$('object-count').textContent=`${world.scene.objects.length} object${world.scene.objects.length===1?'':'s'}`;if(!pendingScene)sessionStorage.setItem('matrix-web-scene',JSON.stringify(world.scene));}
+function renderScene(){view.sync();$('object-count').textContent=`${world.scene.objects.length} object${world.scene.objects.length===1?'':'s'}`;if(!pendingScene&&!world.spatial)sessionStorage.setItem('matrix-web-scene',JSON.stringify(world.scene));}
 renderScene();
 const bridge=new MatrixBridge(world,()=>$('token').value.trim(),event=>{
   if(event.type==='scene')renderScene();
   if(event.type==='connection'){
     $('connection').textContent=event.online?'Operator connected':event.error||'Operator unavailable';
     $('connection-dot').classList.toggle('online',event.online);
+    if(!event.online)view.setOperatorStatus(`Connection lost: ${event.error||'Operator unavailable'}${lastOperatorReply?`\n\n${lastOperatorReply}`:''}`,'error');
+    else if(lastConnectionOnline===false||!voiceStarting&&!voiceRecording&&!voiceJob&&performance.now()>operatorMessageUntil)view.setOperatorStatus(lastOperatorReply||'Operator connected. Aim at the panel and hold trigger, or hold either grip, to speak.');
+    lastConnectionOnline=event.online;
   }
-  if(event.type==='receipt')feedback(event.result.ok?`Applied ${event.result.requestId.slice(0,8)}${event.result.objectId?` · ${event.result.objectId.slice(0,8)}`:''}`:`Command failed: ${event.result.error}`,!event.result.ok);
+  if(event.type==='receipt'){
+    const message=event.result.ok?`Applied ${event.result.requestId.slice(0,8)}${event.result.objectId?` · ${event.result.objectId.slice(0,8)}`:''}`:`Command failed: ${event.result.error}`;
+    feedback(message,!event.result.ok);lastOperatorReply=lastOperatorReply?`${lastOperatorReply}\n\n${message}`:message;operatorMessageUntil=Infinity;view.setOperatorStatus(lastOperatorReply,event.result.ok?'idle':'error');
+  }
 });
 async function refreshAssets(silent=false){
   try{
@@ -37,6 +45,7 @@ async function refreshAssets(silent=false){
   }catch(error){if(!silent)feedback(error.message,true);}
 }
 bridge.start(()=>view.viewer());
+view.onFrame=()=>bridge.tick();
 refreshAssets(true);
 setInterval(()=>refreshAssets(true),10000);
 addEventListener('beforeunload',()=>bridge.stop());
@@ -52,23 +61,71 @@ async function refreshScenes(){
 }
 async function propose(){
   const text=$('prompt').value.trim();if(!text){feedback('Enter a request first.',true);return;}
+  lastOperatorReply='';operatorMessageUntil=0;
   $('propose').disabled=true;feedback('Planning…');
   const data=await call('/api/plan',{text,mode:$('mode').value});$('propose').disabled=false;
   if(!data)return;
+  await showProposal(data);
+}
+const SAFE_AUTO_OPS=new Set(['spawn','duplicate','set_transform','set_behavior','remove_behavior','select']);
+async function showProposal(data){
   proposal=data.requiresApply?data:null;
   $('proposal').classList.toggle('hidden',!proposal);
   $('proposal-summary').textContent=data.summary||data.message||data.status||'Review the exact commands.';
   $('proposal-commands').textContent=JSON.stringify(data.commands||[],null,2);
+  const request=data.transcript||$('prompt').value.trim();
+  lastOperatorReply=`You: ${request||'(voice request)'}\n\nOperator: ${$('proposal-summary').textContent}`;
+  operatorMessageUntil=Infinity;view.setOperatorStatus(lastOperatorReply);
+  if(proposal&&$('auto-apply-safe').checked&&proposal.commands?.length&&proposal.commands.every(command=>SAFE_AUTO_OPS.has(command.op))){
+    await applyProposal();return;
+  }
   feedback(proposal?'Review the proposal, then Apply.':data.message||'No scene edits proposed.');
+}
+async function applyProposal(){
+  if(!proposal?.planId)return;
+  const data=await call('/api/apply_plan',{planId:proposal.planId},'Scene request queued for the runtime.');
+  if(data){proposal=null;$('proposal').classList.add('hidden');}
 }
 $('propose').addEventListener('click',propose);
 $('prompt').addEventListener('keydown',event=>{if(event.key==='Enter'&&(event.ctrlKey||event.metaKey))propose();});
 $('discard').addEventListener('click',()=>{proposal=null;$('proposal').classList.add('hidden');feedback('Proposal discarded.');});
-$('apply').addEventListener('click',async()=>{
-  if(!proposal?.planId)return;
-  const data=await call('/api/apply_plan',{planId:proposal.planId},'Proposal queued for runtime.');
-  if(data){proposal=null;$('proposal').classList.add('hidden');}
-});
+$('apply').addEventListener('click',applyProposal);
+function voiceStatus(message,isError=false){$('voice-status').textContent=message;$('xr-voice-status').textContent=message;feedback(message,isError);operatorMessageUntil=performance.now()+8000;view.setOperatorStatus(message,isError?'error':voiceRecording?'recording':'idle');}
+function voiceButtons(){for(const id of ['voice-button','xr-voice']){$(id).textContent=voiceStarting||voiceRecording?'Tap to send':'Tap to speak';$(id).disabled=!!voiceJob;}}
+async function beginVoice(){
+  if(voiceStarting||voiceRecording||voiceJob)return;
+  lastOperatorReply='';operatorMessageUntil=0;
+  voiceStarting=true;voiceStopRequested=false;voiceButtons();voiceStatus('Requesting microphone…');
+  try{await recorder.start();voiceRecording=true;voiceSnapshot=world.snapshot(view.viewer());voiceStatus('Recording… release the controller or tap Send.');}
+  catch(error){voiceStatus(error.message,true);}
+  finally{voiceStarting=false;voiceButtons();if(voiceStopRequested&&voiceRecording)endVoice();}
+}
+async function endVoice(){
+  if(voiceStarting){voiceStopRequested=true;return;}
+  if(!voiceRecording)return;
+  voiceRecording=false;voiceButtons();voiceStatus('Transcribing on PC…');
+  try{const audioBase64=await recorder.stop();const job=await bridge.request('/api/voice',{clientId:bridge.clientId,snapshot:voiceSnapshot,audioBase64});
+    voiceJob=job.jobId;voiceButtons();await pollVoice(voiceJob);}
+  catch(error){voiceStatus(error.message,true);}
+  finally{voiceJob=null;voiceSnapshot=null;voiceButtons();}
+}
+async function pollVoice(jobId){
+  for(let attempt=0;attempt<120;attempt++){
+    const job=await bridge.request(`/api/voice/${jobId}`);
+    if(job.phase==='error'){voiceStatus(job.error||'Voice request failed',true);return;}
+    if(!['transcribing','planning'].includes(job.phase)){if(job.transcript)$('prompt').value=job.transcript;
+      voiceStatus(job.transcript?`Heard: ${job.transcript}`:'Voice request finished');await showProposal(job);return;}
+    voiceStatus(job.phase==='transcribing'?'Transcribing on PC…':job.progress||'Planning scene…');
+    await new Promise(resolve=>setTimeout(resolve,750));
+  }
+  voiceStatus('Voice request timed out; please try again.',true);
+}
+for(const id of ['voice-button','xr-voice']){
+  const button=$(id);button.addEventListener('click',()=>voiceRecording||voiceStarting?endVoice():beginVoice());
+  button.addEventListener('contextmenu',event=>event.preventDefault());
+}
+voiceButtons();
+$('xr-exit').addEventListener('click',()=>view.renderer.xr.getSession()?.end());
 for(const op of ['undo','redo','clear'])$(op).addEventListener('click',()=>call('/api/command',{op},`${op} queued.`));
 $('save').addEventListener('click',async()=>{
   const name=$('save-name').value.trim();if(!name){feedback('Enter a scene name.',true);return;}
@@ -124,7 +181,12 @@ $('create-asset').addEventListener('click',async()=>{
 $('place-asset').addEventListener('click',async()=>{
   if(!generatedAssetId||!world.asset(generatedAssetId))return;
   const position=structuredClone(world.selection.position);
-  const result=await call('/api/command',{op:'spawn',assetId:generatedAssetId,anchorId:'web-floor',
+  const anchorId=world.selection.anchorId;
+  if(!anchorId){feedback('Point at a measured support surface before placing this asset.',true);return;}
+  const measured=world.availableAnchors().find(anchor=>anchor.anchorId===anchorId)?.source==='webxr';
+  const placement=measured&&world.asset(generatedAssetId).localBounds?'surface':undefined;
+  const result=await call('/api/command',{op:'spawn',assetId:generatedAssetId,anchorId,
+    ...(placement?{placement}:{}),
     transform:{position,rotation:{x:0,y:0,z:0},scale:{x:1,y:1,z:1}}},`Placement queued at ${Object.values(position).join(', ')} m.`);
   if(result)$('authoring-status').textContent=`Placement requested for ${generatedAssetId}. Wait for the runtime receipt.`;
 });

@@ -201,7 +201,19 @@ def snapshot(value):
 
 def scene_revision_data(value):
     # Voice captures head/controller pose at recording start. Movement isn't a scene edit.
-    return None if value is None else {key: item for key, item in value.items() if key not in ("viewer", "pointing")}
+    if value is None:
+        return None
+    result = {key: item for key, item in value.items() if key not in ("viewer", "pointing")}
+    # Browser planes refine their poses and polygons while the wearer moves. Their
+    # session-local IDs identify the same targets; the browser checks current fit
+    # again when it executes a command. Do not stale a proposal for pose jitter.
+    if result["scene"]["roomId"].startswith("webxr-session-"):
+        result["anchors"] = [{"anchorId": anchor["anchorId"], "displayName": anchor["displayName"],
+                              "source": anchor.get("source"),
+                              "labels": anchor.get("semanticLabels"),
+                              "kind": (anchor.get("surface") or {}).get("kind")}
+                             for anchor in result["anchors"]]
+    return result
 
 
 def command(value):

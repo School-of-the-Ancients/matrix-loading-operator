@@ -4,7 +4,7 @@ Build and edit scenes by typing or speaking: **“Put an orb here. Make it large
 
 Matrix runs as a **Windows virtual room**, a **Quest virtual room**, or **room-aware Quest AR**. A Python service on your PC connects the app to the browser Operator and an optional AI provider. Compatible prefab packs add props to an installed app without rebuilding its APK.
 
-**New experimental client:** [Matrix Web Runtime](WebRuntime/README.md) runs the same Operator proposal/Apply and scene schema through Three.js/WebXR. It keeps Unity as a supported native runtime, adds a content-addressed GLB catalog for browser hot loading, and can build three bounded procedural asset shapes on request. Its Quest 3 physical placement and performance remain to be tested on hardware.
+**New experimental client:** [Matrix Web Runtime](WebRuntime/README.md) runs the same Operator scene schema through Three.js/WebXR. It keeps Unity as a supported native runtime, adds a content-addressed GLB catalog for browser hot loading, and can build three bounded procedural asset shapes on request. Quest 3 Browser has reported aligned room planes and completed a local voice transcription and Codex response; in-world panel visibility, wall pinning, object visibility after relocalization, and performance still need headset validation.
 
 **[Download a version](https://github.com/School-of-the-Ancients/matrix-loading-operator/releases)** · **[Latest validated checkpoint](Docs/Current-Checkpoint.md)** · **[Content library guide](Docs/Content-Library-User-Guide.md)** · **[Issues](https://github.com/School-of-the-Ancients/matrix-loading-operator/issues)**
 
