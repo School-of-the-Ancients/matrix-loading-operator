@@ -84,6 +84,18 @@ def _approval_description(method: str, params: dict, cwd: Path) -> tuple[str, bo
     return "Codex requests a command. Its effect cannot be reviewed in XR.", False
 
 
+def _mcp_approval_description(params: dict) -> tuple[str, bool]:
+    """Only the exact read-only Matrix summary tool is reviewable in XR."""
+    meta = params.get("_meta")
+    if (params.get("serverName") == "matrix_webxr" and isinstance(meta, dict) and
+            meta.get("codex_approval_kind") == "mcp_tool_call" and
+            meta.get("tool_params") == {} and
+            params.get("message") ==
+            'Allow the matrix_webxr MCP server to run tool "matrix_scene_summary"?'):
+        return "Read the current Matrix room summary. This does not change the world.", True
+    return "Codex requests an MCP tool. Review it on PC before approval.", False
+
+
 def normalize_event(event: dict) -> dict | None:
     """Whitelist safe event fields; never copy opaque app-server params."""
     method = event.get("method")
@@ -120,13 +132,15 @@ def normalize_event(event: dict) -> dict | None:
         if activity is None:
             return None
         result.update(type="activity", activity=activity if method == "item/started" else "working")
-    elif method in ("item/commandExecution/requestApproval", "item/fileChange/requestApproval"):
+    elif method in ("item/commandExecution/requestApproval", "item/fileChange/requestApproval",
+                    "mcpServer/elicitation/request"):
         approval_id = event.get("requestId")
         if not isinstance(approval_id, (int, str)) or not thread_id or not turn_id:
             return None
         result.update(type="approval", approvalId=approval_id,
                       activity="waiting_for_approval",
-                      action="running_command" if "commandExecution" in method else "editing_files")
+                      action="using_tool" if method == "mcpServer/elicitation/request" else
+                             "running_command" if "commandExecution" in method else "editing_files")
     else:
         return None
     return result
@@ -181,16 +195,19 @@ class LocalCodexAgentBackend:
             params = approval.get("params")
             method = approval.get("method")
             if not isinstance(params, dict) or method not in (
-                "item/commandExecution/requestApproval", "item/fileChange/requestApproval"
+                "item/commandExecution/requestApproval", "item/fileChange/requestApproval",
+                "mcpServer/elicitation/request"
             ):
                 continue
             thread_id = _identifier(params.get("threadId"))
             turn_id = _identifier(params.get("turnId"))
             if thread_id and turn_id:
-                summary, reviewable = _approval_description(method, params, self.transport.cwd)
+                summary, reviewable = (_mcp_approval_description(params) if method == "mcpServer/elicitation/request"
+                                       else _approval_description(method, params, self.transport.cwd))
                 safe.append({"approvalId": approval["requestId"], "conversationId": thread_id,
                              "turnId": turn_id,
-                             "action": "running_command" if "commandExecution" in method else "editing_files",
+                             "action": "using_tool" if method == "mcpServer/elicitation/request" else
+                                       "running_command" if "commandExecution" in method else "editing_files",
                              "summary": summary, "reviewable": reviewable})
         return safe
 

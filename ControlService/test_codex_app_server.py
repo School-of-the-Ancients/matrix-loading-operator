@@ -53,6 +53,11 @@ for line in sys.stdin:
         send({"id": message["id"], "result": {}})
         send({"method": "turn/completed", "params": {"threadId": "thread-test", "turn": {"id": message["params"]["turnId"], "status": "interrupted"}}})
     elif "id" in message and "result" in message:
+        if message["id"] in (777, 778):
+            assert message["result"] == ({"action": "accept", "content": {}} if message["id"] == 777
+                                          else {"action": "decline"})
+            send({"method": "serverRequest/resolved", "params": {"requestId": message["id"]}})
+            continue
         assert message["result"]["decision"] in ("accept", "decline")
         send({"method": "serverRequest/resolved", "params": {"requestId": message["id"]}})
         send({"method": "turn/completed", "params": {"threadId": "thread-test", "turn": {"id": "turn-" + str(turn_count), "status": "completed"}}})
@@ -129,6 +134,21 @@ class AppServerTransportTests(unittest.TestCase):
             self.transport.turn_start("thread-test", " ")
         with self.assertRaises(ValueError):
             self.transport.turn_start("thread-test", "x" * 16001)
+
+    def test_native_mcp_tool_approval_accept_and_decline(self):
+        params = {"threadId": "thread-test", "turnId": "turn-mcp", "serverName": "matrix_webxr",
+                  "mode": "form", "message": 'Allow the matrix_webxr MCP server to run tool "matrix_scene_summary"?',
+                  "requestedSchema": {"type": "object", "properties": {}},
+                  "_meta": {"codex_approval_kind": "mcp_tool_call", "tool_params": {}}}
+        self.transport._receive({"id": 777, "method": "mcpServer/elicitation/request", "params": params})
+        self.assertEqual(self.wait_for_approval(777)[0]["method"], "mcpServer/elicitation/request")
+        with self.assertRaises(AppServerError):
+            self.transport.respond_approval(777, "thread-test", "wrong-turn", "accept")
+        self.transport.respond_approval(777, "thread-test", "turn-mcp", "accept")
+        self.transport._receive({"id": 778, "method": "mcpServer/elicitation/request", "params": params})
+        self.wait_for_approval(778)
+        self.transport.respond_approval(778, "thread-test", "turn-mcp", "decline")
+        self.assertEqual(self.transport.pending_approvals(), [])
 
     def test_oversized_event_retains_routing_and_completion(self):
         self.transport._receive({"method": "turn/completed", "params": {

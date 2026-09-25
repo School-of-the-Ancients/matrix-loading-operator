@@ -4,7 +4,7 @@ import unittest
 from pathlib import Path
 from types import SimpleNamespace
 
-from agent_session import LocalCodexAgentBackend, normalize_event, _approval_description
+from agent_session import LocalCodexAgentBackend, normalize_event, _approval_description, _mcp_approval_description
 
 
 class FakeTransport:
@@ -117,6 +117,31 @@ class AgentSessionTests(unittest.TestCase):
             target.write_text("existing", encoding="utf-8")
             self.assertFalse(_approval_description(
                 "item/commandExecution/requestApproval", {"command": command}, root)[1])
+
+    def test_mcp_approval_is_redacted_and_only_known_read_tool_is_reviewable(self):
+        params = {"threadId": "thread-1", "turnId": "turn-1", "serverName": "matrix_webxr",
+                  "mode": "form", "message": 'Allow the matrix_webxr MCP server to run tool "matrix_scene_summary"?',
+                  "_meta": {"codex_approval_kind": "mcp_tool_call", "tool_params": {},
+                            "secret": "never-forward"}}
+        summary, reviewable = _mcp_approval_description(params)
+        self.assertTrue(reviewable)
+        self.assertNotIn("secret", summary)
+        event = normalize_event({"sequence": 1, "method": "mcpServer/elicitation/request",
+                                 "requestId": 777, "params": params})
+        self.assertEqual(event["action"], "using_tool")
+        self.assertNotIn("secret", str(event))
+        self.assertFalse(_mcp_approval_description({**params, "serverName": "blender"})[1])
+        self.assertFalse(_mcp_approval_description({**params, "message": "run some other tool"})[1])
+        self.assertFalse(_mcp_approval_description({**params, "_meta": {**params["_meta"],
+                                                                          "tool_params": {"path": "secret"}}})[1])
+        backend = LocalCodexAgentBackend.__new__(LocalCodexAgentBackend)
+        backend.transport = FakeTransport()
+        backend.transport.pending_approvals = lambda: [{"requestId": 777,
+            "method": "mcpServer/elicitation/request", "params": params}]
+        safe = backend.pending_approvals()[0]
+        self.assertEqual(safe["action"], "using_tool")
+        self.assertTrue(safe["reviewable"])
+        self.assertNotIn("secret", str(safe))
 
 
 if __name__ == "__main__":
