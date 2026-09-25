@@ -83,7 +83,8 @@ export function startGame(world,spec,viewer=null){
   validateGameSpec(spec,id=>!!world.asset(id));
   const count=spec.roles.reduce((sum,role)=>sum+role.count,0);
   if(world.scene.objects.length+count>100)throw Error('The scene needs more free object slots for this game');
-  if(world.spatial?.stale)throw Error('Room tracking is stale; recover alignment before starting a game');
+  if(world.spatial?.stale||world.spatial?.originUnavailable)
+    throw Error('Room origin or tracking is unavailable; recover it before starting a game');
   const frame=viewer?.frames?.find(item=>item.anchorId===floor);
   const forward=frame?.forward&&finite(frame.forward.x)&&finite(frame.forward.z)?frame.forward:{x:0,z:-1};
   const length=Math.hypot(forward.x,forward.z)||1;
@@ -138,7 +139,8 @@ export function gameStatus(world){
 
 export function deliverMovedObject(world,objectId){
   const game=world.game;
-  if(!game||game.state.phase!=='playing'||game.state.deliveries.includes(objectId)||world.spatial?.stale)return null;
+  if(!game||game.state.phase!=='playing'||game.state.deliveries.includes(objectId)||
+     world.spatial?.stale||world.spatial?.originUnavailable)return null;
   const actor=game.spec.roles.find(role=>role.kind==='pickup'&&game.bindings[role.roleId].includes(objectId));
   if(!actor)return null;
   const item=world.scene.objects.find(object=>object.objectId===objectId);
