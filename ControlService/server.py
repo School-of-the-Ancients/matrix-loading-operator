@@ -30,6 +30,7 @@ import speech
 import scene_capture
 from web_assets import WebAssetCatalog, WebAssetError
 from web_authoring import WebAuthoringJobs, WebAuthoringError
+from blender_authoring import BlenderAuthoringJobs, BlenderAuthoringError
 from content_service import ContentBridge, runtime_capabilities
 from content_catalog import ContentError
 from quest_connection import QuestConnection
@@ -279,6 +280,7 @@ class State:
         self.directory.mkdir(parents=True, exist_ok=True)
         self.web_assets = WebAssetCatalog(web_assets_directory or Path(__file__).with_name("web_assets"))
         self.web_authoring = WebAuthoringJobs(self.web_assets)
+        self.blender_authoring = BlenderAuthoringJobs(self.web_assets)
         self.clock = clock
         self.lock = threading.RLock()
         self.client_id = None
@@ -668,6 +670,13 @@ class State:
             return self.queue(commands)
 
 
+def wants_blender_asset(prompt):
+    """Route creation requests to asset authoring; scene layout stays with the planner."""
+    if not isinstance(prompt, str) or not re.search(r"\b(create|make|build|generate|model|sculpt|design)\b", prompt, re.I):
+        return False
+    return bool(re.search(r"\b(blender|3d model|3d asset|mesh|new prefab|new model)\b", prompt, re.I))
+
+
 def plan(state, body, request_context=None, content_stage=0, progress=None, cancelled=None):
     def check_cancelled():
         require(cancelled is None or not cancelled(), "Voice request cancelled", 409)
@@ -694,6 +703,14 @@ def plan(state, body, request_context=None, content_stage=0, progress=None, canc
         screenshot = None
         if "captureId" in body:
             screenshot, current = state.selected_capture(body["captureId"])
+    if not experiment and screenshot is None and mode != "offline-rules" and wants_blender_asset(prompt):
+        check_cancelled()
+        try:
+            job = state.blender_authoring.submit({"prompt": prompt})
+        except BlenderAuthoringError as error:
+            raise APIError(error.status, str(error)) from None
+        return {"status": "authoring", "authoringJobId": job["jobId"], "commands": [],
+                "requiresApply": False, "summary": "Creating a new asset in Blender on the PC…"}
     try:
         options = {"codex": codex} if codex is not None else {}
         candidates = state.content.planner_context(prompt if mode in ("codex-cli", "openai-compatible") else "",
@@ -1089,6 +1106,10 @@ class Handler(BaseHTTPRequestHandler):
                 data = self.server.state.web_authoring.status()
             elif path.startswith("/api/web/authoring/"):
                 data = self.server.state.web_authoring.status(path.rsplit("/", 1)[1])
+            elif path == "/api/web/blender":
+                data = self.server.state.blender_authoring.status()
+            elif path.startswith("/api/web/blender/"):
+                data = self.server.state.blender_authoring.status(path.rsplit("/", 1)[1])
             elif path.startswith("/api/web/assets/"):
                 name = path[len("/api/web/assets/"):]
                 require(bool(re.fullmatch(r"[0-9a-f]{64}\.glb", name)), "Unknown web asset", 404)
@@ -1134,7 +1155,7 @@ class Handler(BaseHTTPRequestHandler):
             else:
                 raise APIError(404, "Not found")
             self.send_data(200, data)
-        except WebAuthoringError as error:
+        except (WebAuthoringError, BlenderAuthoringError) as error:
             self.send_api_error(APIError(error.status, str(error)))
         except (APIError, LearningError, ContentError, ClientError) as error:
             self.send_api_error(error)
@@ -1179,6 +1200,8 @@ class Handler(BaseHTTPRequestHandler):
                 data = state.content.post(path, body)
             elif path == "/api/web/authoring":
                 data = state.web_authoring.submit(body)
+            elif path == "/api/web/blender":
+                data = state.blender_authoring.submit(body)
             elif path == "/api/command":
                 data = state.queue(body["commands"] if set(body) == {"commands"} else [body])
             elif path == "/api/save":
@@ -1217,7 +1240,7 @@ class Handler(BaseHTTPRequestHandler):
             else:
                 raise APIError(404, "Not found")
             self.send_data(200, data)
-        except WebAuthoringError as error:
+        except (WebAuthoringError, BlenderAuthoringError) as error:
             self.send_api_error(APIError(error.status, str(error)))
         except (APIError, LearningError, speech.SpeechError, CodexProviderError, ContentError, ClientError) as error:
             self.send_api_error(error)

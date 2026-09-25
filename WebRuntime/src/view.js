@@ -41,7 +41,7 @@ function operatorPanel(){
   const mesh=new THREE.Mesh(new THREE.PlaneGeometry(.78,.58),new THREE.MeshBasicMaterial({map:texture,transparent:true,depthTest:false,depthWrite:false,side:THREE.DoubleSide}));
   mesh.renderOrder=100;mesh.userData.operatorVoice=true;
   const group=new THREE.Group();group.add(mesh);group.visible=false;
-  let message='Aim here, hold trigger, and ask for a scene.',tone='idle',page=0,pinLabel='PIN TO WALL';
+  let message='Aim here, hold trigger, and ask for a scene.',tone='idle',page=0,pinLabel='PIN TO WALL',voiceLabel='VOICE ON';
   const paint=()=>{
     const ctx=canvas.getContext('2d');ctx.fillStyle='#071923';ctx.fillRect(0,0,1024,768);
     ctx.strokeStyle=tone==='error'?'#ffad8d':'#55e9d2';ctx.lineWidth=9;ctx.strokeRect(10,10,1004,748);
@@ -61,23 +61,24 @@ function operatorPanel(){
     lines.slice(page*perPage,(page+1)*perPage).forEach((line,index)=>ctx.fillText(line,55,150+index*step));
     ctx.fillStyle='#8bb8c2';ctx.font='24px sans-serif';ctx.fillText(`Page ${page+1}/${pages}`,55,606);
     ctx.fillStyle=tone==='recording'?'#ff8f7c':'#53dcc5';ctx.fillRect(35,636,472,90);
-    ctx.fillStyle='#245568';ctx.fillRect(519,636,292,90);ctx.fillRect(823,636,166,90);
+    ctx.fillStyle='#245568';ctx.fillRect(519,636,210,90);ctx.fillRect(741,636,132,90);ctx.fillRect(885,636,104,90);
     ctx.fillStyle='#062b34';ctx.font='bold 31px sans-serif';ctx.textAlign='center';ctx.fillText('HOLD TO SPEAK',271,693);
-    ctx.fillStyle='#e9f9fa';ctx.font='bold 26px sans-serif';ctx.fillText(pinLabel,665,691);ctx.fillText('NEXT',906,691);ctx.textAlign='left';
+    ctx.fillStyle='#e9f9fa';ctx.font='bold 23px sans-serif';ctx.fillText(pinLabel,624,691);ctx.font='bold 20px sans-serif';ctx.fillText(voiceLabel,807,691);ctx.fillText('NEXT',937,691);ctx.textAlign='left';
     texture.needsUpdate=true;
   };
   const setMessage=(next,nextTone='idle')=>{message=String(next);tone=nextTone;page=0;paint();};
   const setPinLabel=next=>{pinLabel=next;paint();};
+  const setVoiceLabel=next=>{voiceLabel=next;paint();};
   const nextPage=()=>{page++;paint();};
   paint();
-  return {group,mesh,setMessage,setPinLabel,nextPage};
+  return {group,mesh,setMessage,setPinLabel,setVoiceLabel,nextPage};
 }
 const v3=v=>new THREE.Vector3(v.x,v.y,v.z);
 const plain=v=>({x:Number(v.x.toFixed(3)),y:Number(v.y.toFixed(3)),z:Number(v.z.toFixed(3))});
 
 export class MatrixView {
-  constructor(container,world,onSelection,getToken=()=>'',onAssetError=()=>{},onSceneEdit=()=>{},onRuntimeChange=()=>{},onVoiceStart=()=>{},onVoiceEnd=()=>{}){
-    this.world=world;this.onSelection=onSelection;this.getToken=getToken;this.onAssetError=onAssetError;this.onSceneEdit=onSceneEdit;this.onRuntimeChange=onRuntimeChange;this.onVoiceStart=onVoiceStart;this.onVoiceEnd=onVoiceEnd;this.onFrame=()=>{};
+  constructor(container,world,onSelection,getToken=()=>'',onAssetError=()=>{},onSceneEdit=()=>{},onRuntimeChange=()=>{},onVoiceStart=()=>{},onVoiceEnd=()=>{},onVoiceOutputToggle=()=>{}){
+    this.world=world;this.onSelection=onSelection;this.getToken=getToken;this.onAssetError=onAssetError;this.onSceneEdit=onSceneEdit;this.onRuntimeChange=onRuntimeChange;this.onVoiceStart=onVoiceStart;this.onVoiceEnd=onVoiceEnd;this.onVoiceOutputToggle=onVoiceOutputToggle;this.onFrame=()=>{};
     this.container=container;this.objectRoots=new Map();this.anchorRoots=new Map();this.planeOutlines=new Map();this.planeIds=new WeakMap();this.nextPlaneId=0;this.hitSource=null;this.reticleVisible=false;this.xrViewer=null;this.reticleAnchorId='';this.lastPlaneTime=0;
     this.modelCache=new Map();
     this.scene=new THREE.Scene();this.scene.background=new THREE.Color(0x0a1b29);
@@ -145,6 +146,7 @@ export class MatrixView {
   }
   onSessionEnd(){if(this.operatorVoiceController)this.releaseOperatorVoice(this.operatorVoiceController);this.operatorPanel.group.visible=false;this.operatorMount={kind:'head'};this.operatorPanel.setPinLabel('PIN TO WALL');if(this.grab)this.releaseGrab(this.grab.controller);for(const ray of this.controllerRays)ray.visible=false;this.hitSource?.cancel();this.hitSource=null;this.reticle.visible=false;this.reticleVisible=false;this.reticleAnchorId='';this.xrViewer=null;this.planeIds=new WeakMap();this.nextPlaneId=0;this.clearPlanes();this.isAR=false;this.world.leaveAR();this.sync();this.onRuntimeChange();document.getElementById('xr-overlay').style.display='none';this.floor.visible=true;this.grid.visible=true;this.scene.background=new THREE.Color(0x0a1b29);document.getElementById('view-label').textContent='DESKTOP · VIRTUAL ROOM';}
   setOperatorStatus(message,tone='idle'){this.operatorPanel.setMessage(message,tone);}
+  setVoiceOutputEnabled(enabled){this.operatorPanel.setVoiceLabel(enabled?'VOICE ON':'VOICE OFF');}
   positionOperatorPanel(){
     if(!this.xrViewer)return;
     const group=this.operatorPanel.group,head=this.xrViewer;
@@ -240,11 +242,13 @@ export class MatrixView {
     this.anchorRoots.clear();
     if(this.world.spatial)for(const anchor of this.world.spatial.anchors){const root=new THREE.Group();this.anchorPose(root,anchor);this.scene.add(root);this.anchorRoots.set(anchor.anchorId,root);}
     for(const object of this.world.scene.objects){
+      if(!this.world.spatial&&object.anchorId!=='web-floor')continue;
       const root=new THREE.Group();root.userData.objectId=object.objectId;root.position.copy(v3(object.transform.position));
       root.rotation.set(...['x','y','z'].map(k=>THREE.MathUtils.degToRad(object.transform.rotation[k])),'XYZ');
       root.scale.copy(v3(object.transform.scale));
       const asset=this.world.asset(object.assetId);
       const visual=asset.url?new THREE.Group():makeAsset(object.assetId);
+      visual.scale.setScalar(asset.spawnScale||1);
       if(asset.url){
         const placeholder=new THREE.Mesh(new THREE.BoxGeometry(.35,.35,.35),new THREE.MeshBasicMaterial({color:0x5ee3cf,wireframe:true}));placeholder.position.y=.175;visual.add(placeholder);
       }
@@ -258,7 +262,9 @@ export class MatrixView {
     try{
       let pending=this.modelCache.get(asset.assetId);
       if(!pending){
-        if(this.modelCache.size>=24)throw Error('Web runtime has reached its 24-model cache limit');
+        // This is a reuse cache, not a catalog limit. Older entries may be
+        // fetched again from the PC if a different asset is summoned later.
+        if(this.modelCache.size>=24)this.modelCache.delete(this.modelCache.keys().next().value);
         const loader=new GLTFLoader();const token=this.getToken();if(token)loader.setRequestHeader({Authorization:`Bearer ${token}`});
         pending=loader.loadAsync(asset.url).then(gltf=>{
           const scene=gltf.scene;
@@ -331,7 +337,8 @@ export class MatrixView {
     this.raycaster.set(origin,direction);
     const panelHit=this.operatorPanel.group.visible&&this.raycaster.intersectObject(this.operatorPanel.mesh)[0];
     if(panelHit){
-      if(panelHit.uv?.y<.19&&panelHit.uv.x>.80)this.operatorPanel.nextPage();
+      if(panelHit.uv?.y<.19&&panelHit.uv.x>.86)this.operatorPanel.nextPage();
+      else if(panelHit.uv?.y<.19&&panelHit.uv.x>.72)this.onVoiceOutputToggle();
       else if(panelHit.uv?.y<.19&&panelHit.uv.x>.50)this.toggleOperatorPin();
       else {this.operatorVoiceController=controller;this.onVoiceStart();}
       return;

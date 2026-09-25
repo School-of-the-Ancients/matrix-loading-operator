@@ -10,11 +10,12 @@ let pendingScene=null;
 try {pendingScene=JSON.parse(sessionStorage.getItem('matrix-web-scene')||'null');}
 catch {sessionStorage.removeItem('matrix-web-scene');}
 
-let proposal=null,operatorMessageUntil=0,lastOperatorReply='',lastConnectionOnline=null;
+let proposal=null,operatorMessageUntil=0,lastOperatorReply='',lastConnectionOnline=null,modeTouched=false;
 const recorder=new VoiceRecorder();let voiceStarting=false,voiceRecording=false,voiceStopRequested=false,voiceJob=null,voiceSnapshot=null;
 const feedback=(message,isError=false)=>{$('feedback').textContent=message;$('feedback').classList.toggle('error',isError);};
-const view=new MatrixView($('view'),world,()=>{proposal=null;$('proposal').classList.add('hidden');feedback(`Selected ${world.selection.objectId||'placement point'} at ${Object.values(world.selection.position).join(', ')} m.`);},()=>$('token').value.trim(),message=>feedback(message,true),(id,position)=>{proposal=null;$('proposal').classList.add('hidden');renderScene();feedback(`Moved ${id.slice(0,8)} to ${Object.values(position).join(', ')} m. Undo and Save are available.`);},()=>{proposal=null;$('proposal').classList.add('hidden');renderScene();},beginVoice,endVoice);
+const view=new MatrixView($('view'),world,()=>{proposal=null;$('proposal').classList.add('hidden');feedback(`Selected ${world.selection.objectId||'placement point'} at ${Object.values(world.selection.position).join(', ')} m.`);},()=>$('token').value.trim(),message=>feedback(message,true),(id,position)=>{proposal=null;$('proposal').classList.add('hidden');renderScene();feedback(`Moved ${id.slice(0,8)} to ${Object.values(position).join(', ')} m. Undo and Save are available.`);},()=>{proposal=null;$('proposal').classList.add('hidden');renderScene();},beginVoice,endVoice,()=>{$('speak-replies').checked=!$('speak-replies').checked;view.setVoiceOutputEnabled($('speak-replies').checked);});
 view.sync();
+view.setVoiceOutputEnabled($('speak-replies').checked);
 view.initXR($('xr-buttons')).catch(e=>feedback(e.message,true));
 
 function renderScene(){view.sync();$('object-count').textContent=`${world.scene.objects.length} object${world.scene.objects.length===1?'':'s'}`;if(!pendingScene&&!world.spatial)sessionStorage.setItem('matrix-web-scene',JSON.stringify(world.scene));}
@@ -47,6 +48,9 @@ async function refreshAssets(silent=false){
 bridge.start(()=>view.viewer());
 view.onFrame=()=>bridge.tick();
 refreshAssets(true);
+bridge.request('/api/planner').then(status=>{
+  if(!modeTouched&&status.configured&&status.mode==='codex-cli'&&$('mode').value==='offline-rules')$('mode').value='codex-cli';
+}).catch(()=>{});
 setInterval(()=>refreshAssets(true),10000);
 addEventListener('beforeunload',()=>bridge.stop());
 
@@ -68,7 +72,48 @@ async function propose(){
   await showProposal(data);
 }
 const SAFE_AUTO_OPS=new Set(['spawn','duplicate','set_transform','set_behavior','remove_behavior','select']);
+function speakReply(message){
+  if(!$('speak-replies').checked||!('speechSynthesis' in window))return;
+  speechSynthesis.cancel();const utterance=new SpeechSynthesisUtterance(String(message).slice(0,500));
+  utterance.rate=1;utterance.volume=.85;speechSynthesis.speak(utterance);
+}
+async function pollBlender(jobId,request){
+  for(let attempt=0;attempt<600;attempt++){
+    const job=await bridge.request(`/api/web/blender/${jobId}`);
+    if(job.phase==='error')throw Error(job.error||'Blender asset creation failed');
+    if(job.phase==='ready'){
+      await refreshAssets(true);
+      const asset=world.asset(job.asset.assetId);
+      if(!asset)throw Error('Blender asset is ready but the browser catalog has not refreshed');
+      let anchorId=world.selection.anchorId,position=structuredClone(world.selection.position);
+      const measured=world.spatial&&anchorId!=='web-floor'&&world.spatial.alignmentVerified;
+      if(!measured){anchorId='web-floor';position={x:0,y:0,z:-2};}
+      const base={requestId:crypto.randomUUID(),op:'spawn',assetId:asset.assetId,anchorId,
+        ...(measured?{placement:'surface'}:{}),
+        transform:{position,rotation:{x:0,y:0,z:0},scale:{x:1,y:1,z:1}}};
+      let result=world.execute(base);
+      if(!result.ok&&measured)result=world.execute({...base,requestId:crypto.randomUUID(),anchorId:'web-floor',
+        placement:undefined,transform:{...base.transform,position:{x:0,y:0,z:-2}}});
+      if(!result.ok)throw Error(`Blender asset was created but placement failed: ${result.error}`);
+      world.setSelection(result.objectId,world.requireObject(result.objectId).transform.position,world.requireObject(result.objectId).anchorId);
+      renderScene();
+      const message=`Created ${asset.displayName} in Blender and imported it into ${world.spatial?'AR':'the scene'}. ${measured?'Grab it to adjust the position.':'It is an unanchored preview; grab it to move it.'}`;
+      lastOperatorReply=`You: ${request}\n\nOperator: ${message}`;operatorMessageUntil=Infinity;
+      view.setOperatorStatus(lastOperatorReply);feedback(message);speakReply(message);return;
+    }
+    const progress=`Creating in Blender: ${job.phase}…`;
+    feedback(progress);view.setOperatorStatus(progress);
+    await new Promise(resolve=>setTimeout(resolve,750));
+  }
+  throw Error('Blender job is taking longer than expected; check the job list on the PC.');
+}
 async function showProposal(data){
+  if(data.authoringJobId){
+    proposal=null;$('proposal').classList.add('hidden');
+    try{await pollBlender(data.authoringJobId,data.transcript||$('prompt').value.trim());}
+    catch(error){feedback(error.message,true);view.setOperatorStatus(error.message,'error');}
+    return;
+  }
   proposal=data.requiresApply?data:null;
   $('proposal').classList.toggle('hidden',!proposal);
   $('proposal-summary').textContent=data.summary||data.message||data.status||'Review the exact commands.';
@@ -76,6 +121,7 @@ async function showProposal(data){
   const request=data.transcript||$('prompt').value.trim();
   lastOperatorReply=`You: ${request||'(voice request)'}\n\nOperator: ${$('proposal-summary').textContent}`;
   operatorMessageUntil=Infinity;view.setOperatorStatus(lastOperatorReply);
+  speakReply($('proposal-summary').textContent);
   if(proposal&&$('auto-apply-safe').checked&&proposal.commands?.length&&proposal.commands.every(command=>SAFE_AUTO_OPS.has(command.op))){
     await applyProposal();return;
   }
@@ -87,6 +133,14 @@ async function applyProposal(){
   if(data){proposal=null;$('proposal').classList.add('hidden');}
 }
 $('propose').addEventListener('click',propose);
+$('blender-request').addEventListener('click',async()=>{
+  const prompt=$('prompt').value.trim();if(!prompt){feedback('Describe the object to create first.',true);return;}
+  const button=$('blender-request');button.disabled=true;
+  try{const job=await bridge.request('/api/web/blender',{prompt});await pollBlender(job.jobId,prompt);}
+  catch(error){feedback(error.message,true);view.setOperatorStatus(error.message,'error');}
+  finally{button.disabled=false;}
+});
+$('speak-replies').addEventListener('change',()=>view.setVoiceOutputEnabled($('speak-replies').checked));
 $('prompt').addEventListener('keydown',event=>{if(event.key==='Enter'&&(event.ctrlKey||event.metaKey))propose();});
 $('discard').addEventListener('click',()=>{proposal=null;$('proposal').classList.add('hidden');feedback('Proposal discarded.');});
 $('apply').addEventListener('click',applyProposal);
@@ -135,7 +189,7 @@ $('restore').addEventListener('click',async()=>{
   const name=$('saved-scenes').value;if(!name){feedback('Choose a saved scene.',true);return;}
   await call('/api/load',{name},`Restore of ${name} queued.`);
 });
-$('mode').addEventListener('change',()=>{proposal=null;$('proposal').classList.add('hidden');});
+$('mode').addEventListener('change',()=>{modeTouched=true;proposal=null;$('proposal').classList.add('hidden');});
 $('refresh-assets').addEventListener('click',()=>refreshAssets());
 $('token').addEventListener('change',()=>{refreshAssets();loadLatestAuthoring();});
 refreshScenes();

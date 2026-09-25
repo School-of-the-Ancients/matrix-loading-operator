@@ -13,6 +13,7 @@ import re
 import shutil
 import struct
 import tempfile
+import threading
 
 MAX_BYTES = 16 * 1024 * 1024
 MAX_ASSETS = 256
@@ -79,6 +80,7 @@ def inspect_glb(path):
 class WebAssetCatalog:
     def __init__(self, root):
         self.root = Path(root)
+        self.lock = threading.RLock()
 
     def list(self):
         manifest = self.root / "manifest.json"
@@ -103,6 +105,12 @@ class WebAssetCatalog:
         return path
 
     def register(self, source, name, description="", spawn_scale=None, local_bounds=None):
+        # Procedural and Blender workers share this catalog. Keep the manifest
+        # read-modify-write transaction serial within the service process.
+        with self.lock:
+            return self._register(source, name, description, spawn_scale, local_bounds)
+
+    def _register(self, source, name, description="", spawn_scale=None, local_bounds=None):
         if not isinstance(name, str) or not name.strip() or len(name) > 80:
             raise WebAssetError("Asset name must be 1 to 80 characters")
         if not isinstance(description, str) or len(description) > 500:

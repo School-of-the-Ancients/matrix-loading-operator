@@ -2,7 +2,8 @@ param(
     [ValidateRange(1, 65535)][int]$Port = 8765,
     [string]$CodexExe,
     [string]$Model,
-    [string]$ContentLibrary
+    [string]$ContentLibrary,
+    [string]$SpeechRoot
 )
 $ErrorActionPreference = 'Stop'
 if (Get-NetTCPConnection -State Listen -LocalPort $Port -ErrorAction SilentlyContinue) {
@@ -13,7 +14,7 @@ if (-not (Test-Path -LiteralPath $CodexExe -PathType Leaf) -or [IO.Path]::GetExt
     throw 'Supply the native Codex executable, or make codex.exe available on PATH.'
 }
 $python = (Get-Command python.exe -ErrorAction Stop).Source
-$names = 'SANDBOX_AI_MODE', 'SANDBOX_CODEX_EXE', 'SANDBOX_CODEX_MODEL', 'CODEX_API_KEY', 'OPENAI_API_KEY', 'MATRIX_CONTENT_CONFIG', 'MATRIX_CONTENT_CACHE'
+$names = 'SANDBOX_AI_MODE', 'SANDBOX_CODEX_EXE', 'SANDBOX_CODEX_MODEL', 'CODEX_API_KEY', 'OPENAI_API_KEY', 'MATRIX_CONTENT_CONFIG', 'MATRIX_CONTENT_CACHE', 'SANDBOX_SPEECH_PYTHON', 'SANDBOX_SPEECH_MODEL'
 $previous = @{}
 foreach ($name in $names) { $previous[$name] = [Environment]::GetEnvironmentVariable($name, 'Process') }
 $defaultContentLibrary = Join-Path $env:USERPROFILE 'Documents\Codex\MatrixPolyHavenLibrary'
@@ -23,6 +24,29 @@ if (-not $ContentLibrary -and -not $env:MATRIX_CONTENT_CONFIG -and
 }
 $serviceExitCode = 1
 try {
+    if ($SpeechRoot -or (-not $env:SANDBOX_SPEECH_PYTHON -and -not $env:SANDBOX_SPEECH_MODEL)) {
+        $roots = @()
+        if ($SpeechRoot) {
+            $roots = @((Resolve-Path -LiteralPath $SpeechRoot -ErrorAction Stop).Path)
+        } else {
+            $roots = @($PSScriptRoot)
+            $parent = Split-Path -Parent $PSScriptRoot
+            $roots += @(Get-ChildItem -LiteralPath $parent -Directory -ErrorAction SilentlyContinue |
+                Where-Object { $_.FullName -ne $PSScriptRoot } | Select-Object -ExpandProperty FullName)
+        }
+        $installed = @($roots | Where-Object {
+            (Test-Path -LiteralPath (Join-Path $_ '.speech-venv\Scripts\python.exe') -PathType Leaf) -and
+            (Test-Path -LiteralPath (Join-Path $_ '.speech-models\base.en\model.bin') -PathType Leaf) -and
+            (Test-Path -LiteralPath (Join-Path $_ '.speech-models\base.en\config.json') -PathType Leaf) -and
+            (Test-Path -LiteralPath (Join-Path $_ '.speech-models\base.en\tokenizer.json') -PathType Leaf)
+        })
+        if ($SpeechRoot -and $installed.Count -ne 1) { throw "No complete local speech installation at $SpeechRoot" }
+        if ($installed.Count -eq 1) {
+            [Environment]::SetEnvironmentVariable('SANDBOX_SPEECH_PYTHON', (Join-Path $installed[0] '.speech-venv\Scripts\python.exe'), 'Process')
+            [Environment]::SetEnvironmentVariable('SANDBOX_SPEECH_MODEL', (Join-Path $installed[0] '.speech-models\base.en'), 'Process')
+            Write-Host "Using local speech installation: $($installed[0])"
+        }
+    }
     if ($ContentLibrary) {
         $library = (Resolve-Path -LiteralPath $ContentLibrary -ErrorAction Stop).Path
         $config = Join-Path $library 'matrix-content-config.json'

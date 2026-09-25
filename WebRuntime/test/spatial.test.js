@@ -10,16 +10,20 @@ const transform={position:{x:0,y:0,z:0},rotation:{x:0,y:0,z:0},scale:{x:1,y:1,z:
 
 test('AR scene uses session room planes, confirms alignment, and restores the desktop scene',()=>{
   let next=0;const world=new MatrixWorld(()=>`id-${++next}`);
+  const virtual=world.execute({requestId:'preview',op:'spawn',assetId:'orb',anchorId:'web-floor',transform:{...transform,position:{x:0,y:0,z:-2}}});
+  assert.equal(virtual.ok,true);
   const desktop=structuredClone(world.scene);
   world.enterAR();world.setSpatialAnchors([{...anchor,anchorId:'webxr-plane-table',displayName:'TABLE',semanticLabels:['TABLE']},anchor]);
   assert.equal(world.snapshot().roomContext.mode,'ar');
-  assert.equal(world.snapshot().selection.anchorId,anchor.anchorId);
+  assert.equal(world.snapshot().selection.anchorId,'web-floor');
+  assert.equal(world.snapshot().scene.objects[0].objectId,virtual.objectId);
+  world.setSelection('',{x:0,y:0,z:0},anchor.anchorId);
   assert.match(world.execute({requestId:'before',op:'spawn',assetId:'orb',anchorId:anchor.anchorId,placement:'surface',transform}).error,/Confirm room/);
   assert.equal(world.execute({requestId:'confirm',op:'confirm_room'}).ok,true);
   const placed=world.execute({requestId:'place',op:'spawn',assetId:'orb',anchorId:anchor.anchorId,placement:'surface',transform});
   assert.equal(placed.ok,true);
-  assert.equal(world.snapshot().scene.objects[0].anchorId,anchor.anchorId);
-  assert.equal(world.snapshot().scene.objects[0].transform.position.y,0);
+  assert.equal(world.snapshot().scene.objects[1].anchorId,anchor.anchorId);
+  assert.equal(world.snapshot().scene.objects[1].transform.position.y,0);
   assert.match(world.execute({requestId:'outside',op:'spawn',assetId:'orb',anchorId:anchor.anchorId,placement:'surface',transform:{...transform,position:{x:1.9,y:0,z:0}}}).error,/footprint/);
   world.setSpatialAnchors([]);
   assert.equal(world.snapshot().readOnly,true);

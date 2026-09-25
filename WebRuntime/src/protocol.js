@@ -33,8 +33,8 @@ export class MatrixWorld {
     this.undo=[]; this.redo=[];
   }
   snapshot(viewer=null) {
-    const anchors=this.spatial?.anchors||[{anchorId:ANCHOR_ID,displayName:'Virtual floor'}];
-    const context=this.spatial?{mode:'ar',state:this.spatial.stale?'missing':'ready',message:this.spatial.stale?'A plane holding a scene object is no longer tracked; keep the scene for recovery and recheck the room.':anchors.length?`${anchors.length} WebXR room plane(s) detected; session-local coordinates.`:'Waiting for Quest room planes. Check Space Setup and browser permission.',alignmentVerified:this.spatial.alignmentVerified}
+    const anchors=this.availableAnchors();
+    const context=this.spatial?{mode:'ar',state:this.spatial.stale?'missing':'ready',message:this.spatial.stale?'A plane holding a scene object is no longer tracked; keep the scene for recovery and recheck the room.':this.spatial.anchors.length?`${this.spatial.anchors.length} WebXR room plane(s) detected. Virtual-floor objects remain visible as unanchored previews.`:'Waiting for Quest room planes. Virtual-floor objects remain visible as unanchored previews.',alignmentVerified:this.spatial.alignmentVerified}
       :{mode:'white-room',state:'ready',message:'Browser virtual floor; physical room alignment is not verified.',alignmentVerified:false};
     const snapshot={scene:clone(this.scene),assets:clone([...ASSETS,...this.externalAssets].map(({assetId,displayName,description,spawnScale,localBounds})=>({assetId,displayName,description,spawnScale,...(localBounds?{localBounds}:{})}))),anchors:clone(anchors),selection:clone(this.selection),behaviorKinds:['rotate','bob'],roomContext:context};
     if(this.spatial?.stale)snapshot.readOnly=true;
@@ -61,14 +61,19 @@ export class MatrixWorld {
   enterAR(){
     if(this.spatial)return;
     this.virtualScene={scene:clone(this.scene),selection:clone(this.selection),undo:this.undo,redo:this.redo};
+    this.scene={...clone(this.scene),roomId:`webxr-session-${this.idFactory()}`};
     this.spatial={anchors:[],alignmentVerified:false};
-    this.scene={schemaVersion:1,roomId:`webxr-session-${this.idFactory()}`,objects:[]};
-    this.selection={anchorId:'',objectId:'',position:{x:0,y:0,z:0}};this.undo=[];this.redo=[];
+    this.undo=[];this.redo=[];
   }
   leaveAR(){
     if(!this.spatial)return;
-    const saved=this.virtualScene;this.spatial=null;this.virtualScene=null;
-    this.scene=saved.scene;this.selection=saved.selection;this.undo=saved.undo;this.redo=saved.redo;
+    // Carry edits to virtual-floor objects back to desktop. Physical anchors
+    // are session-local and must not leak into a virtual-room snapshot.
+    const saved=this.virtualScene;
+    saved.scene.objects=clone(this.scene.objects.filter(object=>object.anchorId===ANCHOR_ID));
+    this.scene=saved.scene;
+    this.selection=this.selection.anchorId===ANCHOR_ID?this.selection:saved.selection;
+    this.undo=[];this.redo=[];this.spatial=null;this.virtualScene=null;
   }
   setSpatialAnchors(anchors){
     if(!this.spatial)return;
@@ -80,12 +85,12 @@ export class MatrixWorld {
       if(!anchor.surface.boundary.every((point,index)=>close(point,old.surface.boundary[index],.02)))return anchor;
       return old;
     });
-    const missing=this.scene.objects.map(object=>object.anchorId).filter(id=>!anchors.some(anchor=>anchor.anchorId===id));
+    const missing=this.scene.objects.map(object=>object.anchorId).filter(id=>id!==ANCHOR_ID&&!anchors.some(anchor=>anchor.anchorId===id));
     const retained=this.spatial.anchors.filter(anchor=>missing.includes(anchor.anchorId));
     this.spatial.stale=missing.length>0;
     if(this.spatial.stale)this.spatial.alignmentVerified=false;
     this.spatial.anchors=clone([...stable,...retained]);
-    if(!anchors.some(anchor=>anchor.anchorId===this.selection.anchorId)){
+    if(this.selection.anchorId!==ANCHOR_ID&&!anchors.some(anchor=>anchor.anchorId===this.selection.anchorId)){
       const support=anchors.find(anchor=>anchor.surface.kind==='support'&&anchor.semanticLabels.includes('FLOOR'))||
         anchors.find(anchor=>anchor.surface.kind==='support');
       this.selection={anchorId:support?.anchorId||'',objectId:'',position:{x:0,y:0,z:0}};
@@ -98,12 +103,12 @@ export class MatrixWorld {
     if(!this.availableAnchors().some(anchor=>anchor.anchorId===anchorId))throw Error('Unknown selection anchorId');
     this.selection={anchorId,objectId:objectId||'',position:clone(position)};
   }
-  availableAnchors(){return this.spatial?.anchors||[{anchorId:ANCHOR_ID,displayName:'Virtual floor'}];}
+  availableAnchors(){return [{anchorId:ANCHOR_ID,displayName:this.spatial?'Unanchored virtual preview':'Virtual floor'},...(this.spatial?.anchors||[])];}
   resolvedTransform(command,assetId,anchorId){
     const transform=clone(command.transform);
     const anchor=this.availableAnchors().find(item=>item.anchorId===anchorId);
     if(!anchor)throw Error('Unknown anchorId');
-    if(!this.spatial)return transform;
+    if(!this.spatial||anchorId===ANCHOR_ID)return transform;
     if(!this.spatial.alignmentVerified)throw Error('Confirm room alignment first');
     if(command.placement!==undefined&&command.placement!=='surface')throw Error('Unknown placement mode');
     if(command.placement==='surface'){
@@ -111,13 +116,14 @@ export class MatrixWorld {
       const bounds=this.asset(assetId)?.localBounds;if(!bounds)throw Error('This asset has no measured bounds for surface placement');
       if(Math.abs(transform.rotation.x)>.01||Math.abs(transform.rotation.z)>.01)throw Error('Surface placement needs an upright object');
       if(transform.position.y<0)throw Error('Surface clearance cannot be negative');
-      const halfX=bounds.size.x*transform.scale.x/2,halfZ=bounds.size.z*transform.scale.z/2;
+      const spawnScale=this.asset(assetId)?.spawnScale||1;
+      const halfX=bounds.size.x*transform.scale.x*spawnScale/2,halfZ=bounds.size.z*transform.scale.z*spawnScale/2;
       const radians=transform.rotation.y*Math.PI/180,cos=Math.cos(radians),sin=Math.sin(radians);
       for(const x of [-halfX,halfX])for(const z of [-halfZ,halfZ]){
         const px=transform.position.x+x*cos-z*sin,pz=transform.position.z+x*sin+z*cos;
         if(!insideBoundary({x:px,z:pz},anchor.surface.boundary))throw Error('Object footprint extends beyond measured surface');
       }
-      transform.position.y-=((bounds.center.y-bounds.size.y/2)*transform.scale.y);
+      transform.position.y-=((bounds.center.y-bounds.size.y/2)*transform.scale.y*spawnScale);
     }
     return transform;
   }

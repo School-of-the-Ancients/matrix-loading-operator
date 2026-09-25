@@ -8,6 +8,7 @@ import time
 import unittest
 import urllib.error
 import urllib.request
+from unittest.mock import patch
 
 from server import Server, State
 from test_web_assets import glb
@@ -168,6 +169,38 @@ class WebRuntimeContractTests(unittest.TestCase):
         self.assertEqual(code, 400, body)
         code, raw = self.get("/api/web/authoring")
         self.assertEqual(json.loads(raw)["jobs"], [])
+
+    def test_creation_request_designs_registers_and_exposes_a_new_blender_asset(self):
+        recipe = {"name": "Requested Portal", "parts": [{"kind": "torus", "name": "Portal ring",
+                  "location": [0, 1, 0], "rotation": [0, 0, 0], "dimensions": [1.6, 1.6, .3],
+                  "color": "#33CCFF", "metallic": .7, "roughness": .3, "emission": 2}]}
+        bounds = {"center": {"x": 0, "y": .8, "z": 0},
+                  "size": {"x": 1.6, "y": 1.6, "z": .3}}
+        def build(value, directory):
+            self.assertEqual(value, recipe)
+            output = Path(directory) / "asset.glb"
+            output.write_bytes(glb())
+            return output, bounds
+        worker = self.server.state.blender_authoring
+        worker.designer = lambda prompt: recipe
+        worker.builder = build
+        self.assertEqual(self.post("/api/exchange", {"clientId": "web-client", "snapshot": SNAPSHOT,
+                         "results": [], "captureSupported": False})[0], 200)
+        with patch("blender_authoring.blender_executable", return_value="fixture-blender.exe"):
+            code, proposal = self.post("/api/plan", {"text": "Create a portal in Blender", "mode": "codex-cli"})
+        self.assertEqual(code, 200, proposal)
+        self.assertEqual(proposal["status"], "authoring")
+        self.assertFalse(proposal["requiresApply"])
+        for _ in range(100):
+            code, raw = self.get("/api/web/blender/" + proposal["authoringJobId"])
+            job = json.loads(raw)
+            if job["phase"] in ("ready", "error"):
+                break
+            time.sleep(.02)
+        self.assertEqual(job["phase"], "ready", job)
+        self.assertEqual(job["asset"]["displayName"], "Requested Portal")
+        self.assertEqual(job["asset"]["localBounds"], bounds)
+        self.assertEqual(self.get(job["asset"]["url"])[0], 200)
 
 
 if __name__ == "__main__":
