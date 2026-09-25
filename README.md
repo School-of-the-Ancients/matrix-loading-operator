@@ -1,5 +1,8 @@
 # Matrix Loading Operator
 
+> **Repo map:** this repository contains several Matrix generations/tracks. Before making architectural changes, read **[PROJECTS.md](PROJECTS.md)**. Coding agents should also read **[AGENTS.md](AGENTS.md)**. New generalized runtime work defaults to the Three.js/WebXR + Codex Agent Portal track unless the controlling issue says otherwise.
+
+
 Build and edit scenes by typing or speaking: **“Put an orb here. Make it larger. Float it above the table.”** Review the proposed changes, apply them, then use Undo or save the scene for later.
 
 Matrix runs as a **Windows virtual room**, a **Quest virtual room**, or **room-aware Quest AR**. A Python service on your PC connects the app to the browser Operator and an optional AI provider. Compatible prefab packs add props to an installed app without rebuilding its APK.
