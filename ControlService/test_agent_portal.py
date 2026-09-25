@@ -4,6 +4,7 @@ import tempfile
 import time
 import unittest
 from pathlib import Path
+from unittest.mock import patch
 
 from agent_portal import AgentPortal, AgentPortalError, MAX_STORE
 
@@ -16,11 +17,13 @@ class FakeBackend:
         self.approval = None
         self.closed = False
         self.resume_calls = []
+        self.start_calls = 0
 
     def start(self):
         pass
 
     def start_conversation(self):
+        self.start_calls += 1
         return "native-thread-id"
 
     def resume_conversation(self, identifier):
@@ -141,14 +144,44 @@ class AgentPortalTests(unittest.TestCase):
         status = self.wait_for(restarted, session_id, lambda value: value["activity"] == "cancelled")
         self.assertEqual(status["transcript"][-1]["status"], "cancelled")
 
-    def test_empty_thread_fails_explicitly_after_restart(self):
+    def test_provisional_portal_survives_restart_before_first_turn(self):
         portal = self.portal()
         session_id = portal.open()["sessionId"]
+        self.assertEqual(self.backends[-1].start_calls, 0)
+        self.assertIsNone(json.loads((Path(self.temp.name) / "agent_portal.json").read_text())["conversationId"])
         portal.close()
         restarted = self.portal()
-        with self.assertRaisesRegex(AgentPortalError, "could not be resumed"):
-            restarted.open()
+        self.assertEqual(restarted.open()["sessionId"], session_id)
+        self.assertEqual(self.backends[-1].resume_calls, [])
+        first = restarted.send_text(session_id, "First turn after restart")
+        self.assertEqual(self.backends[-1].start_calls, 1)
+        restarted.cancel(session_id, first["turnId"])
         self.assertEqual(json.loads((Path(self.temp.name) / "agent_portal.json").read_text())["sessionId"], session_id)
+        self.assertEqual(json.loads((Path(self.temp.name) / "agent_portal.json").read_text())["conversationId"],
+                         "native-thread-id")
+
+    def test_old_empty_native_thread_migrates_without_resuming_it(self):
+        session_id = "a" * 32
+        path = Path(self.temp.name) / "agent_portal.json"
+        path.write_text(json.dumps({"version": 1, "sessionId": session_id,
+                                    "conversationId": "unresumable-empty-thread",
+                                    "transcript": [], "eventSequence": 0}), encoding="utf-8")
+        portal = self.portal()
+        self.assertEqual(portal.open()["sessionId"], session_id)
+        self.assertEqual(self.backends[-1].resume_calls, [])
+        self.assertIsNone(json.loads(path.read_text())["conversationId"])
+
+    def test_first_turn_persistence_failure_keeps_provisional_mapping(self):
+        portal = self.portal()
+        session_id = portal.open()["sessionId"]
+        with patch.object(portal, "_persist", side_effect=AgentPortalError(507, "disk full")):
+            with self.assertRaisesRegex(AgentPortalError, "disk full"):
+                portal.send_text(session_id, "First request")
+        self.assertTrue(self.backends[-1].closed)
+        self.assertIsNone(portal._conversation_id)
+        self.assertEqual(portal.open()["sessionId"], session_id)
+        self.assertEqual(portal.status(session_id)["transcript"], [])
+        self.assertIsNone(json.loads((Path(self.temp.name) / "agent_portal.json").read_text())["conversationId"])
 
     def test_corrupt_mapping_is_not_overwritten(self):
         path = Path(self.temp.name) / "agent_portal.json"

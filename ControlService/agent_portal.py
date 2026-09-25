@@ -73,7 +73,8 @@ class AgentPortal:
                 session_id, conversation_id = data.get("sessionId"), data.get("conversationId")
                 if not isinstance(session_id, str) or not SESSION_ID.fullmatch(session_id):
                     raise ValueError()
-                if not isinstance(conversation_id, str) or not 1 <= len(conversation_id) <= 128:
+                if conversation_id is not None and (not isinstance(conversation_id, str)
+                        or not 1 <= len(conversation_id) <= 128):
                     raise ValueError()
                 turns = data.get("transcript")
                 if not isinstance(turns, list) or len(turns) > MAX_TRANSCRIPT:
@@ -91,11 +92,19 @@ class AgentPortal:
                 sequence = data.get("eventSequence", 0)
                 if type(sequence) is not int or sequence < 0:
                     raise ValueError()
+                if conversation_id is None and (turns or sequence):
+                    raise ValueError()
             except (OSError, ValueError, TypeError, UnicodeError):
                 raise AgentPortalError(503, "Saved Agent Portal session requires PC repair") from None
-            self._session_id, self._conversation_id = session_id, conversation_id
+            # Older portals persisted a native thread before its first turn.
+            # Codex cannot always resume that empty provisional thread.
+            provisional = not turns and sequence == 0 and conversation_id is not None
+            self._session_id = session_id
+            self._conversation_id = None if provisional else conversation_id
             self._transcript = turns
             self._sequence = sequence
+            if provisional:
+                self._persist()
             if turns and turns[-1]["status"] == "working":
                 turns[-1]["status"] = "unknown"
                 self._persist()
@@ -159,13 +168,7 @@ class AgentPortal:
             self._load()
             if self._session_id is None:
                 self._connect()
-                try:
-                    conversation_id = self._backend.start_conversation()
-                except Exception as error:
-                    self.last_error = str(error)
-                    raise AgentPortalError(502, "Codex conversation could not be started") from None
                 self._session_id = uuid.uuid4().hex
-                self._conversation_id = conversation_id
                 try:
                     self._persist()
                 except AgentPortalError:
@@ -192,11 +195,15 @@ class AgentPortal:
                 raise AgentPortalError(400, "Agent message must be 1–16000 characters")
             if self._active_turn is not None:
                 raise AgentPortalError(409, "Agent is already working")
+            provisional = self._conversation_id is None
             try:
-                turn_id = self._backend.send_text(self._conversation_id, value)
+                conversation_id = (self._backend.start_conversation() if provisional
+                                   else self._conversation_id)
+                turn_id = self._backend.send_text(conversation_id, value)
             except Exception as error:
                 self.last_error = str(error)
                 raise AgentPortalError(502, "Agent message could not be sent") from None
+            self._conversation_id = conversation_id
             self._active_turn = turn_id
             self._activity = "working"
             self._transcript.append({"user": value, "userTruncated": False,
@@ -213,6 +220,11 @@ class AgentPortal:
                 self._transcript[-1]["status"] = "unknown"
                 self._active_turn = None
                 self._activity = "failed"
+                if provisional:
+                    self._transcript.pop()
+                    self._conversation_id = None
+                    self._backend.close()
+                    self._backend = None
                 raise
             self._watcher = threading.Thread(target=self._watch, args=(turn_id,),
                                              name="matrix-agent-portal", daemon=True)
