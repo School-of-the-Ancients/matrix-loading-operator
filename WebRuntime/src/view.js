@@ -87,7 +87,7 @@ export class MatrixView {
     this.modelCache=new Map();
     this.scene=new THREE.Scene();this.scene.background=new THREE.Color(0x0a1b29);
     this.virtualFloorRoot=new THREE.Group();this.scene.add(this.virtualFloorRoot);
-    this.roomAnchor=null;this.roomAnchorPending=false;this.roomAnchorCreationFailed=false;this.roomAnchorPersistent=false;
+    this.roomAnchor=null;this.roomAnchorPending=false;this.roomAnchorCreationFailed=false;this.roomAnchorPersistent=false;this.roomAnchorRestoreFailed=false;this.roomAnchorLocated=false;
     const storedEyeHeight=Number(sessionStorage.getItem('matrix-web-eye-height'));
     this.measuredEyeHeight=storedEyeHeight>=.4&&storedEyeHeight<=2.5?storedEyeHeight:null;
     this.virtualFloorCalibrated=false;
@@ -146,7 +146,7 @@ export class MatrixView {
     if(session.domOverlayState)document.getElementById('xr-overlay').style.display='';
     this.operatorPanel.group.visible=true;
     this.operatorMount={kind:'head'};this.operatorPanel.setPinLabel(this.isAR?'PIN TO WALL':'PIN HERE');
-    this.sessionStartedAt=performance.now();this.roomCaptureRequested=false;this.virtualFloorCalibrated=false;this.roomAnchorCreationFailed=false;
+    this.sessionStartedAt=performance.now();this.roomCaptureRequested=false;this.virtualFloorCalibrated=false;this.roomAnchorCreationFailed=false;this.roomAnchorRestoreFailed=false;this.roomAnchorLocated=false;
     this.restoreRoomAnchor(session);
     if(this.isAR){this.world.enterAR();this.sync();this.onRuntimeChange();}
     for(const ray of this.controllerRays)ray.visible=true;
@@ -157,21 +157,27 @@ export class MatrixView {
   restoreRoomAnchor(session){
     this.roomAnchor=null;this.roomAnchorPending=false;this.roomAnchorPersistent=false;
     const handle=localStorage.getItem('matrix-web-room-anchor-v1');
-    if(!handle||typeof session.restorePersistentAnchor!=='function')return;
+    if(!handle)return;
+    if(typeof session.restorePersistentAnchor!=='function'){
+      if(this.isAR){this.roomAnchorRestoreFailed=true;this.virtualFloorRoot.visible=false;this.onAssetError('Saved room origin cannot be restored by this browser session');}
+      return;
+    }
+    if(this.isAR)this.virtualFloorRoot.visible=false;
     this.roomAnchorPending=true;
     let restored;
     try{restored=session.restorePersistentAnchor(handle);}
-    catch(error){this.roomAnchorPending=false;this.onAssetError(`Room anchor restore: ${error.message}`);return;}
+    catch(error){this.roomAnchorPending=false;this.roomAnchorRestoreFailed=this.isAR;this.onAssetError(`Room anchor restore: ${error.message}`);return;}
     Promise.resolve(restored).then(anchor=>{
+      if(!anchor?.anchorSpace)throw Error('Quest returned no room anchor space');
       if(this.renderer.xr.getSession()===session){this.roomAnchor=anchor;this.roomAnchorPersistent=true;}
-    }).catch(()=>{
-      // VR may not grant anchor restoration. Keep the AR handle for the next
-      // passthrough session instead of losing the established room origin.
-      if(this.renderer.xr.getSession()===session&&this.isAR)localStorage.removeItem('matrix-web-room-anchor-v1');
+    }).catch(error=>{
+      // Never silently replace a saved physical origin with the current head
+      // pose. A relocalization failure must leave prior objects hidden.
+      if(this.renderer.xr.getSession()===session){this.roomAnchorRestoreFailed=this.isAR;this.onAssetError(`Room anchor restore: ${error.message}`);}
     }).finally(()=>{if(this.renderer.xr.getSession()===session)this.roomAnchorPending=false;});
   }
   createRoomAnchor(frame,ref,floorHeight){
-    if(this.roomAnchor||this.roomAnchorPending||this.roomAnchorCreationFailed||typeof frame.createAnchor!=='function'||!this.xrViewer||typeof XRRigidTransform==='undefined')return;
+    if(this.roomAnchor||this.roomAnchorPending||this.roomAnchorCreationFailed||this.roomAnchorRestoreFailed||typeof frame.createAnchor!=='function'||!this.xrViewer||typeof XRRigidTransform==='undefined')return;
     const head=this.xrViewer.position,forward=this.xrViewer.direction.clone().setY(0).normalize();
     const yaw=Math.atan2(-forward.x,-forward.z);
     const orientation=new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(0,1,0),yaw);
@@ -199,9 +205,24 @@ export class MatrixView {
     this.virtualFloorRoot.position.copy(v3(pose.transform.position));
     const {x,y,z,w}=pose.transform.orientation;
     this.virtualFloorRoot.quaternion.set(x,y,z,w);
+    this.virtualFloorRoot.visible=true;
+    this.roomAnchorLocated=true;
     this.virtualFloorCalibrated=true;
   }
-  onSessionEnd(){if(this.operatorVoiceController)this.releaseOperatorVoice(this.operatorVoiceController);this.operatorPanel.group.visible=false;this.operatorMount={kind:'head'};this.operatorPanel.setPinLabel('PIN TO WALL');this.operatorPanel.setOriginLabel('ROOM ORIGIN UNKNOWN');if(this.grab)this.releaseGrab(this.grab.controller);for(const ray of this.controllerRays)ray.visible=false;this.hitSource?.cancel();this.hitSource=null;this.reticle.visible=false;this.reticleVisible=false;this.reticleAnchorId='';this.xrViewer=null;this.planeIds=new WeakMap();this.nextPlaneId=0;this.clearPlanes();this.isAR=false;this.roomAnchor=null;this.roomAnchorPending=false;this.roomAnchorPersistent=false;this.virtualFloorRoot.position.set(0,0,0);this.virtualFloorRoot.quaternion.identity();this.virtualFloorCalibrated=false;this.world.leaveAR();this.sync();this.onRuntimeChange();document.getElementById('xr-overlay').style.display='none';this.floor.visible=true;this.grid.visible=true;this.scene.background=new THREE.Color(0x0a1b29);document.getElementById('view-label').textContent='DESKTOP · VIRTUAL ROOM';}
+  onSessionEnd(){
+    if(this.operatorVoiceController)this.releaseOperatorVoice(this.operatorVoiceController);
+    this.operatorPanel.group.visible=false;this.operatorMount={kind:'head'};
+    this.operatorPanel.setPinLabel('PIN TO WALL');this.operatorPanel.setOriginLabel('ROOM ORIGIN UNKNOWN');
+    if(this.grab)this.releaseGrab(this.grab.controller);
+    for(const ray of this.controllerRays)ray.visible=false;
+    this.hitSource?.cancel();this.hitSource=null;this.reticle.visible=false;this.reticleVisible=false;this.reticleAnchorId='';
+    this.xrViewer=null;this.planeIds=new WeakMap();this.nextPlaneId=0;this.clearPlanes();this.isAR=false;
+    this.roomAnchor=null;this.roomAnchorPending=false;this.roomAnchorPersistent=false;this.roomAnchorRestoreFailed=false;this.roomAnchorLocated=false;
+    this.virtualFloorRoot.visible=true;this.virtualFloorRoot.position.set(0,0,0);this.virtualFloorRoot.quaternion.identity();this.virtualFloorCalibrated=false;
+    this.world.leaveAR();this.sync();this.onRuntimeChange();
+    document.getElementById('xr-overlay').style.display='none';this.floor.visible=true;this.grid.visible=true;
+    this.scene.background=new THREE.Color(0x0a1b29);document.getElementById('view-label').textContent='DESKTOP · VIRTUAL ROOM';
+  }
   setOperatorStatus(message,tone='idle'){this.operatorPanel.setMessage(message,tone);}
   setVoiceOutputEnabled(enabled){this.operatorPanel.setVoiceLabel(enabled?'VOICE ON':'VOICE OFF');}
   positionOperatorPanel(){
@@ -295,7 +316,7 @@ export class MatrixView {
     }
     const floor=anchors.find(anchor=>anchor.semanticLabels.includes('FLOOR'))?.anchorId;
     for(const [id,group] of this.planeOutlines)group.userData.label.visible=id===floor||id===this.world.selection.anchorId;
-    const origin=this.roomAnchor?(this.roomAnchorPersistent?'ROOM ANCHORED':'SESSION ANCHORED'):this.roomAnchorPending?'ALIGNING ROOM':'ROOM ORIGIN UNAVAILABLE';
+    const origin=this.roomAnchorRestoreFailed?'ROOM RELOCALIZATION FAILED':this.roomAnchor&&this.roomAnchorLocated?(this.roomAnchorPersistent?'ROOM ANCHORED':'SESSION ANCHORED'):this.roomAnchorPending||this.roomAnchor?'ALIGNING ROOM':'ROOM ORIGIN UNAVAILABLE';
     this.operatorPanel.setOriginLabel(origin);
     document.getElementById('view-label').textContent=anchors.length?`WEBXR AR · ${anchors.length} ROOM PLANES · ${origin}`:'WEBXR AR · NO ROOM PLANES';
     if(!anchors.length&&!this.roomCaptureRequested&&time-this.sessionStartedAt>3000&&typeof frame.session?.initiateRoomCapture==='function'){
@@ -531,7 +552,7 @@ export class MatrixView {
         this.virtualFloorCalibrated=true;
       }
       if(!this.isAR){
-        const origin=this.roomAnchor?(this.roomAnchorPersistent?'ROOM ANCHORED':'SESSION ANCHORED'):this.roomAnchorPending?'ALIGNING ROOM':this.virtualFloorCalibrated?'HEIGHT CALIBRATED':'ROOM ORIGIN UNAVAILABLE';
+        const origin=this.roomAnchor&&this.roomAnchorLocated?(this.roomAnchorPersistent?'ROOM ANCHORED':'SESSION ANCHORED'):this.roomAnchorPending||this.roomAnchor?'ALIGNING ROOM':this.virtualFloorCalibrated?'HEIGHT CALIBRATED':'ROOM ORIGIN UNAVAILABLE';
         this.operatorPanel.setOriginLabel(origin);
         document.getElementById('view-label').textContent=`WEBXR VR · ${origin}`;
       }
