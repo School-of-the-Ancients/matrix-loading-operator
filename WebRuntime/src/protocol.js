@@ -2,6 +2,7 @@
 // /api/exchange command set. Keep changes to this contract coordinated with
 // ControlService/server.py and Assets/Sandbox/Runtime/SandboxWorld.cs.
 import {footprintInsideBoundary} from './spatial.js';
+import {validateAttachment,validatePackage} from './components.js';
 export const ROOM_ID = 'web-virtual-room-v1';
 export const ANCHOR_ID = 'web-floor';
 export const MAX_OBJECTS = 100;
@@ -37,7 +38,7 @@ export class MatrixWorld {
     const anchors=this.availableAnchors();
     const context=this.spatial?{mode:'ar',state:this.spatial.originUnavailable||this.spatial.stale?'missing':'ready',message:this.spatial.originUnavailable?'Saved room origin is unavailable. The old world is hidden and editing is paused until it is restored or explicitly archived for a new room.':this.spatial.stale?'A plane holding a scene object is no longer tracked; keep the scene for recovery and recheck the room.':this.spatial.anchors.length?`${this.spatial.anchors.length} WebXR room plane(s) detected. Virtual-floor objects remain visible as unanchored previews.`:'Waiting for Quest room planes. Virtual-floor objects remain visible as unanchored previews.',alignmentVerified:this.spatial.alignmentVerified&&!this.spatial.originUnavailable}
       :{mode:'white-room',state:'ready',message:'Browser virtual floor; physical room alignment is not verified.',alignmentVerified:false};
-    const snapshot={scene:clone(this.scene),assets:clone([...ASSETS,...this.externalAssets].map(({assetId,displayName,description,spawnScale,localBounds})=>({assetId,displayName,description,spawnScale,...(localBounds?{localBounds}:{})}))),anchors:clone(anchors),selection:clone(this.selection),behaviorKinds:['rotate','bob'],roomContext:context};
+    const snapshot={scene:clone(this.scene),assets:clone([...ASSETS,...this.externalAssets].map(({assetId,displayName,description,spawnScale,localBounds})=>({assetId,displayName,description,spawnScale,...(localBounds?{localBounds}:{})}))),anchors:clone(anchors),selection:clone(this.selection),behaviorKinds:['rotate','bob'],componentSchemaVersion:1,roomContext:context};
     if(this.spatial?.stale||this.spatial?.originUnavailable)snapshot.readOnly=true;
     if (viewer) snapshot.viewer=viewer;
     return snapshot;
@@ -153,9 +154,9 @@ export class MatrixWorld {
       const op=command.op;
       if(this.spatial?.originUnavailable&&!['get_scene','list_assets','list_targets'].includes(op))
         throw Error('Saved room origin is unavailable; restore it or archive the old world before editing');
-      if(this.spatial?.stale&&['spawn','duplicate','set_transform','set_behavior','remove_behavior','delete','load','undo','redo','select'].includes(op))
+      if(this.spatial?.stale&&['spawn','duplicate','set_transform','set_behavior','remove_behavior','attach_component','stop_component','remove_component','delete','load','undo','redo','select'].includes(op))
         throw Error('Room tracking is stale; editing is paused until the room is recovered');
-      const mutation=['spawn','duplicate','set_transform','set_behavior','remove_behavior','delete','clear','load'].includes(op);
+      const mutation=['spawn','duplicate','set_transform','set_behavior','remove_behavior','attach_component','stop_component','remove_component','delete','clear','load'].includes(op);
       const before=mutation?clone(this.scene):null;
       let object;
       switch(op) {
@@ -199,9 +200,35 @@ export class MatrixWorld {
           object.behaviors=command.behaviorKind==='all'?[]:(object.behaviors||[]).filter(b=>b.kind!==command.behaviorKind);
           if (!object.behaviors.length) delete object.behaviors;
           result.objectId=object.objectId; break;
+        case 'attach_component':
+          object=this.requireObject(command.objectId);
+          if(object.anchorId!==ANCHOR_ID)throw Error('Components currently require virtual-floor objects');
+          if(object.component)throw Error('Remove the existing component first');
+          if(!validId(command.componentId)||!validId(command.targetObjectId)||
+             !/^webcomp:[a-z0-9][a-z0-9-]{0,39}:[0-9a-f]{12}$/.test(command.componentId))
+            throw Error('Invalid component identity');
+          {const target=this.requireObject(command.targetObjectId);
+            if(target.objectId===object.objectId||target.anchorId!==ANCHOR_ID)
+              throw Error('Component target must be another virtual-floor object');}
+          validatePackage(command.package);
+          object.component={componentId:command.componentId,package:clone(command.package),
+            targetObjectId:command.targetObjectId,startedAtMs:Date.now(),status:'running'};
+          result.objectId=object.objectId;break;
+        case 'stop_component':
+          object=this.requireObject(command.objectId);
+          if(!object.component)throw Error('Object has no component');
+          if(object.component.status==='failed')throw Error('Failed component must be removed');
+          object.component.status='stopped';delete object.component.error;
+          result.objectId=object.objectId;break;
+        case 'remove_component':
+          object=this.requireObject(command.objectId);
+          if(!object.component)throw Error('Object has no component');
+          delete object.component;result.objectId=object.objectId;break;
         case 'delete':
           object=this.requireObject(command.objectId);
           this.scene.objects=this.scene.objects.filter(o=>o.objectId!==object.objectId);
+          for(const dependent of this.scene.objects)if(dependent.component?.targetObjectId===object.objectId){
+            dependent.component.status='failed';dependent.component.error='Component target was deleted';}
           if (this.selection.objectId===object.objectId) this.selection.objectId='';
           result.objectId=object.objectId; break;
         case 'clear': this.scene.objects=[]; this.selection.objectId=''; break;
@@ -217,6 +244,11 @@ export class MatrixWorld {
     return result;
   }
   requireObject(id) {const object=this.scene.objects.find(o=>o.objectId===id); if(!object)throw Error('Unknown objectId'); return object;}
+  failComponent(objectId,message){
+    const component=this.scene.objects.find(object=>object.objectId===objectId)?.component;
+    if(!component||component.status!=='running')return false;
+    component.status='failed';component.error=String(message).slice(0,120);return true;
+  }
   validateScene(scene) {
     if (!scene||scene.schemaVersion!==1||scene.roomId!==this.scene.roomId||!Array.isArray(scene.objects)||scene.objects.length>MAX_OBJECTS) throw Error('Incompatible scene');
     const ids=new Set();
@@ -226,6 +258,12 @@ export class MatrixWorld {
       if(anchor?.surface.kind==='support')this.assertSupportedFootprint(o.transform,o.assetId,anchor);
       ids.add(o.objectId);
       if(o.behaviors && (!Array.isArray(o.behaviors)||o.behaviors.length>2||new Set(o.behaviors.map(b=>b.kind)).size!==o.behaviors.length||!o.behaviors.every(validBehavior))) throw Error('Invalid scene behavior');
+      if(o.component){validateAttachment(o.component);if(o.anchorId!==ANCHOR_ID)throw Error('Component requires virtual-floor object');}
+    }
+    for(const o of scene.objects)if(o.component){
+      const target=scene.objects.find(item=>item.objectId===o.component.targetObjectId);
+      if(target&&(target.anchorId!==ANCHOR_ID||target.objectId===o.objectId))throw Error('Invalid component target');
+      if(!target&&o.component.status!=='failed')throw Error('Invalid component target');
     }
   }
   replay(from,to) {if(!from.length)throw Error('History is empty'); to.push(clone(this.scene)); if(to.length>32)to.shift(); this.scene=from.pop(); this.selection.objectId='';}

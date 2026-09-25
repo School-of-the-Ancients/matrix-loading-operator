@@ -34,6 +34,7 @@ import speech
 import tts
 import scene_capture
 from web_assets import WebAssetCatalog, WebAssetError, MAX_BYTES as MAX_GLB_BYTES
+from web_components import ComponentError, validate_attachment, validate_package, COMPONENT_ID
 from web_authoring import WebAuthoringJobs, WebAuthoringError
 from blender_authoring import BlenderAuthoringJobs, BlenderAuthoringError
 from web_game import GamePlanError, design_game, wants_game
@@ -51,7 +52,8 @@ MAX_BATCH = 20
 LEASE_SECONDS = 15
 NAME = re.compile(r"[A-Za-z0-9][A-Za-z0-9 _-]{0,63}\Z")
 OPS = {"spawn", "set_transform", "select", "duplicate", "delete", "undo", "redo", "clear", "load",
-       "get_scene", "list_assets", "list_targets", "confirm_room", "set_behavior", "remove_behavior"}
+       "get_scene", "list_assets", "list_targets", "confirm_room", "set_behavior", "remove_behavior",
+       "attach_component", "stop_component", "remove_component"}
 
 
 class APIError(Exception):
@@ -134,6 +136,22 @@ def scene(value):
             raise APIError(400, str(error)) from None
         if behaviors:
             normalized[-1]["behaviors"] = behaviors
+        if "component" in item:
+            try:
+                validate_attachment(item["component"])
+            except ComponentError as error:
+                raise APIError(400, str(error)) from None
+            normalized[-1]["component"] = copy.deepcopy(item["component"])
+    for item in normalized:
+        component = item.get("component")
+        if component:
+            target = next((other for other in normalized
+                           if other["objectId"] == component["targetObjectId"]), None)
+            require(item["anchorId"] == "web-floor" and
+                    (target is not None and target["anchorId"] == "web-floor" and
+                     target["objectId"] != item["objectId"] or
+                     target is None and component["status"] == "failed"),
+                    "Invalid component target")
     return {"schemaVersion": 1, "roomId": room, "objects": normalized}
 
 
@@ -196,6 +214,13 @@ def snapshot(value):
     try:
         if value.get("behaviorKinds") is not None:
             result["behaviorKinds"] = validate_behavior_kinds(value["behaviorKinds"])
+        if value.get("componentSchemaVersion") is not None:
+            require(type(value["componentSchemaVersion"]) is int and value["componentSchemaVersion"] == 1,
+                    "Unsupported component schema")
+            result["componentSchemaVersion"] = 1
+        require(result.get("componentSchemaVersion") == 1 or
+                not any("component" in item for item in result["scene"]["objects"]),
+                "Scene components require the WebXR component runtime")
         viewer = validate_viewer(value.get("viewer"), {a["anchorId"] for a in result["anchors"]})
         pointing = validate_pointing(value.get("pointing"),
                                      {a["anchorId"]: a for a in result["anchors"]},
@@ -242,6 +267,8 @@ def command(value):
     allowed = {"op", "requestId"}
     required = {"spawn": {"assetId", "anchorId", "transform"}, "set_transform": {"objectId", "transform"},
                 "set_behavior": {"objectId", "behavior"}, "remove_behavior": {"objectId", "behaviorKind"},
+                "attach_component": {"objectId", "componentId", "package", "targetObjectId"},
+                "stop_component": {"objectId"}, "remove_component": {"objectId"},
                 "select": {"objectId"}, "duplicate": {"objectId"}, "delete": {"objectId"},
                 "load": {"scene"}}.get(op, set())
     allowed |= required
@@ -252,7 +279,7 @@ def command(value):
     require(not (set(value) - allowed), "Unexpected command fields")
     require(required <= set(value), "Missing command fields")
     result = {"op": op}
-    for key in ("assetId", "objectId", "anchorId"):
+    for key in ("assetId", "objectId", "anchorId", "componentId", "targetObjectId"):
         if key in value:
             result[key] = text(value[key], key, empty=key == "anchorId")
     if "transform" in value:
@@ -271,6 +298,12 @@ def command(value):
         require(isinstance(value["behaviorKind"], str) and value["behaviorKind"] in ("rotate", "bob", "all"),
                 "Unknown behavior kind")
         result["behaviorKind"] = value["behaviorKind"]
+    if "package" in value:
+        try:
+            result["package"] = copy.deepcopy(validate_package(value["package"]))
+        except ComponentError as error:
+            raise APIError(400, str(error)) from None
+        require(COMPONENT_ID.fullmatch(result["componentId"]) is not None, "Invalid componentId")
     return result
 
 
@@ -682,10 +715,18 @@ class State:
                         asset = next((asset for asset in self.latest["assets"] if asset["assetId"] == target["assetId"]), None)
                         require(asset is not None and asset.get("interactionMode") in ("light", "hinge"),
                                 "This prefab has no selectable interaction", 409)
+                elif item["op"] in {"attach_component", "stop_component", "remove_component"}:
+                    require(self.latest.get("componentSchemaVersion") == 1,
+                            "Connected runtime does not support components", 409)
+                    require((self.latest.get("roomContext") or {}).get("mode") == "white-room",
+                            "Components currently require the virtual room", 409)
                 elif item["op"] == "load":
                     require(all(behavior["kind"] in supported for obj in item["scene"]["objects"]
                                 for behavior in obj.get("behaviors", [])),
                             "Saved behaviors need an updated Quest app; scene has not been loaded", 409)
+                    require(self.latest.get("componentSchemaVersion") == 1 or
+                            not any("component" in obj for obj in item["scene"]["objects"]),
+                            "Saved components need the WebXR runtime; scene has not been loaded", 409)
                 if self.latest.get("readOnly"):
                     require(item["op"] in {"clear", "get_scene", "list_assets", "list_targets"},
                             "Room changed. Save the retained poses, clear objects, then reload room data and verify outlines", 409)
