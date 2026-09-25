@@ -35,6 +35,7 @@ import tts
 import scene_capture
 from web_assets import WebAssetCatalog, WebAssetError, MAX_BYTES as MAX_GLB_BYTES
 from web_components import ComponentError, validate_attachment, validate_package, COMPONENT_ID
+from web_component_catalog import WebComponentCatalog
 from web_authoring import WebAuthoringJobs, WebAuthoringError
 from blender_authoring import BlenderAuthoringJobs, BlenderAuthoringError
 from web_game import GamePlanError, design_game, wants_game
@@ -451,6 +452,7 @@ class State:
         self.directory = Path(directory)
         self.directory.mkdir(parents=True, exist_ok=True)
         self.web_assets = WebAssetCatalog(web_assets_directory or Path(__file__).with_name("web_assets"))
+        self.web_components = WebComponentCatalog(self.directory / "web_components")
         self.web_authoring = WebAuthoringJobs(self.web_assets)
         self.blender_authoring = BlenderAuthoringJobs(self.web_assets)
         self.matrix_tool_bridge = None
@@ -465,6 +467,7 @@ class State:
         self.pending = collections.OrderedDict()
         self.results = collections.deque(maxlen=100)
         self.agent_move_ids = collections.OrderedDict()
+        self.agent_component_ids = collections.OrderedDict()
         self.revision = 0
         self.proposals = collections.OrderedDict()
         self.learning = learning
@@ -720,6 +723,13 @@ class State:
                             "Connected runtime does not support components", 409)
                     require((self.latest.get("roomContext") or {}).get("mode") == "white-room",
                             "Components currently require the virtual room", 409)
+                    if item["op"] == "attach_component":
+                        try:
+                            registered = self.web_components.get(item["componentId"])
+                        except ComponentError as error:
+                            raise APIError(409, str(error)) from None
+                        require(registered["package"] == item["package"],
+                                "Component package does not match its published version", 409)
                 elif item["op"] == "load":
                     require(all(behavior["kind"] in supported for obj in item["scene"]["objects"]
                                 for behavior in obj.get("behaviors", [])),
@@ -803,6 +813,115 @@ class State:
             else:
                 result["status"] = "failed"
                 result["error"] = receipt["error"][:200]
+            return result
+
+    def agent_publish_component(self, value):
+        require(isinstance(value, dict) and set(value) == {"package"},
+                "Invalid component publication")
+        entry = self.web_components.publish(value["package"])
+        return {"status": "published", "componentId": entry["componentId"],
+                "sha256": entry["sha256"], "name": entry["package"]["name"],
+                "outputs": sorted(entry["package"]["outputs"])}
+
+    def agent_list_components(self, offset=0, limit=24):
+        require(type(offset) is int and 0 <= offset <= 63 and type(limit) is int and 1 <= limit <= 24,
+                "Invalid Matrix component page")
+        items = self.web_components.list()
+        return {"total": len(items), "offset": offset, "components": [
+            {"componentId": item["componentId"], "sha256": item["sha256"],
+             "name": item["package"]["name"], "outputs": sorted(item["package"]["outputs"])}
+            for item in items[offset:offset + limit]]}
+
+    def agent_component_action(self, value):
+        require(type(value) is dict and value.get("action") in ("attach", "stop", "remove"),
+                "Invalid Matrix component action")
+        action = value["action"]
+        required = {"action", "room_id", "scene_revision", "object_id", "expected_asset_id", "component_id"}
+        if action == "attach":
+            required.add("target_object_id")
+        require(set(value) == required, "Invalid Matrix component action fields")
+        room_id = text(value["room_id"], "room_id")
+        object_id = text(value["object_id"], "object_id")
+        asset_id = text(value["expected_asset_id"], "expected_asset_id")
+        component_id = text(value["component_id"], "component_id")
+        require(COMPONENT_ID.fullmatch(component_id) is not None, "Invalid component ID")
+        revision = value["scene_revision"]
+        require(type(revision) is int and revision >= 0, "Invalid scene revision")
+        target_id = text(value["target_object_id"], "target_object_id") if action == "attach" else None
+        with self.lock:
+            self.expire()
+            require(self.online() and self.latest is not None, self.room_unavailable_message(), 409)
+            current = self.latest
+            require(current["scene"]["roomId"] == room_id and self.revision == revision,
+                    "Matrix scene changed; inspect the current room and retry", 409)
+            require(current.get("componentSchemaVersion") == 1 and
+                    (current.get("roomContext") or {}).get("mode") == "white-room",
+                    "Connected WebXR virtual room does not support components", 409)
+            require(not current.get("readOnly") and not self.pending,
+                    "Matrix world is not ready for a component action", 409)
+            objects = current["scene"]["objects"]
+            item = next((item for item in objects if item["objectId"] == object_id), None)
+            require(item is not None and item["assetId"] == asset_id and item["anchorId"] == "web-floor",
+                    "Component object is no longer available on the virtual floor", 409)
+            if action == "attach":
+                require("component" not in item, "Remove existing component first", 409)
+                target = next((other for other in objects if other["objectId"] == target_id), None)
+                require(target is not None and target["anchorId"] == "web-floor" and target_id != object_id,
+                        "Component target is unavailable on the virtual floor", 409)
+                package = self.web_components.get(component_id)["package"]
+                command_value = {"op": "attach_component", "objectId": object_id,
+                                 "targetObjectId": target_id, "componentId": component_id,
+                                 "package": package}
+            else:
+                component = item.get("component")
+                require(component is not None and component["componentId"] == component_id,
+                        "Expected component is no longer attached", 409)
+                require(action != "stop" or component["status"] == "running",
+                        "Component is not running; remove it instead", 409)
+                command_value = {"op": f"{action}_component", "objectId": object_id}
+            queued = self.queue([command_value])["commands"][0]
+            request_id = queued["requestId"]
+            self.agent_component_ids[request_id] = {"action": action, "roomId": room_id,
+                                                    "objectId": object_id, "componentId": component_id,
+                                                    "targetObjectId": target_id}
+            while len(self.agent_component_ids) > 64:
+                self.agent_component_ids.popitem(last=False)
+            return self.agent_component_status(request_id)
+
+    def agent_component_status(self, request_id):
+        require(isinstance(request_id, str) and re.fullmatch(r"[0-9a-f]{32}", request_id),
+                "Invalid Matrix component receipt ID")
+        with self.lock:
+            self.expire()
+            issued = self.agent_component_ids.get(request_id)
+            require(issued is not None, "Matrix component receipt is unavailable", 404)
+            receipt = next((item for item in reversed(self.results) if item["requestId"] == request_id), None)
+            result = {"requestId": request_id, "roomId": issued["roomId"],
+                      "objectId": issued["objectId"], "componentId": issued["componentId"],
+                      "action": issued["action"], "sceneRevision": self.revision}
+            if receipt is None:
+                result["status"] = "queued" if request_id in self.pending else "unconfirmed"
+            elif not receipt["ok"]:
+                result["status"] = "unconfirmed" if "outcome unknown" in receipt["error"] else "failed"
+                if result["status"] == "failed":
+                    result["error"] = receipt["error"][:200]
+            else:
+                observed = self.latest and self.latest["scene"]["roomId"] == issued["roomId"] and next(
+                    (item for item in self.latest["scene"]["objects"] if item["objectId"] == issued["objectId"]), None)
+                component = observed.get("component") if observed else None
+                if issued["action"] == "remove":
+                    result["status"] = "succeeded" if observed and component is None else "unconfirmed"
+                elif component and component["componentId"] == issued["componentId"]:
+                    result["runtimeStatus"] = component["status"]
+                    if component["status"] == "failed":
+                        result["status"] = "failed"
+                        result["error"] = component.get("error", "Component failed")
+                    elif issued["action"] == "stop":
+                        result["status"] = "succeeded" if component["status"] == "stopped" else "unconfirmed"
+                    else:
+                        result["status"] = "succeeded" if component["targetObjectId"] == issued["targetObjectId"] else "unconfirmed"
+                else:
+                    result["status"] = "unconfirmed"
             return result
 
     def agent_list_assets(self, offset=0, limit=24):

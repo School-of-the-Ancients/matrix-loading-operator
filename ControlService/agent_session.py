@@ -129,6 +129,29 @@ def _mcp_approval_description(params: dict) -> tuple[str, bool]:
             summary = f"Register {Path(source).name} as {name} (GLB SHA-256 {digest[:12]}…) in the Matrix asset catalog."
             if len(summary) <= 200:
                 return summary, True
+    for action in ("attach", "stop", "remove"):
+        if params.get("message") != f'Allow the matrix_webxr MCP server to run tool "matrix_{action}_component"?':
+            continue
+        required = {"room_id", "scene_revision", "object_id", "expected_asset_id", "component_id"}
+        if action == "attach":
+            required.add("target_object_id")
+        if (not isinstance(arguments, dict) or set(arguments) != required or
+                type(arguments["scene_revision"]) is not int or arguments["scene_revision"] < 0 or
+                any(not isinstance(arguments[key], str) or
+                    not re.fullmatch(r"[A-Za-z0-9._:-]{1,128}", arguments[key])
+                    for key in ("room_id", "object_id", "expected_asset_id") if key in arguments) or
+                not isinstance(arguments["component_id"], str) or
+                not re.fullmatch(r"webcomp:[a-z0-9][a-z0-9-]{0,39}:[0-9a-f]{12}", arguments["component_id"]) or
+                (action == "attach" and (not isinstance(arguments["target_object_id"], str) or
+                                         not re.fullmatch(r"[A-Za-z0-9._:-]{1,128}", arguments["target_object_id"])))):
+            continue
+        summary = (f"{action.capitalize()} {arguments['component_id']} on {arguments['expected_asset_id']} "
+                   f"({arguments['object_id']}) in {arguments['room_id']}")
+        if action == "attach":
+            summary += f" targeting {arguments['target_object_id']}"
+        summary += f" at scene revision {arguments['scene_revision']}."
+        if len(summary) <= 200:
+            return summary, True
     return "Codex requests an MCP tool. Review it on PC before approval.", False
 
 
@@ -195,13 +218,19 @@ class LocalCodexAgentBackend:
             settings = {"command": sys.executable, "args": [str(script)],
                         "env_vars": ["MATRIX_CONTROL_URL", "MATRIX_CONTROL_TOKEN"],
                         "enabled_tools": ["matrix_scene_summary", "matrix_move_object", "matrix_move_status",
-                                          "matrix_list_assets", "matrix_register_glb"],
+                                          "matrix_list_assets", "matrix_register_glb",
+                                          "matrix_publish_component", "matrix_list_components",
+                                          "matrix_attach_component", "matrix_stop_component",
+                                          "matrix_remove_component", "matrix_component_status"],
                         "default_tools_approval_mode": "auto",
                         "startup_timeout_sec": 10}
             for key, value in settings.items():
                 command += ["-c", f"mcp_servers.matrix_webxr.{key}={json.dumps(value)}"]
             command += ["-c", 'mcp_servers.matrix_webxr.tools.matrix_move_object.approval_mode="prompt"']
             command += ["-c", 'mcp_servers.matrix_webxr.tools.matrix_register_glb.approval_mode="prompt"']
+            for name in ("matrix_publish_component", "matrix_attach_component",
+                         "matrix_stop_component", "matrix_remove_component"):
+                command += ["-c", f'mcp_servers.matrix_webxr.tools.{name}.approval_mode="prompt"']
             environment = {"MATRIX_CONTROL_URL": matrix_bridge.url,
                            "MATRIX_CONTROL_TOKEN": matrix_bridge.token}
         command += ["app-server", "--stdio"]
