@@ -1,5 +1,11 @@
 # AR Sandbox project context
 
+## 4616 miniature content and interactions (2026-09-24)
+
+`codex/4616-miniature-world` extends the shared white-room and room-AR prefab generator with 16 original miniature props, for 23 bundled assets total. `MiniatureCatalog.cs` owns this content. `SandboxWorld` remains the sole executor, history owner and save authority; `SandboxBehaviorVisual` now presents bounded two-waypoint motion and the lamp/chest selection toggle without moving the saved root. `AssetInfo.interactionMode` tells the PC Operator which of the bundled props may use `select_toggle`. The PC service validates advertised behavior kinds and per-asset interaction support before queueing edits. Existing schema-1 scenes and the original seven asset IDs remain supported. See `../4616-Miniature-World.md` for the demo inventory and procedure.
+
+The isolated Desktop and virtual Quest generators compile against Unity 6000.6.0f1 and passed 457 core checks each after the final lamp color change. The actual headless Windows player/service loop passed 27 checks with one real reviewed Codex proposal, and 24 checks on the final player. ADB found no connected Quest. The room-AR fixture import stopped in Meta XR AIBlocks with Bee `Access is denied` before a native APK build; the native headset loop is unverified. The installed Desktop content workshop and user-authored files were not changed. See `../../Validation/miniature-world-validation.json` for exact evidence.
+
 Created 2026-09-20 as a separate project at the user's request. Validated target: Quest Pro with manually configured Space Setup floor/table data. The current expansion also prepares Quest 3/3S calibrated physical-camera capture; this requires separate hardware acceptance. See ../Progress-Log.md for the current continuation state.
 
 ## Contract

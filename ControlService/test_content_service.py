@@ -45,6 +45,32 @@ class ContentServiceTests(unittest.TestCase):
     def install(self):
         return self.state.content.queue_install({"providerId": "test", "assetId": "props", "version": "1.0.0"})
 
+    def test_generic_scene_shortlist_uses_props_instead_of_panorama_domes(self):
+        panorama = {"providerId": "test", "assetId": "moon-lab", "version": "1", "title": "Moon Lab",
+                    "category": "environments", "runtimeLoadable": True, "targetPlatform": CAPS["platform"],
+                    "metadata": {"contentPack": {"unityVersion": CAPS["unityVersion"]}}}
+        model = {**panorama, "assetId": "microscope", "title": "Microscope", "category": "objects"}
+        with patch.object(self.catalog, "suggest_ready", return_value=[panorama, model], create=True), \
+             patch.object(self.catalog, "suggest_public", return_value=[], create=True):
+            ordinary = self.state.content.planner_context("Build a sci-fi scene and import stuff")
+            skybox = self.state.content.planner_context("Import a moon lab skybox")
+        self.assertEqual([item["assetId"] for item in ordinary], ["microscope"])
+        self.assertEqual([item["assetId"] for item in skybox], ["moon-lab", "microscope"])
+
+    def test_planner_shortlist_excludes_incompatible_runtime_packs(self):
+        compatible = {"providerId": "test", "assetId": "beacon", "version": "1", "title": "Beacon",
+                      "category": "objects", "runtimeLoadable": True, "targetPlatform": CAPS["platform"],
+                      "metadata": {"contentPack": {"unityVersion": CAPS["unityVersion"]}}}
+        wrong_platform = {**compatible, "assetId": "android-beacon", "targetPlatform": "Android"}
+        wrong_unity = {**compatible, "assetId": "old-beacon",
+                       "metadata": {"contentPack": {"unityVersion": "2022.3.0f1"}}}
+        with patch.object(self.catalog, "suggest_ready", return_value=[wrong_platform, wrong_unity, compatible], create=True) as ready, \
+             patch.object(self.catalog, "suggest_public", return_value=[], create=True):
+            found = self.state.content.planner_context("Import a beacon")
+        ready.assert_called_once_with("Import a beacon", limit=40, platform=CAPS["platform"],
+                                      unity_version=CAPS["unityVersion"])
+        self.assertEqual([row["assetId"] for row in found], ["beacon"])
+
     def wait(self):
         for _ in range(200):
             job = next(iter(self.state.content.jobs.values()))
@@ -75,6 +101,16 @@ class ContentServiceTests(unittest.TestCase):
         self.assertEqual(saved["assets"][-1]["source"], SOURCE)
         self.exchange(value, contentReceipt=receipt)  # lost HTTP response retry
         self.assertEqual(len(self.state.content.jobs), 1)
+
+    def test_recommend_returns_only_compatible_local_pack_ids(self):
+        pack = {"providerId": "test", "assetId": "props", "version": "1.0.0", "title": "Beacon",
+                "targetPlatform": "StandaloneWindows64", "metadata": {"contentPack": MANIFEST}}
+        wrong = {**pack, "assetId": "android-props", "targetPlatform": "Android"}
+        with patch.object(self.catalog, "suggest_ready", return_value=[wrong, pack], create=True):
+            found = self.state.content.recommend({"text": "Summon a beacon"})
+        self.assertEqual(["props"], [row["assetId"] for row in found["candidates"]])
+        self.assertEqual([ASSET["assetId"]], found["candidates"][0]["prefabAssetIds"])
+        self.assertFalse(found["candidates"][0]["installed"])
 
     def test_cancel_before_runtime_dispatch(self):
         self.catalog.gate = threading.Event()
@@ -218,9 +254,53 @@ class ContentHttpTests(unittest.TestCase):
         headers = {"Authorization": "Bearer " + self.server.token}
         code, state = self.request("/api/content", headers=headers)
         self.assertEqual(code, 200)
-        self.assertFalse(state["configured"])
+        self.assertTrue(state["configured"])
+        self.assertEqual("polyhaven", state["providers"][0]["id"])
         self.assertEqual(self.request("/api/content/files/" + "a" * 64)[0], 401)
         self.assertEqual(self.request("/api/content/install", {"providerId": "test", "assetId": "props", "version": "1"}, headers=headers)[0], 409)
+
+    def test_public_discovery_search_uses_cursor_and_never_installs(self):
+        catalog = self.state.content.catalog
+        listing = {"results": [{"uid": "a" * 32, "name": "Castle", "isDownloadable": True,
+                                "license": {"label": "CC Attribution"}, "tags": [], "categories": []}],
+                   "cursors": {"next": "cursor_24", "previous": None}}
+        with patch.object(catalog, "_json_request", return_value=listing):
+            code, found = self.request("/api/content/search", {"providerId": "sketchfab", "query": "castle"})
+        self.assertEqual(code, 200)
+        self.assertEqual("cursor_24", found["nextCursor"])
+        self.assertTrue(found["assets"][0]["discoveryOnly"])
+        self.assertEqual(self.request("/api/content/prepare", {"providerId": "sketchfab", "assetId": "a" * 32})[0], 409)
+
+    def test_audio_discovery_http_route_never_prepares_a_sound(self):
+        catalog = self.state.content.catalog
+        uid = "a8783d20-f1af-4c4b-b9ec-a8c212f67fee"
+        page = {"results": [{"id": uid, "title": "Footsteps", "license": "by",
+                             "creator": "InspectorJ", "foreign_landing_url": "https://freesound.org/example"}],
+                "result_count": 1, "page_count": 1, "page": 1}
+        with patch.object(catalog, "_json_request", return_value=page):
+            code, found = self.request("/api/content/search", {"providerId": "openverse-audio",
+                                                                "query": "footsteps", "category": "sounds"})
+        self.assertEqual(200, code)
+        self.assertEqual(1, found["total"])
+        self.assertEqual("sounds", found["assets"][0]["category"])
+        self.assertEqual("by", found["assets"][0]["license"]["name"])
+        self.assertTrue(found["assets"][0]["discoveryOnly"])
+        self.assertEqual(409, self.request("/api/content/prepare", {"providerId": "openverse-audio", "assetId": uid})[0])
+
+    def test_planner_uses_public_suggestions_only_for_missing_assets(self):
+        catalog = self.state.content.catalog
+        candidate = {"providerId": "polyhaven", "assetId": "castle", "version": "live", "title": "Castle",
+                     "category": "objects", "format": "gltf", "targetPlatform": "Any", "license": {"name": "CC0"},
+                     "metadata": {"sourceUrl": "https://polyhaven.com/a/castle"},
+                     "runtimeLoadable": False, "discoveryOnly": True}
+        with patch.object(catalog, "suggest_public", return_value=[candidate]) as suggest:
+            self.assertEqual([], self.state.content.planner_context("Place a cube", SNAPSHOT["assets"]))
+            suggest.assert_not_called()
+            found = self.state.content.planner_context("Place a castle", SNAPSHOT["assets"])
+            suggest.assert_called_once()
+        self.assertEqual("castle", found[0]["assetId"])
+        self.assertFalse(found[0]["runtimeLoadable"])
+        self.assertEqual("https://polyhaven.com/a/castle", found[0]["sourcePage"])
 
 
 if __name__ == "__main__":

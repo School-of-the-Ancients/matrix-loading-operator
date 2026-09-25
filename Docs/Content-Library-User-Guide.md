@@ -4,6 +4,43 @@ The content library lets an already-built Matrix app receive additional compatib
 props. You install a pack, then ask the Operator to place and edit its props in
 your room. Installing a pack adds choices; it does not place anything by itself.
 
+The **Find content** section also searches live public source listings. Poly
+Haven offers models, HDRIs, and textures without an account; choose **Sketchfab**
+as the provider to page through its downloadable-model listings. These entries
+link to their source pages and display their license, but are not packs. Sketchfab
+downloads require the player's own authorization. Download a suitable source
+through its normal site, review its license and geometry, then use the Unity
+preparation path below. A public search result cannot be placed directly.
+Select **Openverse audio** to find licensed sounds and open their original source
+pages. Search results retain creator and attribution details, but the current
+Matrix player does not yet load or play external audio.
+
+### Why does the running app show 23 props?
+
+Those are the prefabs bundled in the current demo. The full Poly Haven index
+has thousands of entries, but public listings alone are not Unity prefabs.
+The local library workflow mirrors compact source files on the PC and exports
+one Android pack per entry. Only a chosen pack is installed on the headset when
+needed; it then joins the running app's asset list without rebuilding the APK.
+Models become static props, HDRIs become panorama domes, and textures become
+material sample tiles. See [the full-library commands](Content-Catalogs.md).
+
+With a configured local catalog and an updated connected player, an AI request
+such as **“Summon an armchair here”** searches the ready packs, installs the
+top compatible match if needed, waits for the player to acknowledge it, then
+creates a placement proposal. You still review and Apply the scene change.
+After Apply, the virtual result is automatically captured for an image-capable
+AI when that option is checked. The AI can judge visible placement and propose
+an installed alternative or name an exact prepared pack to try next. A result
+review never silently replaces an
+object. Broad or ambiguous requests can still require a better description.
+
+Public Poly Haven search fetches **metadata only**, cached in the PC service
+for ten minutes. The optional local mirror downloads source files once; the Unity
+batch converts them once into versioned packs. Installing a compatible pack
+copies verified bundle bytes to the PC cache and headset. The app can restore
+an exact cached dependency after restart while the source provider is offline.
+
 For one new Asset Store prop, this currently takes **more preparation than adding
 it directly to a Unity scene**. The benefit comes afterward: you can reuse the
 same Matrix APK while adding supported packs and arranging their contents with AI,
@@ -15,7 +52,8 @@ authoring tools or automatically convert every Asset Store package.
 | What you are adding | What needs building? |
 | --- | --- |
 | Your first use of the PR #27 content loader | Install a Matrix APK containing the new loader and run its matching PC service. An older APK cannot gain this loader from the web page. |
-| Another supported static prop | Export a content pack in Unity. You build the **pack**, not another APK. |
+| Another prepared Poly Haven prop, panorama dome, or material tile | Install its existing Android pack. The APK stays installed. |
+| A new supported static prop outside the prepared library | Export a content pack in Unity. You build the **pack**, not another APK. |
 | Different meshes or supported materials/textures on those props | Export a new pack version; the compatible APK can stay installed. |
 | New C# behavior, animation playback, a rigged character, audio, or another unsupported feature | Implement the capability and its loading support, then rebuild the app. Exporting a bundle alone does not enable it. |
 
@@ -164,19 +202,30 @@ the specification and compatibility checks in more detail.
 
 ## What can I ask the AI to do?
 
-The Operator can use recently searched catalog candidates to compare options and
-recommend a suitable pack. It can place and edit **installed** assets advertised
-by the connected player. Installation makes the props available for a fresh AI
-proposal; it does not automatically retry an earlier request.
+The Operator searches the local Poly Haven prefab catalog before a typed or
+headset-voice AI request. For a scene needing missing props, the AI can choose
+up to four exact compatible local packs. The PC installs them sequentially,
+waits for each Quest acknowledgement, and asks the AI to compose again from
+the updated prefab catalog. Review and Apply the final scene proposal. No APK
+rebuild is needed for each compatible pack. A disconnected headset or changed
+scene stops this sequence with an explicit error; reconnect and request a new
+proposal instead of assuming an edit landed.
+Cancelling a voice request stops later pack selections and cancels the current
+PC preparation when it has not been sent to the player. A pack already being
+installed on the Quest can still finish; installed packs remain in its cache.
 
 - After searching: **“Which of these packs fits a small sci-fi control station?”**
 - After installing: **“Arrange three Sci-fi Beacons around the selected area.”**
 - With a placed prop selected: **“Make it bob gently above its current position.”**
 
-The AI does not independently acquire Asset Store packages, import or export them
-in Unity, install packs, or start generation jobs. When a needed asset is missing,
-it should explain what to install and wait for a new proposal afterward. You still
-review and Apply scene changes. Save and restore are separate proposals.
+The automatic install path applies to **ready, compatible local prefab packs**.
+Generic prop requests shortlist object models rather than panorama domes or
+material sample tiles. Ask explicitly for a panorama or material to see those
+pack categories; a panorama dome is a scene object, not a true Unity skybox.
+The AI does not acquire Asset Store packages, author Unity prefabs, export new
+bundles, or start generation jobs. Assets that lack a ready pack still require
+the authoring workflow above. You still review and Apply scene changes. Save
+and restore are separate proposals.
 
 ## Images, backgrounds, and the eight categories
 
@@ -185,6 +234,10 @@ output can be retrieved into the PC cache and previewed in the library. Generati
 a classroom image does **not** put that background in the headset or create room
 geometry. A texture-bearing static prop needs a compatible Unity export; runtime
 skybox switching, video surfaces, and generated 3D need additional integrations.
+A flat image cannot become a complete VR skybox by merely stretching it onto a
+sphere. A reviewed 360-degree equirectangular workflow or image extension step,
+plus a runtime skybox application path, is needed. No ComfyUI worker or reviewed
+360-degree workflow is enabled in this checkout's current service configuration.
 
 The eight category choices organize catalog entries and import work. They do not
 mean that eight runtime systems are available. This version installs **static

@@ -13,7 +13,7 @@ if (-not $fixtureRoot.StartsWith($repositoryRoot + [IO.Path]::DirectorySeparator
 }
 $runtimeNames = @('SandboxData', 'SandboxWorld', 'SandboxBehaviorVisual', 'SandboxSceneCapture', 'QuestCameraCapture', 'SandboxContentData', 'SandboxContentLoader', 'SandboxApp', 'PcBridge', 'SandboxVoiceInput',
     'WhiteRoomAdapter', 'WhiteRoomDesktopControls', 'WhiteRoomXrControls', 'QuestRoomAdapter', 'RoomDebugOutlines')
-$editorNames = @('WhiteRoomSceneSetup', 'WhiteRoomXrSetup', 'SandboxCoreChecks', 'SandboxContentChecks', 'SandboxContentPackExporter', 'SandboxPrefabPreview', 'QuestBuildSetup', 'RoomArSceneSetup', 'QuestCameraCaptureChecks')
+$editorNames = @('WhiteRoomSceneSetup', 'MiniatureCatalog', 'WhiteRoomXrSetup', 'SandboxCoreChecks', 'SandboxContentChecks', 'SandboxContentPackExporter', 'SandboxPrefabPreview', 'QuestBuildSetup', 'RoomArSceneSetup', 'QuestCameraCaptureChecks')
 $authoredFiles = @($runtimeNames | ForEach-Object { 'Assets\Sandbox\Runtime\' + $_ + '.cs' }) +
     @($editorNames | ForEach-Object { 'Assets\Sandbox\Editor\' + $_ + '.cs' })
 foreach ($relative in $authoredFiles) {

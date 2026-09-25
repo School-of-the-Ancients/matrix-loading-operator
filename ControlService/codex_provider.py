@@ -34,6 +34,9 @@ SCREENSHOT_METADATA = {"mimeType", "captureId", "clientId", "revision", "capture
 REASONING_EFFORTS = ("none", "minimal", "low", "medium", "high", "xhigh", "max", "ultra")
 MODEL_ID = re.compile(r"[A-Za-z0-9][A-Za-z0-9._:-]{0,159}\Z")
 DISABLED_FEATURES = ("shell_tool", "unified_exec", "apps", "plugins", "multi_agent", "hooks", "shell_snapshot")
+RECENT_MODEL_SECONDS = 15 * 60
+_recent_models = {}
+_recent_models_lock = threading.Lock()
 
 
 class CodexProviderError(Exception):
@@ -124,11 +127,41 @@ def codex_options(environ=None):
                                       "supportsImages": isinstance(model.get("input_modalities"), list)
                                       and "image" in model["input_modalities"]})
             seen.add(identifier)
-        if not result["models"]:
+        if result["models"]:
+            # The desktop app and CLI can refresh the same public cache with
+            # different visible subsets. Keep models actually advertised by
+            # this CLI recently, so a selected model does not vanish mid-turn.
+            # The CLI still checks access when it runs the requested model.
+            now = time.monotonic()
+            with _recent_models_lock:
+                remembered = _recent_models.setdefault(str(folder), {})
+                for identifier, (expires, _) in list(remembered.items()):
+                    if expires <= now:
+                        del remembered[identifier]
+                current = {item["id"] for item in result["models"]}
+                missing = [{**item, "reasoningEfforts": list(item["reasoningEfforts"])}
+                           for identifier, (_, item) in remembered.items() if identifier not in current]
+                for item in result["models"]:
+                    remembered[item["id"]] = (now + RECENT_MODEL_SECONDS,
+                                              {**item, "reasoningEfforts": list(item["reasoningEfforts"])})
+            if missing:
+                result["models"].extend(missing)
+                result["warning"] = ("Some models were advertised by the local Codex CLI earlier in this service "
+                                     "session; access is checked again when a request runs.")
+        else:
             result["warning"] = "No selectable models in the local Codex cache. The service default is still available."
     except (OSError, ValueError, TypeError, UnicodeError, RecursionError, RuntimeError):
         result = {"source": "local-codex-cache", "fetchedAt": None, "models": [],
                   "warning": "Codex model metadata is unavailable. The service default is still available."}
+    configured = env.get("SANDBOX_CODEX_MODEL", "").strip() if env.get("SANDBOX_AI_MODE") == "codex-cli" else ""
+    if configured and MODEL_ID.fullmatch(configured) and not any(item["id"] == configured for item in result["models"]):
+        effort = env.get("SANDBOX_CODEX_REASONING", "").strip()
+        result["models"].append({"id": configured, "displayName": configured + " (service default)",
+                                 "reasoningEfforts": list(REASONING_EFFORTS),
+                                 "defaultReasoningEffort": effort if effort in REASONING_EFFORTS else None,
+                                 "supportsImages": False, "configuredDefault": True})
+        result["warning"] = ("The configured service model is absent from the current local cache. "
+                             "The Codex CLI checks its access and reasoning support when a request runs.")
     return result
 
 
@@ -200,6 +233,13 @@ def _schema():
                         "speedDegreesPerSecond": {"type": "number", "minimum": -180, "maximum": 180},
                         "amplitudeMeters": {"type": "number", "minimum": 0, "maximum": .25},
                         "frequencyHz": {"type": "number", "minimum": .05, "maximum": 2}})
+    path_behavior = _object({**behavior["properties"],
+                             "kind": {"type": "string", "enum": ["path"]},
+                             "waypointA": vector, "waypointB": vector,
+                             "speedMetersPerSecond": {"type": "number", "minimum": .01, "maximum": 1}})
+    toggle_behavior = _object({**behavior["properties"],
+                               "kind": {"type": "string", "enum": ["select_toggle"]},
+                               "toggled": {"type": "boolean"}})
     variants = []
     for op, fields in (
         ("spawn", {"assetId": identifier, "anchorId": identifier, "transform": transform}),
@@ -209,16 +249,20 @@ def _schema():
         ("set_transform", {"objectId": identifier, "anchorId": identifier, "transform": transform}),
         ("set_transform", {"objectId": identifier, "anchorId": identifier, "transform": transform, "placement": surface_placement}),
         ("set_behavior", {"objectId": identifier, "behavior": behavior}),
-        ("remove_behavior", {"objectId": identifier, "behaviorKind": {"type": "string", "enum": ["rotate", "bob", "all"]}}),
+        ("set_behavior", {"objectId": identifier, "behavior": path_behavior}),
+        ("set_behavior", {"objectId": identifier, "behavior": toggle_behavior}),
+        ("remove_behavior", {"objectId": identifier, "behaviorKind": {"type": "string", "enum": ["rotate", "bob", "path", "select_toggle", "all"]}}),
         *((op, {"objectId": identifier}) for op in ("select", "duplicate", "delete")),
         *((op, {}) for op in ("undo", "redo", "clear", "get_scene", "list_assets", "list_targets")),
         *((op, {"name": identifier}) for op in ("save_scene", "load_scene")),
     ):
         variants.append(_object({"op": {"type": "string", "enum": [op]}, **fields}))
+    content_request = _object({"providerId": identifier, "assetId": identifier, "version": identifier})
     return _object({"commands": {"type": "array", "items": {"anyOf": variants}, "maxItems": 20},
                     "summary": {"type": "string", "maxLength": 800},
                     "assumptions": {"type": "array", "maxItems": 8,
-                                    "items": {"type": "string", "minLength": 1, "maxLength": 200}}})
+                                    "items": {"type": "string", "minLength": 1, "maxLength": 200}},
+                    "contentRequests": {"type": "array", "items": content_request, "maxItems": 4}})
 
 
 def _decode(raw):
@@ -371,7 +415,7 @@ def _parse_result(raw, final):
         proposal = _decode(final.decode("utf-8"))
         if completed != 1 or not isinstance(last_message, str) or _decode(last_message) != proposal:
             raise ValueError()
-        if not isinstance(proposal, dict) or set(proposal) not in ({"commands", "summary"}, {"commands", "summary", "assumptions"}):
+        if not isinstance(proposal, dict) or not {"commands", "summary"} <= set(proposal) or set(proposal) - {"commands", "summary", "assumptions", "contentRequests"}:
             raise ValueError()
         if not isinstance(proposal["commands"], list) or len(proposal["commands"]) > 20:
             raise ValueError()
@@ -385,6 +429,12 @@ def _parse_result(raw, final):
             raise ValueError()
         if any(not isinstance(item, str) or not item.strip() or len(item) > 200
                or any(ord(c) < 32 for c in item) for item in assumptions):
+            raise ValueError()
+        requests = proposal.get("contentRequests", [])
+        if not isinstance(requests, list) or len(requests) > 4 or any(not isinstance(item, dict) or
+                set(item) != {"providerId", "assetId", "version"} or
+                any(not isinstance(value, str) or not value or len(value) > 128 for value in item.values())
+                for item in requests):
             raise ValueError()
         receipt = {"transport": "codex-cli", "completedTurn": True, "usage": usage, "toolCallCount": 0}
         if actual_model is not None:

@@ -2,6 +2,24 @@
   "schemaVersion": 1,
   "providers": [
     {
+      "id": "polyhaven",
+      "title": "Poly Haven public discovery",
+      "type": "polyhaven",
+      "enabled": true
+    },
+    {
+      "id": "sketchfab",
+      "title": "Sketchfab public model discovery",
+      "type": "sketchfab",
+      "enabled": true
+    },
+    {
+      "id": "openverse-audio",
+      "title": "Openverse public audio discovery",
+      "type": "openverse-audio",
+      "enabled": true
+    },
+    {
       "id": "matrix-fixture",
       "title": "Locally exported Unity packs",
       "type": "local",

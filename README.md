@@ -28,6 +28,7 @@ These instructions describe this source checkout. Historical releases have diffe
 | Add a catalog or ComfyUI workflow | [Provider configuration](Docs/Content-Catalogs.md) |
 | Let AI inspect the current view | [Capture how-to](#show-the-ai-a-scene-capture) and [visual feedback guide](Docs/Visual-Feedback.md) |
 | Animate, save or restore my scene | [First scene walkthrough](#make-your-first-scene), [behaviors](Docs/Runtime-Behaviors.md) and [save/restore](#save-clear-and-restore) |
+| Build a miniature tabletop village | [4616 miniature world demo](Docs/4616-Miniature-World.md) |
 | Freeze a build for coursework | [Versions and submission snapshots](Docs/Versions-And-Submissions.md#freeze-each-submission) |
 | Develop or connect another AI provider | [Development](#development), [AI integration](Docs/AI-Integration.md) and [PC API](ControlService/README.md) |
 | Connect an independent local application | [Client API v1 pairing, optional AI scene requests, review and receipts](Docs/Client-API-v1.md) |
@@ -195,7 +196,7 @@ For a single asset in a fixed Unity scene, direct Unity authoring is simpler. Ma
 
 Each proposal receives the connected app's prefab IDs, measured geometry, selection, room context and advertised behavior capabilities. The PC supplies [planner instructions and capability contracts](ControlService/ai_adapter.py); users do not need to paste a separate guide into every request.
 
-Recent catalog searches help the AI recommend a pack, but only **installed** assets can be placed. AI does not acquire Asset Store assets, run Unity imports/exports, install packs or start generation jobs on its own. Install the needed pack, then create a new proposal.
+The PC content library also searches Poly Haven's public models, HDRIs and textures, Sketchfab's downloadable-model listings, and Openverse's openly licensed audio when you select those sources. These are discovery results with source links and license details, not ready-to-place prefabs or playable sounds. In explicit AI mode, missing-asset requests can use the configured **ready local Poly Haven packs**: the service installs up to four compatible choices on the connected player, waits for registration, and replans before offering a reviewed scene edit. Only **installed** assets can be placed. AI does not acquire Asset Store assets, run Unity imports/exports, or start generation jobs on its own. Other sources still need their authoring and import workflows.
 
 **Generate with ComfyUI** is a separate, explicitly approved workflow in the library. Its image goes to the PC cache; it does not automatically create a headset background or 3D environment. Catalog categories such as animations, sounds and behaviors organize resources, and do not imply those runtime loaders exist. See [content and AI usage](Docs/Content-Library-User-Guide.md#what-can-i-ask-the-ai-to-do).
 

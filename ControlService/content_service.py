@@ -68,24 +68,62 @@ class ContentBridge:
                     "imports": self.catalog.import_queue(), "generations": self.catalog.generations()}
 
     def search(self, body):
-        require(set(body) <= {"query", "category", "providerId"}, "Unknown catalog search field")
+        require(set(body) <= {"query", "category", "providerId", "offset", "limit", "cursor"}, "Unknown catalog search field")
         result = self.catalog.search(body.get("query", ""), category=body.get("category") or None,
-                                     provider_id=body.get("providerId") or None)
+                                     provider_id=body.get("providerId") or None,
+                                     offset=body.get("offset", 0), limit=body.get("limit", 100),
+                                     cursor=body.get("cursor"))
         with self.state.lock:
             self.search_results = copy.deepcopy(result)
         return result
 
-    def planner_context(self):
-        """Only user-searched, descriptive candidates; no automatic network/installation."""
+    def planner_context(self, prompt="", installed_assets=None):
+        """Bounded source suggestions and user searches; never download or install."""
         with self.state.lock:
-            rows = self.search_results.get("assets", []) if isinstance(self.search_results, dict) else []
-            return [{key: copy.deepcopy(asset[key]) for key in ("providerId", "assetId", "version", "title", "category",
-                                                               "format", "targetPlatform", "license", "runtimeLoadable") if key in asset}
-                    for asset in rows[:40]]
+            runtime = copy.deepcopy(self.runtime)
+            rows = copy.deepcopy(self.search_results.get("assets", []) if isinstance(self.search_results, dict) else [])
+        normalized = " " + re.sub(r"[^a-z0-9]+", " ", prompt.casefold()).strip() + " "
+        installed = any(" " + re.sub(r"[^a-z0-9]+", " ", name.casefold()).strip() + " " in normalized
+                        for asset in (installed_assets or []) if isinstance(asset, dict)
+                        for name in (asset.get("assetId"), asset.get("displayName")) if isinstance(name, str) and name)
+        discovery_intent = bool(re.search(r"\b(add|create|find|give|import|make|place|put|search|show|spawn|summon)\b", prompt, re.I))
+        alternative_intent = bool(re.search(r"\b(another|alternative|better|replace|replacement)\b", prompt, re.I))
+        ready = (self.catalog.suggest_ready(prompt, limit=40, platform=runtime["platform"],
+                                            unity_version=runtime["unityVersion"])
+                 if runtime["supported"] and discovery_intent and (not installed or alternative_intent)
+                 and hasattr(self.catalog, "suggest_ready") else [])
+        environment_intent = bool(re.search(r"\b(skybox|sky|hdri|panorama|background|environment)\b", prompt, re.I))
+        material_intent = bool(re.search(r"\b(material|texture)\b", prompt, re.I))
+        if not environment_intent and not material_intent:
+            ready = [item for item in ready if item.get("category") == "objects"]
+        public = self.catalog.suggest_public(prompt) if discovery_intent and (not installed or alternative_intent) and hasattr(self.catalog, "suggest_public") else []
+        selected, seen = [], set()
+        for asset in ready + public + rows:
+            if asset.get("runtimeLoadable"):
+                pack = asset.get("metadata", {}).get("contentPack", {})
+                if (not runtime["supported"] or asset.get("targetPlatform") != runtime["platform"]
+                        or pack.get("unityVersion") != runtime["unityVersion"]):
+                    continue
+            identity = (asset.get("providerId"), asset.get("assetId"), asset.get("version"), asset.get("targetPlatform"))
+            if identity in seen:
+                continue
+            seen.add(identity)
+            item = {key: copy.deepcopy(asset[key]) for key in ("providerId", "assetId", "version", "title", "category",
+                   "format", "targetPlatform", "license", "runtimeLoadable", "discoveryOnly") if key in asset}
+            source_url = asset.get("metadata", {}).get("sourceUrl")
+            if isinstance(source_url, str) and (source_url.startswith("https://polyhaven.com/a/") or
+                                                source_url.startswith("https://sketchfab.com/models/")):
+                item["sourcePage"] = source_url
+            selected.append(item)
+            if len(selected) == 40:
+                break
+        return selected
 
     def post(self, path, body):
         if path == "/api/content/search":
             return self.search(body)
+        if path == "/api/content/recommend":
+            return self.recommend(body)
         if path == "/api/content/install":
             return self.queue_install(body)
         if path == "/api/content/cancel":
@@ -112,6 +150,27 @@ class ContentBridge:
         if path == "/api/content/generate/output":
             return self.catalog.prepare_generation_output(body.get("id"), body.get("outputIndex"))
         raise ContentError(404, "Content operation not found")
+
+    def recommend(self, body):
+        """Return exact, compatible prefab pack IDs for a requested scene object."""
+        require(isinstance(body, dict) and set(body) == {"text"} and isinstance(body["text"], str)
+                and 0 < len(body["text"]) <= 4000, "Recommend requires request text")
+        with self.state.lock:
+            runtime = copy.deepcopy(self.runtime)
+            installed = {asset.get("assetId") for asset in (self.state.latest or {}).get("assets", [])}
+        if not runtime["supported"]:
+            return {"candidates": []}
+        candidates = []
+        for row in self.catalog.suggest_ready(body["text"], limit=10,
+                                              platform=runtime["platform"], unity_version=runtime["unityVersion"]):
+            pack = row.get("metadata", {}).get("contentPack", {})
+            prefab_ids = [item.get("assetId") for item in pack.get("assets", []) if isinstance(item, dict)]
+            if row.get("targetPlatform") != runtime["platform"] or pack.get("unityVersion") != runtime["unityVersion"] or not prefab_ids:
+                continue
+            candidates.append({"providerId": row["providerId"], "assetId": row["assetId"], "version": row["version"],
+                               "targetPlatform": row["targetPlatform"], "title": row["title"], "prefabAssetIds": prefab_ids,
+                               "installed": all(asset_id in installed for asset_id in prefab_ids)})
+        return {"candidates": candidates}
 
     def queue_install(self, body):
         require(set(body) <= {"providerId", "assetId", "version", "targetPlatform"}, "Unknown install field")

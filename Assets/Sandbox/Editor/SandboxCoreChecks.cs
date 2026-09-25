@@ -201,6 +201,8 @@ namespace ArSandbox
             Group("Catalog spawn scale defaults and validation", CheckCatalogScale);
             Group("Catalog geometry and JSON compatibility", CheckCatalogBounds);
             Group("Bundled prefab geometry", CheckBundledBounds);
+            Group("Miniature content registration and placement", CheckMiniatureCatalog);
+            Group("Selectable light and hinge with undo and restore", CheckMiniatureInteractions);
             Group("Live viewer context", CheckViewerContext);
             Group("Bounded voice audio encoding", CheckVoiceAudio);
             Group("Room loading voice presentation lifecycle", CheckVoiceRoomLoading);
@@ -214,6 +216,7 @@ namespace ArSandbox
             Group("Behavior rejection and atomic scene loading", CheckBehaviorRejection);
             Group("Behavior history and backward-compatible persistence", CheckBehaviorPersistence);
             Group("Behavior presentation composition and stable placement", CheckBehaviorAnimation);
+            Group("Waypoint motion, interruption and persistence", CheckPathBehavior);
             Group("On-demand rendered scene and camera lifecycle", CheckRenderedScene);
             Group("Runtime content packs", () => SandboxContentChecks.Run(Check));
 
@@ -862,6 +865,79 @@ namespace ArSandbox
             }
         }
 
+        private static void CheckMiniatureCatalog()
+        {
+            const string path = "Assets/Sandbox/WhiteRoom/Prefabs/";
+            if (!Directory.Exists(path)) return;
+            string[] ids = { "grass_tile", "dirt_tile", "road_straight", "road_corner", "pine_tree",
+                "oak_tree", "shrub", "rock", "boulder", "cottage", "tower", "fence",
+                "bridge", "well", "street_lamp", "chest" };
+            using (var fixture = new Fixture())
+            {
+                foreach (string id in ids)
+                {
+                    var prefab = UnityEditor.AssetDatabase.LoadAssetAtPath<GameObject>(path + id + ".prefab");
+                    Check("miniature prefab exists: " + id, prefab != null);
+                    using (var world = new SandboxWorld("test-room", fixture.root.transform,
+                        new[] { new PrefabEntry { assetId = id, prefab = prefab, spawnScale = 1f } },
+                        new[] { new RoomTarget { anchorId = "floor", origin = fixture.anchor } }))
+                    {
+                        AssetInfo info = world.Capture().assets[0];
+                        Check("miniature has finite rendered bounds and 1:1 miniature default: " + id,
+                            info.localBounds != null && info.localBounds.size.x > 0 && info.localBounds.size.y > 0 &&
+                            info.localBounds.size.z > 0 && info.localBounds.size.x <= .25f &&
+                            info.localBounds.center.y >= 0 && info.spawnScale == 1f);
+                        var command = new SandboxCommand { op = "spawn", assetId = id, anchorId = "floor",
+                            transform = SandboxWorld.DefaultTransform() };
+                        CommandResult result = world.Execute(command);
+                        Check("miniature spawns and can be selected: " + id, result.ok &&
+                            world.TryGetObject(result.objectId, out GameObject placed) &&
+                            world.TryGetObjectId(placed.transform.GetChild(0), out string selected) && selected == result.objectId);
+                    }
+                }
+            }
+        }
+
+        private static void CheckMiniatureInteractions()
+        {
+            const string path = "Assets/Sandbox/WhiteRoom/Prefabs/";
+            if (!Directory.Exists(path)) return;
+            foreach (string id in new[] { "street_lamp", "chest" })
+            {
+                using (var fixture = new Fixture())
+                {
+                    var prefab = UnityEditor.AssetDatabase.LoadAssetAtPath<GameObject>(path + id + ".prefab");
+                    string mode = id == "street_lamp" ? "light" : "hinge";
+                    using (var world = new SandboxWorld("test-room",fixture.root.transform,
+                        new[] { new PrefabEntry { assetId = id, prefab = prefab, spawnScale = 1f, interactionMode = mode } },
+                        new[] { new RoomTarget { anchorId = "floor", origin = fixture.anchor } }))
+                    {
+                        CommandResult created = world.Execute(new SandboxCommand { op = "spawn", assetId = id,
+                            anchorId = "floor", transform = SandboxWorld.DefaultTransform() });
+                        Check("interactive miniature spawned: " + id,created.ok);
+                        string objectId = created.objectId;
+                        Check("selection trigger config accepted: " + id,world.Execute(BehaviorCommand(objectId,
+                            new BehaviorData { kind = "select_toggle" })).ok);
+                        world.TryGetObject(objectId,out GameObject placed);
+                        Transform part = placed.transform.GetChild(0).Find("InteractivePart");
+                        Check("selection returns receipt: " + id,world.Execute(new SandboxCommand { op = "select",objectId = objectId }).ok);
+                        Check("selection changes authored interaction: " + id,mode == "light" ? part.GetComponent<Light>().enabled :
+                            Quaternion.Angle(part.localRotation,Quaternion.identity) > 90f);
+                        string saved = JsonUtility.ToJson(world.Capture().scene);
+                        Check("toggle state is present in scene: " + id,Find(world.Capture().scene,objectId).behaviors[0].toggled);
+                        Check("undo restores prior switch state: " + id,world.Execute(new SandboxCommand { op = "undo" }).ok &&
+                            !Find(world.Capture().scene,objectId).behaviors[0].toggled);
+                        Check("redo restores switch state: " + id,world.Execute(new SandboxCommand { op = "redo" }).ok &&
+                            JsonUtility.ToJson(world.Capture().scene) == saved);
+                        world.Execute(new SandboxCommand { op = "clear" });
+                        Check("saved interaction restores after clear: " + id,world.Execute(new SandboxCommand { op = "load",
+                            scene = JsonUtility.FromJson<SceneData>(saved) }).ok &&
+                            JsonUtility.ToJson(world.Capture().scene) == saved);
+                    }
+                }
+            }
+        }
+
         private static bool BoundsMatch(BoundsData value, Vector3 center, Vector3 size)
         {
             return value != null && value.center != null && value.size != null &&
@@ -1373,7 +1449,7 @@ namespace ArSandbox
             {
                 string first = fixture.Spawn(), second = fixture.Spawn();
                 Check("new player advertises only implemented behavior kinds",
-                    string.Join(",", fixture.world.Capture().behaviorKinds) == "rotate,bob");
+                    string.Join(",", fixture.world.Capture().behaviorKinds) == "rotate,bob,path,select_toggle");
                 var rotate = new BehaviorData { kind = "rotate" };
                 Check("set_behavior edits the stable object ID", fixture.world.Execute(BehaviorCommand(first, rotate)).objectId == first);
                 rotate.speedDegreesPerSecond = 99f;
@@ -1538,6 +1614,40 @@ namespace ArSandbox
                 visual.Tick(.5f);
                 Check("removed then readded rotation starts a fresh signed phase", Quaternion.Angle(child.localRotation, Quaternion.Euler(-45f,0f,0f)) < .001f);
                 Check("animated collider descendant still resolves the stable placed identity", fixture.world.TryGetObjectId(child, out string pointed) && pointed == id);
+            }
+        }
+
+        private static void CheckPathBehavior()
+        {
+            using (var fixture = new Fixture())
+            {
+                string id = fixture.Spawn();
+                var path = new BehaviorData { kind = "path", waypointA = new Float3(0,0,0),
+                    waypointB = new Float3(.2f,0,0), speedMetersPerSecond = .1f };
+                Check("bounded path is accepted", fixture.world.Execute(BehaviorCommand(id,path)).ok);
+                fixture.world.TryGetObject(id,out GameObject placed);
+                var animation = placed.GetComponent<SandboxBehaviorVisual>();
+                Transform child = placed.transform.GetChild(0);
+                string saved = JsonUtility.ToJson(fixture.world.Capture().scene);
+                animation.Tick(1f);
+                Check("one second moves visual and collider ten centimetres without moving saved root",
+                    Vector3.Distance(child.localPosition,new Vector3(.1f,0,0)) < .0001f &&
+                    JsonUtility.ToJson(fixture.world.Capture().scene) == saved);
+                animation.Tick(2f);
+                Check("path reverses at endpoint", Vector3.Distance(child.localPosition,new Vector3(.1f,0,0)) < .0001f);
+                fixture.world.Execute(BehaviorCommand(id,new BehaviorData { kind = "path", waypointA = path.waypointA,
+                    waypointB = path.waypointB, speedMetersPerSecond = .1f, paused = true }));
+                animation.Tick(2f);
+                Check("pause holds path phase", Vector3.Distance(child.localPosition,new Vector3(.1f,0,0)) < .0001f);
+                var invalid = new BehaviorData { kind = "path", waypointA = new Float3(0,0,0),
+                    waypointB = new Float3(2,0,0), speedMetersPerSecond = .1f };
+                RejectedPreserves("out-of-bounds path is atomic",fixture.world,BehaviorCommand(id,invalid));
+                Check("undo path reconfiguration succeeds",fixture.world.Execute(new SandboxCommand { op = "undo" }).ok);
+                Check("load restores path configuration",fixture.world.Execute(new SandboxCommand { op = "load",
+                    scene = JsonUtility.FromJson<SceneData>(saved) }).ok);
+                Check("path survives save and restore with stable identity",JsonUtility.ToJson(fixture.world.Capture().scene) == saved);
+                Check("deletion during motion succeeds",fixture.world.Execute(new SandboxCommand { op = "delete",objectId = id }).ok &&
+                    !fixture.world.TryGetObject(id,out _));
             }
         }
 

@@ -133,6 +133,10 @@ def catalog(value, key, limit):
                 entry["source"] = source
         if key == "assetId" and item.get("description"):
             entry["description"] = text(item["description"], "asset description", limit=500)
+        if key == "assetId" and item.get("interactionMode"):
+            require(item["interactionMode"] in ("light", "hinge") and "source" not in entry,
+                    "Invalid bundled interaction mode")
+            entry["interactionMode"] = item["interactionMode"]
         if key == "assetId" and "spawnScale" in item:
             scale = item["spawnScale"]
             require(type(scale) in (int, float) and 0.01 <= scale <= 20 and math.isfinite(scale), "Invalid spawnScale")
@@ -509,6 +513,11 @@ class State:
                     require(kind == "all" or kind in supported, "Connected player does not support this behavior", 409)
                     require(item["objectId"] in {obj["objectId"] for obj in self.latest["scene"]["objects"]},
                             "Behavior target object is unavailable", 409)
+                    if item["op"] == "set_behavior" and kind == "select_toggle":
+                        target = next(obj for obj in self.latest["scene"]["objects"] if obj["objectId"] == item["objectId"])
+                        asset = next((asset for asset in self.latest["assets"] if asset["assetId"] == target["assetId"]), None)
+                        require(asset is not None and asset.get("interactionMode") in ("light", "hinge"),
+                                "This prefab has no selectable interaction", 409)
                 elif item["op"] == "load":
                     require(all(behavior["kind"] in supported for obj in item["scene"]["objects"]
                                 for behavior in obj.get("behaviors", [])),
@@ -532,7 +541,8 @@ class State:
     def status(self):
         with self.lock:
             self.expire()
-            return {"online": self.online(), "clientId": self.client_id, "contentLibrary": True, "snapshot": copy.deepcopy(self.latest),
+            return {"online": self.online(), "clientId": self.client_id, "revision": self.revision,
+                    "contentLibrary": True, "snapshot": copy.deepcopy(self.latest),
                     "runtime": copy.deepcopy(self.runtime),
                     "pendingCount": len(self.pending), "results": copy.deepcopy(list(self.results)),
                     "capture": self.capture_status(),
@@ -641,7 +651,11 @@ class State:
             return self.queue(commands)
 
 
-def plan(state, body, request_context=None):
+def plan(state, body, request_context=None, content_stage=0, progress=None, cancelled=None):
+    def check_cancelled():
+        require(cancelled is None or not cancelled(), "Voice request cancelled", 409)
+
+    check_cancelled()
     require(isinstance(body, dict), "Expected plan object")
     experiment = body.get("kind") == "block-scale"
     prompt = None if experiment else text(body.get("text"), "text", limit=4000)
@@ -665,7 +679,8 @@ def plan(state, body, request_context=None):
             screenshot, current = state.selected_capture(body["captureId"])
     try:
         options = {"codex": codex} if codex is not None else {}
-        candidates = state.content.planner_context()
+        candidates = state.content.planner_context(prompt if mode in ("codex-cli", "openai-compatible") else "",
+                                                   current.get("assets"))
         if candidates:
             options["catalog_context"] = candidates
         if screenshot is not None:
@@ -674,9 +689,67 @@ def plan(state, body, request_context=None):
                     if experiment else Planner().plan(prompt, current, saved_scenes=saved_names, mode=mode, **options))
     except PlannerError as error:
         raise APIError(error.status, str(error)) from None
+    check_cancelled()
     values = proposed.get("commands")
+    content_requests = proposed.get("contentRequests", [])
+    if content_requests and content_stage:
+        return {**proposed, "commands": [], "contentRequests": [], "requiresApply": False,
+                "status": "needs_clarification",
+                "summary": "The first content batch is installed. Ask for another scene proposal to add further packs."}
+    if content_requests:
+        require(not experiment and screenshot is None and mode != "offline-rules" and content_stage == 0,
+                "Content installation needs a fresh AI request", 422)
+        original_scene = current["scene"]
+        original_room = current.get("roomContext")
+        deadline = time.monotonic() + 180
+        installed = []
+        for item in content_requests:
+            check_cancelled()
+            with state.lock:
+                state.expire()
+                require(state.online() and state.client_id == client_id and state.latest is not None and
+                        state.latest["scene"] == original_scene and state.latest.get("roomContext") == original_room,
+                        "Room or scene changed during content installation; request a new proposal", 409)
+                existing = any(asset.get("source", {}).get("providerId") == item["providerId"] and
+                               asset.get("source", {}).get("packId") == item["assetId"] and
+                               asset.get("source", {}).get("version") == item["version"]
+                               for asset in state.latest["assets"])
+            if existing:
+                continue
+            if progress:
+                progress("planning", "Installing " + item["assetId"] + " into the Quest catalog")
+            job = state.content.queue_install(item)
+            while True:
+                with state.lock:
+                    state.content.expire()
+                    current_job = state.content.jobs.get(job["requestId"])
+                    phase = current_job["phase"] if current_job else "error"
+                    error = current_job.get("error", "") if current_job else "Installation job disappeared"
+                if cancelled is not None and cancelled():
+                    if phase == "preparing":
+                        try:
+                            state.content.cancel(job["requestId"])
+                        except ContentError:
+                            pass  # The runtime may have started installation during cancellation.
+                    check_cancelled()
+                if phase == "ready":
+                    installed.append(item)
+                    break
+                require(phase in ("preparing", "installing"),
+                        "Content installation failed: " + error, 409)
+                require(time.monotonic() < deadline, "Content installation timed out; check the Quest connection", 504)
+                time.sleep(.1)
+        require(installed or content_requests, "No compatible content was selected", 422)
+        if progress:
+            progress("planning", "Arranging installed prefabs")
+        instruction = " Use the newly installed prefabs to compose the scene now; do not request more packs."
+        next_body = {**body, "text": prompt + instruction if len(prompt) + len(instruction) <= 4000 else prompt}
+        result = plan(state, next_body, content_stage=1, progress=progress, cancelled=cancelled)
+        result["installedContent"] = installed
+        return result
     if screenshot is not None:
         proposed["screenshot"] = {key: value for key, value in screenshot.items() if key != "dataBase64"}
+    check_cancelled()
     require(isinstance(values, list) and len(values) <= MAX_BATCH, "Invalid proposal", 502)
     if not values:
         require(proposed.get("requiresApply") is False and proposed.get("status") in ("needs_clarification", "review_only"),
@@ -826,14 +899,20 @@ def start_voice(state, body):
             request = {"text": transcript, "mode": "codex-cli", "codex": preferences}
             if voice_capture_id is not None:
                 request["captureId"] = voice_capture_id
-            result = plan(state, request, request_context=context)
+            def progress(phase, detail):
+                with state.lock:
+                    if not job["cancelled"]:
+                        public.update(phase=phase, progress=detail)
+            result = plan(state, request, request_context=context, progress=progress,
+                          cancelled=lambda: job["cancelled"])
             with state.lock:
                 if job["cancelled"]:
                     state.proposals.pop(result.get("planId"), None)
                     return
+                job["revision"] = state.revision
                 public.update(result)
                 public["phase"] = "ready" if result.get("requiresApply") else result.get("status", "needs_clarification")
-        except (APIError, speech.SpeechError, PlannerError) as error:
+        except (APIError, ContentError, speech.SpeechError, PlannerError) as error:
             with state.lock:
                 if not job["cancelled"]:
                     public.update(phase="error", error=str(error), errorStatus=error.status, requiresApply=False)

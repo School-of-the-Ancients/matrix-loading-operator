@@ -29,6 +29,18 @@ class OfflineTests(unittest.TestCase):
     def plan(self, text, **kwargs):
         return self.planner.plan(text, self.snapshot, mode="offline-rules", **kwargs)
 
+    def test_content_request_requires_exact_loadable_catalog_candidate(self):
+        planner = Planner(ProviderConfig("http://127.0.0.1:1234", "mock"))
+        candidate = {"providerId": "local", "assetId": "science", "version": "1", "runtimeLoadable": True}
+        request = {key: candidate[key] for key in ("providerId", "assetId", "version")}
+        response = {"commands": [], "contentRequests": [request], "summary": "Install science prop.", "assumptions": []}
+        with patch.object(planner, "_remote_plan", return_value=response):
+            result = planner.plan("Import science props", SNAPSHOT, mode="openai-compatible", catalog_context=[candidate])
+            self.assertEqual(result["contentRequests"], [request])
+            for bad in ([{**candidate, "runtimeLoadable": False}], [{**candidate, "discoveryOnly": True}], []):
+                with self.subTest(candidate=bad), self.assertRaisesRegex(PlannerError, "exact loadable"):
+                    planner.plan("Import science props", SNAPSHOT, mode="openai-compatible", catalog_context=bad)
+
     def test_default_is_explicitly_labeled_offline_without_provider(self):
         status = self.planner.public_status()
         self.assertEqual(status["mode"], "offline-rules")

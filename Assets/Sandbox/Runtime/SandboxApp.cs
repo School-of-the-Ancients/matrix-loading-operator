@@ -279,6 +279,9 @@ namespace ArSandbox
                 SetRoomContext("ready", "Room alignment confirmed. Select a surface or ask the Operator to place a prop.", true);
                 return new CommandResult { requestId = command.requestId, ok = true };
             }
+            if (!RoomEditingAllowed && command?.op == "select" && World != null && World.SelectionWouldEdit(command.objectId))
+                return new CommandResult { requestId = command.requestId, ok = false,
+                    error = "Verify room alignment before using this selectable interaction." };
             if (!RoomEditingAllowed && command != null && command.op != "clear" &&
                 !(command.op == "select" && RoomContext?.state == "ready") &&
                 command.op != "get_scene" && command.op != "list_assets" && command.op != "list_targets")

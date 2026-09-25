@@ -1,0 +1,134 @@
+{
+  "status": "passed",
+  "startedUtc": "2026-09-24T17:58:37.372560+00:00",
+  "scope": "Actual Windows player, isolated PC service and save folder",
+  "checks": [
+    {
+      "name": "Player advertises 23 bundled assets including miniature pack",
+      "passed": true
+    },
+    {
+      "name": "Player advertises the four finite behavior kinds",
+      "passed": true
+    },
+    {
+      "name": "Operator sees the two compatible interaction modes",
+      "passed": true
+    },
+    {
+      "name": "Isolated scene starts empty",
+      "passed": true
+    },
+    {
+      "name": "Real AI proposed a reviewed cottage spawn",
+      "passed": true
+    },
+    {
+      "name": "AI proposal did not bypass Apply",
+      "passed": true
+    },
+    {
+      "name": "Player acknowledged command batch",
+      "passed": true
+    },
+    {
+      "name": "Reviewed AI proposal executed and was acknowledged",
+      "passed": true
+    },
+    {
+      "name": "Player acknowledged command batch",
+      "passed": true
+    },
+    {
+      "name": "Player acknowledged command batch",
+      "passed": true
+    },
+    {
+      "name": "Player acknowledged command batch",
+      "passed": true
+    },
+    {
+      "name": "Player acknowledged command batch",
+      "passed": true
+    },
+    {
+      "name": "Player acknowledged command batch",
+      "passed": true
+    },
+    {
+      "name": "Path config reached actual player",
+      "passed": true
+    },
+    {
+      "name": "Player acknowledged command batch",
+      "passed": true
+    },
+    {
+      "name": "Player acknowledged command batch",
+      "passed": true
+    },
+    {
+      "name": "Selection toggled saved state",
+      "passed": true
+    },
+    {
+      "name": "Player acknowledged command batch",
+      "passed": true
+    },
+    {
+      "name": "Player acknowledged command batch",
+      "passed": true
+    },
+    {
+      "name": "Selection toggled saved state",
+      "passed": true
+    },
+    {
+      "name": "PC saved the miniature scene",
+      "passed": true
+    },
+    {
+      "name": "Player acknowledged command batch",
+      "passed": true
+    },
+    {
+      "name": "Undo reverted chest selection",
+      "passed": true
+    },
+    {
+      "name": "Player acknowledged command batch",
+      "passed": true
+    },
+    {
+      "name": "Clear removed the miniature scene",
+      "passed": true
+    },
+    {
+      "name": "Player acknowledged command batch",
+      "passed": true
+    },
+    {
+      "name": "Restore preserved IDs, placement, path and interaction state",
+      "passed": true
+    }
+  ],
+  "headsetTested": false,
+  "pixelsInspected": false,
+  "inference": {
+    "transport": "codex-cli",
+    "completedTurn": true,
+    "usage": {
+      "input_tokens": 18156,
+      "cached_input_tokens": 0,
+      "output_tokens": 151,
+      "reasoning_output_tokens": 0
+    },
+    "toolCallCount": 0,
+    "requestedModel": "gpt-5.6-sol",
+    "requestedReasoningEffort": "medium"
+  },
+  "ownedProcessesStopped": true,
+  "passed": 27,
+  "failed": 0,
+  "completedUtc": "2026-09-24T17:58:56.098826+00:00"
+}

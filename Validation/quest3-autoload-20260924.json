@@ -1,0 +1,67 @@
+{
+  "schemaVersion": 1,
+  "dateUtc": "2026-09-24",
+  "device": "Quest 3",
+  "scope": "Live standalone headset installation, PC-to-Quest content installation, reviewed AI scene edits, and virtual screenshot feedback. No physical-camera pixels are included.",
+  "builds": {
+    "whiteRoom": {
+      "package": "com.matt.matrixoperator.whiteroom",
+      "sha256": "ab24944b3311bebbe31e1145c14b12b40028bf57f84492e980d52993a41a4a44",
+      "unityCoreChecksPassed": 457,
+      "unityCoreChecksFailed": 0,
+      "installed": true
+    },
+    "roomAR": {
+      "package": "com.matt.arsandbox",
+      "sha256": "41efbb902b3a2b4cf71e3e9cd47e687e889c9db4bdc6775e5677a4f025d8f95f",
+      "unityCoreChecksPassed": 457,
+      "unityCoreChecksFailed": 0,
+      "installed": true,
+      "launched": true,
+      "spatialPermissionGranted": true,
+      "roomSnapshotPublished": true,
+      "assetCountInRoomSnapshot": 23,
+      "contentInstallTested": false,
+      "alignmentConfirmedByWearer": false
+    }
+  },
+  "armchair": {
+    "pack": "polyhaven:m187021b1e826:p8a04a102d4a1:model",
+    "androidPackInstalledAndAcknowledged": true,
+    "aiPlacementAppliedAndAcknowledged": true,
+    "wearerObservation": "Recognizable and correctly sized",
+    "virtualCapture": "quest3-polyhaven-armchair.jpg"
+  },
+  "sciFiRequest": {
+    "heardTranscript": "Build a sci-fi scene and import a bunch of sci-fi stuff",
+    "originalResult": "The planner named matching packs but asked the wearer to import them manually; no content was installed by that original voice request.",
+    "replayAfterFix": {
+      "autoInstalledPackTitles": ["Moon Lab", "Chemistry Set", "Industrial Microscope", "Moon Rock 01"],
+      "allInstallJobsAcknowledgedReady": true,
+      "registeredAssetCount": 27,
+      "reviewedPlanCommands": 13,
+      "sceneObjectsAfterApply": 13,
+      "virtualCaptureBeforeReview": "quest3-sci-fi-before-review.jpg",
+      "firstScreenshotFinding": "Panorama dominated the view and obscured the lab props.",
+      "firstCorrectionAttempt": "Headset disconnected before acknowledgement; four queued edits were marked unconfirmed and not counted as applied.",
+      "correctionAfterReconnect": "AI proposed deleting the panorama and moving the table, chemistry set, and microscope toward the viewer. The Quest acknowledged the four edits; the scene then held 12 objects.",
+      "virtualCaptureAfterReview": "quest3-sci-fi-after-review.jpg",
+      "finalImageReview": "The AI identified a recognizable sparse sci-fi lab, visible workbench, chemistry set, and microscope; it proposed no further edits. Fine detail remained uncertain because the capture was distant and the headset HUD overlapped the lower view."
+    }
+  },
+  "speech": {
+    "localSetupCompleted": true,
+    "realQuestVoiceTranscriptObserved": true
+  },
+  "modelSelection": {
+    "selectedModel": "gpt-6-sol",
+    "cacheIssueReproduced": "A shorter local Codex model cache temporarily omitted the configured model and rejected explicit reasoning selection.",
+    "successfulLiveInferenceAfterFix": true
+  },
+  "limits": [
+    "No performance or frame-rate acceptance measurement was made.",
+    "Virtual captures exclude physical passthrough and depth.",
+    "AR prefab installation, physical alignment, and mixed camera capture remain untested in this session.",
+    "Panorama domes are scene objects, not actual Unity skybox switching."
+  ]
+}

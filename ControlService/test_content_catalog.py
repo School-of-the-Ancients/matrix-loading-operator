@@ -99,6 +99,14 @@ class CatalogTests(unittest.TestCase):
         self.assertFalse(found["assets"][0]["runtimeLoadable"])
         self.assertTrue(found["assets"][0]["requiresEditor"])
 
+    def test_hdr_and_fbx_source_formats_stay_editor_only(self):
+        sources = [asset(assetId="sky", category="environments", format="hdr"),
+                   asset(assetId="model", category="objects", format="fbx")]
+        self.write_manifest(sources)
+        found = self.catalog.search(provider_id="local-pack")["assets"]
+        self.assertEqual({"hdr", "fbx"}, {item["format"] for item in found})
+        self.assertTrue(all(item["requiresEditor"] and not item["runtimeLoadable"] for item in found))
+
     def test_independent_provider_enable_persists(self):
         self.catalog.set_enabled("remote-pack", False)
         replacement = ContentCatalog(self.root / "config.json", self.root / "cache")
@@ -236,14 +244,148 @@ class CatalogTests(unittest.TestCase):
         with self.assertRaises(ContentError):
             validate_manifest({"schemaVersion": 1, "assets": [item]})
 
-    def test_unconfigured_and_invalid_config_report_honestly(self):
+    def test_ready_shortlist_searches_local_prefab_catalog(self):
+        pack = {"schemaVersion": 1, "packId": "armchair", "providerId": "local-pack", "version": "1.0.0", "platform": "Android",
+                "unityVersion": "6000.6.0f1", "sha256": DIGEST, "byteLength": len(DATA),
+                "assets": [{"assetId": "local-pack:armchair:1.0.0:model", "prefabPath": "assets/chair.prefab", "displayName": "Armchair"}]}
+        self.write_manifest([asset(assetId="armchair", title="Chinese Armchair", format="assetbundle", targetPlatform="Android",
+                                   metadata={"description": "Comfortable chair", "tags": ["furniture"], "contentPack": pack})])
+        found = self.catalog.suggest_ready("Find a better comfortable armchair")
+        self.assertEqual(1, len(found))
+        self.assertEqual("local-pack", found[0]["providerId"])
+        self.assertTrue(found[0]["runtimeLoadable"])
+        self.assertNotIn("location", found[0])
+
+    def test_ready_shortlist_respects_explicit_panorama_intent(self):
+        def ready(identifier, category):
+            pack = {"schemaVersion": 1, "packId": identifier, "providerId": "local-pack", "version": "1.0.0",
+                    "platform": "Android", "unityVersion": "6000.6.0f1", "sha256": DIGEST, "byteLength": len(DATA),
+                    "assets": [{"assetId": "local-pack:" + identifier + ":1.0.0:visual",
+                                "prefabPath": "assets/" + identifier + ".prefab", "displayName": identifier}]}
+            return asset(assetId=identifier, title="Grassy " + identifier, category=category,
+                         format="assetbundle", targetPlatform="Android", metadata={"contentPack": pack})
+        self.write_manifest([ready("cobblestone", "materials"), ready("meadow", "environments")])
+        found = self.catalog.suggest_ready("Show a grassy panorama", platform="Android", unity_version="6000.6.0f1")
+        self.assertEqual(["meadow"], [item["assetId"] for item in found])
+
+    def test_public_discovery_default_and_invalid_config_report_honestly(self):
         with patch.dict(os.environ, {}, clear=True):
-            self.assertFalse(ContentCatalog(cache_dir=self.root / "empty").status()["configured"])
+            default = ContentCatalog(cache_dir=self.root / "empty").status()
+            self.assertTrue(default["configured"])
+            self.assertEqual("polyhaven", default["providers"][0]["id"])
+            self.assertFalse(default["providers"][0]["capabilities"]["retrieve"])
         self.providers.append(copy.deepcopy(self.providers[0]))
         status = self.create_catalog().status()
         self.assertFalse(status["configured"])
         self.assertIn("Duplicate", status["configError"])
-        self.assertEqual(8, len(status["categories"]))
+        self.assertEqual(9, len(status["categories"]))
+
+    def test_public_polyhaven_discovery_is_paged_cached_and_never_prepared_as_a_pack(self):
+        self.providers = [{"id": "polyhaven", "type": "polyhaven", "enabled": True}]
+        catalog = self.create_catalog()
+        listing = {"model-" + str(i): {"type": 2, "name": "Chair " + str(i),
+                   "description": "Wooden chair", "tags": ["furniture"], "files_hash": "a" * 40}
+                   for i in range(225)}
+        listing["sunset"] = {"type": 0, "name": "Sunset", "description": "Sky", "tags": ["outdoor"]}
+        listing["marble"] = {"type": 1, "name": "Marble", "description": "Stone", "tags": ["surface"]}
+        with patch.object(catalog, "_json_request", return_value=listing) as fetch:
+            first = catalog.search(category="objects", limit=100)
+            second = catalog.search(category="objects", offset=100, limit=100)
+            third = catalog.search(category="objects", offset=200, limit=100)
+            self.assertEqual([100, 100, 25], [len(first["assets"]), len(second["assets"]), len(third["assets"])])
+            self.assertEqual(225, first["total"])
+            self.assertFalse(third["hasMore"])
+            self.assertEqual(225, len({row["assetId"] for result in (first, second, third) for row in result["assets"]}))
+            self.assertEqual(1, fetch.call_count)
+            self.assertEqual(1, catalog.search(category="environments")["total"])
+            self.assertEqual(1, catalog.search(category="materials")["total"])
+            suggested = catalog.suggest_public("Please put a wooden chair in my room")
+            self.assertTrue(suggested)
+            self.assertEqual("polyhaven", suggested[0]["providerId"])
+            self.assertEqual([], catalog.suggest_public("please put it in my room"))
+            row = catalog.search("Chair 12")["assets"][0]
+            self.assertEqual("CC0", row["license"]["name"])
+            self.assertTrue(row["discoveryOnly"])
+            self.assertFalse(row["runtimeLoadable"])
+            self.assertTrue(row["metadata"]["sourceUrl"].startswith("https://polyhaven.com/a/"))
+            self.assert_error(409, lambda: catalog.prepare("polyhaven", row["assetId"]))
+            self.assert_error(400, lambda: catalog.search(limit=101))
+            self.assert_error(400, lambda: catalog.search(offset=-1))
+
+    def test_sketchfab_search_preserves_license_and_opaque_page_cursors(self):
+        self.providers = [{"id": "sketchfab", "type": "sketchfab", "enabled": True}]
+        catalog = self.create_catalog()
+        uid = "a" * 32
+        item = {"uid": uid, "name": "Old Castle", "isDownloadable": True, "isAgeRestricted": False,
+                "license": {"label": "CC Attribution"}, "description": "A 3D castle", "tags": [{"name": "castle"}],
+                "categories": [{"name": "architecture"}], "animationCount": 0}
+        pages = [{"results": [item], "cursors": {"next": "next_24", "previous": None}},
+                 {"results": [dict(item, uid="b" * 32)], "cursors": {"next": None, "previous": "prev_0"}}]
+        with patch.object(catalog, "_json_request", side_effect=pages) as fetch:
+            first = catalog.search("castle", provider_id="sketchfab")
+            second = catalog.search("castle", provider_id="sketchfab", cursor=first["nextCursor"])
+        self.assertIsNone(first["total"])
+        self.assertEqual("next_24", first["nextCursor"])
+        self.assertEqual("prev_0", second["previousCursor"])
+        self.assertFalse(second["hasMore"])
+        self.assertEqual("CC Attribution", first["assets"][0]["license"]["name"])
+        self.assertTrue(first["assets"][0]["discoveryOnly"])
+        self.assertEqual("environments", first["assets"][0]["category"])
+        self.assertIn("cursor=next_24", fetch.call_args.args[1])
+        self.assert_error(409, lambda: catalog.prepare("sketchfab", uid))
+        self.assert_error(400, lambda: catalog.search(provider_id="sketchfab", cursor="../../bad"))
+
+    def test_openverse_audio_preserves_credit_and_pages_without_installing(self):
+        self.providers = [{"id": "openverse-audio", "type": "openverse-audio", "enabled": True}]
+        catalog = self.create_catalog()
+        first_id = "a8783d20-f1af-4c4b-b9ec-a8c212f67fee"
+        second_id = "b8783d20-f1af-4c4b-b9ec-a8c212f67fee"
+        item = {"id": first_id, "title": "Footsteps, Stones", "license": "by",
+                "license_url": "https://creativecommons.org/licenses/by/4.0/",
+                "creator": "InspectorJ", "attribution": "Footsteps by InspectorJ, CC BY 4.0",
+                "foreign_landing_url": "https://freesound.org/people/InspectorJ/sounds/345560",
+                "filetype": "MP3", "duration": 18940, "tags": [{"name": "footsteps"}]}
+        pages = [{"results": [item], "result_count": 2, "page_count": 2, "page": 1},
+                 {"results": [dict(item, id=second_id)],
+                  "result_count": 2, "page_count": 2, "page": 2}]
+        with patch.object(catalog, "_json_request", side_effect=pages) as fetch:
+            first = catalog.search("footsteps", provider_id="openverse-audio", category="sounds", limit=1)
+            self.assertEqual(2, first["total"])
+            self.assertTrue(first["hasMore"])
+            self.assertEqual(1, len(first["assets"]))
+            row = first["assets"][0]
+            self.assertEqual("sounds", row["category"])
+            self.assertEqual("mp3", row["format"])
+            self.assertEqual("by", row["license"]["name"])
+            self.assertEqual("Footsteps by InspectorJ, CC BY 4.0", row["license"]["attribution"])
+            self.assertEqual("https://freesound.org/people/InspectorJ/sounds/345560", row["metadata"]["sourceUrl"])
+            self.assertEqual(18.94, row["metadata"]["durationSeconds"])
+            self.assertTrue(row["discoveryOnly"])
+            self.assertFalse(row["runtimeLoadable"])
+            second = catalog.search("footsteps", provider_id="openverse-audio", offset=1, limit=1)
+            self.assertEqual(second_id, second["assets"][0]["assetId"])
+            self.assertFalse(second["hasMore"])
+            self.assertIn("page=2", fetch.call_args.args[1])
+        self.assert_error(409, lambda: catalog.prepare("openverse-audio", first_id))
+        self.assert_error(400, lambda: catalog.search(provider_id="openverse-audio", category="objects"))
+        self.assert_error(400, lambda: catalog.search(provider_id="openverse-audio", offset=1, limit=2))
+        self.assert_error(400, lambda: catalog.search(provider_id="openverse-audio", cursor="bad"))
+
+    def test_openverse_audio_excludes_mature_rows_and_unsafe_links(self):
+        self.providers = [{"id": "openverse-audio", "type": "openverse-audio", "enabled": True}]
+        catalog = self.create_catalog()
+        first_id = "a8783d20-f1af-4c4b-b9ec-a8c212f67fee"
+        second_id = "b8783d20-f1af-4c4b-b9ec-a8c212f67fee"
+        item = {"id": first_id, "title": "Footsteps", "license": "cc0", "creator": "Creator"}
+        page = {"results": [dict(item, mature=True),
+                            dict(item, id=second_id, foreign_landing_url="http://insecure.example/audio")],
+                "result_count": 2, "page_count": 1, "page": 1}
+        with patch.object(catalog, "_json_request", return_value=page):
+            result = catalog.search("footsteps", provider_id="openverse-audio", limit=2)
+        self.assertEqual(1, len(result["assets"]))
+        self.assertEqual("https://api.openverse.org/v1/audio/" + second_id + "/",
+                         result["assets"][0]["metadata"]["sourceUrl"])
+        self.assertFalse(result["hasMore"])
 
     def test_malformed_http_identifiers_return_domain_errors(self):
         self.configure_comfy()

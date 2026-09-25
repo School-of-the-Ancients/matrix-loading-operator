@@ -91,10 +91,15 @@ namespace ArSandbox
         {
             Directory.CreateDirectory(Root + "/Prefabs");
             Directory.CreateDirectory(Root + "/Materials");
-            return new[] { Furniture("chair", "Chair"), Furniture("table", "Table"), Furniture("wall", "Wall"), Furniture("pedestal", "Pedestal"),
+            var original = new[] { Furniture("chair", "Chair"), Furniture("table", "Table"), Furniture("wall", "Wall"), Furniture("pedestal", "Pedestal"),
                 Primitive("block", "Terracotta block", PrimitiveType.Cube, new Color(.75f,.3f,.17f)),
                 Primitive("orb", "Jade orb", PrimitiveType.Sphere, new Color(.08f,.58f,.43f)),
                 Primitive("column", "Stone column", PrimitiveType.Cylinder, new Color(.67f,.64f,.56f)) };
+            var miniature = MiniatureCatalog.Create();
+            var catalog = new PrefabEntry[original.Length + miniature.Length];
+            Array.Copy(original, catalog, original.Length);
+            Array.Copy(miniature, 0, catalog, original.Length, miniature.Length);
+            return catalog;
         }
 
         public static Material CreatePlacementMaterial()
