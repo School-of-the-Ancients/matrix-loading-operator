@@ -145,6 +145,28 @@ def _mcp_approval_description(params: dict) -> tuple[str, bool]:
                 return summary, True
         except (ComponentError, TypeError, ValueError, RecursionError):
             pass
+    if (params.get("message") == 'Allow the matrix_webxr MCP server to run tool "matrix_spawn_asset"?' and
+            isinstance(arguments, dict) and set(arguments) ==
+            {"room_id", "scene_revision", "asset_id", "transform"} and
+            isinstance(arguments["room_id"], str) and
+            re.fullmatch(r"[A-Za-z0-9._:-]{1,128}", arguments["room_id"]) and
+            type(arguments["scene_revision"]) is int and arguments["scene_revision"] >= 0 and
+            isinstance(arguments["asset_id"], str) and
+            re.fullmatch(r"web:[a-z0-9][a-z0-9-]{0,39}:[0-9a-f]{12}", arguments["asset_id"])):
+        pose = arguments["transform"]
+        ranges = {"position": (-100, 100), "rotation": (-36000, 36000), "scale": (.01, 20)}
+        if (isinstance(pose, dict) and set(pose) == set(ranges) and all(
+                isinstance(pose[key], dict) and set(pose[key]) == {"x", "y", "z"} and
+                all(type(pose[key][axis]) in (int, float) and
+                    math.isfinite(pose[key][axis]) and ranges[key][0] <= pose[key][axis] <= ranges[key][1]
+                    for axis in ("x", "y", "z")) for key in ranges)):
+            p, r, s = (pose[key] for key in ("position", "rotation", "scale"))
+            summary = (f"Spawn {arguments['asset_id']} in {arguments['room_id']} at "
+                       f"({p['x']}, {p['y']}, {p['z']}) m, rotation "
+                       f"({r['x']}, {r['y']}, {r['z']})°, scale "
+                       f"({s['x']}, {s['y']}, {s['z']}) at revision {arguments['scene_revision']}.")
+            if len(summary) <= 200:
+                return summary, True
     for action in ("attach", "stop", "remove"):
         if params.get("message") != f'Allow the matrix_webxr MCP server to run tool "matrix_{action}_component"?':
             continue
@@ -235,6 +257,7 @@ class LocalCodexAgentBackend:
                         "env_vars": ["MATRIX_CONTROL_URL", "MATRIX_CONTROL_TOKEN"],
                         "enabled_tools": ["matrix_scene_summary", "matrix_move_object", "matrix_move_status",
                                           "matrix_list_assets", "matrix_register_glb",
+                                          "matrix_spawn_asset", "matrix_spawn_status",
                                           "matrix_publish_component", "matrix_list_components",
                                           "matrix_attach_component", "matrix_stop_component",
                                           "matrix_remove_component", "matrix_component_status"],
@@ -244,6 +267,7 @@ class LocalCodexAgentBackend:
                 command += ["-c", f"mcp_servers.matrix_webxr.{key}={json.dumps(value)}"]
             command += ["-c", 'mcp_servers.matrix_webxr.tools.matrix_move_object.approval_mode="prompt"']
             command += ["-c", 'mcp_servers.matrix_webxr.tools.matrix_register_glb.approval_mode="prompt"']
+            command += ["-c", 'mcp_servers.matrix_webxr.tools.matrix_spawn_asset.approval_mode="prompt"']
             for name in ("matrix_publish_component", "matrix_attach_component",
                          "matrix_stop_component", "matrix_remove_component"):
                 command += ["-c", f'mcp_servers.matrix_webxr.tools.{name}.approval_mode="prompt"']
