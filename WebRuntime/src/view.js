@@ -6,6 +6,7 @@ import {beginGrab,moveGrab,finishGrab,beginPointerGrab,movePointerGrab,movePoint
 import {viewerPose,planeData,insideBoundary,matchPlaneAnchor,samePlaneShape,measuredFloorHeight} from './spatial.js';
 import {ROOM_ANCHOR_KEY,hasWorldToProtect} from './room_origin.js';
 import {componentFrame} from './components.js';
+import {instantiateAnimatedAsset,stopAnimatedAsset} from './asset_animation.js';
 
 const wood=()=>new THREE.MeshStandardMaterial({color:0xa56f45,roughness:.78});
 const metal=()=>new THREE.MeshStandardMaterial({color:0x738995,roughness:.45,metalness:.45});
@@ -486,7 +487,10 @@ export class MatrixView {
   }
   sync(){
     this.grab=null;this.pointerGrab=null;
-    for(const root of this.objectRoots.values()){root.parent?.remove(root);disposeGroup(root);}
+    for(const root of this.objectRoots.values()){
+      stopAnimatedAsset(root.userData.mixer,root.userData.model);
+      root.parent?.remove(root);disposeGroup(root);
+    }
     this.objectRoots.clear();
     for(const root of this.anchorRoots.values())this.scene.remove(root);
     this.anchorRoots.clear();
@@ -523,16 +527,17 @@ export class MatrixView {
           validateRenderedFootprint(asset,size);
           const center=bounds.getCenter(new THREE.Vector3());scene.position.sub(new THREE.Vector3(center.x,bounds.min.y,center.z));
           scene.traverse(node=>{if(node.isMesh){node.castShadow=true;node.receiveShadow=true;}});
-          return scene;
+          return {scene,animations:gltf.animations};
         });
         this.modelCache.set(asset.assetId,pending);
       }
       const source=await pending;
       if(this.objectRoots.get(objectId)!==root)return;
-      const model=source.clone(true);
+      const object=this.world.scene.objects.find(item=>item.objectId===objectId);
+      const {model,mixer}=instantiateAnimatedAsset(source,asset,{play:object?.anchorId==='web-floor'});
       model.traverse(node=>{if(node.isMesh){node.userData.cachedGeometry=true;node.material=Array.isArray(node.material)?node.material.map(material=>material.clone()):node.material.clone();}});
       for(const child of [...visual.children]){visual.remove(child);disposeGroup(child);}
-      visual.add(model);
+      visual.add(model);root.userData.model=model;root.userData.mixer=mixer;
     }catch(error){this.modelCache.delete(asset.assetId);this.onAssetError(`${asset.displayName}: ${error.message}`);}
   }
   highlight(){
@@ -796,6 +801,7 @@ export class MatrixView {
         calibrated:false},renderMs:virtual.renderMs,encodeMs:performance.now()-started-virtual.renderMs};
   }
   animate(time,frame){
+    const delta=this.lastFrameTime===null?0:Math.max(0,Math.min(.1,(time-this.lastFrameTime)/1000));
     if(frame&&this.renderer.xr.isPresenting)this.onFrame();
     if(this.lastFrameTime!==null&&!this.renderer.xr.isPresenting)moveDesktopCamera(this.camera,this.keys,(time-this.lastFrameTime)/1000);
     this.lastFrameTime=time;
@@ -817,6 +823,7 @@ export class MatrixView {
       }}
     if(this.grab)moveGrab(this.grab);
     for(const root of this.objectRoots.values()){
+      root.userData.mixer?.update(delta);
       const object=this.world.scene.objects.find(item=>item.objectId===root.userData.objectId);
       if(!object)continue;
       const component=object.component;

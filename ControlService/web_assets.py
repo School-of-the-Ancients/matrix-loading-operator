@@ -1,4 +1,4 @@
-"""Content-addressed, static GLB registry for the Matrix browser runtime.
+"""Content-addressed, self-contained GLB registry for the Matrix browser runtime.
 
 Asset creation happens on the authoring PC. Runtime clients read only validated,
 immutable files from this registry; no JavaScript or arbitrary download URL is
@@ -14,6 +14,7 @@ import shutil
 import struct
 import tempfile
 import threading
+import unicodedata
 
 MAX_BYTES = 16 * 1024 * 1024
 MAX_ASSETS = 256
@@ -73,8 +74,66 @@ def inspect_glb(path):
         raise WebAssetError("Mesh primitive needs a position accessor") from None
     if not isinstance(vertices, int) or not primitives or vertices < 3 or vertices > 300000:
         raise WebAssetError("GLB needs 3 to 300,000 referenced vertices")
+    animations = document.get("animations", [])
+    if not isinstance(animations, list) or len(animations) > 8:
+        raise WebAssetError("GLB has too many animation clips")
+    clips, names, channels_total, samples_total = [], set(), 0, 0
+    nodes = document.get("nodes", [])
+    for animation in animations:
+        if not isinstance(animation, dict):
+            raise WebAssetError("Invalid GLB animation")
+        name = animation.get("name")
+        samplers, channels = animation.get("samplers"), animation.get("channels")
+        if (not isinstance(name, str) or not 1 <= len(name) <= 64 or name in names or
+                any(unicodedata.category(char).startswith("C") for char in name) or
+                not isinstance(samplers, list) or not 1 <= len(samplers) <= 64 or
+                not isinstance(channels, list) or not 1 <= len(channels) <= 64):
+            raise WebAssetError("Invalid GLB animation clip")
+        names.add(name)
+        duration = 0
+        for sampler in samplers:
+            if not isinstance(sampler, dict) or sampler.get("interpolation", "LINEAR") not in \
+                    ("LINEAR", "STEP", "CUBICSPLINE"):
+                raise WebAssetError("Invalid GLB animation sampler")
+            input_id, output_id = sampler.get("input"), sampler.get("output")
+            if (type(input_id) is not int or type(output_id) is not int or
+                    not 0 <= input_id < len(accessors) or not 0 <= output_id < len(accessors)):
+                raise WebAssetError("Invalid GLB animation accessor")
+            times, values = accessors[input_id], accessors[output_id]
+            count = times.get("count") if isinstance(times, dict) else None
+            lower, upper = (times.get(key) if isinstance(times, dict) else None for key in ("min", "max"))
+            expected = count * (3 if sampler.get("interpolation") == "CUBICSPLINE" else 1) if type(count) is int else None
+            if (not isinstance(times, dict) or times.get("type") != "SCALAR" or
+                    times.get("componentType") != 5126 or
+                    type(count) is not int or not 2 <= count <= 2000 or
+                    not isinstance(values, dict) or values.get("componentType") != 5126 or
+                    values.get("count") != expected or
+                    not isinstance(lower, list) or not isinstance(upper, list) or
+                    len(lower) != 1 or len(upper) != 1 or
+                    type(lower[0]) not in (int, float) or type(upper[0]) not in (int, float) or
+                    not math.isfinite(lower[0]) or not math.isfinite(upper[0]) or
+                    not 0 <= lower[0] <= upper[0] <= 120):
+                raise WebAssetError("GLB animation timing exceeds limits")
+            samples_total += count
+            duration = max(duration, upper[0])
+        for channel in channels:
+            target = channel.get("target") if isinstance(channel, dict) else None
+            sampler_id = channel.get("sampler") if isinstance(channel, dict) else None
+            if (type(sampler_id) is not int or not 0 <= sampler_id < len(samplers) or
+                    not isinstance(target, dict) or type(target.get("node")) is not int or
+                    not 0 <= target["node"] < len(nodes) or
+                    target.get("path") not in ("translation", "rotation", "scale")):
+                raise WebAssetError("Invalid GLB animation channel")
+            output = accessors[samplers[sampler_id]["output"]]
+            expected_type = "VEC4" if target["path"] == "rotation" else "VEC3"
+            if output.get("type") != expected_type:
+                raise WebAssetError("Invalid GLB animation output")
+            channels_total += 1
+        clips.append({"name": name, "durationSeconds": duration})
+    if channels_total > 128 or samples_total > 50000:
+        raise WebAssetError("GLB animation complexity limit exceeded")
     return {"bytes": size, "vertices": vertices, "meshes": len(document.get("meshes", [])),
-            "images": len(document.get("images", []))}
+            "images": len(document.get("images", [])), "animationClips": clips}
 
 
 class WebAssetCatalog:
@@ -83,16 +142,35 @@ class WebAssetCatalog:
         self.lock = threading.RLock()
 
     def list(self):
-        manifest = self.root / "manifest.json"
-        if not manifest.is_file():
-            return []
-        try:
-            items = json.loads(manifest.read_text(encoding="utf-8"))
-        except (OSError, ValueError):
-            raise WebAssetError("Web asset manifest is unreadable") from None
-        if not isinstance(items, list) or len(items) > MAX_ASSETS:
-            raise WebAssetError("Web asset manifest is invalid")
-        return items
+        with self.lock:
+            manifest = self.root / "manifest.json"
+            if not manifest.is_file():
+                return []
+            try:
+                items = json.loads(manifest.read_text(encoding="utf-8"))
+            except (OSError, ValueError):
+                raise WebAssetError("Web asset manifest is unreadable") from None
+            if not isinstance(items, list) or len(items) > MAX_ASSETS:
+                raise WebAssetError("Web asset manifest is invalid")
+            changed = False
+            for item in items:
+                geometry = item.get("geometry") if isinstance(item, dict) else None
+                if not isinstance(geometry, dict) or "animationClips" in geometry:
+                    continue
+                digest = item.get("sha256")
+                if not isinstance(digest, str) or not SHA.fullmatch(digest):
+                    raise WebAssetError("Legacy GLB catalog entry is invalid")
+                path = self.root / f"{digest}.glb"
+                if not path.is_file() or hashlib.sha256(path.read_bytes()).hexdigest() != digest:
+                    raise WebAssetError("Legacy GLB is missing or corrupt")
+                inspected = inspect_glb(path)
+                if any(inspected.get(key) != value for key, value in geometry.items()):
+                    raise WebAssetError("Legacy GLB catalog metadata does not match its file")
+                item["geometry"] = inspected
+                changed = True
+            if changed:
+                self._write_manifest(items)
+            return items
 
     def file(self, digest):
         if not SHA.fullmatch(digest):
@@ -138,11 +216,16 @@ class WebAssetCatalog:
         items = self.list()
         for item in items:
             if item.get("assetId") == asset_id:
+                if item.get("sha256") != digest:
+                    raise WebAssetError("Asset ID digest collision")
+                changed = item.get("geometry") != info
+                if changed:
+                    item["geometry"] = info
                 if local_bounds is not None:
                     item["localBounds"] = local_bounds
                 if spawn_scale is not None:
                     item["spawnScale"] = spawn_scale
-                if spawn_scale is not None or local_bounds is not None:
+                if changed or spawn_scale is not None or local_bounds is not None:
                     self._write_manifest(items)
                 return item
         if len(items) >= MAX_ASSETS:
