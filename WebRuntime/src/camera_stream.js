@@ -26,7 +26,7 @@ export class CameraStream {
   async requestEnvironmentStream(){
     try{
       return {stream:await this.mediaDevices.getUserMedia({audio:false,video:{
-        facingMode:{exact:'environment'},...videoConstraints}}),route:'exact facing'};
+        facingMode:{exact:'environment'},...videoConstraints}}),route:'exact facing',identified:false};
     }catch(error){
       // A missing facing match can still leave a labeled rear device available.
       // Never retry after an explicit permission denial.
@@ -34,19 +34,19 @@ export class CameraStream {
       const devices=await this.mediaDevices.enumerateDevices?.()||[];
       let rear=devices.find(item=>item.kind==='videoinput'&&item.deviceId&&isEnvironmentLabel(item.label));
       if(rear)return {stream:await this.mediaDevices.getUserMedia({audio:false,video:{
-        deviceId:{exact:rear.deviceId},...videoConstraints}}),route:'enumerated rear device'};
+        deviceId:{exact:rear.deviceId},...videoConstraints}}),route:'enumerated rear device',identified:true};
       // A user-initiated generic stream can unlock labels for enumeration.
       const probe=await this.mediaDevices.getUserMedia({audio:false,video:true});
       const track=probe.getVideoTracks?.()[0];
       if(track?.getSettings?.()?.facingMode==='environment'||isEnvironmentLabel(track?.label))
-        return {stream:probe,route:'verified generic stream'};
+        return {stream:probe,route:'verified generic stream',identified:true};
       try{
         const granted=await this.mediaDevices.enumerateDevices?.()||[];
         rear=granted.find(item=>item.kind==='videoinput'&&item.deviceId&&isEnvironmentLabel(item.label));
       }finally{stopStream(probe);}
       if(!rear)throw Error('No identifiable environment camera is available');
       return {stream:await this.mediaDevices.getUserMedia({audio:false,video:{
-        deviceId:{exact:rear.deviceId},...videoConstraints}}),route:'enumerated rear device'};
+        deviceId:{exact:rear.deviceId},...videoConstraints}}),route:'enumerated rear device',identified:true};
     }
   }
   async enable(){
@@ -59,7 +59,15 @@ export class CameraStream {
       const requested=await this.requestEnvironmentStream();
       stream=requested.stream;
       const track=stream.getVideoTracks?.()[0];
-      if(!track||track.getSettings?.()?.facingMode==='user'||/(front|selfie)/i.test(track.label||''))
+      const settings=track?.getSettings?.()||{};
+      let identified=requested.identified||settings.facingMode==='environment'||isEnvironmentLabel(track?.label);
+      if(!identified&&settings.deviceId&&this.mediaDevices.enumerateDevices){
+        try{const devices=await this.mediaDevices.enumerateDevices();
+          identified=devices.some(item=>item.kind==='videoinput'&&item.deviceId===settings.deviceId&&
+            isEnvironmentLabel(item.label));}
+        catch{ /* Without positive evidence, do not claim environment capture. */ }
+      }
+      if(!track||settings.facingMode==='user'||/(front|selfie)/i.test(track.label||'')||!identified)
         throw Error('Selected camera is not an environment camera');
       const video=this.createVideo();
       video.muted=true;video.playsInline=true;video.srcObject=stream;

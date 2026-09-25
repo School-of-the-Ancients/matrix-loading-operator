@@ -4,7 +4,8 @@ import {CameraStream} from '../src/camera_stream.js';
 
 test('environment camera probe advertises mixed only after a real stream is active',async()=>{
   let constraints,stopped=false;
-  const track={readyState:'live',stop(){stopped=true;this.readyState='ended';}};
+  const track={readyState:'live',getSettings:()=>({facingMode:'environment'}),
+    stop(){stopped=true;this.readyState='ended';}};
   const stream={getVideoTracks:()=>[track],getTracks:()=>[track]};
   const mediaDevices={async getUserMedia(value){constraints=value;return stream;}};
   const video={videoWidth:1280,videoHeight:960,async play(){}};
@@ -30,7 +31,8 @@ test('permission failure and missing MediaDevices fall back to virtual capture',
 });
 
 test('camera waits for metadata before declaring the stream unavailable',async()=>{
-  const track={readyState:'live',stop(){this.readyState='ended';}};
+  const track={readyState:'live',getSettings:()=>({facingMode:'environment'}),
+    stop(){this.readyState='ended';}};
   const stream={getVideoTracks:()=>[track],getTracks:()=>[track]};
   const video=new EventTarget();
   video.videoWidth=0;video.videoHeight=0;
@@ -102,4 +104,26 @@ test('a browser returning a front track for exact environment is rejected',async
   await assert.rejects(camera.enable(),/not an environment camera/);
   assert.equal(front.readyState,'ended');
   assert.deepEqual(camera.capabilities().modes,['virtual']);
+});
+
+test('an exact-facing request still needs positive environment-camera evidence',async()=>{
+  const unknown={label:'Integrated Camera',readyState:'live',getSettings:()=>({}),
+    stop(){this.readyState='ended';}};
+  const camera=new CameraStream({async getUserMedia(){return {
+    getVideoTracks:()=>[unknown],getTracks:()=>[unknown]};}});
+  await assert.rejects(camera.enable(),/not an environment camera/);
+  assert.equal(unknown.readyState,'ended');
+  assert.deepEqual(camera.capabilities().modes,['virtual']);
+});
+
+test('an exact-facing track can be identified from its enumerated device label',async()=>{
+  const rear={label:'Camera 2',readyState:'live',getSettings:()=>({deviceId:'rear-id'}),
+    stop(){this.readyState='ended';}};
+  const camera=new CameraStream({async getUserMedia(){return {
+    getVideoTracks:()=>[rear],getTracks:()=>[rear]};},
+    async enumerateDevices(){return [{kind:'videoinput',deviceId:'rear-id',label:'Quest rear camera'}];}},
+  ()=>({videoWidth:1280,videoHeight:960,async play(){}}));
+  await camera.enable();
+  assert.equal(camera.active,true);
+  camera.stop();
 });
