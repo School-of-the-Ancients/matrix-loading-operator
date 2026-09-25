@@ -29,11 +29,14 @@ for line in sys.stdin:
         pass
     elif method == "thread/start":
         assert message["params"]["approvalPolicy"] == "on-request"
-        assert message["params"]["sandbox"] == "workspace-write"
+        assert message["params"]["approvalsReviewer"] == "user"
+        assert message["params"]["sandbox"] == "read-only"
         send({"id": message["id"], "result": {"thread": {"id": "thread-test"}}})
     elif method == "thread/resume":
         assert message["params"]["threadId"] == "thread-test"
         assert message["params"]["approvalPolicy"] == "on-request"
+        assert message["params"]["approvalsReviewer"] == "user"
+        assert message["params"]["sandbox"] == "read-only"
         send({"id": message["id"], "result": {"thread": {"id": "thread-test"}}})
     elif method == "thread/read":
         assert message["params"]["includeTurns"] is False

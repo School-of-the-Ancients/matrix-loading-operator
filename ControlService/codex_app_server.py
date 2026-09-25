@@ -222,7 +222,8 @@ class AppServerTransport:
             self._approvals.pop(request_id, None)
 
     def thread_start(self, *, model: str | None = None) -> str:
-        params = {"cwd": str(self.cwd), "approvalPolicy": "on-request", "sandbox": "workspace-write",
+        params = {"cwd": str(self.cwd), "approvalPolicy": "on-request", "approvalsReviewer": "user",
+                  "sandbox": "read-only",
                   "serviceName": "matrix_agent_portal"}
         if model:
             params["model"] = model
@@ -231,7 +232,8 @@ class AppServerTransport:
 
     def thread_resume(self, thread_id: str) -> str:
         result = self.request("thread/resume", {"threadId": thread_id, "cwd": str(self.cwd),
-                                                 "approvalPolicy": "on-request", "sandbox": "workspace-write"})
+                                                 "approvalPolicy": "on-request", "approvalsReviewer": "user",
+                                                 "sandbox": "read-only"})
         return self._id_from(result, "thread")
 
     def thread_read(self, thread_id: str) -> dict:

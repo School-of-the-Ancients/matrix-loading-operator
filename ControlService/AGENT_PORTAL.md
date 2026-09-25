@@ -19,6 +19,9 @@ starts/resumes threads, starts/interrupts turns, and accepts or declines one
 pending command/file approval scoped to its thread and turn. Unknown server
 requests are rejected. Raw events and approval parameters must never be
 forwarded directly to `/web/`.
+Thread start and resume explicitly select the `user` approval reviewer and a
+read-only sandbox. The installed Codex configuration otherwise routed a safe
+isolated write through `auto_review` without a Matrix approval request.
 
 The next slice owns a durable, opaque Matrix session to Codex thread mapping,
 a provider-neutral session interface, event and approval normalization, and
