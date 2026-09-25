@@ -1,7 +1,9 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {MatrixWorld} from '../src/protocol.js';
-import {viewerPose,planeData,insideBoundary,matchPlaneAnchor,samePlaneShape,measuredFloorHeight} from '../src/spatial.js';
+import {validateRenderedFootprint} from '../src/view.js';
+import {viewerPose,planeData,insideBoundary,footprintInsideBoundary,
+  matchPlaneAnchor,samePlaneShape,measuredFloorHeight} from '../src/spatial.js';
 
 const boundary=[{x:-2,y:0,z:-2},{x:2,y:0,z:-2},{x:2,y:0,z:2},{x:-2,y:0,z:2}];
 const anchor={anchorId:'webxr-plane-1',displayName:'FLOOR',source:'webxr',semanticLabels:['FLOOR'],
@@ -59,4 +61,72 @@ test('virtual scene uses the closest measured floor below the headset',()=>{
   const floor=(y,label='FLOOR')=>({...anchor,semanticLabels:[label],roomPose:{...anchor.roomPose,position:{x:0,y,z:0}}});
   assert.equal(measuredFloorHeight([floor(-1.466),floor(-1.469),floor(1,'CEILING')],-.645),-1.466);
   assert.equal(measuredFloorHeight([floor(1),floor(-4)],-.645),null);
+});
+
+test('surface footprint cannot bridge a concave notch even when all four corners are inside',()=>{
+  const u=[{x:0,z:0},{x:3,z:0},{x:3,z:3},{x:2,z:3},
+    {x:2,z:2},{x:1,z:2},{x:1,z:3},{x:0,z:3}];
+  const bridged=[{x:.5,z:.5},{x:2.5,z:.5},{x:2.5,z:2.5},{x:.5,z:2.5}];
+  assert.ok(bridged.every(point=>insideBoundary(point,u)));
+  assert.equal(insideBoundary({x:1.5,z:1.5},u),true,'center is supported');
+  assert.equal(footprintInsideBoundary(bridged,u),false);
+  assert.equal(footprintInsideBoundary([{x:.25,z:.25},{x:2.75,z:.25},
+    {x:2.75,z:.75},{x:.25,z:.75}],u),true);
+  assert.equal(footprintInsideBoundary([{x:0,z:0},{x:3,z:0},{x:3,z:3},{x:0,z:3}],u),false);
+  assert.equal(footprintInsideBoundary([{x:-2,z:-2},{x:2,z:-2},{x:2,z:2},{x:-2,z:2}],boundary),true);
+
+  const world=new MatrixWorld(()=> 'placed');world.enterAR();
+  world.setSpatialAnchors([{...anchor,surface:{kind:'support',boundary:u}}]);
+  assert.equal(world.execute({requestId:'confirm',op:'confirm_room'}).ok,true);
+  const result=world.execute({requestId:'bridge',op:'spawn',assetId:'block',anchorId:anchor.anchorId,
+    placement:'surface',transform:{...transform,position:{x:1.5,y:0,z:1.5},
+      scale:{x:2,y:1,z:2}}});
+  assert.equal(result.ok,false);
+  assert.match(result.error,/footprint/);
+});
+
+test('surface footprint uses the horizontally recentered GLB bounds',()=>{
+  const world=new MatrixWorld(()=> 'placed');world.enterAR();
+  world.externalAssets.push({assetId:'web:offset-left',spawnScale:1,url:'/asset.glb',
+    localBounds:{center:{x:-.8,y:1,z:0},size:{x:.6,y:1,z:.6}}},
+  {assetId:'web:offset-right',spawnScale:1,url:'/asset.glb',
+    localBounds:{center:{x:.8,y:1,z:0},size:{x:.6,y:1,z:.6}}});
+  const support=[{x:0,z:0},{x:2,z:0},{x:2,z:2},{x:0,z:2}];
+  world.setSpatialAnchors([{...anchor,surface:{kind:'support',boundary:support}}]);
+  assert.equal(world.execute({requestId:'confirm',op:'confirm_room'}).ok,true);
+  const overhang=world.execute({requestId:'overhang',op:'spawn',assetId:'web:offset-left',anchorId:anchor.anchorId,
+    placement:'surface',transform:{...transform,position:{x:1.8,y:0,z:1}}});
+  assert.match(overhang.error,/footprint/,'rendered model would extend beyond the right edge');
+  const valid=world.execute({requestId:'valid',op:'spawn',assetId:'web:offset-right',anchorId:anchor.anchorId,
+    placement:'surface',transform:{...transform,position:{x:1.2,y:0,z:1}}});
+  assert.equal(valid.ok,true,'the recentered visible model fits');
+  assert.equal(world.requireObject(valid.objectId).transform.position.y,0,
+    'an imported GLB is already floor aligned by the renderer');
+});
+
+test('moving, duplicating, or loading a support object cannot bypass footprint validation',()=>{
+  let nextId=0;
+  const world=new MatrixWorld(()=>String(++nextId));world.enterAR();
+  const support=[{x:0,z:0},{x:2,z:0},{x:2,z:2},{x:0,z:2}];
+  world.setSpatialAnchors([{...anchor,surface:{kind:'support',boundary:support}}]);
+  assert.equal(world.execute({requestId:'confirm',op:'confirm_room'}).ok,true);
+  const spawn=world.execute({requestId:'spawn',op:'spawn',assetId:'block',anchorId:anchor.anchorId,
+    placement:'surface',transform:{...transform,position:{x:1.4,y:0,z:1}}});
+  assert.equal(spawn.ok,true);
+  const object=world.requireObject(spawn.objectId);
+  assert.match(world.execute({requestId:'duplicate',op:'duplicate',objectId:object.objectId}).error,/footprint/);
+  assert.match(world.execute({requestId:'move',op:'set_transform',objectId:object.objectId,
+    transform:{...object.transform,position:{...object.transform.position,x:1.6}}}).error,/footprint/);
+  const invalidScene=structuredClone(world.scene);
+  invalidScene.objects[0].transform.position.x=1.6;
+  assert.match(world.execute({requestId:'load',op:'load',scene:invalidScene}).error,/footprint/);
+  assert.equal(world.scene.objects.length,1);
+  assert.equal(world.scene.objects[0].transform.position.x,1.4);
+});
+
+test('rendered GLB geometry cannot exceed the registered support footprint',()=>{
+  const asset={localBounds:{center:{x:0,y:.5,z:0},size:{x:1,y:1,z:1}}};
+  assert.doesNotThrow(()=>validateRenderedFootprint(asset,{x:1,y:1,z:1}));
+  assert.throws(()=>validateRenderedFootprint(asset,{x:1.02,y:1,z:1}),/registered bounds/);
+  assert.throws(()=>validateRenderedFootprint(asset,{x:1,y:1,z:1.02}),/registered bounds/);
 });

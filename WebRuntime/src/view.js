@@ -28,6 +28,11 @@ function makeAsset(id){
   else throw Error(`Unknown asset: ${id}`);
   return group;
 }
+export function validateRenderedFootprint(asset,size){
+  const bounds=asset.localBounds;
+  if(bounds&&(size.x>bounds.size.x+.005||size.z>bounds.size.z+.005))
+    throw Error('GLB rendered footprint exceeds its registered bounds; remeasure and register the asset');
+}
 function disposeGroup(root){root.traverse(node=>{if(node.geometry&&!node.userData.cachedGeometry)node.geometry.dispose();if(node.material){const materials=Array.isArray(node.material)?node.material:[node.material];for(const material of materials){if(node.userData.ownedTexture)material.map?.dispose();material.dispose();}}});}
 function planeLabel(label){
   const canvas=document.createElement('canvas');canvas.width=512;canvas.height=96;
@@ -490,6 +495,7 @@ export class MatrixView {
           const scene=gltf.scene;
           const bounds=new THREE.Box3().setFromObject(scene);const size=bounds.getSize(new THREE.Vector3());
           if(!['x','y','z'].every(k=>Number.isFinite(size[k])&&size[k]>=0&&size[k]<=20)||size.lengthSq()===0)throw Error('GLB needs finite rendered bounds of 0–20 metres on each axis');
+          validateRenderedFootprint(asset,size);
           const center=bounds.getCenter(new THREE.Vector3());scene.position.sub(new THREE.Vector3(center.x,bounds.min.y,center.z));
           scene.traverse(node=>{if(node.isMesh){node.castShadow=true;node.receiveShadow=true;}});
           return scene;

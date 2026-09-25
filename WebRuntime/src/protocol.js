@@ -1,7 +1,7 @@
 // This is the browser adapter for Matrix scene schema 1 and the existing
 // /api/exchange command set. Keep changes to this contract coordinated with
 // ControlService/server.py and Assets/Sandbox/Runtime/SandboxWorld.cs.
-import {insideBoundary} from './spatial.js';
+import {footprintInsideBoundary} from './spatial.js';
 export const ROOM_ID = 'web-virtual-room-v1';
 export const ANCHOR_ID = 'web-floor';
 export const MAX_OBJECTS = 100;
@@ -110,6 +110,21 @@ export class MatrixWorld {
     this.selection={anchorId,objectId:objectId||'',position:clone(position)};
   }
   availableAnchors(){return [{anchorId:ANCHOR_ID,displayName:this.spatial?'Unanchored virtual preview':'Virtual floor'},...(this.spatial?.anchors||[])];}
+  assertSupportedFootprint(transform,assetId,anchor){
+    const bounds=this.asset(assetId)?.localBounds;
+    if(!bounds)throw Error('This asset has no measured bounds for support placement');
+    if(Math.abs(transform.rotation.x)>.01||Math.abs(transform.rotation.z)>.01)
+      throw Error('Support placement needs an upright object');
+    const spawnScale=this.asset(assetId)?.spawnScale||1;
+    // loadExternal centers GLBs horizontally; built-in meshes are centered too.
+    const xs=[-bounds.size.x/2,bounds.size.x/2].map(x=>x*transform.scale.x*spawnScale);
+    const zs=[-bounds.size.z/2,bounds.size.z/2].map(z=>z*transform.scale.z*spawnScale);
+    const radians=transform.rotation.y*Math.PI/180,cos=Math.cos(radians),sin=Math.sin(radians);
+    const corners=[[xs[0],zs[0]],[xs[1],zs[0]],[xs[1],zs[1]],[xs[0],zs[1]]]
+      .map(([x,z])=>({x:transform.position.x+x*cos-z*sin,z:transform.position.z+x*sin+z*cos}));
+    if(!footprintInsideBoundary(corners,anchor.surface.boundary))
+      throw Error('Object footprint extends beyond measured surface');
+  }
   resolvedTransform(command,assetId,anchorId){
     const transform=clone(command.transform);
     const anchor=this.availableAnchors().find(item=>item.anchorId===anchorId);
@@ -117,19 +132,17 @@ export class MatrixWorld {
     if(!this.spatial||anchorId===ANCHOR_ID)return transform;
     if(!this.spatial.alignmentVerified)throw Error('Confirm room alignment first');
     if(command.placement!==undefined&&command.placement!=='surface')throw Error('Unknown placement mode');
+    if(command.placement==='surface'&&anchor.surface.kind!=='support')throw Error('Choose a measured support surface');
+    if(anchor.surface.kind==='support'){
+      this.assertSupportedFootprint(transform,assetId,anchor);
+    }
     if(command.placement==='surface'){
-      if(anchor.surface.kind!=='support')throw Error('Choose a measured support surface');
-      const bounds=this.asset(assetId)?.localBounds;if(!bounds)throw Error('This asset has no measured bounds for surface placement');
-      if(Math.abs(transform.rotation.x)>.01||Math.abs(transform.rotation.z)>.01)throw Error('Surface placement needs an upright object');
+      const bounds=this.asset(assetId).localBounds;
       if(transform.position.y<0)throw Error('Surface clearance cannot be negative');
       const spawnScale=this.asset(assetId)?.spawnScale||1;
-      const halfX=bounds.size.x*transform.scale.x*spawnScale/2,halfZ=bounds.size.z*transform.scale.z*spawnScale/2;
-      const radians=transform.rotation.y*Math.PI/180,cos=Math.cos(radians),sin=Math.sin(radians);
-      for(const x of [-halfX,halfX])for(const z of [-halfZ,halfZ]){
-        const px=transform.position.x+x*cos-z*sin,pz=transform.position.z+x*sin+z*cos;
-        if(!insideBoundary({x:px,z:pz},anchor.surface.boundary))throw Error('Object footprint extends beyond measured surface');
-      }
-      transform.position.y-=((bounds.center.y-bounds.size.y/2)*transform.scale.y*spawnScale);
+      // Imported GLBs are already floor aligned by loadExternal.
+      if(!this.asset(assetId).url)
+        transform.position.y-=((bounds.center.y-bounds.size.y/2)*transform.scale.y*spawnScale);
     }
     return transform;
   }
@@ -166,6 +179,8 @@ export class MatrixWorld {
           if (this.scene.objects.length>=MAX_OBJECTS) throw Error('Scene object limit reached');
           { const duplicate=clone(object); duplicate.objectId=this.idFactory(); duplicate.transform.position.x=Math.min(100,duplicate.transform.position.x+.3);
             if (!validId(duplicate.objectId)||this.scene.objects.some(o=>o.objectId===duplicate.objectId)) throw Error('Invalid generated objectId');
+            const anchor=this.spatial?.anchors.find(item=>item.anchorId===duplicate.anchorId);
+            if(anchor?.surface.kind==='support')this.assertSupportedFootprint(duplicate.transform,duplicate.assetId,anchor);
             this.scene.objects.push(duplicate); result.objectId=duplicate.objectId; }
           break;
         case 'set_transform':
@@ -207,6 +222,8 @@ export class MatrixWorld {
     const ids=new Set();
     for(const o of scene.objects) {
       if(!validId(o.objectId)||ids.has(o.objectId)||!this.asset(o.assetId)||!this.availableAnchors().some(anchor=>anchor.anchorId===o.anchorId)||!validTransform(o.transform)) throw Error('Invalid scene object');
+      const anchor=this.spatial?.anchors.find(item=>item.anchorId===o.anchorId);
+      if(anchor?.surface.kind==='support')this.assertSupportedFootprint(o.transform,o.assetId,anchor);
       ids.add(o.objectId);
       if(o.behaviors && (!Array.isArray(o.behaviors)||o.behaviors.length>2||new Set(o.behaviors.map(b=>b.kind)).size!==o.behaviors.length||!o.behaviors.every(validBehavior))) throw Error('Invalid scene behavior');
     }
