@@ -28,6 +28,7 @@ from learning import LearningBridge, LearningError, identifier
 from codex_provider import CodexConfig, CodexProviderError, codex_options, select_codex_config
 from agent_session import LocalCodexAgentBackend
 from agent_portal import AgentPortal, AgentPortalError
+from matrix_tool_bridge import MatrixToolBridge
 import speech
 import tts
 import scene_capture
@@ -290,11 +291,15 @@ def loopback(host):
         return False
 
 
-def local_agent_backend():
+def local_agent_backend(state=None):
     config = CodexConfig.from_environment()
     if config is None:
         raise AgentPortalError(503, "Configure the local Codex provider for Agent Portal")
-    return LocalCodexAgentBackend(config, Path(__file__).resolve().parent.parent)
+    config.validate()
+    if state is not None and state.matrix_tool_bridge is None:
+        state.matrix_tool_bridge = MatrixToolBridge(state)
+    return LocalCodexAgentBackend(config, Path(__file__).resolve().parent.parent,
+                                  getattr(state, "matrix_tool_bridge", None))
 
 
 def agent_turn_context(state, value):
@@ -414,7 +419,8 @@ class State:
         self.web_assets = WebAssetCatalog(web_assets_directory or Path(__file__).with_name("web_assets"))
         self.web_authoring = WebAuthoringJobs(self.web_assets)
         self.blender_authoring = BlenderAuthoringJobs(self.web_assets)
-        self.agent_portal = AgentPortal(self.directory / ".agent_portal", local_agent_backend)
+        self.matrix_tool_bridge = None
+        self.agent_portal = AgentPortal(self.directory / ".agent_portal", lambda: local_agent_backend(self))
         self.clock = clock
         self.lock = threading.RLock()
         self.client_id = None
@@ -1173,6 +1179,9 @@ class Server(ThreadingHTTPServer):
 
     def server_close(self):
         self.state.agent_portal.close()
+        if self.state.matrix_tool_bridge is not None:
+            self.state.matrix_tool_bridge.close()
+            self.state.matrix_tool_bridge = None
         super().server_close()
 
 

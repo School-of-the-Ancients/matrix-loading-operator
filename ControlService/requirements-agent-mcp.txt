@@ -1,0 +1,2 @@
+# Optional PC-local Matrix MCP tool integration for Agent Portal.
+mcp==1.30.0

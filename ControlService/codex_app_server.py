@@ -10,6 +10,7 @@ from collections import deque
 from copy import deepcopy
 from dataclasses import dataclass, field
 import json
+import os
 from pathlib import Path
 import subprocess
 import threading
@@ -61,13 +62,15 @@ class AppServerTransport:
     A fake process command can be injected in tests without invoking Codex.
     """
 
-    def __init__(self, command: list[str], cwd: str | Path, *, timeout: float = 10.0):
+    def __init__(self, command: list[str], cwd: str | Path, *, timeout: float = 10.0,
+                 environment: dict[str, str] | None = None):
         path = Path(cwd).resolve(strict=True)
         if not path.is_dir() or not command or not all(isinstance(part, str) and part for part in command):
             raise ValueError("Invalid app-server command or working directory")
         self.command = list(command)
         self.cwd = path
         self.timeout = timeout
+        self.environment = dict(environment or {})
         self._proc: subprocess.Popen | None = None
         self._reader: threading.Thread | None = None
         self._lock = threading.RLock()
@@ -83,7 +86,8 @@ class AppServerTransport:
             if self._proc is not None:
                 raise AppServerError("Codex app-server is already started")
             self._proc = subprocess.Popen(self.command, cwd=self.cwd, stdin=subprocess.PIPE,
-                                          stdout=subprocess.PIPE, stderr=subprocess.DEVNULL)
+                                          stdout=subprocess.PIPE, stderr=subprocess.DEVNULL,
+                                          env={**os.environ, **self.environment})
             self._reader = threading.Thread(target=self._read_loop, name="matrix-app-server", daemon=True)
             self._reader.start()
         try:

@@ -46,6 +46,16 @@ Ask the Operator to create an object in Blender or use **Create requested object
 
 [Blender authoring tiers](BLENDER_AUTHORING_TIERS.md) records the richer Agent Portal direction. The current blueprint builder remains a bounded fallback; full Blender MCP authoring through the portal is not yet a runtime capability.
 
+### Agent Portal Matrix tool
+
+The PC-local Codex conversation can now call `matrix_scene_summary` through a read-only Matrix MCP server. Install the optional MCP dependency into the **same Python environment that starts ControlService**:
+
+```powershell
+python -m pip install -r ControlService/requirements-agent-mcp.txt
+```
+
+ControlService registers this MCP server only for its Agent Portal Codex app-server process. Existing Codex tools and configured MCP servers remain available. The Matrix tool reads the current connected room ID, scene revision, and at most 24 virtual objects. It returns `online: false` after the runtime lease expires. It cannot move, spawn, or delete objects. The tool uses a random PC-only loopback credential, which never enters `/web/` responses or browser storage. The wearer can include selected-object and pointing context with a turn, but world changes still need a future typed Matrix action tool and runtime receipt.
+
 Registration validates the GLB header, embedded resources, size and mesh budget, then copies it into an immutable catalog. Record the GLB's measured `localBounds` size after the browser's horizontal recentering and floor alignment. Bounds let the Operator check that the scaled, rotated rendered footprint fits a real support surface, including concave edges. Support-bound objects are rechecked on moves, duplicates, and scene loads. The browser refuses to render a GLB whose measured horizontal bounds exceed its registered size. The running browser polls the catalog every 10 seconds, or use **Refresh assets**. A named Matrix scene preserves the exact versioned asset ID; restoring it requires the same registered GLB.
 
 If placement on a measured surface fails, the browser reports the failure and labels any virtual-floor fallback as an unanchored preview.
