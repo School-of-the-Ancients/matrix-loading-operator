@@ -3,9 +3,9 @@ import assert from 'node:assert/strict';
 import * as THREE from 'three';
 import {MatrixWorld} from '../src/protocol.js';
 import {MatrixView} from '../src/view.js';
-import {storedWorld} from '../src/scene_store.js';
+import {storedWorld,restoreStoredWorld} from '../src/scene_store.js';
 import {ROOM_ANCHOR_KEY,ROOM_ARCHIVES_KEY,hasWorldToProtect,roomArchives,
-  archiveAndClearRoom,archiveAndRebaseRoom} from '../src/room_origin.js';
+  archiveAndClearRoom,archiveAndRebaseRoom,clearRoomArchives} from '../src/room_origin.js';
 
 function storage(){
   const entries=new Map();
@@ -26,6 +26,9 @@ test('unavailable saved origin hides edits until recovery, then archive preserve
   assert.equal(world.snapshot().roomContext.state,'missing');
   assert.equal(world.execute({requestId:'clear',op:'clear'}).ok,false);
   assert.equal(world.execute({requestId:'confirm',op:'confirm_room'}).ok,false);
+  assert.throws(()=>restoreStoredWorld(world,{version:2,scene:{...before.scene,objects:[]},game:null}),
+    /Saved room origin is unavailable/);
+  assert.equal(world.scene.objects.length,1,'checkpoint restore did not replace the protected world');
   const archive=archiveAndClearRoom(world,local);
   assert.equal(archive.anchorHandle,'old-anchor-handle');
   assert.deepEqual(archive.world,before);
@@ -95,6 +98,10 @@ test('invalid or full recovery archive cannot be overwritten by a reset',()=>{
   for(let index=0;index<3;index++)archiveAndClearRoom(world,local);
   assert.equal(roomArchives(local).length,3);
   assert.throws(()=>archiveAndClearRoom(world,local),/Three room recovery archives/);
+  clearRoomArchives(local);
+  assert.deepEqual(roomArchives(local),[]);
+  archiveAndClearRoom(world,local);
+  assert.equal(roomArchives(local).length,1);
 });
 
 test('room reset refuses to discard session-only objects that the archive cannot restore',()=>{

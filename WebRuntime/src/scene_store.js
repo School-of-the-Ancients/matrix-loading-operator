@@ -45,6 +45,8 @@ export function quarantineStoredWorld(pending,storage){
 }
 
 export function restoreStoredWorld(world,value){
+  if(world.spatial?.originUnavailable)
+    throw Error('Saved room origin is unavailable; recover it before replacing the active world');
   if(!value||value.version!==2||!value.scene||typeof value.scene!=='object'||
      !Object.hasOwn(value,'game'))throw Error('Invalid world save envelope');
   // Validate both halves before changing the active world.

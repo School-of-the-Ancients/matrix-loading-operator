@@ -21,6 +21,12 @@ export function roomArchives(storage){
   return archives;
 }
 
+export function clearRoomArchives(storage){
+  storage.removeItem(ROOM_ARCHIVES_KEY);
+  if(storage.getItem(ROOM_ARCHIVES_KEY)!==null)
+    throw Error('Room recovery archives could not be cleared from browser storage');
+}
+
 function archiveAndStartRoom(world,storage,keepWorld){
   if(!world.spatial?.originUnavailable)throw Error('Room reset is available only while its origin is unavailable');
   if(world.scene.objects.some(object=>object.anchorId!=='web-floor'))

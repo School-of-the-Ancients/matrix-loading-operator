@@ -77,9 +77,14 @@ function operatorPanel(){
         'Room confirmation appears when AR support planes are detected.',55,380);}
       ctx.fillStyle='#8bb8c2';ctx.font='21px sans-serif';
       ctx.fillText(`Camera: ${cameraStatus.slice(0,75)}`,55,424);
-      button('save-world','SAVE WORLD',55,440,285,76);
-      button('restore-world',worldInfo.restoreArmed?'CONFIRM RESTORE':'RESTORE SAVED',370,440,285,76);
-      button('undo','UNDO',685,440,285,76);
+      if(worldInfo.originUnavailable){
+        ctx.fillStyle='#8bb8c2';ctx.font='22px sans-serif';
+        ctx.fillText('SAVE / RESTORE / EDIT LOCKED UNTIL ORIGIN RECOVERS',55,485);
+      }else{
+        button('save-world','SAVE WORLD',55,440,285,76);
+        button('restore-world',worldInfo.restoreArmed?'CONFIRM RESTORE':'RESTORE SAVED',370,440,285,76);
+        button('undo','UNDO',685,440,285,76);
+      }
       if(worldInfo.resetAvailable){
         button('rebase-room-origin',worldInfo.recoveryArmed==='rebase'?'CONFIRM PLACE HERE':'ARCHIVE + PLACE HERE',55,535,440,76);
         button('reset-room-origin',worldInfo.recoveryArmed==='empty'?'CONFIRM START EMPTY':'ARCHIVE + START EMPTY',525,535,445,76);

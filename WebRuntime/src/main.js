@@ -8,18 +8,21 @@ import {loadStoredWorld,saveStoredWorld,restoreStoredWorld,storedWorld,quarantin
   saveCheckpoint,loadCheckpoint} from './scene_store.js';
 import {loadConversation,rememberTurn,clearConversation} from './conversation.js';
 import {startGame,deliverMovedObject,gameStatus,validSavedGame} from './game.js';
-import {archiveAndClearRoom,archiveAndRebaseRoom,roomArchives,ROOM_ARCHIVES_KEY} from './room_origin.js';
+import {archiveAndClearRoom,archiveAndRebaseRoom,roomArchives,
+  clearRoomArchives as clearStoredRoomArchives,ROOM_ARCHIVES_KEY} from './room_origin.js';
 
 const $=id=>document.getElementById(id);
 const world=new MatrixWorld();
 const cameraStream=new CameraStream();
 let pendingWorld=loadStoredWorld(sessionStorage,localStorage);
+let xrInitialized=false;
 
 let proposal=null,gameProposal=null,operatorMessageUntil=0,lastOperatorReply='',lastConnectionOnline=null,modeTouched=false;
 let conversation=loadConversation(sessionStorage);
 let restoreArmedUntil=0;
 let roomResetArmedUntil=0;
 let roomRecoveryChoice='';
+let clearArchivesArmedUntil=0;
 let persistenceWarning='',restoreWarning='';
 let cameraBusy=false;
 const recorder=new VoiceRecorder();let voiceStarting=false,voiceRecording=false,voiceStopRequested=false,voiceJob=null,voiceSnapshot=null;
@@ -44,7 +47,13 @@ view.setConversationCount(conversation.length);
 view.setOperatorGameStatus(gameStatus(world));
 updateCameraControls();
 $('conversation-status').textContent=`${conversation.length} recent turn${conversation.length===1?'':'s'} in this tab`;
-view.initXR($('xr-buttons')).catch(e=>feedback(e.message,true));
+function initXRIfReady(){
+  if(xrInitialized)return;
+  if(pendingWorld){$('xr-buttons').textContent='Loading saved world before XR';return;}
+  xrInitialized=true;
+  view.initXR($('xr-buttons')).catch(e=>feedback(e.message,true));
+}
+initXRIfReady();
 
 function remember(user,assistant){
   conversation=rememberTurn(sessionStorage,conversation,user,assistant);
@@ -76,6 +85,7 @@ function updateWorldControls(){
   const canConfirm=!!world.spatial&&!originUnavailable&&!world.spatial.alignmentVerified&&!world.spatial.stale&&
     world.spatial.anchors.some(anchor=>anchor.surface?.kind==='support');
   $('confirm-room').disabled=!canConfirm;
+  for(const id of ['undo','redo','clear','save','restore'])$(id).disabled=originUnavailable;
   view.setOperatorWorldInfo({objects:world.scene.objects.length,canConfirm,restoreArmed:performance.now()<restoreArmedUntil,
     originUnavailable,resetAvailable,canRetryOrigin,
     recoveryArmed:performance.now()<roomResetArmedUntil?roomRecoveryChoice:'',
@@ -92,8 +102,13 @@ function updateWorldControls(){
     resetAvailable?'Saved world hidden. Retry, place it here explicitly, or archive and start empty.':
     originUnavailable?'Waiting for a tracked room anchor; editing is paused.':
     view.roomAnchorLocated?'Room origin tracked.':'Room origin has not been tracked yet.';
-  try{$('download-room-archives').classList.toggle('hidden',roomArchives(localStorage).length===0);}
-  catch{$('download-room-archives').classList.remove('hidden');}
+  let hasArchives=false;
+  try{hasArchives=roomArchives(localStorage).length>0;}
+  catch{hasArchives=true;}
+  $('download-room-archives').classList.toggle('hidden',!hasArchives);
+  $('clear-room-archives').classList.toggle('hidden',!hasArchives);
+  $('clear-room-archives').textContent=performance.now()<clearArchivesArmedUntil?
+    'Confirm clear local recovery archives':'Clear local recovery archives after export';
   const status=gameStatus(world);
   $('game-status').textContent=status;view.setOperatorGameStatus(status);
   updateCameraControls();
@@ -163,6 +178,7 @@ async function refreshAssets(silent=false){
         feedback('World recovery needs attention.',true);
       }
     }
+    initXRIfReady();
     if(!silent)feedback(`Catalog updated: ${world.externalAssets.length} web assets.`);
   }catch(error){if(!silent)feedback(error.message,true);}
 }
@@ -345,6 +361,7 @@ async function confirmRoom(){
   if(result)view.setOperatorStatus('Room alignment confirmation queued. Wait for the runtime receipt.');
 }
 async function saveWorld(){
+  if(world.spatial?.originUnavailable){feedback('Recover the saved room origin before replacing a world checkpoint.',true);return;}
   const value=storedWorld(world);
   const warning=saveCheckpoint(value.scene,value.game,localStorage);
   if(warning){feedback(warning,true);return;}
@@ -353,6 +370,7 @@ async function saveWorld(){
   catch(error){feedback(`World checkpoint saved in this browser. PC scene backup failed: ${error.message}`,true);}
 }
 function restoreWorld(){
+  if(world.spatial?.originUnavailable){feedback('Recover the saved room origin before restoring a checkpoint.',true);return;}
   const checkpoint=loadCheckpoint(localStorage);
   if(!checkpoint){feedback('No manual world checkpoint is saved in this browser.',true);return;}
   if(performance.now()>=restoreArmedUntil){
@@ -400,6 +418,16 @@ function downloadRoomArchives(){
     feedback('Prepared the room recovery archives for download. Keep the exported file before clearing browser site data.');
   }catch(error){feedback(`Could not export room archives: ${error.message}`,true);}
 }
+function clearExportedRoomArchives(){
+  if(performance.now()>=clearArchivesArmedUntil){
+    clearArchivesArmedUntil=performance.now()+10000;updateWorldControls();
+    feedback('Verify your downloaded recovery file is saved. Tap Confirm Clear within ten seconds to remove local archives and free recovery slots.',true);
+    return;
+  }
+  clearArchivesArmedUntil=0;
+  try{clearStoredRoomArchives(localStorage);updateWorldControls();feedback('Local recovery archives cleared. The active world was not changed.');}
+  catch(error){feedback(`Could not clear recovery archives: ${error.message}`,true);}
+}
 function panelAction(action){
   if(action==='apply')applyProposal();
   else if(action==='discard'){discardProposal();feedback('Proposal discarded.');view.setOperatorStatus('Proposal discarded.');}
@@ -428,6 +456,7 @@ $('retry-room-origin').addEventListener('click',retryRoomOrigin);
 $('reset-room-origin').addEventListener('click',()=>recoverRoomOrigin('empty'));
 $('rebase-room-origin').addEventListener('click',()=>recoverRoomOrigin('rebase'));
 $('download-room-archives').addEventListener('click',downloadRoomArchives);
+$('clear-room-archives').addEventListener('click',clearExportedRoomArchives);
 $('new-chat').addEventListener('click',newChat);
 $('speak-replies').addEventListener('change',()=>{view.setVoiceOutputEnabled($('speak-replies').checked);unlockReplyAudio();});
 $('prompt').addEventListener('keydown',event=>{if(event.key==='Enter'&&(event.ctrlKey||event.metaKey))propose();});
