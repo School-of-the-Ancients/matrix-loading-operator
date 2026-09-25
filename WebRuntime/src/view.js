@@ -48,7 +48,7 @@ function operatorPanel(){
   mesh.renderOrder=100;mesh.userData.operatorVoice=true;
   const group=new THREE.Group();group.add(mesh);group.visible=false;
   let message='Aim here, hold trigger, and ask for a scene.',tone='idle',page=0,mode='chat',proposal=null;
-  let agent={activity:'Not connected',content:'Connect to Codex on the PC.',pending:false,active:false,connected:false};
+  let agent={activity:'Not connected',content:'Connect to Codex on the PC.',pending:false,approvalReviewable:false,active:false,connected:false};
   let pinLabel='PIN TO WALL',voiceLabel='VOICE ON',originLabel='ROOM ORIGIN UNKNOWN',conversationCount=0;
   let gameStatus='No game running.',worldInfo={objects:0,canConfirm:false,alignment:'No room scan'},worldWarning='';
   let cameraStatus='Camera not tested',cameraActive=false;
@@ -123,7 +123,9 @@ function operatorPanel(){
     if(worldWarning){ctx.fillStyle='#ffad8d';ctx.font='bold 19px sans-serif';ctx.fillText(worldWarning,55,625);}
     if(mode==='agent'){
       if(agent.pending){
-        button('agent-approve','APPROVE ONCE',35,636,275,90,true);
+        if(agent.approvalReviewable)button('agent-approve','APPROVE ONCE',35,636,275,90,true);
+        else {ctx.fillStyle='#183744';ctx.fillRect(35,636,275,90);
+          ctx.fillStyle='#a8c8ce';ctx.font='bold 20px sans-serif';ctx.fillText('PC REVIEW NEEDED',50,691);}
         button('agent-deny','DENY',322,636,220,90);
         button('agent-stop','STOP',554,636,210,90);
         button('next','NEXT',776,636,213,90);

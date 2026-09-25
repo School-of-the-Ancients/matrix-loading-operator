@@ -301,10 +301,18 @@ class AgentPortal:
             raise AgentPortalError(400, "Invalid Agent Portal cursor")
         pending = []
         if self._backend is not None and self._active_turn is not None:
-            pending = [{key: value for key, value in item.items() if key != "conversationId"}
-                       for item in self._backend.pending_approvals()
-                       if item.get("conversationId") == self._conversation_id
-                       and item.get("turnId") == self._active_turn]
+            for item in self._backend.pending_approvals():
+                if (item.get("conversationId") != self._conversation_id
+                        or item.get("turnId") != self._active_turn):
+                    continue
+                summary = item.get("summary")
+                safe_summary = (isinstance(summary, str) and 1 <= len(summary) <= 200
+                                and not any(ord(char) < 32 for char in summary))
+                pending.append({"approvalId": item["approvalId"], "turnId": item["turnId"],
+                                "action": item.get("action") if item.get("action") in
+                                ("running_command", "editing_files") else "using_tool",
+                                "summary": summary if safe_summary else "Codex action needs PC review.",
+                                "reviewable": bool(safe_summary and item.get("reviewable") is True)})
         return {"sessionId": self._session_id, "activity": self._activity,
                 "activeTurnId": self._active_turn, "transcript": deepcopy(self._transcript),
                 "pendingApprovals": pending, "cursor": self._sequence,
@@ -322,10 +330,14 @@ class AgentPortal:
             self._refresh()
             if type(approve) is not bool or turn_id != self._active_turn:
                 raise AgentPortalError(409, "Approval is no longer pending")
-            if not any(item.get("conversationId") == self._conversation_id
-                       and item["approvalId"] == approval_id and item["turnId"] == turn_id
-                       for item in self._backend.pending_approvals()):
+            pending = next((item for item in self._backend.pending_approvals()
+                            if item.get("conversationId") == self._conversation_id
+                            and item.get("approvalId") == approval_id
+                            and item.get("turnId") == turn_id), None)
+            if pending is None:
                 raise AgentPortalError(409, "Approval is no longer pending")
+            if approve and pending.get("reviewable") is not True:
+                raise AgentPortalError(409, "This action cannot be reviewed in XR; deny or stop it")
             try:
                 self._backend.decide(approval_id, self._conversation_id, turn_id, approve)
             except Exception as error:

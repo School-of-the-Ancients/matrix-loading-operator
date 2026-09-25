@@ -171,9 +171,9 @@ const bridge=new MatrixBridge(world,()=>$('token').value.trim(),event=>{
   }
 });
 bridge.getCaptureCapabilities=()=>cameraStream.capabilities();
-function agentApprovalText(action){
-  const work=action==='editing_files'?'edit files':'run one command';
-  return `Codex asks to ${work}. Approve only if this matches your request. Command and tool details stay on the PC.`;
+function agentApprovalText(pending){
+  if(!pending)return '';
+  return `${pending.summary||'Codex action needs PC review.'}${pending.reviewable?'\nApprove only if this matches your request.':'\nApproval is unavailable here. Deny or Stop this turn.'}`;
 }
 function renderAgent(){
   const status=agentClient?.status,turns=status?.transcript||[],pending=status?.pendingApprovals?.[0];
@@ -188,18 +188,19 @@ function renderAgent(){
   $('agent-transcript').textContent=content;
   $('agent-connect').textContent=status?'Reconnect Codex':'Start or resume Codex';
   $('agent-approval').classList.toggle('hidden',!pending);
-  $('agent-approval-summary').textContent=pending?agentApprovalText(pending.action):'';
+  $('agent-approval-summary').textContent=agentApprovalText(pending);
   $('agent-connect').disabled=agentActionBusy;
   $('agent-send').disabled=agentActionBusy||!status||!!agentClient.error||!!status.activeTurnId;
   $('agent-stop').disabled=agentActionBusy||!status?.activeTurnId;
-  $('agent-approve').disabled=agentActionBusy;
+  $('agent-approve').disabled=agentActionBusy||pending?.reviewable!==true;
   $('agent-deny').disabled=agentActionBusy;
   const latest=turns.at(-1);
   const inWorld=latest?`You: ${latest.user.slice(0,180)}${latest.user.length>180?'…':''}\n\nCodex: ${(latest.assistant||'…').slice(-900)}`:
     status?'Ready. Hold the trigger or grip to speak to Codex.':'Connect to Codex on the PC.';
-  view.setOperatorAgentStatus({activity,content:[agentVoiceStatus,pending?agentApprovalText(pending.action):'',
+  view.setOperatorAgentStatus({activity,content:[agentVoiceStatus,agentApprovalText(pending),
     agentClient?.error?`Connection: ${agentClient.error}`:'',inWorld].filter(Boolean).join('\n\n'),
-    pending:!!pending,active:!!status?.activeTurnId,connected:!!status&&!agentClient.error});
+    pending:!!pending,approvalReviewable:pending?.reviewable===true,
+    active:!!status?.activeTurnId,connected:!!status&&!agentClient.error});
 }
 agentClient=new AgentClient((path,body)=>bridge.request(path,body),localStorage,renderAgent);
 renderAgent();
@@ -220,6 +221,7 @@ function sendAgent(){
 function decideAgent(approve){
   const pending=agentClient.status?.pendingApprovals?.[0];
   if(!pending)return;
+  if(approve&&pending.reviewable!==true){feedback('This action cannot be approved in XR. Deny or Stop it.',true);return;}
   agentAction(()=>agentClient.decide(pending.approvalId,pending.turnId,approve));
 }
 $('agent-connect').addEventListener('click',()=>agentAction(()=>agentClient.connect()));

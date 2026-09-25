@@ -7,6 +7,7 @@ command arguments, tool outputs, and credentials stay on PC.
 from __future__ import annotations
 
 from pathlib import Path
+import re
 from typing import Protocol
 
 from codex_app_server import AppServerTransport
@@ -44,6 +45,41 @@ def _kind(item):
         server = item.get("server")
         return "using_blender" if isinstance(server, str) and "blender" in server.lower() else "using_tool"
     return None
+
+
+_LITERAL_CREATE = re.compile(
+    r"\[System\.IO\.File\]::WriteAllText\('([^'\r\n]+)',\s*'([A-Za-z0-9 .,_-]{0,100})'\)\Z"
+)
+_BUNDLED_PWSH = re.compile(r'"([^"\r\n]+)" -Command "([^"\r\n]+)"\Z', re.IGNORECASE)
+
+
+def _approval_description(method: str, params: dict, cwd: Path) -> tuple[str, bool]:
+    """Only one easily reviewed file-creation form may be approved in XR."""
+    if method == "item/fileChange/requestApproval":
+        return "Codex requests file changes. This change needs PC review before approval.", False
+    command = params.get("command")
+    if not isinstance(command, str):
+        return "Codex requests a command. Its effect cannot be reviewed in XR.", False
+    wrapper = _BUNDLED_PWSH.fullmatch(command)
+    if wrapper:
+        shell_parts = tuple(part.lower() for part in Path(wrapper[1]).parts)
+        if ("codex-runtimes" not in shell_parts or
+                shell_parts[-4:] != ("dependencies", "native", "powershell", "pwsh.exe")):
+            return "Codex requests a command. Its effect cannot be reviewed in XR.", False
+        command = wrapper[2]
+    match = _LITERAL_CREATE.fullmatch(command)
+    if match:
+        try:
+            root = cwd.resolve()
+            target = (root / match[1]).resolve()
+            relative = target.relative_to(root)
+            if (not target.exists() and relative.parts and
+                    all(re.fullmatch(r"[A-Za-z0-9._-]+", part) for part in relative.parts)):
+                return (f"Create one new file in the Matrix repository: {relative.as_posix()} "
+                        f"({len(match[2])} literal characters).", True)
+        except (OSError, ValueError):
+            pass
+    return "Codex requests a command. Its effect cannot be reviewed in XR.", False
 
 
 def normalize_event(event: dict) -> dict | None:
@@ -135,9 +171,11 @@ class LocalCodexAgentBackend:
             thread_id = _identifier(params.get("threadId"))
             turn_id = _identifier(params.get("turnId"))
             if thread_id and turn_id:
+                summary, reviewable = _approval_description(method, params, self.transport.cwd)
                 safe.append({"approvalId": approval["requestId"], "conversationId": thread_id,
                              "turnId": turn_id,
-                             "action": "running_command" if "commandExecution" in method else "editing_files"})
+                             "action": "running_command" if "commandExecution" in method else "editing_files",
+                             "summary": summary, "reviewable": reviewable})
         return safe
 
     def decide(self, approval_id: int | str, conversation_id: str, turn_id: str, approve: bool) -> None:

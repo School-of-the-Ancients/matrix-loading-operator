@@ -35,9 +35,14 @@ file size; omitted request/reply text is marked in the session snapshot.
 The five `/api/agent/*` POST routes use the service's existing bearer-token and
 same-origin checks. The browser must store only the opaque Matrix session ID;
 the local Codex executable and configured MCP credentials remain on the PC.
-Approval responses currently expose an action category and turn identity. Raw
-command text and tool arguments remain PC-only. The in-world approval panel
-still needs a useful safe description before wearer acceptance is complete.
+Approval responses expose a bounded operation summary and turn identity. Raw
+command text and tool arguments remain PC-only. The only XR-approvable command
+form currently recognized is creation of one new file inside the Matrix
+repository with short literal text. Unknown commands, overwrites, outside-repo
+targets, and file-change approvals show a PC-review message and cannot be
+approved through the browser; Deny and Stop remain available. Broader useful
+approval descriptions need their own reviewed allowlist before wearer
+acceptance is complete.
 The `/web/` Operator now shows a compact Agent page with recent text, activity,
 Approve/Deny, Stop, and a PC speech transcription path that sends spoken text
 to the same Codex conversation. The browser stores only an opaque Matrix
