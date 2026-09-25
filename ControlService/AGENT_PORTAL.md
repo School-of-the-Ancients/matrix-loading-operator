@@ -26,9 +26,14 @@ isolated write through `auto_review` without a Matrix approval request.
 `agent_session.py` defines the provider-neutral Matrix backend interface and
 the first local Codex adapter. It maps native text, activity, tool, and approval
 events to a small allowlist without copying tool arguments or outputs. Native
-thread IDs still remain PC-internal; the next slice owns a durable, opaque
-Matrix session to Codex thread mapping and authenticated Matrix API routes.
-The in-world Operator UI and voice transcription routing follow. Matrix tools,
+thread IDs still remain PC-internal.
+`agent_portal.py` now supplies that PC-owned mapping: one opaque Matrix session
+ID, a bounded transcript, one active turn, background event collection, explicit
+approval/cancel operations, and atomic persistence separate from scene saves.
+The five `/api/agent/*` POST routes use the service's existing bearer-token and
+same-origin checks. The browser must store only the opaque Matrix session ID;
+the local Codex executable and configured MCP credentials remain on the PC.
+The in-world Operator UI and voice transcription routing are the next slice. Matrix tools,
 Blender-specific workflows, spatial grounding, and rich artifacts come after
 the generic portal.
 
@@ -42,6 +47,7 @@ yet`. Resuming a newly created thread before its first turn returned `no
 rollout found`. The portal must retain its own bounded, browser-safe transcript
 for reconnect and must not claim that an empty thread is durable.
 
-This slice has not exposed app-server to a browser or run a Quest test. The
+The app-server protocol remains PC-local; the browser API carries normalized
+portal data. There is no in-world Operator UI or Quest test in this slice. The
 fake-server tests cover approval response shape and routing; a real native
-approval request is still an acceptance check for the completed portal.
+approval request remains an acceptance check for the completed portal.

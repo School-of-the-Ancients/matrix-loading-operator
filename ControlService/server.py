@@ -26,6 +26,8 @@ from ai_adapter import (Planner, PlannerError, validate_local_bounds, validate_v
                         validate_behavior, validate_behaviors, validate_behavior_kinds, validate_content_source)
 from learning import LearningBridge, LearningError, identifier
 from codex_provider import CodexConfig, CodexProviderError, codex_options, select_codex_config
+from agent_session import LocalCodexAgentBackend
+from agent_portal import AgentPortal, AgentPortalError
 import speech
 import tts
 import scene_capture
@@ -288,6 +290,33 @@ def loopback(host):
         return False
 
 
+def local_agent_backend():
+    config = CodexConfig.from_environment()
+    if config is None:
+        raise AgentPortalError(503, "Configure the local Codex provider for Agent Portal")
+    return LocalCodexAgentBackend(config, Path(__file__).resolve().parent.parent)
+
+
+def agent_portal_action(state, path, body):
+    portal = state.agent_portal
+    if path == "/api/agent/session":
+        require(body == {}, "Agent session start expects an empty object")
+        return portal.open()
+    if path == "/api/agent/status":
+        require(set(body) in ({"sessionId"}, {"sessionId", "cursor"}), "Invalid Agent status request")
+        return portal.status(body["sessionId"], body.get("cursor", 0))
+    if path == "/api/agent/turn":
+        require(set(body) == {"sessionId", "text"}, "Invalid Agent turn request")
+        return portal.send_text(body["sessionId"], body["text"])
+    if path == "/api/agent/approval":
+        require(set(body) == {"sessionId", "approvalId", "turnId", "approve"}, "Invalid Agent approval request")
+        return portal.decide(body["sessionId"], body["approvalId"], body["turnId"], body["approve"])
+    if path == "/api/agent/cancel":
+        require(set(body) == {"sessionId", "turnId"}, "Invalid Agent cancel request")
+        return portal.cancel(body["sessionId"], body["turnId"])
+    raise APIError(404, "Not found")
+
+
 class State:
     def __init__(self, directory, clock=time.monotonic, learning=None, web_assets_directory=None):
         self.directory = Path(directory)
@@ -295,6 +324,7 @@ class State:
         self.web_assets = WebAssetCatalog(web_assets_directory or Path(__file__).with_name("web_assets"))
         self.web_authoring = WebAuthoringJobs(self.web_assets)
         self.blender_authoring = BlenderAuthoringJobs(self.web_assets)
+        self.agent_portal = AgentPortal(self.directory, local_agent_backend)
         self.clock = clock
         self.lock = threading.RLock()
         self.client_id = None
@@ -1051,6 +1081,10 @@ class Server(ThreadingHTTPServer):
         self.quest_connection = QuestConnection()
         super().__init__(address, Handler)
 
+    def server_close(self):
+        self.state.agent_portal.close()
+        super().server_close()
+
 
 class Handler(BaseHTTPRequestHandler):
     server_version = "ARSandbox/1"
@@ -1276,6 +1310,8 @@ class Handler(BaseHTTPRequestHandler):
                 data = state.web_authoring.submit(body)
             elif path == "/api/web/blender":
                 data = state.blender_authoring.submit(body, blender_codex_config(state))
+            elif path.startswith("/api/agent/"):
+                data = agent_portal_action(state, path, body)
             elif path == "/api/command":
                 data = state.queue(body["commands"] if set(body) == {"commands"} else [body])
             elif path == "/api/save":
@@ -1319,7 +1355,7 @@ class Handler(BaseHTTPRequestHandler):
             self.send_data(200, data)
         except (WebAuthoringError, BlenderAuthoringError) as error:
             self.send_api_error(APIError(error.status, str(error)))
-        except (APIError, LearningError, speech.SpeechError, tts.TTSError, CodexProviderError, ContentError, ClientError) as error:
+        except (APIError, AgentPortalError, LearningError, speech.SpeechError, tts.TTSError, CodexProviderError, ContentError, ClientError) as error:
             self.send_api_error(error)
         except (OSError, ValueError, RecursionError):
             self.send_api_error(APIError(500, "Service I/O error"))
