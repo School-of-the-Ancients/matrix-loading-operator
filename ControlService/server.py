@@ -72,6 +72,18 @@ def text(value, field, empty=False, limit=128):
     return value
 
 
+def conversation(value):
+    if value is None:
+        return []
+    require(isinstance(value, list) and len(value) <= 6, "Invalid conversation history")
+    turns = []
+    for item in value:
+        require(isinstance(item, dict) and set(item) == {"user", "assistant"}, "Invalid conversation turn")
+        turns.append({"user": text(item["user"], "conversation user", limit=1000),
+                      "assistant": text(item["assistant"], "conversation assistant", limit=1000)})
+    return turns
+
+
 def vector(value, field, scale=False):
     require(isinstance(value, dict), f"Invalid {field}")
     result = {}
@@ -686,6 +698,7 @@ def plan(state, body, request_context=None, content_stage=0, progress=None, canc
     require(isinstance(body, dict), "Expected plan object")
     experiment = body.get("kind") == "block-scale"
     prompt = None if experiment else text(body.get("text"), "text", limit=4000)
+    prior_turns = conversation(body.get("conversation"))
     mode = body.get("mode")
     require(mode in (None, "offline-rules", "openai-compatible", "codex-cli"), "Invalid planner mode")
     # Asset creation is independent of the current AR plane pose. Start its
@@ -717,6 +730,8 @@ def plan(state, body, request_context=None, content_stage=0, progress=None, canc
             screenshot, current = state.selected_capture(body["captureId"])
     try:
         options = {"codex": codex} if codex is not None else {}
+        if prior_turns:
+            options["conversation"] = prior_turns
         candidates = state.content.planner_context(prompt if mode in ("codex-cli", "openai-compatible") else "",
                                                    current.get("assets"))
         if candidates:
@@ -897,6 +912,7 @@ def cancel_voice(state, body):
 
 def start_voice(state, body):
     client_id = text(body.get("clientId"), "clientId")
+    prior_turns = conversation(body.get("conversation"))
     captured = snapshot(body.get("snapshot"))
     audio = speech.decode_audio(body.get("audioBase64"))
     speech.configuration()
@@ -934,7 +950,8 @@ def start_voice(state, body):
                 if job["cancelled"]:
                     return
                 public.update(phase="planning", transcript=transcript)
-            request = {"text": transcript, "mode": "codex-cli", "codex": preferences}
+            request = {"text": transcript, "mode": "codex-cli", "codex": preferences,
+                       "conversation": prior_turns}
             if voice_capture_id is not None:
                 request["captureId"] = voice_capture_id
             def progress(phase, detail):

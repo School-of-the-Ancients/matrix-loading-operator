@@ -4,12 +4,14 @@ import {MatrixView} from './view.js';
 import {MatrixBridge} from './bridge.js';
 import {VoiceRecorder} from './voice.js';
 import {loadStoredScene,saveStoredScene,restoreStoredScene} from './scene_store.js';
+import {loadConversation,rememberTurn,clearConversation} from './conversation.js';
 
 const $=id=>document.getElementById(id);
 const world=new MatrixWorld();
 let pendingScene=loadStoredScene(sessionStorage,localStorage);
 
 let proposal=null,operatorMessageUntil=0,lastOperatorReply='',lastConnectionOnline=null,modeTouched=false;
+let conversation=loadConversation(sessionStorage);
 const recorder=new VoiceRecorder();let voiceStarting=false,voiceRecording=false,voiceStopRequested=false,voiceJob=null,voiceSnapshot=null;
 let replyContext=null,replySource=null;
 function unlockReplyAudio(){
@@ -20,10 +22,30 @@ function unlockReplyAudio(){
   replyContext.resume().catch(()=>{});
 }
 const feedback=(message,isError=false)=>{$('feedback').textContent=message;$('feedback').classList.toggle('error',isError);};
-const view=new MatrixView($('view'),world,()=>{proposal=null;$('proposal').classList.add('hidden');feedback(`Selected ${world.selection.objectId||'placement point'} at ${Object.values(world.selection.position).join(', ')} m.`);},()=>$('token').value.trim(),message=>feedback(message,true),(id,position)=>{proposal=null;$('proposal').classList.add('hidden');renderScene();feedback(`Moved ${id.slice(0,8)} to ${Object.values(position).join(', ')} m. Undo and Save are available.`);},()=>{proposal=null;$('proposal').classList.add('hidden');renderScene();},beginVoice,endVoice,()=>{$('speak-replies').checked=!$('speak-replies').checked;view.setVoiceOutputEnabled($('speak-replies').checked);unlockReplyAudio();},reviewView);
+const view=new MatrixView($('view'),world,()=>{proposal=null;$('proposal').classList.add('hidden');feedback(`Selected ${world.selection.objectId||'placement point'} at ${Object.values(world.selection.position).join(', ')} m.`);},()=>$('token').value.trim(),message=>feedback(message,true),(id,position)=>{proposal=null;$('proposal').classList.add('hidden');renderScene();feedback(`Moved ${id.slice(0,8)} to ${Object.values(position).join(', ')} m. Undo and Save are available.`);},()=>{proposal=null;$('proposal').classList.add('hidden');renderScene();},beginVoice,endVoice,()=>{$('speak-replies').checked=!$('speak-replies').checked;view.setVoiceOutputEnabled($('speak-replies').checked);unlockReplyAudio();},reviewView,newChat);
 view.sync();
 view.setVoiceOutputEnabled($('speak-replies').checked);
+view.setConversationCount(conversation.length);
+$('conversation-status').textContent=`${conversation.length} recent turn${conversation.length===1?'':'s'} in this tab`;
 view.initXR($('xr-buttons')).catch(e=>feedback(e.message,true));
+
+function remember(user,assistant){
+  conversation=rememberTurn(sessionStorage,conversation,user,assistant);
+  view.setConversationCount(conversation.length);
+  $('conversation-status').textContent=`${conversation.length} recent turn${conversation.length===1?'':'s'} in this tab`;
+}
+function newChat(){
+  if(voiceJob||voiceRecording||voiceStarting||$('propose').disabled||$('blender-request').disabled||reviewBusy){
+    feedback('Wait for the current Operator request to finish before starting a new conversation.');return;
+  }
+  conversation=clearConversation(sessionStorage);
+  proposal=null;$('proposal').classList.add('hidden');
+  lastOperatorReply='';operatorMessageUntil=0;
+  view.setConversationCount(0);
+  $('conversation-status').textContent='0 recent turns in this tab';
+  view.setOperatorStatus('New conversation. Describe what you want to build.');
+  feedback('New Operator conversation started. The scene is still here.');
+}
 
 function renderScene(){
   view.sync();$('object-count').textContent=`${world.scene.objects.length} object${world.scene.objects.length===1?'':'s'}`;
@@ -80,11 +102,10 @@ async function refreshScenes(){
 async function propose(){
   const text=$('prompt').value.trim();if(!text){feedback('Enter a request first.',true);return;}
   unlockReplyAudio();
-  lastOperatorReply='';operatorMessageUntil=0;
   $('propose').disabled=true;feedback('Planning…');
-  const data=await call('/api/plan',{text,mode:$('mode').value});$('propose').disabled=false;
+  const data=await call('/api/plan',{text,mode:$('mode').value,conversation});$('propose').disabled=false;
   if(!data)return;
-  await showProposal(data);
+  await showProposal(data,text);
 }
 let reviewBusy=false;
 async function reviewView(){
@@ -104,8 +125,9 @@ async function reviewView(){
     }
     if(!ready)throw Error('Rendered view capture timed out');
     feedback('Reviewing the rendered view with Codex…');view.setOperatorStatus('Reviewing the captured virtual scene…');
-    const result=await bridge.request('/api/plan',{text:'Review the current rendered virtual scene for visible scale, floor alignment, and placement problems. The image excludes physical passthrough; use room-plane measurements for physical context. If the scene looks good, say so. Propose only supported corrections.',mode:'codex-cli',captureId:ready.captureId});
-    await showProposal(result);
+    const request='Review the current rendered virtual scene for visible scale, floor alignment, and placement problems. The image excludes physical passthrough; use room-plane measurements for physical context. If the scene looks good, say so. Propose only supported corrections.';
+    const result=await bridge.request('/api/plan',{text:request,mode:'codex-cli',captureId:ready.captureId,conversation});
+    await showProposal(result,request);
   }catch(error){feedback(error.message,true);view.setOperatorStatus(`Visual review failed: ${error.message}`,'error');}
   finally{reviewBusy=false;}
 }
@@ -154,6 +176,7 @@ async function pollBlender(jobId,request){
       world.setSelection(result.objectId,world.requireObject(result.objectId).transform.position,world.requireObject(result.objectId).anchorId);
       renderScene();
       const message=`Created ${asset.displayName} in Blender and imported it into ${world.spatial?'AR':'the scene'}. ${measured?'Grab it to adjust the position.':'It is an unanchored preview; grab it to move it.'}`;
+      remember(request,message);
       lastOperatorReply=`You: ${request}\n\nOperator: ${message}`;operatorMessageUntil=Infinity;
       view.setOperatorStatus(lastOperatorReply);feedback(message);speakReply(message);return;
     }
@@ -163,10 +186,10 @@ async function pollBlender(jobId,request){
   }
   throw Error('Blender job is taking longer than expected; check the job list on the PC.');
 }
-async function showProposal(data){
+async function showProposal(data,requestText=''){
   if(data.authoringJobId){
     proposal=null;$('proposal').classList.add('hidden');
-    try{await pollBlender(data.authoringJobId,data.transcript||$('prompt').value.trim());}
+    try{await pollBlender(data.authoringJobId,data.transcript||requestText||$('prompt').value.trim());}
     catch(error){feedback(error.message,true);view.setOperatorStatus(error.message,'error');}
     return;
   }
@@ -174,7 +197,8 @@ async function showProposal(data){
   $('proposal').classList.toggle('hidden',!proposal);
   $('proposal-summary').textContent=data.summary||data.message||data.status||'Review the exact commands.';
   $('proposal-commands').textContent=JSON.stringify(data.commands||[],null,2);
-  const request=data.transcript||$('prompt').value.trim();
+  const request=data.transcript||requestText||$('prompt').value.trim();
+  remember(request,$('proposal-summary').textContent);
   lastOperatorReply=`You: ${request||'(voice request)'}\n\nOperator: ${$('proposal-summary').textContent}`;
   operatorMessageUntil=Infinity;view.setOperatorStatus(lastOperatorReply);
   speakReply($('proposal-summary').textContent);
@@ -198,6 +222,7 @@ $('blender-request').addEventListener('click',async()=>{
   finally{button.disabled=false;}
 });
 $('review-view').addEventListener('click',reviewView);
+$('new-chat').addEventListener('click',newChat);
 $('speak-replies').addEventListener('change',()=>{view.setVoiceOutputEnabled($('speak-replies').checked);unlockReplyAudio();});
 $('prompt').addEventListener('keydown',event=>{if(event.key==='Enter'&&(event.ctrlKey||event.metaKey))propose();});
 $('discard').addEventListener('click',()=>{proposal=null;$('proposal').classList.add('hidden');feedback('Proposal discarded.');});
@@ -207,7 +232,6 @@ function voiceButtons(){for(const id of ['voice-button','xr-voice']){$(id).textC
 async function beginVoice(){
   if(voiceStarting||voiceRecording||voiceJob)return;
   unlockReplyAudio();
-  lastOperatorReply='';operatorMessageUntil=0;
   voiceStarting=true;voiceStopRequested=false;voiceButtons();voiceStatus('Requesting microphone…');
   try{await recorder.start();voiceRecording=true;voiceSnapshot=world.snapshot(view.viewer());voiceStatus('Recording… release the controller or tap Send.');}
   catch(error){voiceStatus(error.message,true);}
@@ -217,7 +241,7 @@ async function endVoice(){
   if(voiceStarting){voiceStopRequested=true;return;}
   if(!voiceRecording)return;
   voiceRecording=false;voiceButtons();voiceStatus('Transcribing on PC…');
-  try{const audioBase64=await recorder.stop();const job=await bridge.request('/api/voice',{clientId:bridge.clientId,snapshot:voiceSnapshot,audioBase64});
+  try{const audioBase64=await recorder.stop();const job=await bridge.request('/api/voice',{clientId:bridge.clientId,snapshot:voiceSnapshot,audioBase64,conversation});
     voiceJob=job.jobId;voiceButtons();await pollVoice(voiceJob);}
   catch(error){voiceStatus(error.message,true);}
   finally{voiceJob=null;voiceSnapshot=null;voiceButtons();}
@@ -227,7 +251,7 @@ async function pollVoice(jobId){
     const job=await bridge.request(`/api/voice/${jobId}`);
     if(job.phase==='error'){voiceStatus(job.error||'Voice request failed',true);return;}
     if(!['transcribing','planning'].includes(job.phase)){if(job.transcript)$('prompt').value=job.transcript;
-      voiceStatus(job.transcript?`Heard: ${job.transcript}`:'Voice request finished');await showProposal(job);return;}
+      voiceStatus(job.transcript?`Heard: ${job.transcript}`:'Voice request finished');await showProposal(job,job.transcript);return;}
     voiceStatus(job.phase==='transcribing'?'Transcribing on PC…':job.progress||'Planning scene…');
     await new Promise(resolve=>setTimeout(resolve,750));
   }

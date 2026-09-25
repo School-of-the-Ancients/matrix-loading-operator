@@ -41,11 +41,13 @@ function operatorPanel(){
   const mesh=new THREE.Mesh(new THREE.PlaneGeometry(.78,.58),new THREE.MeshBasicMaterial({map:texture,transparent:true,depthTest:false,depthWrite:false,side:THREE.DoubleSide}));
   mesh.renderOrder=100;mesh.userData.operatorVoice=true;
   const group=new THREE.Group();group.add(mesh);group.visible=false;
-  let message='Aim here, hold trigger, and ask for a scene.',tone='idle',page=0,pinLabel='PIN TO WALL',voiceLabel='VOICE ON',originLabel='ROOM ORIGIN UNKNOWN';
+  let message='Aim here, hold trigger, and ask for a scene.',tone='idle',page=0,pinLabel='PIN TO WALL',voiceLabel='VOICE ON',originLabel='ROOM ORIGIN UNKNOWN',conversationCount=0;
   const paint=()=>{
     const ctx=canvas.getContext('2d');ctx.fillStyle='#071923';ctx.fillRect(0,0,1024,768);
     ctx.strokeStyle=tone==='error'?'#ffad8d':'#55e9d2';ctx.lineWidth=9;ctx.strokeRect(10,10,1004,748);
     ctx.fillStyle='#75f4df';ctx.font='bold 51px sans-serif';ctx.fillText('◈  OPERATOR',55,90);
+    ctx.fillStyle='#245568';ctx.fillRect(544,35,210,72);
+    ctx.fillStyle='#e9f9fa';ctx.font='bold 24px sans-serif';ctx.textAlign='center';ctx.fillText(`NEW CHAT ${conversationCount}`,649,80);ctx.textAlign='left';
     ctx.fillStyle='#245568';ctx.fillRect(766,35,210,72);
     ctx.fillStyle='#e9f9fa';ctx.font='bold 25px sans-serif';ctx.textAlign='center';ctx.fillText('REVIEW VIEW',871,80);ctx.textAlign='left';
     ctx.fillStyle='#8bb8c2';ctx.font='bold 21px sans-serif';ctx.fillText(originLabel,55,123);
@@ -73,16 +75,17 @@ function operatorPanel(){
   const setPinLabel=next=>{pinLabel=next;paint();};
   const setVoiceLabel=next=>{voiceLabel=next;paint();};
   const setOriginLabel=next=>{if(originLabel!==next){originLabel=next;paint();}};
+  const setConversationCount=next=>{conversationCount=next;paint();};
   const nextPage=()=>{page++;paint();};
   paint();
-  return {group,mesh,setMessage,setPinLabel,setVoiceLabel,setOriginLabel,nextPage};
+  return {group,mesh,setMessage,setPinLabel,setVoiceLabel,setOriginLabel,setConversationCount,nextPage};
 }
 const v3=v=>new THREE.Vector3(v.x,v.y,v.z);
 const plain=v=>({x:Number(v.x.toFixed(3)),y:Number(v.y.toFixed(3)),z:Number(v.z.toFixed(3))});
 
 export class MatrixView {
-  constructor(container,world,onSelection,getToken=()=>'',onAssetError=()=>{},onSceneEdit=()=>{},onRuntimeChange=()=>{},onVoiceStart=()=>{},onVoiceEnd=()=>{},onVoiceOutputToggle=()=>{},onVisualReview=()=>{}){
-    this.world=world;this.onSelection=onSelection;this.getToken=getToken;this.onAssetError=onAssetError;this.onSceneEdit=onSceneEdit;this.onRuntimeChange=onRuntimeChange;this.onVoiceStart=onVoiceStart;this.onVoiceEnd=onVoiceEnd;this.onVoiceOutputToggle=onVoiceOutputToggle;this.onVisualReview=onVisualReview;this.onFrame=()=>{};
+  constructor(container,world,onSelection,getToken=()=>'',onAssetError=()=>{},onSceneEdit=()=>{},onRuntimeChange=()=>{},onVoiceStart=()=>{},onVoiceEnd=()=>{},onVoiceOutputToggle=()=>{},onVisualReview=()=>{},onNewChat=()=>{}){
+    this.world=world;this.onSelection=onSelection;this.getToken=getToken;this.onAssetError=onAssetError;this.onSceneEdit=onSceneEdit;this.onRuntimeChange=onRuntimeChange;this.onVoiceStart=onVoiceStart;this.onVoiceEnd=onVoiceEnd;this.onVoiceOutputToggle=onVoiceOutputToggle;this.onVisualReview=onVisualReview;this.onNewChat=onNewChat;this.onFrame=()=>{};
     this.container=container;this.objectRoots=new Map();this.anchorRoots=new Map();this.planeOutlines=new Map();this.planeIds=new WeakMap();this.nextPlaneId=0;this.hitSource=null;this.reticleVisible=false;this.xrViewer=null;this.reticleAnchorId='';this.lastPlaneTime=0;
     this.modelCache=new Map();
     this.scene=new THREE.Scene();this.scene.background=new THREE.Color(0x0a1b29);
@@ -224,6 +227,7 @@ export class MatrixView {
     this.scene.background=new THREE.Color(0x0a1b29);document.getElementById('view-label').textContent='DESKTOP · VIRTUAL ROOM';
   }
   setOperatorStatus(message,tone='idle'){this.operatorPanel.setMessage(message,tone);}
+  setConversationCount(count){this.operatorPanel.setConversationCount(count);}
   setVoiceOutputEnabled(enabled){this.operatorPanel.setVoiceLabel(enabled?'VOICE ON':'VOICE OFF');}
   positionOperatorPanel(){
     if(!this.xrViewer)return;
@@ -428,6 +432,7 @@ export class MatrixView {
     const panelHit=this.operatorPanel.group.visible&&this.raycaster.intersectObject(this.operatorPanel.mesh)[0];
     if(panelHit){
       if(panelHit.uv?.y>.86&&panelHit.uv.x>.74)this.onVisualReview();
+      else if(panelHit.uv?.y>.86&&panelHit.uv.x>.53)this.onNewChat();
       else if(panelHit.uv?.y<.19&&panelHit.uv.x>.86)this.operatorPanel.nextPage();
       else if(panelHit.uv?.y<.19&&panelHit.uv.x>.72)this.onVoiceOutputToggle();
       else if(panelHit.uv?.y<.19&&panelHit.uv.x>.50)this.toggleOperatorPin();
