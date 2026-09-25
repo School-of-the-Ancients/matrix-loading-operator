@@ -11,9 +11,21 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 import json
 import secrets
 import threading
+import urllib.request
 
 
 MAX_SUMMARY_OBJECTS = 24
+
+
+def read_scene(url: str, token: str) -> dict:
+    """Read only the private loopback listener, ignoring process proxy settings."""
+    request = urllib.request.Request(url, headers={"Authorization": "Bearer " + token})
+    opener = urllib.request.build_opener(urllib.request.ProxyHandler({}))
+    with opener.open(request, timeout=3) as response:
+        raw = response.read(64 * 1024 + 1)
+    if len(raw) > 64 * 1024:
+        raise ValueError("Matrix scene summary exceeded its limit")
+    return json.loads(raw)
 
 
 def scene_summary(state) -> dict:

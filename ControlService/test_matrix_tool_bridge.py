@@ -1,5 +1,6 @@
 """PC-only MCP bridge reads the live Matrix scene with bounded output."""
 import json
+import os
 from pathlib import Path
 import tempfile
 import unittest
@@ -9,7 +10,7 @@ from unittest.mock import patch
 
 from agent_session import LocalCodexAgentBackend
 from codex_provider import CodexConfig
-from matrix_tool_bridge import MatrixToolBridge, scene_summary
+from matrix_tool_bridge import MatrixToolBridge, read_scene, scene_summary
 from server import State, local_agent_backend
 from test_server import SNAPSHOT
 
@@ -65,6 +66,13 @@ class MatrixToolBridgeTests(unittest.TestCase):
         self.assertTrue(any("mcp_servers.matrix_webxr.command=" in part for part in command))
         self.assertNotIn(self.bridge.token, " ".join(command))
         self.assertEqual(backend.transport.environment["MATRIX_CONTROL_TOKEN"], self.bridge.token)
+
+    def test_private_client_ignores_environment_proxy(self):
+        self.state.exchange({"clientId": "web-client", "snapshot": SNAPSHOT, "results": []})
+        with patch.dict(os.environ, {"HTTP_PROXY": "http://127.0.0.1:9",
+                                  "HTTPS_PROXY": "http://127.0.0.1:9", "NO_PROXY": "browser"}):
+            self.assertEqual(read_scene(self.bridge.url, self.bridge.token)["roomId"],
+                             SNAPSHOT["scene"]["roomId"])
 
     def test_agent_backend_starts_private_listener_only_when_needed(self):
         other = State(self.temp.name)

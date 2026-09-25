@@ -1,12 +1,11 @@
 """PC-local read-only Matrix MCP server for the Codex Agent Portal."""
 from __future__ import annotations
 
-import json
 import os
-import urllib.request
 
 from mcp.server.fastmcp import FastMCP
 from mcp.types import ToolAnnotations
+from matrix_tool_bridge import read_scene
 
 
 server = FastMCP("matrix-webxr")
@@ -21,12 +20,7 @@ def matrix_scene_summary() -> dict:
     """
     url = os.environ["MATRIX_CONTROL_URL"]
     token = os.environ["MATRIX_CONTROL_TOKEN"]
-    request = urllib.request.Request(url, headers={"Authorization": "Bearer " + token})
-    with urllib.request.urlopen(request, timeout=3) as response:
-        raw = response.read(64 * 1024 + 1)
-    if len(raw) > 64 * 1024:
-        raise ValueError("Matrix scene summary exceeded its limit")
-    return json.loads(raw)
+    return read_scene(url, token)
 
 
 if __name__ == "__main__":
