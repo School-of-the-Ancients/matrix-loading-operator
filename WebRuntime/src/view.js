@@ -82,7 +82,7 @@ function operatorPanel(){
     }else{
       const content=mode==='proposal'&&proposal?
         `REVIEW BEFORE APPLY\n${proposal.summary||''}\n\n${proposal.kind==='game'?
-          `GAME: ${proposal.gamePlan?.title||''}\nROLES\n${proposal.gamePlan?.roles?.map(role=>`${role.count} × ${role.assetId} as ${role.roleId} (${role.kind})`).join('\n')||''}\nRULES\n${proposal.gamePlan?.rules?.map(rule=>`${rule.actorRoleId} → ${rule.targetRoleId}: ${rule.event} within ${rule.distanceMeters} m, +${rule.scorePoints}`).join('\n')||''}\nOBJECTIVES\n${proposal.gamePlan?.objectives?.map(objective=>`${objective.roleId}: ${objective.targetCount} delivered`).join('\n')||''}`:
+          `GAME: ${proposal.gamePlan?.title||''}\nROLES\n${proposal.gamePlan?.roles?.map(role=>`${role.count} × ${role.assetId} as ${role.roleId} (${role.kind})`).join('\n')||''}\nRULES\n${proposal.gamePlan?.rules?.map(rule=>`${rule.actorRoleId} → ${rule.targetRoleId}: ${rule.event} within ${rule.distanceMeters} m, +${rule.scorePoints}`).join('\n')||''}\nOBJECTIVES\n${proposal.gamePlan?.objectives?.map(objective=>objective.kind==='score-at-least'?`At least ${objective.targetPoints} points`:`${objective.roleId}: ${objective.targetCount} delivered`).join('\n')||''}`:
           `COMMANDS (${proposal.commands?.length||0})\n${JSON.stringify(proposal.commands||[],null,2)}`}`:message;
       ctx.font=content.length>500?'24px sans-serif':'30px sans-serif';ctx.fillStyle='#dff7f8';
       const lines=[];

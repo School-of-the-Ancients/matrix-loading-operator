@@ -58,7 +58,8 @@ test('version 2 saves and restores scene, bindings, score and win progress toget
     roles:[{roleId:'orbs',kind:'pickup',assetId:'orb',count:2},
       {roleId:'zone',kind:'delivery-zone',assetId:'pedestal',count:1}],
     rules:[{event:'release-near',actorRoleId:'orbs',targetRoleId:'zone',distanceMeters:.6,scorePoints:4}],
-    objectives:[{kind:'delivered-count',roleId:'orbs',targetCount:2}]};
+    objectives:[{kind:'delivered-count',roleId:'orbs',targetCount:2},
+      {kind:'score-at-least',targetPoints:8}]};
   startGame(original,spec);
   const game=original.game,target=original.requireObject(game.bindings.zone[0]);
   const id=game.bindings.orbs[0],transform=structuredClone(original.requireObject(id).transform);
@@ -72,6 +73,13 @@ test('version 2 saves and restores scene, bindings, score and win progress toget
   assert.deepEqual(reopened.scene,original.scene);
   assert.deepEqual(reopened.game,original.game);
   assert.equal(reopened.game.state.score,4);
+  assert.equal(reopened.game.state.phase,'playing');
+  const next=reopened.game.bindings.orbs[1],nextTransform=structuredClone(reopened.requireObject(next).transform);
+  nextTransform.position=structuredClone(reopened.requireObject(reopened.game.bindings.zone[0]).transform.position);
+  reopened.execute({requestId:'move-after-reload',op:'set_transform',objectId:next,transform:nextTransform});
+  assert.ok(deliverMovedObject(reopened,next));
+  assert.equal(reopened.game.state.score,8);
+  assert.equal(reopened.game.state.phase,'won');
 });
 
 test('scene-only saves migrate without replacing Matrix object IDs',()=>{

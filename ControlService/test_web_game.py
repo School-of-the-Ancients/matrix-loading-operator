@@ -30,6 +30,19 @@ class GamePlanTests(unittest.TestCase):
             with self.subTest(bad=bad), self.assertRaises(ValueError):
                 web_game.validate_game_plan(bad, snapshot)
 
+    def test_score_threshold_is_bounded_by_possible_one_time_awards(self):
+        snapshot = copy.deepcopy(fixtures.SNAPSHOT)
+        score_plan = {**PLAN, "objectives": [{"kind": "score-at-least", "targetPoints": 20}]}
+        self.assertEqual(web_game.validate_game_plan(score_plan, snapshot), score_plan)
+        mixed = {**PLAN, "objectives": PLAN["objectives"] + score_plan["objectives"]}
+        self.assertEqual(web_game.validate_game_plan(mixed, snapshot), mixed)
+        for objectives in ([{"kind": "score-at-least", "targetPoints": 31}],
+                           [{"kind": "score-at-least", "targetPoints": True}],
+                           [{"kind": "score-at-least", "targetPoints": 20, "script": "bad"}],
+                           score_plan["objectives"] * 2):
+            with self.subTest(objectives=objectives), self.assertRaises(ValueError):
+                web_game.validate_game_plan({**PLAN, "objectives": objectives}, snapshot)
+
     def test_game_route_returns_reviewable_plan_without_scene_commands(self):
         with tempfile.TemporaryDirectory() as directory:
             state = server.State(directory)

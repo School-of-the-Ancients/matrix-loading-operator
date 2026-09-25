@@ -4,6 +4,8 @@ const round=value=>Math.round(value*1000)/1000;
 const finite=value=>typeof value==='number'&&Number.isFinite(value);
 const shape=(value,fields)=>value&&typeof value==='object'&&!Array.isArray(value)&&
   Object.keys(value).sort().join('|')===fields.slice().sort().join('|');
+const achieved=(objective,state)=>objective.kind==='score-at-least'?state.score>=objective.targetPoints:
+  state.objectiveProgress[objective.roleId]>=objective.targetCount;
 
 export function validateGameSpec(spec,asset=()=>true){
   if(!shape(spec,['kind','title','roles','rules','objectives','summary'])||spec.kind!=='game'||
@@ -31,8 +33,15 @@ export function validateGameSpec(spec,asset=()=>true){
        rule.distanceMeters<.25||rule.distanceMeters>1||!Number.isInteger(rule.scorePoints)||
        rule.scorePoints<1||rule.scorePoints>1000)throw Error('Invalid game rule');
   }
+  const maxScore=[...roles.values()].filter(role=>role.kind==='pickup').reduce((sum,role)=>
+    sum+role.count*Math.max(0,...spec.rules.filter(rule=>rule.actorRoleId===role.roleId).map(rule=>rule.scorePoints)),0);
+  let scoreObjectives=0;
   for(const objective of spec.objectives){
-    if(!shape(objective,['kind','roleId','targetCount'])||objective.kind!=='delivered-count'||
+    if(objective?.kind==='score-at-least'){
+      if(!shape(objective,['kind','targetPoints'])||!Number.isInteger(objective.targetPoints)||
+         objective.targetPoints<1||objective.targetPoints>maxScore||++scoreObjectives>1)
+        throw Error('Invalid game objective');
+    }else if(!shape(objective,['kind','roleId','targetCount'])||objective.kind!=='delivered-count'||
        roles.get(objective.roleId)?.kind!=='pickup'||!Number.isInteger(objective.targetCount)||
        objective.targetCount<1||objective.targetCount>roles.get(objective.roleId).count||
        !spec.rules.some(rule=>rule.actorRoleId===objective.roleId))throw Error('Invalid game objective');
@@ -61,12 +70,23 @@ export function validSavedGame(game,scene,asset=()=>true){
        !['playing','won'].includes(state.phase)||!Number.isSafeInteger(state.score)||state.score<0||
        !Array.isArray(state.deliveries)||new Set(state.deliveries).size!==state.deliveries.length||
        !state.deliveries.every(id=>game.spec.roles.some(role=>role.kind==='pickup'&&game.bindings[role.roleId].includes(id)))||
-       !state.objectiveProgress||typeof state.objectiveProgress!=='object')return null;
-    for(const objective of game.spec.objectives){
+       !state.objectiveProgress||typeof state.objectiveProgress!=='object'||
+       Array.isArray(state.objectiveProgress))return null;
+    for(const objective of game.spec.objectives.filter(item=>item.kind==='delivered-count')){
       const delivered=game.bindings[objective.roleId].filter(id=>state.deliveries.includes(id)).length;
       if(state.objectiveProgress[objective.roleId]!==delivered)return null;
     }
-    const won=game.spec.objectives.every(objective=>state.objectiveProgress[objective.roleId]>=objective.targetCount);
+    const deliveredRoles=[...new Set(game.spec.objectives.filter(item=>item.kind==='delivered-count').map(item=>item.roleId))];
+    if(Object.keys(state.objectiveProgress).sort().join('|')!==deliveredRoles.sort().join('|'))return null;
+    let minimum=0,maximum=0;
+    for(const id of state.deliveries){
+      const role=game.spec.roles.find(item=>item.kind==='pickup'&&game.bindings[item.roleId].includes(id));
+      const points=game.spec.rules.filter(rule=>rule.actorRoleId===role.roleId).map(rule=>rule.scorePoints);
+      if(!points.length)return null;
+      minimum+=Math.min(...points);maximum+=Math.max(...points);
+    }
+    if(state.score<minimum||state.score>maximum)return null;
+    const won=game.spec.objectives.every(objective=>achieved(objective,state));
     if((state.phase==='won')!==won)return null;
     return game;
   }catch{return null;}
@@ -119,7 +139,7 @@ export function startGame(world,spec,viewer=null){
       }
     }
     world.game={spec:structuredClone(spec),bindings,state:{phase:'playing',score:0,deliveries:[],
-      objectiveProgress:Object.fromEntries(spec.objectives.map(objective=>[objective.roleId,0]))}};
+      objectiveProgress:Object.fromEntries(spec.objectives.filter(item=>item.kind==='delivered-count').map(objective=>[objective.roleId,0]))}};
     return world.game;
   }catch(error){
     world.scene=backup.scene;world.selection=backup.selection;world.undo=backup.undo;world.redo=backup.redo;world.game=backup.game;
@@ -131,7 +151,8 @@ export function gameStatus(world){
   const game=world.game;
   if(!game)return 'No game running.';
   if(!validSavedGame(game,world.scene,id=>!!world.asset(id)))return `${game.spec?.title||'Game'}: bound objects are missing or progress is invalid.`;
-  const progress=game.spec.objectives.map(objective=>
+  const progress=game.spec.objectives.map(objective=>objective.kind==='score-at-least'?
+    `${game.state.score}/${objective.targetPoints} points`:
     `${game.state.objectiveProgress[objective.roleId]}/${objective.targetCount} ${objective.roleId}`).join(' · ');
   return `${game.spec.title}: ${game.state.phase==='won'?'complete!':'playing'} ${progress}. Score ${game.state.score}.`;
 }
@@ -151,8 +172,9 @@ export function deliverMovedObject(world,objectId){
       if(Math.hypot(a.x-b.x,a.z-b.z)>rule.distanceMeters||Math.abs(a.y-b.y)>1)continue;
       game.state.deliveries.push(objectId);
       game.state.score+=rule.scorePoints;
-      game.state.objectiveProgress[actor.roleId]=game.bindings[actor.roleId].filter(id=>game.state.deliveries.includes(id)).length;
-      if(game.spec.objectives.every(objective=>game.state.objectiveProgress[objective.roleId]>=objective.targetCount))game.state.phase='won';
+      if(Object.hasOwn(game.state.objectiveProgress,actor.roleId))
+        game.state.objectiveProgress[actor.roleId]=game.bindings[actor.roleId].filter(id=>game.state.deliveries.includes(id)).length;
+      if(game.spec.objectives.every(objective=>achieved(objective,game.state)))game.state.phase='won';
       return game.state.phase==='won'?`${game.spec.title} complete! Score ${game.state.score}.`:
         `Delivered ${actor.roleId}. Score ${game.state.score}.`;
     }

@@ -33,12 +33,16 @@ GAME_SCHEMA = {
                            "targetRoleId": {"type": "string", "maxLength": 32},
                            "distanceMeters": {"type": "number", "minimum": 0.25, "maximum": 1.0},
                            "scorePoints": {"type": "integer", "minimum": 1, "maximum": 1000}}}},
-        "objectives": {"type": "array", "maxItems": 8, "items": {
-            "type": "object", "additionalProperties": False,
-            "required": ["kind", "roleId", "targetCount"],
-            "properties": {"kind": {"type": "string", "enum": ["delivered-count"]},
-                           "roleId": {"type": "string", "maxLength": 32},
-                           "targetCount": {"type": "integer", "minimum": 1, "maximum": 6}}}},
+        "objectives": {"type": "array", "maxItems": 8, "items": {"anyOf": [
+            {"type": "object", "additionalProperties": False,
+             "required": ["kind", "roleId", "targetCount"],
+             "properties": {"kind": {"type": "string", "enum": ["delivered-count"]},
+                            "roleId": {"type": "string", "maxLength": 32},
+                            "targetCount": {"type": "integer", "minimum": 1, "maximum": 6}}},
+            {"type": "object", "additionalProperties": False,
+             "required": ["kind", "targetPoints"],
+             "properties": {"kind": {"type": "string", "enum": ["score-at-least"]},
+                            "targetPoints": {"type": "integer", "minimum": 1, "maximum": 24000}}}]}},
         "summary": {"type": "string", "maxLength": 500},
     },
 }
@@ -46,11 +50,14 @@ GAME_SCHEMA = {
 GAME_PROMPT = """Design one playable Matrix WebXR game from the latest user request using the advertised mechanics.
 Return only the JSON described by the output schema. This is a declarative game plan, not executable code.
 The current mechanic catalog supports roles pickup and delivery-zone; event release-near; score points;
-and a delivered-count objective with a win condition. Choose exact assetId values from snapshot.assets.
+and either delivered-count or score-at-least objectives with a win condition. Choose exact assetId values from snapshot.assets.
 For a broad request, choose a theme from available assets and 2 to 6 pickup objects and one destination.
 Use unique roleId values. Each release-near rule connects a pickup role to a delivery-zone role.
 Use multiple roles, rules and objectives only when the request needs them, such as matching colored objects to zones.
 Keep the total object count at or below 24. Every pickup objective must have a release-near rule.
+A score-at-least objective has targetPoints and no roleId or targetCount. Include at most one, with
+an achievable threshold no higher than the sum of each pickup count times its highest rule score.
+All objectives must be satisfied to win. Score is awarded once per pickup object.
 The browser creates the layout, handles controller/desktop grabs, evaluates the rule and tracks score.
 Do not claim combat, NPCs, physics, arbitrary scripts, procedural worlds or other mechanics exist.
 If the request explicitly depends on unsupported mechanics, use kind unsupported and empty roles,
@@ -97,11 +104,20 @@ def validate_game_plan(value, snapshot):
                 or type(rule["distanceMeters"]) not in (int, float) or not 0.25 <= rule["distanceMeters"] <= 1.0
                 or type(rule["scorePoints"]) is not int or not 1 <= rule["scorePoints"] <= 1000):
             raise ValueError("Invalid game rule")
+    max_score = sum(role["count"] * max((rule["scorePoints"] for rule in rules
+                                         if rule["actorRoleId"] == role["roleId"]), default=0)
+                    for role in roles if role["kind"] == "pickup")
+    score_objectives = 0
     for objective in objectives:
-        if (not isinstance(objective, dict) or set(objective) != {"kind", "roleId", "targetCount"}
-                or objective["kind"] != "delivered-count" or by_id.get(objective["roleId"], {}).get("kind") != "pickup"
-                or type(objective["targetCount"]) is not int or not 1 <= objective["targetCount"] <= by_id[objective["roleId"]]["count"]
-                or not any(rule["actorRoleId"] == objective["roleId"] for rule in rules)):
+        if isinstance(objective, dict) and objective.get("kind") == "score-at-least":
+            score_objectives += 1
+            if (set(objective) != {"kind", "targetPoints"} or type(objective["targetPoints"]) is not int
+                    or not 1 <= objective["targetPoints"] <= min(24000, max_score) or score_objectives > 1):
+                raise ValueError("Invalid game objective")
+        elif (not isinstance(objective, dict) or set(objective) != {"kind", "roleId", "targetCount"}
+              or objective["kind"] != "delivered-count" or by_id.get(objective["roleId"], {}).get("kind") != "pickup"
+              or type(objective["targetCount"]) is not int or not 1 <= objective["targetCount"] <= by_id[objective["roleId"]]["count"]
+              or not any(rule["actorRoleId"] == objective["roleId"] for rule in rules)):
             raise ValueError("Invalid game objective")
     return value
 
