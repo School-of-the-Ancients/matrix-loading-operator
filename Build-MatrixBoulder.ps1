@@ -7,12 +7,22 @@ Set-StrictMode -Version Latest
 
 if (-not (Test-Path -LiteralPath $UnityEditor -PathType Leaf)) { throw "Unity Editor missing: $UnityEditor" }
 $root = [IO.Path]::GetFullPath($PSScriptRoot)
-$fixture = [IO.Path]::GetFullPath((Join-Path $root '.matrix-boulder-fixture'))
-if (-not $fixture.StartsWith($root + [IO.Path]::DirectorySeparatorChar, [StringComparison]::OrdinalIgnoreCase)) {
-    throw 'The Boulder fixture must remain inside this repository.'
+$cacheRoot = [IO.Path]::GetFullPath($env:LOCALAPPDATA)
+$sha = [Security.Cryptography.SHA256]::Create()
+try {
+    $bytes = $sha.ComputeHash([Text.Encoding]::UTF8.GetBytes($root.ToLowerInvariant()))
+    $suffix = [BitConverter]::ToString($bytes, 0, 4).Replace('-', '').ToLowerInvariant()
+} finally { $sha.Dispose() }
+# Shader Graph's built-in target reads template files through a legacy path API.
+# This short project path keeps its package cache below the Windows path limit.
+$fixture = [IO.Path]::GetFullPath((Join-Path $cacheRoot ('MatrixBoulderFixture-' + $suffix)))
+if (-not $fixture.StartsWith($cacheRoot + [IO.Path]::DirectorySeparatorChar, [StringComparison]::OrdinalIgnoreCase)) {
+    throw 'The Boulder fixture must remain inside the local application cache.'
 }
 $sourceRoot = Join-Path $root 'Assets\Sandbox\MatrixBoulder'
-$relativeScripts = @('Runtime\MatrixBoulderStream.cs', 'Editor\MatrixBoulderSceneSetup.cs')
+$relativeScripts = @('Runtime\MatrixBoulderStream.cs', 'Runtime\BoulderCitizenModel.cs',
+    'Runtime\BoulderCitizenDemo.cs', 'Editor\MatrixBoulderSceneSetup.cs',
+    'Editor\BoulderCitizenValidation.cs')
 foreach ($relative in $relativeScripts) {
     $source = Join-Path $sourceRoot $relative
     if (-not (Test-Path -LiteralPath $source -PathType Leaf)) { throw "Missing Boulder source: $source" }
@@ -23,6 +33,9 @@ foreach ($relative in $relativeScripts) {
 }
 foreach ($relative in @('Assets\Sandbox\MatrixBoulder.meta',
         'Assets\Sandbox\MatrixBoulder\Editor.meta', 'Assets\Sandbox\MatrixBoulder\Runtime.meta',
+        'Assets\Sandbox\MatrixBoulder\Materials.meta',
+        'Assets\Sandbox\MatrixBoulder\Materials\CitizenBeacon.mat',
+        'Assets\Sandbox\MatrixBoulder\Materials\CitizenBeacon.mat.meta',
         'Assets\Sandbox\MatrixBoulder\Scenes.meta',
         'Assets\Sandbox\MatrixBoulder\Scenes\MatrixBoulder.unity',
         'Assets\Sandbox\MatrixBoulder\Scenes\MatrixBoulder.unity.meta')) {
@@ -82,7 +95,7 @@ if (-not (Test-Path -LiteralPath $rootMeta -PathType Leaf)) { throw "Boulder roo
 Copy-Item -LiteralPath $rootMeta -Destination (Join-Path $root 'Assets\Sandbox\MatrixBoulder.meta') -Force
 $generatedRoot = Join-Path $fixture 'Assets\Sandbox\MatrixBoulder'
 foreach ($file in Get-ChildItem -LiteralPath $generatedRoot -Recurse -File) {
-    if ($file.Extension -notin @('.meta', '.unity')) { continue }
+    if ($file.Extension -notin @('.meta', '.unity', '.mat')) { continue }
     $relative = $file.FullName.Substring($generatedRoot.Length + 1)
     $destination = Join-Path $sourceRoot $relative
     [void](New-Item -ItemType Directory -Path (Split-Path -Parent $destination) -Force)
