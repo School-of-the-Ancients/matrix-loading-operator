@@ -54,6 +54,22 @@ def animated_glb(edit=None):
 
 
 class WebAssetTests(unittest.TestCase):
+    def test_existing_animated_catalog_is_reinspected_once_before_playback(self):
+        with tempfile.TemporaryDirectory() as directory:
+            source = Path(directory) / "legacy.glb"
+            source.write_bytes(animated_glb())
+            catalog = WebAssetCatalog(Path(directory) / "catalog")
+            entry = catalog.register(source, "Legacy flight")
+            manifest = catalog.root / "manifest.json"
+            old = json.loads(manifest.read_text(encoding="utf-8"))
+            del old[0]["geometry"]["animationClips"]
+            manifest.write_text(json.dumps(old), encoding="utf-8")
+            repaired = catalog.list()[0]
+            self.assertEqual(repaired["assetId"], entry["assetId"])
+            self.assertEqual(repaired["geometry"]["animationClips"][0]["name"], "Flight")
+            self.assertIn("animationClips", json.loads(manifest.read_text(encoding="utf-8"))[0]["geometry"])
+            self.assertEqual(catalog.list()[0], repaired)
+
     def test_animated_glb_catalogs_one_bounded_named_clip(self):
         with tempfile.TemporaryDirectory() as directory:
             source = Path(directory) / "animated.glb"

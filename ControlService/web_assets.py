@@ -142,16 +142,35 @@ class WebAssetCatalog:
         self.lock = threading.RLock()
 
     def list(self):
-        manifest = self.root / "manifest.json"
-        if not manifest.is_file():
-            return []
-        try:
-            items = json.loads(manifest.read_text(encoding="utf-8"))
-        except (OSError, ValueError):
-            raise WebAssetError("Web asset manifest is unreadable") from None
-        if not isinstance(items, list) or len(items) > MAX_ASSETS:
-            raise WebAssetError("Web asset manifest is invalid")
-        return items
+        with self.lock:
+            manifest = self.root / "manifest.json"
+            if not manifest.is_file():
+                return []
+            try:
+                items = json.loads(manifest.read_text(encoding="utf-8"))
+            except (OSError, ValueError):
+                raise WebAssetError("Web asset manifest is unreadable") from None
+            if not isinstance(items, list) or len(items) > MAX_ASSETS:
+                raise WebAssetError("Web asset manifest is invalid")
+            changed = False
+            for item in items:
+                geometry = item.get("geometry") if isinstance(item, dict) else None
+                if not isinstance(geometry, dict) or "animationClips" in geometry:
+                    continue
+                digest = item.get("sha256")
+                if not isinstance(digest, str) or not SHA.fullmatch(digest):
+                    raise WebAssetError("Legacy GLB catalog entry is invalid")
+                path = self.root / f"{digest}.glb"
+                if not path.is_file() or hashlib.sha256(path.read_bytes()).hexdigest() != digest:
+                    raise WebAssetError("Legacy GLB is missing or corrupt")
+                inspected = inspect_glb(path)
+                if any(inspected.get(key) != value for key, value in geometry.items()):
+                    raise WebAssetError("Legacy GLB catalog metadata does not match its file")
+                item["geometry"] = inspected
+                changed = True
+            if changed:
+                self._write_manifest(items)
+            return items
 
     def file(self, digest):
         if not SHA.fullmatch(digest):
