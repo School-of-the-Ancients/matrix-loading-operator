@@ -1,6 +1,6 @@
 # Instructions for coding agents
 
-Read [PROJECTS.md](PROJECTS.md) before making architectural decisions.
+Read [PROJECTS.md](PROJECTS.md), the current [PRD](PRD.md), and [IMPLEMENTATION_PLAN.md](IMPLEMENTATION_PLAN.md) before making architectural decisions. The implementation plan selects the next small step; the controlling issue retains its detailed acceptance criteria.
 
 This repository contains multiple generations of Matrix. Do not assume every existing subsystem belongs to the current implementation direction.
 
@@ -50,10 +50,13 @@ Codex remains on the PC. Browser/headset code is a bounded client and must not r
 - Identify the project track from PROJECTS.md.
 - Reuse existing state, validation, receipt, asset and component contracts instead of creating parallel systems.
 - Preserve open stacked PR history and resolved review fixes.
+- Select one implementation-plan step. Start by verifying existing behavior; an unchecked umbrella issue does not mean its subfeatures are absent.
+- Do not add a service, framework, database, universal DSL, or provider layer without a concrete requirement from that step. Ordinary modules in the existing repositories are the default.
+- Keep new runtime development on the normal reviewed code/build path; asset hot loading is not permission to execute arbitrary downloaded code.
 
 ## Pull requests
 
-Prefer small reviewable slices with exact validation and explicit remaining hardware checks.
+Prefer small reviewable slices with exact validation and explicit remaining hardware checks. State which plan step and existing issue the change advances, what was reused, and what is deliberately out of scope.
 
 Unless explicitly instructed to merge, **leave PRs open for review**.
 
