@@ -60,6 +60,44 @@ test('rules distinguish matching delivery zones with the same mechanics',()=>{
   assert.equal(game.state.score,12);
 });
 
+test('score threshold wins once without requiring a delivered-count objective',()=>{
+  const spec={...plan,objectives:[{kind:'score-at-least',targetPoints:20}]};
+  const current=world(),game=startGame(current,spec,viewer);
+  assert.deepEqual(game.state.objectiveProgress,{});
+  assert.match(gameStatus(current),/0\/20 points/);
+  for(const id of game.bindings.orbs.slice(0,2)){
+    moveTo(current,id,game.bindings.station[0]);
+    assert.ok(deliverMovedObject(current,id));
+  }
+  assert.equal(game.state.phase,'won');
+  assert.equal(game.state.score,20);
+  assert.equal(deliverMovedObject(current,game.bindings.orbs[0]),null);
+  assert.equal(validSavedGame(structuredClone(game),current.scene)?.state.phase,'won');
+  assert.match(gameStatus(current),/complete! 20\/20 points/);
+});
+
+test('score objectives reject impossible thresholds and inconsistent saved progress',()=>{
+  const spec={...plan,objectives:[{kind:'score-at-least',targetPoints:31}]};
+  assert.throws(()=>validateGameSpec(spec),/Invalid game objective/);
+  assert.throws(()=>validateGameSpec({...spec,objectives:[{kind:'score-at-least',targetPoints:20},
+    {kind:'score-at-least',targetPoints:25}]}),/Invalid game objective/);
+  assert.throws(()=>validateGameSpec({...plan,rules:[{...plan.rules[0],scorePoints:1},
+    {...plan.rules[0],scorePoints:10}],objectives:[{kind:'score-at-least',targetPoints:10}]}),
+    /Duplicate game rule/);
+  const current=world(),game=startGame(current,{...spec,objectives:[{kind:'score-at-least',targetPoints:10}]},viewer);
+  moveTo(current,game.bindings.orbs[0],game.bindings.station[0]);
+  deliverMovedObject(current,game.bindings.orbs[0]);
+  const altered=structuredClone(game);
+  altered.state.score=100;
+  assert.equal(validSavedGame(altered,current.scene),null);
+  altered.state.score=10;
+  altered.state.phase='playing';
+  assert.equal(validSavedGame(altered,current.scene),null);
+  altered.state.phase='won';
+  altered.state.objectiveProgress=[];
+  assert.equal(validSavedGame(altered,current.scene),null);
+});
+
 test('invalid or unsupported plans leave the world intact',()=>{
   const current=world(),before=structuredClone(current.scene);
   assert.throws(()=>startGame(current,{...plan,roles:[{...plan.roles[0],assetId:'invented'},plan.roles[1]]},viewer),/unavailable/);
