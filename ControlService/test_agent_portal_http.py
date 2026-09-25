@@ -1,5 +1,6 @@
 """Authenticated Matrix Agent Portal API on an isolated loopback service."""
 import json
+from pathlib import Path
 import tempfile
 import threading
 import unittest
@@ -16,7 +17,8 @@ class AgentPortalHTTPTests(unittest.TestCase):
         self.temp = tempfile.TemporaryDirectory()
         self.persisted = [False]
         self.state = State(self.temp.name)
-        self.state.agent_portal = AgentPortal(self.temp.name, lambda: FakeBackend(self.persisted))
+        self.state.agent_portal = AgentPortal(Path(self.temp.name) / ".agent_portal",
+                                             lambda: FakeBackend(self.persisted))
         self.token = "matrix-agent-test-token-0123456789"
         self.server = Server(("127.0.0.1", 0), self.state, self.token)
         self.thread = threading.Thread(target=self.server.serve_forever, daemon=True)
@@ -50,6 +52,8 @@ class AgentPortalHTTPTests(unittest.TestCase):
         self.assertEqual(code, 200)
         session_id = opened["sessionId"]
         self.assertEqual(len(session_id), 32)
+        self.assertNotIn("agent_portal", self.state.scenes()["scenes"])
+        self.assertNotEqual(self.state.path("agent_portal"), self.state.agent_portal.path)
         self.assertNotIn("native-thread-id", json.dumps(opened))
         self.assertNotIn(self.token, json.dumps(opened))
         self.assertEqual(self.post("/api/agent/turn", {"sessionId": session_id, "text": "Place this there"})[0], 200)

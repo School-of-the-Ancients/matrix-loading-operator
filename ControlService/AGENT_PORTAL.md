@@ -29,7 +29,9 @@ events to a small allowlist without copying tool arguments or outputs. Native
 thread IDs still remain PC-internal.
 `agent_portal.py` now supplies that PC-owned mapping: one opaque Matrix session
 ID, a bounded transcript, one active turn, background event collection, explicit
-approval/cancel operations, and atomic persistence separate from scene saves.
+approval/cancel operations, and atomic persistence under `.agent_portal/`,
+outside the scene-save namespace. Transcript retention is bounded by encoded
+file size; omitted request/reply text is marked in the session snapshot.
 The five `/api/agent/*` POST routes use the service's existing bearer-token and
 same-origin checks. The browser must store only the opaque Matrix session ID;
 the local Codex executable and configured MCP credentials remain on the PC.

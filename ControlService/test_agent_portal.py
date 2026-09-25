@@ -5,7 +5,7 @@ import time
 import unittest
 from pathlib import Path
 
-from agent_portal import AgentPortal, AgentPortalError
+from agent_portal import AgentPortal, AgentPortalError, MAX_STORE
 
 
 class FakeBackend:
@@ -169,6 +169,22 @@ class AgentPortalTests(unittest.TestCase):
         status = portal.status(session_id)
         self.assertEqual(len(status["transcript"][-1]["assistant"]), 24000)
         self.assertTrue(status["transcript"][-1]["assistantTruncated"])
+
+    def test_large_utf8_transcript_fits_store_and_marks_both_omissions(self):
+        portal = self.portal()
+        session_id = portal.open()["sessionId"]
+        turn_id = portal.send_text(session_id, "😀" * 16000)["turnId"]
+        backend = self.backends[-1]
+        backend.events.append({"sequence": len(backend.events) + 1, "type": "text",
+                               "conversationId": "native-thread-id", "turnId": turn_id,
+                               "text": "😀" * 24000})
+        status = portal.status(session_id)
+        self.assertTrue(status["transcript"][-1]["userTruncated"])
+        self.assertTrue(status["transcript"][-1]["assistantTruncated"])
+        self.assertLessEqual((Path(self.temp.name) / "agent_portal.json").stat().st_size, MAX_STORE)
+        portal.decide(session_id, backend.approval["approvalId"], turn_id, True)
+        self.wait_for(portal, session_id, lambda value: value["activity"] == "completed")
+        self.assertEqual(portal.send_text(session_id, "Another turn")["activity"], "working")
 
 
 if __name__ == "__main__":

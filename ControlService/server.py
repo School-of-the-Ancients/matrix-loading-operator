@@ -324,7 +324,7 @@ class State:
         self.web_assets = WebAssetCatalog(web_assets_directory or Path(__file__).with_name("web_assets"))
         self.web_authoring = WebAuthoringJobs(self.web_assets)
         self.blender_authoring = BlenderAuthoringJobs(self.web_assets)
-        self.agent_portal = AgentPortal(self.directory, local_agent_backend)
+        self.agent_portal = AgentPortal(self.directory / ".agent_portal", local_agent_backend)
         self.clock = clock
         self.lock = threading.RLock()
         self.client_id = None

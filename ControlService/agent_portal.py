@@ -20,6 +20,14 @@ SESSION_ID = re.compile(r"[0-9a-f]{32}\Z")
 MAX_TRANSCRIPT = 20
 MAX_TRANSCRIPT_TEXT = 24000
 MAX_STORE = 128 * 1024
+MAX_LARGE_FIELD_BYTES = 8 * 1024
+
+
+def _fit_utf8(value: str, limit: int, *, tail: bool) -> str:
+    encoded = value.encode("utf-8")
+    if len(encoded) <= limit:
+        return value
+    return (encoded[-limit:] if tail else encoded[:limit]).decode("utf-8", "ignore")
 
 
 class AgentPortalError(Exception):
@@ -71,9 +79,11 @@ class AgentPortal:
                 if not isinstance(turns, list) or len(turns) > MAX_TRANSCRIPT:
                     raise ValueError()
                 for turn in turns:
-                    if (not isinstance(turn, dict) or set(turn) != {"user", "assistant", "status", "turnId", "assistantTruncated"}
+                    if isinstance(turn, dict):
+                        turn.setdefault("userTruncated", False)
+                    if (not isinstance(turn, dict) or set(turn) != {"user", "assistant", "status", "turnId", "assistantTruncated", "userTruncated"}
                             or not all(isinstance(turn[key], str) for key in ("user", "assistant", "status", "turnId"))
-                            or type(turn["assistantTruncated"]) is not bool
+                            or type(turn["assistantTruncated"]) is not bool or type(turn["userTruncated"]) is not bool
                             or len(turn["user"]) > 16000 or len(turn["assistant"]) > MAX_TRANSCRIPT_TEXT
                             or len(turn["turnId"]) > 128
                             or turn["status"] not in ("working", "completed", "failed", "cancelled", "unknown")):
@@ -93,10 +103,23 @@ class AgentPortal:
 
     def _persist(self) -> None:
         self.directory.mkdir(parents=True, exist_ok=True)
-        data = {"version": 1, "sessionId": self._session_id,
-                "conversationId": self._conversation_id, "transcript": self._transcript,
-                "eventSequence": self._sequence}
-        raw = json.dumps(data, ensure_ascii=False, separators=(",", ":")).encode("utf-8")
+        def encode():
+            data = {"version": 1, "sessionId": self._session_id,
+                    "conversationId": self._conversation_id, "transcript": self._transcript,
+                    "eventSequence": self._sequence}
+            return json.dumps(data, ensure_ascii=False, separators=(",", ":")).encode("utf-8")
+        raw = encode()
+        while len(raw) > MAX_STORE and len(self._transcript) > 1:
+            self._transcript.pop(0)
+            raw = encode()
+        if len(raw) > MAX_STORE and self._transcript:
+            turn = self._transcript[-1]
+            user = _fit_utf8(turn["user"], MAX_LARGE_FIELD_BYTES, tail=False)
+            assistant = _fit_utf8(turn["assistant"], MAX_LARGE_FIELD_BYTES, tail=True)
+            turn["userTruncated"] |= user != turn["user"]
+            turn["assistantTruncated"] |= assistant != turn["assistant"]
+            turn["user"], turn["assistant"] = user, assistant
+            raw = encode()
         if len(raw) > MAX_STORE:
             raise AgentPortalError(507, "Agent Portal session storage is full")
         path = None
@@ -176,7 +199,8 @@ class AgentPortal:
                 raise AgentPortalError(502, "Agent message could not be sent") from None
             self._active_turn = turn_id
             self._activity = "working"
-            self._transcript.append({"user": value, "assistant": "", "assistantTruncated": False,
+            self._transcript.append({"user": value, "userTruncated": False,
+                                     "assistant": "", "assistantTruncated": False,
                                      "status": "working", "turnId": turn_id})
             self._transcript = self._transcript[-MAX_TRANSCRIPT:]
             try:
