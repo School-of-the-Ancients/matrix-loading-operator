@@ -22,7 +22,8 @@ MAX_SEND = 1024 * 1024
 MAX_EVENT = 64 * 1024
 MAX_EVENTS = 256
 MAX_APPROVALS = 16
-APPROVAL_METHODS = {"item/commandExecution/requestApproval", "item/fileChange/requestApproval"}
+APPROVAL_METHODS = {"item/commandExecution/requestApproval", "item/fileChange/requestApproval",
+                    "mcpServer/elicitation/request"}
 
 
 def _truncated_event_params(params: dict) -> dict:
@@ -190,7 +191,15 @@ class AppServerTransport:
             if "id" in message:
                 if not isinstance(message["id"], (int, str)):
                     raise AppServerError("Codex app-server sent an invalid request ID")
-                if method not in APPROVAL_METHODS or len(self._approvals) >= MAX_APPROVALS or not isinstance(params, dict):
+                mcp_approval = (method == "mcpServer/elicitation/request" and
+                                isinstance(params, dict) and params.get("mode") == "form" and
+                                isinstance(params.get("_meta"), dict) and
+                                params["_meta"].get("codex_approval_kind") == "mcp_tool_call" and
+                                isinstance(params.get("threadId"), str) and
+                                isinstance(params.get("turnId"), str))
+                if (method not in APPROVAL_METHODS or len(self._approvals) >= MAX_APPROVALS or
+                        not isinstance(params, dict) or
+                        method == "mcpServer/elicitation/request" and not mcp_approval):
                     self._write({"id": message["id"], "error": {"code": -32601,
                                                                   "message": "Matrix cannot handle this server request"}})
                 else:
@@ -224,7 +233,11 @@ class AppServerTransport:
             pending = self._approvals.get(request_id)
             if pending is None or pending["params"].get("threadId") != thread_id or pending["params"].get("turnId") != turn_id:
                 raise AppServerError("Approval is no longer pending for this turn")
-            self._write({"id": request_id, "result": {"decision": decision}})
+            if pending["method"] == "mcpServer/elicitation/request":
+                result = {"action": "accept", "content": {}} if decision == "accept" else {"action": "decline"}
+            else:
+                result = {"decision": decision}
+            self._write({"id": request_id, "result": result})
             self._approvals.pop(request_id, None)
 
     def thread_start(self, *, model: str | None = None) -> str:

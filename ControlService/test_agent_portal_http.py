@@ -86,6 +86,21 @@ class AgentPortalHTTPTests(unittest.TestCase):
             transcribe.assert_called_once_with(b"wav")
             self.assertFalse(self.state.voice_jobs)
 
+    def test_known_mcp_approval_uses_existing_browser_decision_route(self):
+        session_id = self.post("/api/agent/session", {})[1]["sessionId"]
+        self.post("/api/agent/turn", {"sessionId": session_id, "text": "Read this room"})
+        backend = self.state.agent_portal._backend
+        backend.approval.update(action="using_tool", summary="Read the current Matrix room summary.",
+                                reviewable=True)
+        code, status = self.post("/api/agent/status", {"sessionId": session_id})
+        self.assertEqual(code, 200)
+        pending = status["pendingApprovals"][0]
+        self.assertEqual(pending["action"], "using_tool")
+        self.assertTrue(pending["reviewable"])
+        self.assertEqual(self.post("/api/agent/approval", {"sessionId": session_id,
+                         "turnId": pending["turnId"], "approvalId": pending["approvalId"],
+                         "approve": True})[0], 200)
+
     def test_spatial_turn_is_bounded_validated_and_keeps_user_transcript_clean(self):
         room = {"scene": {"schemaVersion": 1, "roomId": "web-virtual-room-v1",
                           "objects": [{"objectId": "chair-1", "assetId": "chair", "anchorId": "web-floor",
