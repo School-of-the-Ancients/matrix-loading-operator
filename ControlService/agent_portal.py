@@ -71,11 +71,12 @@ class AgentPortal:
                 if not isinstance(turns, list) or len(turns) > MAX_TRANSCRIPT:
                     raise ValueError()
                 for turn in turns:
-                    if (not isinstance(turn, dict) or set(turn) != {"user", "assistant", "status", "turnId"}
-                            or not all(isinstance(turn[key], str) for key in turn)
+                    if (not isinstance(turn, dict) or set(turn) != {"user", "assistant", "status", "turnId", "assistantTruncated"}
+                            or not all(isinstance(turn[key], str) for key in ("user", "assistant", "status", "turnId"))
+                            or type(turn["assistantTruncated"]) is not bool
                             or len(turn["user"]) > 16000 or len(turn["assistant"]) > MAX_TRANSCRIPT_TEXT
                             or len(turn["turnId"]) > 128
-                            or turn["status"] not in ("working", "completed", "failed", "unknown")):
+                            or turn["status"] not in ("working", "completed", "failed", "cancelled", "unknown")):
                         raise ValueError()
                 sequence = data.get("eventSequence", 0)
                 if type(sequence) is not int or sequence < 0:
@@ -163,6 +164,7 @@ class AgentPortal:
     def send_text(self, session_id: str, value: str) -> dict:
         with self.lock:
             self._require_session(session_id)
+            self._refresh()
             if not isinstance(value, str) or not value.strip() or len(value) > 16000:
                 raise AgentPortalError(400, "Agent message must be 1–16000 characters")
             if self._active_turn is not None:
@@ -174,7 +176,8 @@ class AgentPortal:
                 raise AgentPortalError(502, "Agent message could not be sent") from None
             self._active_turn = turn_id
             self._activity = "working"
-            self._transcript.append({"user": value, "assistant": "", "status": "working", "turnId": turn_id})
+            self._transcript.append({"user": value, "assistant": "", "assistantTruncated": False,
+                                     "status": "working", "turnId": turn_id})
             self._transcript = self._transcript[-MAX_TRANSCRIPT:]
             try:
                 self._persist()
@@ -187,14 +190,15 @@ class AgentPortal:
                 self._active_turn = None
                 self._activity = "failed"
                 raise
-            self._watcher = threading.Thread(target=self._watch, name="matrix-agent-portal", daemon=True)
+            self._watcher = threading.Thread(target=self._watch, args=(turn_id,),
+                                             name="matrix-agent-portal", daemon=True)
             self._watcher.start()
             return {"sessionId": self._session_id, "turnId": turn_id, "activity": "working"}
 
-    def _watch(self) -> None:
+    def _watch(self, turn_id: str) -> None:
         while not self._stop.wait(0.1):
             with self.lock:
-                if self._active_turn is None or self._backend is None:
+                if self._active_turn != turn_id or self._backend is None:
                     return
                 try:
                     self._pump()
@@ -213,19 +217,25 @@ class AgentPortal:
         cursor, events = self._backend.poll(self._backend_cursor)
         self._backend_cursor = cursor
         for event in events:
+            if event.get("conversationId") != self._conversation_id:
+                continue
             turn_id = event.get("turnId")
             if turn_id is not None and turn_id != self._active_turn:
                 continue
             self._sequence += 1
-            safe = {key: value for key, value in event.items() if key != "sequence"}
+            safe = {key: value for key, value in event.items()
+                    if key not in ("sequence", "conversationId")}
             safe["sequence"] = self._sequence
             self._events.append(safe)
             if event.get("type") == "text" and self._transcript:
                 turn = self._transcript[-1]
-                turn["assistant"] = (turn["assistant"] + event["text"])[-MAX_TRANSCRIPT_TEXT:]
+                joined = turn["assistant"] + event["text"]
+                if len(joined) > MAX_TRANSCRIPT_TEXT:
+                    turn["assistantTruncated"] = True
+                turn["assistant"] = joined[-MAX_TRANSCRIPT_TEXT:]
             elif event.get("type") == "activity":
                 self._activity = event["activity"]
-                if event["activity"] in ("completed", "failed") and self._transcript:
+                if event["activity"] in ("completed", "failed", "cancelled") and self._transcript:
                     self._transcript[-1]["status"] = event["activity"]
                     self._active_turn = None
             elif event.get("type") == "approval":
@@ -233,13 +243,32 @@ class AgentPortal:
         if events:
             self._persist()
 
+    def _refresh(self) -> None:
+        if self._active_turn is None:
+            return
+        try:
+            self._pump()
+        except Exception as error:
+            self.last_error = str(error)
+            self._activity = "failed"
+            if self._transcript:
+                self._transcript[-1]["status"] = "unknown"
+            self._active_turn = None
+            try:
+                self._persist()
+            except AgentPortalError:
+                pass
+            raise AgentPortalError(502, "Codex event stream is unavailable") from None
+
     def _snapshot(self, cursor: int) -> dict:
         if type(cursor) is not int or cursor < 0:
             raise AgentPortalError(400, "Invalid Agent Portal cursor")
         pending = []
         if self._backend is not None and self._active_turn is not None:
-            pending = [item for item in self._backend.pending_approvals()
-                       if item["turnId"] == self._active_turn]
+            pending = [{key: value for key, value in item.items() if key != "conversationId"}
+                       for item in self._backend.pending_approvals()
+                       if item.get("conversationId") == self._conversation_id
+                       and item.get("turnId") == self._active_turn]
         return {"sessionId": self._session_id, "activity": self._activity,
                 "activeTurnId": self._active_turn, "transcript": deepcopy(self._transcript),
                 "pendingApprovals": pending, "cursor": self._sequence,
@@ -248,16 +277,17 @@ class AgentPortal:
     def status(self, session_id: str, cursor: int = 0) -> dict:
         with self.lock:
             self._require_session(session_id)
-            if self._active_turn is not None:
-                self._pump()
+            self._refresh()
             return self._snapshot(cursor)
 
     def decide(self, session_id: str, approval_id: int | str, turn_id: str, approve: bool) -> dict:
         with self.lock:
             self._require_session(session_id)
+            self._refresh()
             if type(approve) is not bool or turn_id != self._active_turn:
                 raise AgentPortalError(409, "Approval is no longer pending")
-            if not any(item["approvalId"] == approval_id and item["turnId"] == turn_id
+            if not any(item.get("conversationId") == self._conversation_id
+                       and item["approvalId"] == approval_id and item["turnId"] == turn_id
                        for item in self._backend.pending_approvals()):
                 raise AgentPortalError(409, "Approval is no longer pending")
             try:
@@ -271,12 +301,20 @@ class AgentPortal:
     def cancel(self, session_id: str, turn_id: str) -> dict:
         with self.lock:
             self._require_session(session_id)
+            self._refresh()
             if turn_id != self._active_turn:
+                if self._transcript and self._transcript[-1]["turnId"] == turn_id and self._transcript[-1]["status"] != "working":
+                    return {"sessionId": self._session_id, "turnId": turn_id,
+                            "activity": self._transcript[-1]["status"]}
                 raise AgentPortalError(409, "Turn is no longer active")
             try:
                 self._backend.cancel(self._conversation_id, turn_id)
             except Exception as error:
                 self.last_error = str(error)
+                self._refresh()
+                if self._active_turn is None and self._transcript and self._transcript[-1]["turnId"] == turn_id:
+                    return {"sessionId": self._session_id, "turnId": turn_id,
+                            "activity": self._transcript[-1]["status"]}
                 raise AgentPortalError(502, "Agent turn could not be stopped") from None
             return {"sessionId": self._session_id, "turnId": turn_id, "activity": "stopping"}
 

@@ -31,12 +31,16 @@ class FakeBackend:
 
     def send_text(self, identifier, text):
         self.turn_number += 1
-        self.approval = {"approvalId": 100 + self.turn_number,
+        self.approval = {"approvalId": 100 + self.turn_number, "conversationId": identifier,
                          "turnId": f"native-turn-{self.turn_number}", "action": "running_command"}
         self.events.append({"sequence": len(self.events) + 1, "type": "approval",
+                            "conversationId": identifier,
                             "turnId": self.approval["turnId"],
                             "approvalId": self.approval["approvalId"],
                             "activity": "waiting_for_approval", "action": "running_command"})
+        self.events.append({"sequence": len(self.events) + 1, "type": "text",
+                            "conversationId": "foreign-thread", "turnId": self.approval["turnId"],
+                            "text": "FOREIGN SECRET"})
         return self.approval["turnId"]
 
     def poll(self, cursor):
@@ -51,15 +55,18 @@ class FakeBackend:
         assert self.approval["turnId"] == turn_id
         self.approval = None
         self.events.append({"sequence": len(self.events) + 1, "type": "text",
+                            "conversationId": conversation_id,
                             "turnId": turn_id, "text": "Done."})
         self.events.append({"sequence": len(self.events) + 1, "type": "activity",
+                            "conversationId": conversation_id,
                             "turnId": turn_id, "activity": "completed"})
         self.persisted[0] = True
 
     def cancel(self, conversation_id, turn_id):
         self.approval = None
         self.events.append({"sequence": len(self.events) + 1, "type": "activity",
-                            "turnId": turn_id, "activity": "failed"})
+                            "conversationId": conversation_id,
+                            "turnId": turn_id, "activity": "cancelled"})
         self.persisted[0] = True
 
     def close(self):
@@ -102,14 +109,23 @@ class AgentPortalTests(unittest.TestCase):
         turn_id = first["turnId"]
         status = self.wait_for(portal, session_id, lambda value: bool(value["pendingApprovals"]))
         self.assertEqual(status["pendingApprovals"][0]["action"], "running_command")
+        self.assertNotIn("FOREIGN SECRET", str(status))
+        self.assertNotIn("native-thread-id", str(status))
         with self.assertRaises(AgentPortalError):
             portal.decide(session_id, 999, turn_id, True)
         portal.decide(session_id, status["pendingApprovals"][0]["approvalId"], turn_id, True)
         status = self.wait_for(portal, session_id, lambda value: value["activity"] == "completed")
         self.assertEqual(status["transcript"][0]["assistant"], "Done.")
+        self.assertEqual(portal.cancel(session_id, turn_id)["activity"], "completed")
         self.assertTrue(status["events"])
         cursor = status["cursor"]
         self.assertEqual(portal.status(session_id, cursor)["events"], [])
+        old_watcher = portal._watcher
+        same_process_turn = portal.send_text(session_id, "Move it again")
+        portal.cancel(session_id, same_process_turn["turnId"])
+        self.wait_for(portal, session_id, lambda value: value["activity"] == "cancelled")
+        old_watcher.join(timeout=1)
+        self.assertFalse(old_watcher.is_alive())
         portal.close()
 
         saved = json.loads((Path(self.temp.name) / "agent_portal.json").read_text(encoding="utf-8"))
@@ -122,8 +138,8 @@ class AgentPortalTests(unittest.TestCase):
         self.assertEqual(self.backends[-1].resume_calls, ["native-thread-id"])
         second = restarted.send_text(session_id, "Make it taller")
         restarted.cancel(session_id, second["turnId"])
-        status = self.wait_for(restarted, session_id, lambda value: value["activity"] == "failed")
-        self.assertEqual(status["transcript"][-1]["status"], "failed")
+        status = self.wait_for(restarted, session_id, lambda value: value["activity"] == "cancelled")
+        self.assertEqual(status["transcript"][-1]["status"], "cancelled")
 
     def test_empty_thread_fails_explicitly_after_restart(self):
         portal = self.portal()
@@ -141,6 +157,18 @@ class AgentPortalTests(unittest.TestCase):
         with self.assertRaisesRegex(AgentPortalError, "requires PC repair"):
             portal.open()
         self.assertEqual(path.read_text(encoding="utf-8"), "{broken")
+
+    def test_bounded_transcript_marks_omitted_prefix(self):
+        portal = self.portal()
+        session_id = portal.open()["sessionId"]
+        turn_id = portal.send_text(session_id, "A long answer")["turnId"]
+        backend = self.backends[-1]
+        backend.events.append({"sequence": len(backend.events) + 1, "type": "text",
+                               "conversationId": "native-thread-id", "turnId": turn_id,
+                               "text": "x" * 25000})
+        status = portal.status(session_id)
+        self.assertEqual(len(status["transcript"][-1]["assistant"]), 24000)
+        self.assertTrue(status["transcript"][-1]["assistantTruncated"])
 
 
 if __name__ == "__main__":

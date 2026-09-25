@@ -33,6 +33,9 @@ approval/cancel operations, and atomic persistence separate from scene saves.
 The five `/api/agent/*` POST routes use the service's existing bearer-token and
 same-origin checks. The browser must store only the opaque Matrix session ID;
 the local Codex executable and configured MCP credentials remain on the PC.
+Approval responses currently expose an action category and turn identity. Raw
+command text and tool arguments remain PC-only. The in-world approval panel
+still needs a useful safe description before wearer acceptance is complete.
 The in-world Operator UI and voice transcription routing are the next slice. Matrix tools,
 Blender-specific workflows, spatial grounding, and rich artifacts come after
 the generic portal.
