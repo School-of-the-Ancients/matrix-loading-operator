@@ -66,6 +66,25 @@ class ConfigurationTests(NativeConfigTestCase):
             with self.subTest(value=value), self.assertRaises(CodexProviderError):
                 CodexConfig(self.executable, reasoning_effort=value).validate()
 
+    def test_agent_sandbox_is_pc_only_and_bounded(self):
+        config = CodexConfig.from_environment({"SANDBOX_AI_MODE": "codex-cli", "SANDBOX_CODEX_EXE": self.executable,
+                                               "SANDBOX_CODEX_AGENT_SANDBOX": "read-only",
+                                               "SANDBOX_CODEX_WINDOWS_SANDBOX": "unelevated"})
+        self.assertEqual((config.agent_sandbox, config.windows_sandbox), ("read-only", "unelevated"))
+        config.validate()
+        self.assertEqual(CodexConfig(self.executable).agent_sandbox, "workspace-write")
+        CodexConfig(self.executable, agent_sandbox="danger-full-access").validate()
+        full = CodexConfig.from_environment({"SANDBOX_AI_MODE": "codex-cli", "SANDBOX_CODEX_EXE": self.executable,
+                                             "SANDBOX_CODEX_AGENT_SANDBOX": "danger-full-access"})
+        full.validate()
+        self.assertEqual(full.agent_sandbox, "danger-full-access")
+        for sandbox in ("workspaceWrite", "", 42):
+            with self.subTest(sandbox=sandbox), self.assertRaises(CodexProviderError):
+                CodexConfig(self.executable, agent_sandbox=sandbox).validate()
+        for sandbox in ("elevated", "unelevated;Remove-Item", 42):
+            with self.subTest(windows_sandbox=sandbox), self.assertRaises(CodexProviderError):
+                CodexConfig(self.executable, windows_sandbox=sandbox).validate()
+
     def test_rejects_shell_wrappers_relative_paths_nonexecutables_and_bad_models(self):
         with tempfile.TemporaryDirectory() as folder:
             disguised = Path(folder) / "fake.exe"

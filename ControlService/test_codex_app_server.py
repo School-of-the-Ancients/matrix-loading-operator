@@ -30,13 +30,13 @@ for line in sys.stdin:
     elif method == "thread/start":
         assert message["params"]["approvalPolicy"] == "on-request"
         assert message["params"]["approvalsReviewer"] == "user"
-        assert message["params"]["sandbox"] == "read-only"
+        assert message["params"]["sandbox"] == "workspace-write"
         send({"id": message["id"], "result": {"thread": {"id": "thread-test"}}})
     elif method == "thread/resume":
         assert message["params"]["threadId"] == "thread-test"
         assert message["params"]["approvalPolicy"] == "on-request"
         assert message["params"]["approvalsReviewer"] == "user"
-        assert message["params"]["sandbox"] == "read-only"
+        assert message["params"]["sandbox"] == "workspace-write"
         send({"id": message["id"], "result": {"thread": {"id": "thread-test"}}})
     elif method == "thread/read":
         assert message["params"]["includeTurns"] is False
@@ -134,6 +134,10 @@ class AppServerTransportTests(unittest.TestCase):
             self.transport.turn_start("thread-test", " ")
         with self.assertRaises(ValueError):
             self.transport.turn_start("thread-test", "x" * 16001)
+        with self.assertRaises(ValueError):
+            self.transport.thread_start(sandbox="no-sandbox")
+        with self.assertRaises(ValueError):
+            self.transport.thread_resume("thread-test", sandbox="no-sandbox")
 
     def test_native_mcp_tool_approval_accept_and_decline(self):
         params = {"threadId": "thread-test", "turnId": "turn-mcp", "serverName": "matrix_webxr",

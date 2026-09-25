@@ -51,6 +51,8 @@ class CodexConfig:
     model: str | None = None
     provider: str = "Codex CLI (ChatGPT login)"
     reasoning_effort: str | None = None
+    agent_sandbox: str = "workspace-write"
+    windows_sandbox: str | None = None
 
     @classmethod
     def from_environment(cls, environ=None):
@@ -61,7 +63,9 @@ class CodexConfig:
         if not executable:
             raise CodexProviderError("Set SANDBOX_CODEX_EXE to the installed native codex.exe", 503)
         return cls(executable, env.get("SANDBOX_CODEX_MODEL", "").strip() or None,
-                   reasoning_effort=env.get("SANDBOX_CODEX_REASONING", "").strip() or None)
+                   reasoning_effort=env.get("SANDBOX_CODEX_REASONING", "").strip() or None,
+                   agent_sandbox=env.get("SANDBOX_CODEX_AGENT_SANDBOX", "").strip() or "workspace-write",
+                   windows_sandbox=env.get("SANDBOX_CODEX_WINDOWS_SANDBOX", "").strip() or None)
 
     def validate(self):
         try:
@@ -76,6 +80,10 @@ class CodexConfig:
                                           or len(self.model) > 160 or any(ord(c) < 32 for c in self.model)):
                 raise ValueError()
             if self.reasoning_effort is not None and self.reasoning_effort not in REASONING_EFFORTS:
+                raise ValueError()
+            if self.agent_sandbox not in ("read-only", "workspace-write", "danger-full-access"):
+                raise ValueError()
+            if self.windows_sandbox not in (None, "unelevated"):
                 raise ValueError()
         except (OSError, ValueError, TypeError):
             raise CodexProviderError("Invalid Codex executable or model configuration", 503) from None
