@@ -5,6 +5,7 @@ import {GLTFLoader} from 'three/addons/loaders/GLTFLoader.js';
 import {beginGrab,moveGrab,finishGrab,beginPointerGrab,movePointerGrab,movePointerGrabVertical,finishPointerGrab,moveDesktopCamera} from './grab.js';
 import {viewerPose,planeData,insideBoundary,matchPlaneAnchor,samePlaneShape,measuredFloorHeight} from './spatial.js';
 import {ROOM_ANCHOR_KEY,hasWorldToProtect} from './room_origin.js';
+import {componentFrame} from './components.js';
 
 const wood=()=>new THREE.MeshStandardMaterial({color:0xa56f45,roughness:.78});
 const metal=()=>new THREE.MeshStandardMaterial({color:0x738995,roughness:.45,metalness:.45});
@@ -550,6 +551,8 @@ export class MatrixView {
     if(event.button===2){this.pointerLook={pointerId:event.pointerId,x:event.clientX,y:event.clientY};return;}
     this.rayFromPointer(event);
     const id=this.selectFromRay();
+    if(id&&this.world.requireObject(id).component?.status==='running'){
+      this.onAssetError('Stop this component before moving the object.');return;}
     if(id){const grab=beginPointerGrab(this.raycaster,this.objectRoots.get(id));if(grab)this.pointerGrab={...grab,objectId:id,pointerId:event.pointerId,lastY:event.clientY,vertical:false};}
   }
   pointerMove(event){
@@ -606,6 +609,8 @@ export class MatrixView {
     if(id&&(this.world.spatial?.stale||this.world.spatial?.originUnavailable)){
       this.onAssetError('Room origin or tracking is unavailable; object grabs are paused.');return;
     }
+    if(id&&this.world.requireObject(id).component?.status==='running'){
+      this.onAssetError('Stop this component before moving the object.');return;}
     if(id)this.grab={...beginGrab(controller,this.objectRoots.get(id)),objectId:id};
   }
   releaseGrab(controller){
@@ -812,6 +817,26 @@ export class MatrixView {
       }}
     if(this.grab)moveGrab(this.grab);
     for(const root of this.objectRoots.values()){
+      const object=this.world.scene.objects.find(item=>item.objectId===root.userData.objectId);
+      if(!object)continue;
+      const component=object.component;
+      if(component){
+        root.position.copy(v3(object.transform.position));root.scale.copy(v3(object.transform.scale));
+        root.rotation.set(...['x','y','z'].map(k=>THREE.MathUtils.degToRad(object.transform.rotation[k])),'XYZ');
+      }
+      if(component?.status==='running'){
+        try{
+          const target=this.world.scene.objects.find(item=>item.objectId===component.targetObjectId);
+          const frameTransform=componentFrame(component,object.transform,target?.transform,Date.now());
+          root.position.copy(v3(frameTransform.position));root.scale.copy(v3(frameTransform.scale));
+          root.rotation.set(...['x','y','z'].map(k=>THREE.MathUtils.degToRad(frameTransform.rotation[k])),'XYZ');
+        }catch(error){
+          if(this.world.failComponent(object.objectId,error.message)){
+            this.onAssetError(`Component stopped: ${error.message}`);
+            queueMicrotask(()=>this.onRuntimeChange());
+          }
+        }
+      }
       const visual=root.userData.visual;visual.position.y=0;visual.rotation.set(0,0,0);
       for(const behavior of root.userData.behaviors){if(!behavior.enabled)continue;const t=behavior.paused?0:time/1000;
         if(behavior.kind==='bob')visual.position.y+=(1-Math.cos(2*Math.PI*behavior.frequencyHz*t))*.5*behavior.amplitudeMeters;
