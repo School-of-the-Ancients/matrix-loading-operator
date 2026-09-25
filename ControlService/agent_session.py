@@ -1,8 +1,8 @@
 """Provider-neutral Matrix agent-session contract and local Codex adapter.
 
-The gateway maps native conversation IDs to opaque Matrix session IDs before
-responding to a browser. Raw app-server events, command arguments, tool outputs,
-and credentials stay on PC.
+The gateway filters internal native conversation IDs and maps them to opaque
+Matrix session IDs before responding to a browser. Raw app-server events,
+command arguments, tool outputs, and credentials stay on PC.
 """
 from __future__ import annotations
 
@@ -54,12 +54,15 @@ def normalize_event(event: dict) -> dict | None:
         return None
     result = {"sequence": sequence}
     thread_id = _identifier(params.get("threadId"))
+    if thread_id is None:
+        return None
     turn = params.get("turn")
     turn_id = _identifier(params.get("turnId"))
     if turn_id is None and isinstance(turn, dict):
         turn_id = _identifier(turn.get("id"))
     if turn_id:
         result["turnId"] = turn_id
+    result["conversationId"] = thread_id  # Internal routing only; strip at Matrix API boundary.
     if method == "item/agentMessage/delta":
         delta = params.get("delta")
         if not isinstance(delta, str) or not delta:
@@ -71,7 +74,8 @@ def normalize_event(event: dict) -> dict | None:
         result.update(type="activity", activity="working")
     elif method == "turn/completed":
         status = turn.get("status") if isinstance(turn, dict) else None
-        result.update(type="activity", activity="completed" if status == "completed" else "failed")
+        activity = "completed" if status == "completed" else "cancelled" if status == "interrupted" else "failed"
+        result.update(type="activity", activity=activity)
     elif method in ("item/started", "item/completed"):
         activity = _kind(params.get("item"))
         if activity is None:
@@ -125,7 +129,8 @@ class LocalCodexAgentBackend:
             thread_id = _identifier(params.get("threadId"))
             turn_id = _identifier(params.get("turnId"))
             if thread_id and turn_id:
-                safe.append({"approvalId": approval["requestId"], "turnId": turn_id,
+                safe.append({"approvalId": approval["requestId"], "conversationId": thread_id,
+                             "turnId": turn_id,
                              "action": "running_command" if "commandExecution" in method else "editing_files"})
         return safe
 

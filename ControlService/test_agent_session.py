@@ -60,9 +60,11 @@ class AgentSessionTests(unittest.TestCase):
                          ["text", "activity", "approval", "activity"])
         self.assertEqual(events[1]["activity"], "using_blender")
         self.assertEqual(events[2]["action"], "running_command")
+        self.assertTrue(all(event["conversationId"] == "thread-1" for event in events))
         self.assertNotIn("secret", str(events))
         approvals = backend.pending_approvals()
         self.assertEqual(approvals[0]["approvalId"], 42)
+        self.assertEqual(approvals[0]["conversationId"], "thread-1")
         self.assertNotIn("secret", str(approvals))
         backend.decide(42, "thread-1", "turn-1", False)
         backend.cancel("thread-1", "turn-1")
@@ -72,8 +74,11 @@ class AgentSessionTests(unittest.TestCase):
     def test_only_known_activity_and_complete_text(self):
         self.assertIsNone(normalize_event({"sequence": 1, "method": "unknown", "params": {"token": "secret"}}))
         event = normalize_event({"sequence": 1, "method": "item/agentMessage/delta",
-                                 "params": {"delta": "x" * 9000}})
+                                 "params": {"threadId": "thread-1", "delta": "x" * 9000}})
         self.assertEqual(len(event["text"]), 9000)
+        cancelled = normalize_event({"sequence": 2, "method": "turn/completed",
+                                     "params": {"threadId": "thread-1", "turn": {"id": "turn-1", "status": "interrupted"}}})
+        self.assertEqual(cancelled["activity"], "cancelled")
         with self.assertRaises(ValueError):
             backend = LocalCodexAgentBackend.__new__(LocalCodexAgentBackend)
             backend.transport = FakeTransport()
