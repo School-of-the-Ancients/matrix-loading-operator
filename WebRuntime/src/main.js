@@ -3,12 +3,11 @@ import {MatrixWorld} from './protocol.js';
 import {MatrixView} from './view.js';
 import {MatrixBridge} from './bridge.js';
 import {VoiceRecorder} from './voice.js';
+import {loadStoredScene,saveStoredScene,restoreStoredScene} from './scene_store.js';
 
 const $=id=>document.getElementById(id);
 const world=new MatrixWorld();
-let pendingScene=null;
-try {pendingScene=JSON.parse(sessionStorage.getItem('matrix-web-scene')||'null');}
-catch {sessionStorage.removeItem('matrix-web-scene');}
+let pendingScene=loadStoredScene(sessionStorage,localStorage);
 
 let proposal=null,operatorMessageUntil=0,lastOperatorReply='',lastConnectionOnline=null,modeTouched=false;
 const recorder=new VoiceRecorder();let voiceStarting=false,voiceRecording=false,voiceStopRequested=false,voiceJob=null,voiceSnapshot=null;
@@ -30,7 +29,8 @@ function renderScene(){
   view.sync();$('object-count').textContent=`${world.scene.objects.length} object${world.scene.objects.length===1?'':'s'}`;
   if(!pendingScene){
     const scene=world.spatial?{...world.virtualScene.scene,objects:world.scene.objects.filter(object=>object.anchorId==='web-floor')}:world.scene;
-    sessionStorage.setItem('matrix-web-scene',JSON.stringify(scene));
+    const warning=saveStoredScene(scene,sessionStorage,localStorage);
+    if(warning)feedback(warning,true);
   }
 }
 renderScene();
@@ -53,8 +53,8 @@ async function refreshAssets(silent=false){
     const data=await bridge.request('/api/web/assets');world.registerAssets(data.assets||[]);
     $('asset-count').textContent=`${7+world.externalAssets.length} available`;
     if(pendingScene){
-      try{world.validateScene(pendingScene);world.scene=pendingScene;pendingScene=null;renderScene();}
-      catch(error){if(!silent)feedback(`Saved tab scene unavailable: ${error.message}`,true);}
+      try{restoreStoredScene(world,pendingScene);pendingScene=null;renderScene();}
+      catch(error){if(!silent)feedback(`Saved browser scene unavailable: ${error.message}`,true);}
     }
     if(!silent)feedback(`Catalog updated: ${world.externalAssets.length} web assets.`);
   }catch(error){if(!silent)feedback(error.message,true);}
