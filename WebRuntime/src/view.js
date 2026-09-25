@@ -48,6 +48,7 @@ function operatorPanel(){
   mesh.renderOrder=100;mesh.userData.operatorVoice=true;
   const group=new THREE.Group();group.add(mesh);group.visible=false;
   let message='Aim here, hold trigger, and ask for a scene.',tone='idle',page=0,mode='chat',proposal=null;
+  let agent={activity:'Not connected',content:'Start or resume Codex in the desktop panel.',pending:false,active:false};
   let pinLabel='PIN TO WALL',voiceLabel='VOICE ON',originLabel='ROOM ORIGIN UNKNOWN',conversationCount=0;
   let gameStatus='No game running.',worldInfo={objects:0,canConfirm:false,alignment:'No room scan'},worldWarning='';
   let cameraStatus='Camera not tested',cameraActive=false;
@@ -63,6 +64,7 @@ function operatorPanel(){
       ctx.textAlign='center';ctx.textBaseline='middle';ctx.fillText(label,x+w/2,y+h/2);ctx.textAlign='left';ctx.textBaseline='alphabetic';
       buttons.push({id,x,y,w,h});
     };
+    button('toggle-agent',mode==='agent'?'CHAT':'CODEX',414,35,118,72,mode==='agent');
     button('toggle-world',mode==='world'?'CHAT':'WORLD',544,35,210,72);
     button(proposal&&mode!=='proposal'?'open-proposal':'review-view',proposal&&mode!=='proposal'?'PROPOSAL':'REVIEW VIEW',766,35,210,72);
     ctx.fillStyle='#8bb8c2';ctx.font='bold 21px sans-serif';ctx.fillText(originLabel,55,123);
@@ -99,7 +101,7 @@ function operatorPanel(){
         button('toggle-camera',cameraActive?'STOP CAMERA':'ENABLE CAMERA',685,535,285,76);
       }
     }else{
-      const content=mode==='proposal'&&proposal?
+      const content=mode==='agent'?`CODEX AGENT · ${agent.activity}\n\n${agent.content}`:mode==='proposal'&&proposal?
         `REVIEW BEFORE APPLY\n${proposal.summary||''}\n\n${proposal.kind==='game'?
           `GAME: ${proposal.gamePlan?.title||''}\nROLES\n${proposal.gamePlan?.roles?.map(role=>`${role.count} × ${role.assetId} as ${role.roleId} (${role.kind})`).join('\n')||''}\nRULES\n${proposal.gamePlan?.rules?.map(rule=>`${rule.actorRoleId} → ${rule.targetRoleId}: ${rule.event} within ${rule.distanceMeters} m, +${rule.scorePoints}`).join('\n')||''}\nOBJECTIVES\n${proposal.gamePlan?.objectives?.map(objective=>objective.kind==='score-at-least'?`At least ${objective.targetPoints} points`:`${objective.roleId}: ${objective.targetCount} delivered`).join('\n')||''}`:
           `COMMANDS (${proposal.commands?.length||0})\n${JSON.stringify(proposal.commands||[],null,2)}`}`:message;
@@ -119,7 +121,18 @@ function operatorPanel(){
       ctx.fillStyle='#8bb8c2';ctx.font='24px sans-serif';ctx.fillText(`Page ${page+1}/${pages}`,55,596);
     }
     if(worldWarning){ctx.fillStyle='#ffad8d';ctx.font='bold 19px sans-serif';ctx.fillText(worldWarning,55,625);}
-    if(mode==='proposal'&&proposal){
+    if(mode==='agent'){
+      if(agent.pending){
+        button('agent-approve','APPROVE ONCE',35,636,275,90,true);
+        button('agent-deny','DENY',322,636,220,90);
+        button('agent-stop','STOP',554,636,210,90);
+        button('next','NEXT',776,636,213,90);
+      }else{
+        button('agent-stop',agent.active?'STOP TURN':'TYPE ON DESKTOP',35,636,472,90,agent.active);
+        button('pin',pinLabel,519,636,210,90);
+        button('next','NEXT',741,636,248,90);
+      }
+    }else if(mode==='proposal'&&proposal){
       button('voice','HOLD TO SPEAK',35,636,330,90,true);
       button('apply','APPLY',377,636,207,90,true);
       button('discard','DISCARD',596,636,207,90);
@@ -142,7 +155,9 @@ function operatorPanel(){
   const setGameStatus=next=>{if(gameStatus!==next){gameStatus=next;paint();}};
   const setWarning=next=>{if(worldWarning!==next){worldWarning=next;paint();}};
   const setCameraStatus=(next,active)=>{if(cameraStatus!==next||cameraActive!==active){cameraStatus=next;cameraActive=active;paint();}};
+  const setAgentStatus=next=>{agent=next;page=0;if(mode==='agent')paint();};
   const toggleWorld=()=>{mode=mode==='world'?'chat':'world';page=0;paint();};
+  const toggleAgent=()=>{mode=mode==='agent'?'chat':'agent';page=0;paint();};
   const openProposal=()=>{if(proposal){mode='proposal';page=0;paint();}};
   const hit=uv=>{
     if(!uv)return null;const x=uv.x*1024,y=(1-uv.y)*768;
@@ -151,7 +166,7 @@ function operatorPanel(){
   const nextPage=()=>{page++;paint();};
   paint();
   return {group,mesh,setMessage,setPinLabel,setVoiceLabel,setOriginLabel,setConversationCount,
-    setProposal,setWorldInfo,setGameStatus,setWarning,setCameraStatus,toggleWorld,openProposal,hit,nextPage};
+    setProposal,setWorldInfo,setGameStatus,setWarning,setCameraStatus,setAgentStatus,toggleWorld,toggleAgent,openProposal,hit,nextPage};
 }
 const v3=v=>new THREE.Vector3(v.x,v.y,v.z);
 const plain=v=>({x:Number(v.x.toFixed(3)),y:Number(v.y.toFixed(3)),z:Number(v.z.toFixed(3))});
@@ -359,6 +374,7 @@ export class MatrixView {
   setOperatorGameStatus(status){this.operatorPanel.setGameStatus(status);}
   setOperatorWarning(warning){this.operatorPanel.setWarning(warning);}
   setOperatorCameraStatus(status,active){this.operatorPanel.setCameraStatus(status,active);}
+  setOperatorAgentStatus(status){this.operatorPanel.setAgentStatus(status);}
   setVoiceOutputEnabled(enabled){this.operatorPanel.setVoiceLabel(enabled?'VOICE ON':'VOICE OFF');}
   positionOperatorPanel(){
     if(!this.xrViewer)return;
@@ -566,6 +582,7 @@ export class MatrixView {
       const action=this.operatorPanel.hit(panelHit.uv);
       if(action==='review-view')this.onVisualReview();
       else if(action==='toggle-world')this.operatorPanel.toggleWorld();
+      else if(action==='toggle-agent')this.operatorPanel.toggleAgent();
       else if(action==='open-proposal')this.operatorPanel.openProposal();
       else if(action==='next')this.operatorPanel.nextPage();
       else if(action==='voice-output')this.onVoiceOutputToggle();

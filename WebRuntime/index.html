@@ -18,6 +18,21 @@
       <p class="hint">Desktop: arrow keys or WASD move, right-drag looks around, left-drag moves an object across the floor, and Shift + left-drag raises or lowers it. In AR or VR, use the in-world Operator panel to speak, review, apply, and confirm room alignment. Say “Create a portal in Blender” for an object, or “Create a sci-fi collect-and-deliver game” for a playable challenge. Grab objects with a trigger.</p>
       <label for="token">Service token <small>(only if configured)</small></label>
       <input id="token" type="password" autocomplete="off" placeholder="Kept only in this tab" />
+      <section class="agent-panel" aria-labelledby="agent-heading">
+        <div class="panel-title"><span id="agent-heading">CODEX AGENT PORTAL</span><span id="agent-activity">Not connected</span></div>
+        <p class="hint">One continuing Codex conversation on your PC. Follow up here while the world stays in place.</p>
+        <button id="agent-connect">Start or resume Codex</button>
+        <label for="agent-input">Message to Codex</label>
+        <textarea id="agent-input" rows="3" placeholder="Make this object taller, then tell me what you changed."></textarea>
+        <div class="row"><button id="agent-send" class="primary">Send to Codex</button><button id="agent-stop" disabled>Stop turn</button></div>
+        <div id="agent-approval" class="proposal hidden" role="alert">
+          <div class="proposal-label">APPROVAL REQUIRED</div>
+          <p id="agent-approval-summary"></p>
+          <div class="row"><button id="agent-approve" class="primary">Approve once</button><button id="agent-deny">Deny</button></div>
+        </div>
+        <div id="agent-transcript" class="agent-transcript" aria-live="polite">Connect to start a Codex conversation.</div>
+      </section>
+      <div class="separator"></div>
       <label for="mode">Planner</label>
       <select id="mode"><option value="offline-rules">Offline commands</option><option value="codex-cli">Codex AI on PC</option></select>
       <label for="prompt">Request</label>

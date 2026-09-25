@@ -4,6 +4,7 @@ import {MatrixView} from './view.js';
 import {MatrixBridge} from './bridge.js';
 import {VoiceRecorder} from './voice.js';
 import {CameraStream} from './camera_stream.js';
+import {AgentClient,agentActivityLabel} from './agent_client.js';
 import {loadStoredWorld,saveStoredWorld,restoreStoredWorld,restoreBestStoredWorld,storedWorld,
   saveCheckpoint,loadCheckpoint} from './scene_store.js';
 import {loadConversation,rememberTurn,clearConversation} from './conversation.js';
@@ -27,6 +28,7 @@ let persistenceWarning='',restoreWarning='';
 let cameraBusy=false;
 const recorder=new VoiceRecorder();let voiceStarting=false,voiceRecording=false,voiceStopRequested=false,voiceJob=null,voiceSnapshot=null;
 let replyContext=null,replySource=null;
+let agentClient=null,agentActionBusy=false;
 function unlockReplyAudio(){
   if(!$('speak-replies').checked)return;
   const AudioContextClass=window.AudioContext||window.webkitAudioContext;
@@ -169,6 +171,56 @@ const bridge=new MatrixBridge(world,()=>$('token').value.trim(),event=>{
   }
 });
 bridge.getCaptureCapabilities=()=>cameraStream.capabilities();
+function agentApprovalText(action){
+  const work=action==='editing_files'?'edit files':'run one command';
+  return `Codex asks to ${work}. Approve only if this matches your request. Command and tool details stay on the PC.`;
+}
+function renderAgent(){
+  const status=agentClient?.status,turns=status?.transcript||[],pending=status?.pendingApprovals?.[0];
+  const activity=agentClient?.error?'Connection needs attention':status?agentActivityLabel(status.activity):'Not connected';
+  $('agent-activity').textContent=activity;
+  const transcript=turns.slice(-4).map(turn=>`You: ${turn.user}${turn.userTruncated?'\n[Part of request omitted from this view]':''}\n\nCodex: ${turn.assistant||'…'}${turn.assistantTruncated?'\n[Earlier reply text omitted]':''}`).join('\n\n────────\n\n');
+  const content=agentClient?.error?`Agent Portal: ${agentClient.error}\n\n${transcript}`:
+    transcript||'Connect to start a Codex conversation.';
+  $('agent-transcript').textContent=content;
+  $('agent-approval').classList.toggle('hidden',!pending);
+  $('agent-approval-summary').textContent=pending?agentApprovalText(pending.action):'';
+  $('agent-connect').disabled=agentActionBusy;
+  $('agent-send').disabled=agentActionBusy||!!status?.activeTurnId;
+  $('agent-stop').disabled=agentActionBusy||!status?.activeTurnId;
+  $('agent-approve').disabled=agentActionBusy;
+  $('agent-deny').disabled=agentActionBusy;
+  view.setOperatorAgentStatus({activity,content:pending?`${agentApprovalText(pending.action)}\n\n${content}`:content,
+    pending:!!pending,active:!!status?.activeTurnId});
+}
+agentClient=new AgentClient((path,body)=>bridge.request(path,body),localStorage,renderAgent);
+renderAgent();
+if(agentClient.sessionId)agentClient.restore().catch(()=>{});
+setInterval(()=>{if(agentClient.sessionId&&!agentClient.error&&!agentActionBusy)agentClient.poll().catch(()=>{});},800);
+async function agentAction(action){
+  if(agentActionBusy)return;
+  agentActionBusy=true;renderAgent();
+  try{await action();}
+  catch(error){feedback(`Codex Agent: ${error.message}`,true);}
+  finally{agentActionBusy=false;renderAgent();}
+}
+function sendAgent(){
+  const text=$('agent-input').value.trim();
+  if(!text){feedback('Enter a message for Codex first.',true);return;}
+  agentAction(async()=>{await agentClient.send(text);$('agent-input').value='';});
+}
+function decideAgent(approve){
+  const pending=agentClient.status?.pendingApprovals?.[0];
+  if(!pending)return;
+  agentAction(()=>agentClient.decide(pending.approvalId,pending.turnId,approve));
+}
+$('agent-connect').addEventListener('click',()=>agentAction(()=>agentClient.connect()));
+$('agent-send').addEventListener('click',sendAgent);
+$('agent-stop').addEventListener('click',()=>agentAction(()=>agentClient.cancel()));
+$('agent-approve').addEventListener('click',()=>decideAgent(true));
+$('agent-deny').addEventListener('click',()=>decideAgent(false));
+$('agent-input').addEventListener('keydown',event=>{if(event.key==='Enter'&&(event.ctrlKey||event.metaKey))sendAgent();});
+$('token').addEventListener('change',()=>{if(agentClient.sessionId)agentClient.restore().catch(()=>{});});
 async function refreshAssets(silent=false){
   try{
     const data=await bridge.request('/api/web/assets');world.registerAssets(data.assets||[]);
@@ -439,7 +491,10 @@ function clearExportedRoomArchives(){
   catch(error){feedback(`Could not clear recovery archives: ${error.message}`,true);}
 }
 function panelAction(action){
-  if(action==='apply')applyProposal();
+  if(action==='agent-approve')decideAgent(true);
+  else if(action==='agent-deny')decideAgent(false);
+  else if(action==='agent-stop')agentAction(()=>agentClient.cancel());
+  else if(action==='apply')applyProposal();
   else if(action==='discard'){discardProposal();feedback('Proposal discarded.');view.setOperatorStatus('Proposal discarded.');}
   else if(action==='confirm-room')confirmRoom();
   else if(action==='save-world')saveWorld();
