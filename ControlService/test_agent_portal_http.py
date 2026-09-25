@@ -9,7 +9,7 @@ import urllib.request
 from unittest.mock import patch
 
 from agent_portal import AgentPortal
-from server import Server, State, snapshot
+from server import Server, State, agent_turn_context, snapshot
 from test_agent_portal import FakeBackend
 
 
@@ -128,6 +128,29 @@ class AgentPortalHTTPTests(unittest.TestCase):
         self.assertNotIn("Virtual room", sent)
         status = self.post("/api/agent/status", {"sessionId": session_id})[1]
         self.assertEqual(status["transcript"][-1]["user"], "Put this over there")
+
+    def test_pointed_object_is_in_bounded_summary_even_after_first_eight(self):
+        pose = {"position": {"x": 0, "y": 0, "z": 0},
+                "rotation": {"x": 0, "y": 0, "z": 0},
+                "scale": {"x": 1, "y": 1, "z": 1}}
+        objects = [{"objectId": f"chair-{index}", "assetId": "chair",
+                    "anchorId": "web-floor", "transform": pose} for index in range(12)]
+        self.state.latest = snapshot({"scene": {"schemaVersion": 1, "roomId": "room-1", "objects": objects},
+                                      "assets": [{"assetId": "chair", "displayName": "Chair"}],
+                                      "anchors": [{"anchorId": "web-floor", "displayName": "Floor"}],
+                                      "selection": {"objectId": "chair-10", "anchorId": "web-floor",
+                                                    "position": pose["position"]}})
+        self.state.client_id = "web-client"
+        self.state.last_seen = self.state.clock()
+        context = {"schemaVersion": 1, "inputSource": "text", "clientId": "web-client",
+                   "roomId": "room-1", "selectedObjectId": "chair-10",
+                   "pointingTarget": {"anchorId": "web-floor", "objectId": "chair-11",
+                                      "position": pose["position"]}, "viewerFrame": None}
+        grounded = agent_turn_context(self.state, context)
+        included = [item["objectId"] for item in grounded["sceneSummary"]["objects"]]
+        self.assertEqual(included[:2], ["chair-10", "chair-11"])
+        self.assertEqual(len(included), 8)
+        self.assertEqual(grounded["sceneSummary"]["omittedObjectCount"], 4)
 
 
 if __name__ == "__main__":

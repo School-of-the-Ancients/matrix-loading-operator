@@ -346,6 +346,20 @@ def agent_turn_context(state, value):
             return {"objectId": item["objectId"], "assetId": item["assetId"],
                     "anchorId": item["anchorId"], "transform": item["transform"]}
         scene_objects = current["scene"]["objects"]
+        priority_ids = [identifier for identifier in
+                        (selected_id, target["objectId"] if target else None) if identifier]
+        summary_objects = []
+        included = set()
+        for identifier in priority_ids:
+            if identifier not in included:
+                summary_objects.append(objects[identifier])
+                included.add(identifier)
+        for item in scene_objects:
+            if len(summary_objects) >= 8:
+                break
+            if item["objectId"] not in included:
+                summary_objects.append(item)
+                included.add(item["objectId"])
         room = current.get("roomContext") or {}
         return {"schemaVersion": 1, "kind": "matrix_spatial_context",
                 "inputSource": value["inputSource"], "roomId": room_id,
@@ -356,7 +370,7 @@ def agent_turn_context(state, value):
                 "selectedObject": object_summary(objects[selected_id]) if selected_id else None,
                 "pointingTarget": target, "viewerFrame": frame,
                 "sceneSummary": {"objectCount": len(scene_objects),
-                                 "objects": [object_summary(item) for item in scene_objects[:8]],
+                                 "objects": [object_summary(item) for item in summary_objects],
                                  "omittedObjectCount": max(0, len(scene_objects) - 8)}}
 
 

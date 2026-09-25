@@ -653,6 +653,9 @@ export class MatrixView {
       if(!this.pointerKnown)return null;
       this.raycaster.setFromCamera(this.pointer,this.camera);
     }
+    // The Operator consumes this ray. A world hit behind its panel is not the
+    // wearer's spatial target, including when speech starts on the Voice button.
+    if(this.operatorPanel.group.visible&&this.raycaster.intersectObject(this.operatorPanel.mesh)[0])return null;
     const objectHit=this.raycaster.intersectObjects([...this.objectRoots.values()],true)[0];
     if(objectHit){
       let node=objectHit.object;while(node&&!node.userData.objectId)node=node.parent;
