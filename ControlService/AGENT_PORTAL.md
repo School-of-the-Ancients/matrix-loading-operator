@@ -23,11 +23,14 @@ Thread start and resume explicitly select the `user` approval reviewer and a
 read-only sandbox. The installed Codex configuration otherwise routed a safe
 isolated write through `auto_review` without a Matrix approval request.
 
-The next slice owns a durable, opaque Matrix session to Codex thread mapping,
-a provider-neutral session interface, event and approval normalization, and
-authenticated Matrix API routes. A following slice adds the in-world Operator
-UI and voice transcription routing. Matrix tools, Blender-specific workflows,
-spatial grounding, and rich artifacts follow the generic portal.
+`agent_session.py` defines the provider-neutral Matrix backend interface and
+the first local Codex adapter. It maps native text, activity, tool, and approval
+events to a small allowlist without copying tool arguments or outputs. Native
+thread IDs still remain PC-internal; the next slice owns a durable, opaque
+Matrix session to Codex thread mapping and authenticated Matrix API routes.
+The in-world Operator UI and voice transcription routing follow. Matrix tools,
+Blender-specific workflows, spatial grounding, and rich artifacts come after
+the generic portal.
 
 ## Installed-version observations
 
