@@ -279,7 +279,7 @@ class State:
         self.last_capture_request = -float("inf")
         self.voice_capture_id = None
         self.content = ContentBridge(self)
-        self.clients = ClientAPI(self, plan)
+        self.clients = ClientAPI(self, plan, lambda: client_planner_modes(self))
 
     def online(self):
         return self.client_id is not None and self.clock() - self.last_seen < LEASE_SECONDS
@@ -713,6 +713,26 @@ def plan(state, body, request_context=None):
     if "pointing" in current:
         result["pointingAtRequest"] = copy.deepcopy(current["pointing"])
     return result
+
+
+def client_planner_modes(state):
+    """Advertise only the owner's validated configuration, without its details.
+
+    Configuration validation does not prove login, quota, or provider health.
+    The existing planner performs those checks when a request runs.
+    """
+    modes = ["offline-rules"]
+    try:
+        config = CodexConfig.from_environment()
+        if config is None:
+            return modes
+        config.validate()
+        with state.lock:
+            preferences = copy.deepcopy(state.codex_preferences)
+        select_codex_config(config, preferences)
+    except CodexProviderError:
+        return modes
+    return [*modes, "codex-cli"]
 
 
 def planner_status(state):

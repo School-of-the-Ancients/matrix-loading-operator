@@ -226,7 +226,7 @@ class ClientApiTests(unittest.TestCase):
             self.assertEqual(self.request("/api/v1/pairings", {"clientName": "Remote"}, OWNER)[0], 403)
 
     def test_body_and_schema_limits_reject_control_injection(self):
-        for change in ({"unexpected": True}, {"intent": {"text": "clear", "mode": "codex-cli"}},
+        for change in ({"unexpected": True}, {"intent": {"text": "clear", "mode": "openai-compatible"}},
                        {"intent": {"text": "clear", "mode": "offline-rules", "captureId": "private-image"}},
                        {"requestId": "../unsafe"}, {"correlationId": {"learner": "record"}},
                        {"expected": {"runtimeSessionId": self.session["runtimeSessionId"], "revision": True}}):

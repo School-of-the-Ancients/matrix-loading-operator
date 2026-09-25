@@ -11,6 +11,7 @@ import hmac
 import json
 import re
 import secrets
+import threading
 import scale_experiment
 from ai_adapter import PlannerError
 
@@ -51,8 +52,10 @@ def envelope(**fields):
 
 
 class ClientAPI:
-    def __init__(self, state, planner):
+    def __init__(self, state, planner, planner_modes=None):
         self.state, self.planner = state, planner
+        self.planner_modes = planner_modes or (lambda: ["offline-rules"])
+        self.ai_worker = threading.Lock()
         self.instance = secrets.token_hex(12)
         self.pairings = {}
         self.sessions = {}
@@ -64,7 +67,7 @@ class ClientAPI:
         return envelope(service="matrix-loading-operator", transport="local-companion",
                         supportedProtocolVersions=[PROTOCOL], pairingAvailable=configured,
                         pairingReason=None if configured else "Configure SANDBOX_TOKEN before pairing clients.",
-                        capabilities={"scene.read": True, "scene.propose_text": {"modes": ["offline-rules"], "requiresOperatorApply": True},
+                        capabilities={"scene.read": True, "scene.propose_text": {"modes": self.planner_modes(), "requiresOperatorApply": True},
                                       "request.read": True, "request.cancel_before_apply": True,
                                       "capture": False, "content.prepare": False, "events.stream": False,
                                       "hostedBrowserConnection": False, "physicalMeasurements": False,
@@ -201,9 +204,10 @@ class ClientAPI:
             except PlannerError as error:
                 raise ClientError(error.status, "invalid_experiment", str(error)) from None
         else:
-            require(isinstance(intent, dict) and set(intent) == {"text", "mode"} and intent["mode"] == "offline-rules"
-                    and isinstance(intent["text"], str) and 0 < len(intent["text"]) <= 4000,
-                    "invalid_request", "intent must contain text and mode: offline-rules")
+            require(isinstance(intent, dict) and set(intent) == {"text", "mode"} and intent["mode"] in ("offline-rules", "codex-cli")
+                    and isinstance(intent["text"], str) and 0 < len(intent["text"]) <= 4000 and bool(intent["text"].strip()),
+                    "invalid_request", "intent must contain only text and mode: offline-rules or codex-cli")
+        ai_request = not experiment and intent["mode"] == "codex-cli"
         fingerprint = hashlib.sha256(json.dumps(body, sort_keys=True, separators=(",", ":")).encode()).hexdigest()
         with self.state.lock:
             self.state.expire()
@@ -224,6 +228,13 @@ class ClientAPI:
                 require(previous is not None and previous.get("experiment") is not None and scale_experiment.observation(previous) is not None,
                         "baseline_unconfirmed", "Reference a confirmed experiment request from this pairing.", 409)
                 baseline = copy.deepcopy(previous["experiment"])
+            if ai_request:
+                # This callback only validates trusted local configuration; it
+                # never invokes a provider. Lookup idempotency before these gates.
+                require("codex-cli" in self.planner_modes(), "planner_unavailable",
+                        "The Operator must configure a supported Codex planner before requesting AI scene changes.", 503)
+                require(self.ai_worker.acquire(blocking=False), "planner_busy",
+                        "A client AI request is still planning. Poll its outcome or wait before creating another request.", 409)
             request = {"requestId": request_id, "fingerprint": fingerprint, "correlationId": correlation,
                        "runtimeSessionId": session["runtimeSessionId"], "sequence": 1, "status": "planning",
                        "proposal": None, "commandIds": [], "receipts": [], "observed": None, "error": None}
@@ -233,16 +244,47 @@ class ClientAPI:
             context = (self.state.client_id, self.state.revision, copy.deepcopy(self.state.latest))
             if experiment:
                 context += (baseline,)
+            if ai_request:
+                initial = self.public_request(session, request)
+                try:
+                    threading.Thread(target=self._plan_ai, args=(session, request, copy.deepcopy(intent), context),
+                                     name="matrix-client-planner", daemon=True).start()
+                except RuntimeError:
+                    self.ai_worker.release()
+                    self._change(request, "error", error="AI planning worker could not start. Nothing was applied.")
+                    return self.public_request(session, request)
+                return initial
+        return self._complete_plan(session, request, intent, context, experiment)
+
+    def _plan_ai(self, session, request, intent, context):
+        try:
+            self._complete_plan(session, request, intent, context, False)
+        finally:
+            self.ai_worker.release()
+
+    def _complete_plan(self, session, request, intent, context, experiment):
+        # Cancellation may win before the worker begins. All provider work
+        # remains outside the exchange lock, and only this request may publish it.
+        with self.state.lock:
+            self.state.expire()
+            self.refresh()
+            if request["status"] != "planning":
+                return self.public_request(session, request)
         try:
             proposed = self.planner(self.state, intent, request_context=context)
         except Exception as error:
             with self.state.lock:
+                self.state.expire()
+                self.refresh()
                 if request["status"] == "planning":
-                    self._change(request, "error", error=str(error) if hasattr(error, "status") else "Planning failed. Nothing was applied.")
+                    self._change(request, "stale" if getattr(error, "status", None) == 409 else "error",
+                                 error=str(error) if hasattr(error, "status") else "Planning failed. Nothing was applied.")
                 return self.public_request(session, request)
         with self.state.lock:
             self.state.expire()
             self.refresh()
+            if request["status"] == "planning" and (self.state.client_id, self.state.revision) != context[:2]:
+                self._change(request, "stale", error="Scene or selection changed during planning; review the current scene before requesting again.")
             if request["status"] != "planning":
                 self.state.proposals.pop(proposed.get("planId"), None)
             else:

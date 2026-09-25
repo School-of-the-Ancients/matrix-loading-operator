@@ -17,6 +17,8 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--url", default="http://127.0.0.1:8765")
     parser.add_argument("--text", default="Place a block here.")
+    parser.add_argument("--mode", choices=("offline-rules", "codex-cli"), default="offline-rules",
+                        help="Codex uses the Operator's configuration and requires its advertised capability")
     args = parser.parse_args()
     parsed = urllib.parse.urlsplit(args.url)
     if parsed.scheme != "http" or parsed.hostname not in {"127.0.0.1", "localhost"} or parsed.username or parsed.password or parsed.query or parsed.fragment or parsed.path not in {"", "/"}:
@@ -35,13 +37,17 @@ def main():
     discovery = request("/api/v1/discovery")
     if discovery.get("protocolVersion") != "1" or not discovery.get("pairingAvailable"):
         parser.error(discovery.get("pairingReason") or "Client API version 1 is unavailable")
+    modes = discovery.get("capabilities", {}).get("scene.propose_text", {}).get("modes", [])
+    if args.mode not in modes:
+        parser.error("Requested scene planning mode is not advertised by this Matrix service")
     paired = request("/api/v1/sessions", {"pairingCode": getpass.getpass("Pairing code from the Operator: ")})
     token = paired["clientToken"]
     scene = request("/api/v1/scene")
     request_id = uuid.uuid4().hex
+    print("Request ID:", request_id, "— retain this ID if the connection is interrupted.")
     outcome = request("/api/v1/requests", {"requestId": request_id, "correlationId": "sample-client",
                       "expected": {"runtimeSessionId": scene["runtimeSessionId"], "revision": scene["revision"]},
-                      "intent": {"text": args.text, "mode": "offline-rules"}})
+                      "intent": {"text": args.text, "mode": args.mode}})
     print("Request:", request_id, "—", outcome["status"])
     print(json.dumps(outcome["proposal"], indent=2))
     print("Review and Apply in the Operator /clients page. Ctrl+C stops polling, not dispatched work.")

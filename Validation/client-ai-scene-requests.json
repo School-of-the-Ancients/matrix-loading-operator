@@ -1,0 +1,31 @@
+{
+  "schemaVersion": 1,
+  "dateUtc": "2026-09-22",
+  "baseCommit": "47a4b98bc33b810511da32a142dea89c5ef011ca",
+  "scope": "Paired client AI scene proposals through the existing Matrix planner, review and runtime receipt paths",
+  "checks": [
+    {"command": "python -B -m unittest discover -s ControlService -p 'test_*.py' -q", "passed": 491, "failed": 0},
+    {"command": "node --test ControlService/test_client_panel.js ControlService/test_operator_panel.js ControlService/test_content_panel.js", "passed": 3, "failed": 0, "skipped": 0},
+    {"command": "python -B Examples/matrix_client.py --help", "exitCode": 0},
+    {"command": "git diff --check", "exitCode": 0}
+  ],
+  "newHttpTests": 15,
+  "coverage": [
+    "Discovery advertises Codex only for valid owner configuration and preferences, without inference or private details",
+    "Strict client input rejects provider overrides, image attachments, raw commands and unsupported modes",
+    "Existing planner receives owner model and reasoning preferences",
+    "Asynchronous planning preserves idempotency, bounded concurrency and responsive runtime exchange",
+    "Cancellation, revocation, lease loss and scene changes discard late results",
+    "Provider failures remain queryable without automatic inference retry or offline fallback",
+    "Mocked Codex multi-command proposals on synthetic AR room data require owner Apply and real HTTP receipt/snapshot reconciliation",
+    "Existing command validation rejects unsupported operations and unavailable assets",
+    "Offline requests remain available while client Codex inference is occupied",
+    "Worker startup failure releases the slot and preserves a controlled error outcome"
+  ],
+  "limits": [
+    "Codex inference is mocked; no live provider call was made for this evidence",
+    "Runtime acknowledgements and AR room metadata are synthetic test fixtures",
+    "No new Unity build, Windows player launch, headset, visual alignment or human Apply acceptance is claimed",
+    "Existing services and private configurations were not changed"
+  ]
+}
