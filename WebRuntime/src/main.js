@@ -119,7 +119,7 @@ function updateCameraControls(){
   $('enable-camera').disabled=!view.isAR||cameraBusy;
   $('enable-camera').textContent=active?'Stop environment camera':'Enable environment camera for AI review';
   $('camera-status').textContent=!view.isAR?'Enter AR to test the Quest environment camera.':
-    active?'Camera active. Review View will send a labeled camera and virtual pair.':
+    active?`${capability.reason} Review View sends a labeled camera and virtual pair.`:
     capability.reason;
   view.setOperatorCameraStatus(!view.isAR?'Enter AR to test':active?'Active · review sends two labeled views':
     capability.mixedStatus==='denied'?'Permission denied':capability.mixedStatus==='error'?'Camera unavailable':'Enable to test',active);
