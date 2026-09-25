@@ -16,7 +16,7 @@ python ControlService/server.py
 
 Open `http://127.0.0.1:8765/web/`. Click a floor point, enter `Summon a chair here`, choose **Create proposal**, review the command, and choose **Apply proposal**. The full Operator is still at `http://127.0.0.1:8765/`. To use its Codex planner, start the service with the existing `Start-CodexControlService.ps1` and choose **Codex AI on PC** in the web panel. Do not run a Unity runtime against the same service at the same time: the service grants one active runtime lease.
 
-On desktop, arrow keys or WASD move the camera, right-drag looks around, and left-drag moves an object across its current horizontal plane. Click a floor point to select where the next object goes. A completed drag updates the scene and can be undone or saved.
+On desktop, arrow keys or WASD move the camera, right-drag looks around, left-drag moves an object across its current horizontal plane, and Shift + left-drag raises or lowers it. You can switch between horizontal and vertical movement without releasing the mouse; the object stays in place at the switch. Click a floor point to select where the next object goes. A completed drag updates the scene and can be undone or saved.
 
 The service stores named scenes in its existing PC scenes directory. The browser also retains the current scene in this tab's session storage so a refresh keeps the same object IDs until the tab is closed. This is separate from named PC saves.
 

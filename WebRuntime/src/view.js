@@ -2,7 +2,7 @@ import * as THREE from 'three';
 import {ARButton} from 'three/addons/webxr/ARButton.js';
 import {VRButton} from 'three/addons/webxr/VRButton.js';
 import {GLTFLoader} from 'three/addons/loaders/GLTFLoader.js';
-import {beginGrab,moveGrab,finishGrab,beginPointerGrab,movePointerGrab,finishPointerGrab,moveDesktopCamera} from './grab.js';
+import {beginGrab,moveGrab,finishGrab,beginPointerGrab,movePointerGrab,movePointerGrabVertical,finishPointerGrab,moveDesktopCamera} from './grab.js';
 
 const wood=()=>new THREE.MeshStandardMaterial({color:0xa56f45,roughness:.78});
 const metal=()=>new THREE.MeshStandardMaterial({color:0x738995,roughness:.45,metalness:.45});
@@ -148,7 +148,7 @@ export class MatrixView {
     if(event.button===2){this.pointerLook={pointerId:event.pointerId,x:event.clientX,y:event.clientY};return;}
     this.rayFromPointer(event);
     const id=this.selectFromRay();
-    if(id){const grab=beginPointerGrab(this.raycaster,this.objectRoots.get(id));if(grab)this.pointerGrab={...grab,objectId:id,pointerId:event.pointerId};}
+    if(id){const grab=beginPointerGrab(this.raycaster,this.objectRoots.get(id));if(grab)this.pointerGrab={...grab,objectId:id,pointerId:event.pointerId,lastY:event.clientY,vertical:false};}
   }
   pointerMove(event){
     if(this.pointerLook?.pointerId===event.pointerId){
@@ -157,7 +157,15 @@ export class MatrixView {
       this.camera.rotation.y-=dx*.003;
       this.camera.rotation.x=THREE.MathUtils.clamp(this.camera.rotation.x-dy*.003,-Math.PI/2+.05,Math.PI/2-.05);
     }
-    if(this.pointerGrab?.pointerId===event.pointerId){this.rayFromPointer(event);movePointerGrab(this.pointerGrab,this.raycaster);}
+    if(this.pointerGrab?.pointerId===event.pointerId){
+      const grab=this.pointerGrab;this.rayFromPointer(event);
+      if(event.shiftKey){movePointerGrabVertical(grab,this.raycaster,event.clientY-grab.lastY);grab.vertical=true;}
+      else{
+        if(grab.vertical)movePointerGrabVertical(grab,this.raycaster,0);
+        movePointerGrab(grab,this.raycaster);grab.vertical=false;
+      }
+      grab.lastY=event.clientY;
+    }
   }
   pointerUp(event){
     if(this.pointerLook?.pointerId===event.pointerId)this.pointerLook=null;

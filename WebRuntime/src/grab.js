@@ -51,6 +51,20 @@ export function movePointerGrab(grab,raycaster){
   return true;
 }
 
+export function movePointerGrabVertical(grab,raycaster,pixels){
+  const nextY=grab.root.position.y-pixels*.01;
+  if(!Number.isFinite(nextY)||Math.abs(nextY)>100)return false;
+  grab.root.position.y=nextY;
+  grab.root.updateMatrixWorld(true);
+  grab.plane.constant=-grab.root.getWorldPosition(new THREE.Vector3()).y;
+  const hit=raycaster.ray.intersectPlane(grab.plane,new THREE.Vector3());
+  if(hit){
+    if(grab.root.parent)grab.root.parent.worldToLocal(hit);
+    grab.offset.copy(grab.root.position).sub(hit);
+  }
+  return true;
+}
+
 export function finishPointerGrab(grab,previousTransform){
   if(grab.root.position.distanceTo(grab.startPosition)<.005)return null;
   return {...structuredClone(previousTransform),position:position(grab.root.position)};
