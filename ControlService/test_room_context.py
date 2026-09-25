@@ -11,6 +11,7 @@ from unittest.mock import patch
 import ai_adapter
 from ai_adapter import Planner, PlannerError, validate_commands
 from codex_provider import CodexConfig, _schema
+from server import scene_revision_data
 
 
 def vector(x=0, y=0, z=0):
@@ -51,6 +52,27 @@ def spawn(**fields):
 
 
 class RoomMetadataTests(unittest.TestCase):
+    def test_webxr_room_plane_is_measured_but_session_local(self):
+        plane = copy.deepcopy(TABLE)
+        plane.update(anchorId="webxr-plane-1", source="webxr", semanticLabels=["FLOOR"])
+        self.assertEqual(ai_adapter.validate_anchor_metadata(plane)["source"], "webxr")
+        snapshot = copy.deepcopy(SNAPSHOT)
+        snapshot["scene"]["roomId"] = "webxr-session-1"
+        snapshot["scene"]["objects"] = []
+        snapshot["anchors"] = [plane]
+        snapshot["selection"]["anchorId"] = plane["anchorId"]
+        snapshot["selection"]["objectId"] = ""
+        snapshot["viewer"]["frames"][0]["anchorId"] = plane["anchorId"]
+        snapshot.pop("pointing")
+        command = spawn(anchorId=plane["anchorId"])
+        self.assertEqual(validate_commands([command], snapshot)[0]["placement"], "surface")
+        changed = copy.deepcopy(snapshot)
+        changed["anchors"][0]["roomPose"]["position"]["x"] += .04
+        changed["anchors"][0]["surface"]["boundary"][0]["x"] += .04
+        self.assertEqual(scene_revision_data(snapshot), scene_revision_data(changed))
+        changed["anchors"][0]["anchorId"] = "different-plane"
+        self.assertNotEqual(scene_revision_data(snapshot), scene_revision_data(changed))
+
     def test_measured_metadata_round_trips_without_input_aliases(self):
         value = copy.deepcopy(TABLE)
         result = ai_adapter.validate_anchor_metadata(value)

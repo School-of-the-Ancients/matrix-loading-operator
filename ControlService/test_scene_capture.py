@@ -67,6 +67,15 @@ class CaptureTests(unittest.TestCase):
         self.state.save("NoScreenshot")
         self.assertNotIn("dataBase64", self.state.path("NoScreenshot").read_text())
 
+    def test_webxr_virtual_capture_is_accepted_without_claiming_physical_pixels(self):
+        self.state.request_capture({})
+        value = capture_result(self.state, source="webxr_virtual_center_eye")
+        self.exchange(capture=value)
+        image = self.state.selected_capture(value["captureId"])[0]
+        self.assertFalse(image["includesPassthrough"])
+        self.assertEqual(image["camera"]["coordinateFrame"],
+                         "webxr_reference_space; use snapshot.viewer frames for anchor-relative placement")
+
     def test_missing_and_unsupported_runtime_feedback(self):
         with self.assertRaisesRegex(APIError, "unavailable"):
             self.state.selected_capture("missing")

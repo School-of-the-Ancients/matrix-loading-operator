@@ -15,7 +15,7 @@
     </header>
     <aside class="panel">
       <div class="panel-title"><span>WORLD OPERATOR</span><span id="object-count">0 objects</span></div>
-      <p class="hint">Desktop: arrow keys or WASD move, right-drag looks around, and left-drag moves an object across the floor. Click the floor to choose a placement point. In AR or VR, point at an object, hold either trigger to grab it, then release.</p>
+      <p class="hint">Desktop: arrow keys or WASD move, right-drag looks around, left-drag moves an object across the floor, and Shift + left-drag raises or lowers it. In AR or VR, aim at the Operator panel and hold a trigger to speak; hold either grip as a shortcut. Say “Create a portal in Blender” to make and import a new object. Pin the panel to a wall or a fixed point, and use a trigger to grab other objects.</p>
       <label for="token">Service token <small>(only if configured)</small></label>
       <input id="token" type="password" autocomplete="off" placeholder="Kept only in this tab" />
       <label for="mode">Planner</label>
@@ -23,6 +23,11 @@
       <label for="prompt">Request</label>
       <textarea id="prompt" rows="3" placeholder="Put a table here with four chairs."></textarea>
       <button id="propose" class="primary">Create proposal</button>
+      <button id="blender-request">Create requested object in Blender</button>
+      <button id="review-view">Review current rendered view with AI</button>
+      <div class="row voice-row"><button id="voice-button">Tap to speak</button><span id="voice-status" role="status">Local speech on PC</span></div>
+      <label class="check-label"><input id="speak-replies" type="checkbox" checked> Speak Operator replies aloud</label>
+      <label class="check-label"><input id="auto-apply-safe" type="checkbox" checked> Automatically apply safe scene requests</label>
       <div id="proposal" class="proposal hidden" aria-live="polite">
         <div class="proposal-label">REVIEW BEFORE APPLY</div>
         <p id="proposal-summary"></p>
@@ -50,6 +55,7 @@
     </aside>
     <div class="xr-buttons" id="xr-buttons"></div>
     <div class="view-label" id="view-label">DESKTOP · VIRTUAL ROOM</div>
+    <div class="xr-overlay" id="xr-overlay" style="display:none"><button id="xr-voice">Tap to speak</button><span id="xr-voice-status">Operator ready</span><button id="xr-exit">Exit AR</button></div>
   </div>
   <script type="module" src="/src/main.js"></script>
 </body>

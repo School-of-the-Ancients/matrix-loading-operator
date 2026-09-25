@@ -47,6 +47,22 @@ class WebAssetTests(unittest.TestCase):
             with self.assertRaisesRegex(WebAssetError, "External"):
                 WebAssetCatalog(Path(directory) / "catalog").register(source, "External")
 
+    def test_measured_bounds_and_default_scale_can_update_registered_glb(self):
+        with tempfile.TemporaryDirectory() as directory:
+            source = Path(directory) / "triangle.glb"
+            source.write_bytes(glb())
+            catalog = WebAssetCatalog(Path(directory) / "catalog")
+            first = catalog.register(source, "Test Triangle")
+            bounds = {"center": {"x": 0, "y": 0.5, "z": 0},
+                      "size": {"x": 1, "y": 1, "z": 1}}
+            updated = catalog.register(source, "Test Triangle", spawn_scale=0.5, local_bounds=bounds)
+            self.assertEqual(first["assetId"], updated["assetId"])
+            self.assertEqual(catalog.list()[0]["localBounds"], bounds)
+            self.assertEqual(catalog.list()[0]["spawnScale"], 0.5)
+            with self.assertRaisesRegex(WebAssetError, "local bounds"):
+                catalog.register(source, "Bad bounds", local_bounds={"center": bounds["center"],
+                                                                    "size": {"x": 0, "y": 1, "z": 1}})
+
 
 if __name__ == "__main__":
     unittest.main()

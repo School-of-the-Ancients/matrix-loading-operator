@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import * as THREE from 'three';
-import {beginGrab,moveGrab,finishGrab,beginPointerGrab,movePointerGrab,finishPointerGrab,moveDesktopCamera} from '../src/grab.js';
+import {beginGrab,moveGrab,finishGrab,beginPointerGrab,movePointerGrab,movePointerGrabVertical,finishPointerGrab,moveDesktopCamera} from '../src/grab.js';
 import {MatrixWorld,ANCHOR_ID} from '../src/protocol.js';
 
 test('controller grab preserves offset, commits a scene transform and remains undoable',()=>{
@@ -42,4 +42,20 @@ test('desktop drag moves an object across its horizontal plane while arrow keys 
   moveDesktopCamera(camera,new Set(['ArrowUp','ArrowRight']),.04);
   assert.ok(camera.position.x>0&&camera.position.z<0);
   assert.equal(camera.position.y,1.7);
+});
+
+test('Shift drag changes height and switching back to floor drag keeps that height',()=>{
+  const scene=new THREE.Scene();
+  const root=new THREE.Group();root.position.set(0,0,-2);scene.add(root);
+  const raycaster=new THREE.Raycaster(new THREE.Vector3(0,1,3),new THREE.Vector3(0,-1,-5).normalize());
+  const grab=beginPointerGrab(raycaster,root);
+  assert.ok(grab);
+  assert.equal(movePointerGrabVertical(grab,raycaster,-50),true);
+  assert.equal(root.position.y,.5);
+  assert.equal(movePointerGrab(grab,raycaster),true);
+  assert.ok(Math.abs(root.position.y-.5)<1e-6);
+  raycaster.ray.origin.x=1;
+  assert.equal(movePointerGrab(grab,raycaster),true);
+  assert.deepEqual(finishPointerGrab(grab,{position:{x:0,y:0,z:-2},rotation:{x:0,y:0,z:0},scale:{x:1,y:1,z:1}}).position,
+    {x:1,y:.5,z:-2});
 });

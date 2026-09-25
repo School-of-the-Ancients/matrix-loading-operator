@@ -6,12 +6,14 @@ accepted as a Matrix asset.
 """
 import hashlib
 import json
+import math
 import os
 from pathlib import Path
 import re
 import shutil
 import struct
 import tempfile
+import threading
 
 MAX_BYTES = 16 * 1024 * 1024
 MAX_ASSETS = 256
@@ -78,6 +80,7 @@ def inspect_glb(path):
 class WebAssetCatalog:
     def __init__(self, root):
         self.root = Path(root)
+        self.lock = threading.RLock()
 
     def list(self):
         manifest = self.root / "manifest.json"
@@ -101,11 +104,30 @@ class WebAssetCatalog:
             raise WebAssetError("Registered GLB is missing or corrupt")
         return path
 
-    def register(self, source, name, description=""):
+    def register(self, source, name, description="", spawn_scale=None, local_bounds=None):
+        # Procedural and Blender workers share this catalog. Keep the manifest
+        # read-modify-write transaction serial within the service process.
+        with self.lock:
+            return self._register(source, name, description, spawn_scale, local_bounds)
+
+    def _register(self, source, name, description="", spawn_scale=None, local_bounds=None):
         if not isinstance(name, str) or not name.strip() or len(name) > 80:
             raise WebAssetError("Asset name must be 1 to 80 characters")
         if not isinstance(description, str) or len(description) > 500:
             raise WebAssetError("Description must be at most 500 characters")
+        if spawn_scale is not None and (type(spawn_scale) not in (int, float) or not math.isfinite(spawn_scale)
+                                        or not 0.01 <= spawn_scale <= 20):
+            raise WebAssetError("Spawn scale must be 0.01 to 20")
+        if local_bounds is not None:
+            if not isinstance(local_bounds, dict) or set(local_bounds) != {"center", "size"}:
+                raise WebAssetError("Invalid local bounds")
+            for kind in ("center", "size"):
+                vector = local_bounds[kind]
+                if not isinstance(vector, dict) or set(vector) != {"x", "y", "z"} or any(
+                        type(vector[axis]) not in (int, float) or not math.isfinite(vector[axis]) or
+                        abs(vector[axis]) > 20 or (kind == "size" and vector[axis] <= 0)
+                        for axis in ("x", "y", "z")):
+                    raise WebAssetError("Invalid local bounds")
         info = inspect_glb(source)
         digest = hashlib.sha256(Path(source).read_bytes()).hexdigest()
         slug = re.sub(r"[^a-z0-9]+", "-", name.lower()).strip("-")[:40].strip("-")
@@ -116,12 +138,20 @@ class WebAssetCatalog:
         items = self.list()
         for item in items:
             if item.get("assetId") == asset_id:
+                if local_bounds is not None:
+                    item["localBounds"] = local_bounds
+                if spawn_scale is not None:
+                    item["spawnScale"] = spawn_scale
+                if spawn_scale is not None or local_bounds is not None:
+                    self._write_manifest(items)
                 return item
         if len(items) >= MAX_ASSETS:
             raise WebAssetError("Web asset catalog is full")
         entry = {"assetId": asset_id, "displayName": name.strip(), "description": description,
-                 "spawnScale": 1, "sha256": digest, "byteLength": info["bytes"],
+                 "spawnScale": spawn_scale if spawn_scale is not None else 1, "sha256": digest, "byteLength": info["bytes"],
                  "url": f"/api/web/assets/{digest}.glb", "geometry": info}
+        if local_bounds is not None:
+            entry["localBounds"] = local_bounds
         target = self.root / f"{digest}.glb"
         if not target.exists():
             with tempfile.NamedTemporaryFile(dir=self.root, prefix=".asset-", delete=False) as temp:
@@ -132,6 +162,10 @@ class WebAssetCatalog:
                 os.fsync(temp.fileno())
             os.replace(temp_path, target)
         items.append(entry)
+        self._write_manifest(items)
+        return entry
+
+    def _write_manifest(self, items):
         with tempfile.NamedTemporaryFile(mode="w", encoding="utf-8", dir=self.root,
                                          prefix=".manifest-", delete=False) as temp:
             temp_path = Path(temp.name)
@@ -139,4 +173,3 @@ class WebAssetCatalog:
             temp.flush()
             os.fsync(temp.fileno())
         os.replace(temp_path, self.root / "manifest.json")
-        return entry

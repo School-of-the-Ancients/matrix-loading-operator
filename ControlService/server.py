@@ -27,9 +27,11 @@ from ai_adapter import (Planner, PlannerError, validate_local_bounds, validate_v
 from learning import LearningBridge, LearningError, identifier
 from codex_provider import CodexConfig, CodexProviderError, codex_options, select_codex_config
 import speech
+import tts
 import scene_capture
 from web_assets import WebAssetCatalog, WebAssetError
 from web_authoring import WebAuthoringJobs, WebAuthoringError
+from blender_authoring import BlenderAuthoringJobs, BlenderAuthoringError
 from content_service import ContentBridge, runtime_capabilities
 from content_catalog import ContentError
 from quest_connection import QuestConnection
@@ -201,7 +203,19 @@ def snapshot(value):
 
 def scene_revision_data(value):
     # Voice captures head/controller pose at recording start. Movement isn't a scene edit.
-    return None if value is None else {key: item for key, item in value.items() if key not in ("viewer", "pointing")}
+    if value is None:
+        return None
+    result = {key: item for key, item in value.items() if key not in ("viewer", "pointing")}
+    # Browser planes refine their poses and polygons while the wearer moves. Their
+    # session-local IDs identify the same targets; the browser checks current fit
+    # again when it executes a command. Do not stale a proposal for pose jitter.
+    if result["scene"]["roomId"].startswith("webxr-session-"):
+        result["anchors"] = [{"anchorId": anchor["anchorId"], "displayName": anchor["displayName"],
+                              "source": anchor.get("source"),
+                              "labels": anchor.get("semanticLabels"),
+                              "kind": (anchor.get("surface") or {}).get("kind")}
+                             for anchor in result["anchors"]]
+    return result
 
 
 def command(value):
@@ -267,6 +281,7 @@ class State:
         self.directory.mkdir(parents=True, exist_ok=True)
         self.web_assets = WebAssetCatalog(web_assets_directory or Path(__file__).with_name("web_assets"))
         self.web_authoring = WebAuthoringJobs(self.web_assets)
+        self.blender_authoring = BlenderAuthoringJobs(self.web_assets)
         self.clock = clock
         self.lock = threading.RLock()
         self.client_id = None
@@ -656,6 +671,13 @@ class State:
             return self.queue(commands)
 
 
+def wants_blender_asset(prompt):
+    """Route creation requests to asset authoring; scene layout stays with the planner."""
+    if not isinstance(prompt, str) or not re.search(r"\b(create|make|build|generate|model|sculpt|design)\b", prompt, re.I):
+        return False
+    return bool(re.search(r"\b(blender|blend|3d model|3d asset|mesh|new prefab|new model)\b", prompt, re.I))
+
+
 def plan(state, body, request_context=None, content_stage=0, progress=None, cancelled=None):
     def check_cancelled():
         require(cancelled is None or not cancelled(), "Voice request cancelled", 409)
@@ -666,6 +688,17 @@ def plan(state, body, request_context=None, content_stage=0, progress=None, canc
     prompt = None if experiment else text(body.get("text"), "text", limit=4000)
     mode = body.get("mode")
     require(mode in (None, "offline-rules", "openai-compatible", "codex-cli"), "Invalid planner mode")
+    # Asset creation is independent of the current AR plane pose. Start its
+    # bounded PC job before scene-revision checks so tracking updates cannot
+    # invalidate a spoken authoring request during transcription.
+    if not experiment and "captureId" not in body and mode != "offline-rules" and wants_blender_asset(prompt):
+        check_cancelled()
+        try:
+            job = state.blender_authoring.submit({"prompt": prompt})
+        except BlenderAuthoringError as error:
+            raise APIError(error.status, str(error)) from None
+        return {"status": "authoring", "authoringJobId": job["jobId"], "commands": [],
+                "requiresApply": False, "summary": "Creating a new asset in Blender on the PC…"}
     with state.lock:
         state.expire()
         require(state.online() and state.latest is not None, state.room_unavailable_message(), 409)
@@ -1077,6 +1110,10 @@ class Handler(BaseHTTPRequestHandler):
                 data = self.server.state.web_authoring.status()
             elif path.startswith("/api/web/authoring/"):
                 data = self.server.state.web_authoring.status(path.rsplit("/", 1)[1])
+            elif path == "/api/web/blender":
+                data = self.server.state.blender_authoring.status()
+            elif path.startswith("/api/web/blender/"):
+                data = self.server.state.blender_authoring.status(path.rsplit("/", 1)[1])
             elif path.startswith("/api/web/assets/"):
                 name = path[len("/api/web/assets/"):]
                 require(bool(re.fullmatch(r"[0-9a-f]{64}\.glb", name)), "Unknown web asset", 404)
@@ -1122,7 +1159,7 @@ class Handler(BaseHTTPRequestHandler):
             else:
                 raise APIError(404, "Not found")
             self.send_data(200, data)
-        except WebAuthoringError as error:
+        except (WebAuthoringError, BlenderAuthoringError) as error:
             self.send_api_error(APIError(error.status, str(error)))
         except (APIError, LearningError, ContentError, ClientError) as error:
             self.send_api_error(error)
@@ -1167,6 +1204,8 @@ class Handler(BaseHTTPRequestHandler):
                 data = state.content.post(path, body)
             elif path == "/api/web/authoring":
                 data = state.web_authoring.submit(body)
+            elif path == "/api/web/blender":
+                data = state.blender_authoring.submit(body)
             elif path == "/api/command":
                 data = state.queue(body["commands"] if set(body) == {"commands"} else [body])
             elif path == "/api/save":
@@ -1183,6 +1222,9 @@ class Handler(BaseHTTPRequestHandler):
                 data = planner_preferences(state, body)
             elif path == "/api/voice":
                 data = start_voice(state, body)
+            elif path == "/api/voice/speak":
+                self.send_data(200, tts.synthesize(body.get("text")), "audio/wav")
+                return
             elif path == "/api/voice/cancel":
                 data = cancel_voice(state, body)
             elif path == "/api/apply_plan":
@@ -1205,9 +1247,9 @@ class Handler(BaseHTTPRequestHandler):
             else:
                 raise APIError(404, "Not found")
             self.send_data(200, data)
-        except WebAuthoringError as error:
+        except (WebAuthoringError, BlenderAuthoringError) as error:
             self.send_api_error(APIError(error.status, str(error)))
-        except (APIError, LearningError, speech.SpeechError, CodexProviderError, ContentError, ClientError) as error:
+        except (APIError, LearningError, speech.SpeechError, tts.TTSError, CodexProviderError, ContentError, ClientError) as error:
             self.send_api_error(error)
         except (OSError, ValueError, RecursionError):
             self.send_api_error(APIError(500, "Service I/O error"))
