@@ -21,6 +21,7 @@ import urllib.request
 import wave
 
 import speech
+import tts
 import server
 import test_server as fixtures
 
@@ -410,6 +411,21 @@ class VoiceHttpTests(unittest.TestCase):
         status, result = self.request("/api/voice", {"clientId": "quest-a", "snapshot": selected_snapshot(), "audioBase64": "invalid!"})
         self.assertEqual(status, 400)
         self.assertIn("audio", result["error"].lower())
+
+    def test_pc_spoken_reply_returns_wav_with_existing_request_guards(self):
+        body = {"text": "The robot is ready."}
+        self.assertEqual(self.request("/api/voice/speak", {"text": ""})[0], 400)
+        self.assertEqual(self.request("/api/voice/speak", body, headers={"Origin": "https://other.invalid"})[0], 403)
+        self.server.token = "unit-test-token-with-enough-length"
+        self.assertEqual(self.request("/api/voice/speak", body)[0], 401)
+        with patch("tts.synthesize", return_value=b"RIFFxxxxWAVE") as synthesize:
+            request = urllib.request.Request(self.base + "/api/voice/speak", data=json.dumps(body).encode(),
+                                             headers={"Content-Type": "application/json",
+                                                      "Authorization": "Bearer " + self.server.token})
+            with self.http.open(request, timeout=3) as response:
+                self.assertEqual(response.headers.get_content_type(), "audio/wav")
+                self.assertEqual(response.read(), b"RIFFxxxxWAVE")
+            synthesize.assert_called_once_with(body["text"])
 
     def test_missing_voice_job_and_cancel_are_controlled_errors(self):
         self.assertEqual(self.request("/api/voice/missing")[0], 404)

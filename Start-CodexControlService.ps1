@@ -40,6 +40,7 @@ try {
             (Test-Path -LiteralPath (Join-Path $_ '.speech-models\base.en\config.json') -PathType Leaf) -and
             (Test-Path -LiteralPath (Join-Path $_ '.speech-models\base.en\tokenizer.json') -PathType Leaf)
         })
+        if (-not $SpeechRoot -and $installed -contains $PSScriptRoot) { $installed = @($PSScriptRoot) }
         if ($SpeechRoot -and $installed.Count -ne 1) { throw "No complete local speech installation at $SpeechRoot" }
         if ($installed.Count -eq 1) {
             [Environment]::SetEnvironmentVariable('SANDBOX_SPEECH_PYTHON', (Join-Path $installed[0] '.speech-venv\Scripts\python.exe'), 'Process')

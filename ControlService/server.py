@@ -27,6 +27,7 @@ from ai_adapter import (Planner, PlannerError, validate_local_bounds, validate_v
 from learning import LearningBridge, LearningError, identifier
 from codex_provider import CodexConfig, CodexProviderError, codex_options, select_codex_config
 import speech
+import tts
 import scene_capture
 from web_assets import WebAssetCatalog, WebAssetError
 from web_authoring import WebAuthoringJobs, WebAuthoringError
@@ -674,7 +675,7 @@ def wants_blender_asset(prompt):
     """Route creation requests to asset authoring; scene layout stays with the planner."""
     if not isinstance(prompt, str) or not re.search(r"\b(create|make|build|generate|model|sculpt|design)\b", prompt, re.I):
         return False
-    return bool(re.search(r"\b(blender|3d model|3d asset|mesh|new prefab|new model)\b", prompt, re.I))
+    return bool(re.search(r"\b(blender|blend|3d model|3d asset|mesh|new prefab|new model)\b", prompt, re.I))
 
 
 def plan(state, body, request_context=None, content_stage=0, progress=None, cancelled=None):
@@ -687,6 +688,17 @@ def plan(state, body, request_context=None, content_stage=0, progress=None, canc
     prompt = None if experiment else text(body.get("text"), "text", limit=4000)
     mode = body.get("mode")
     require(mode in (None, "offline-rules", "openai-compatible", "codex-cli"), "Invalid planner mode")
+    # Asset creation is independent of the current AR plane pose. Start its
+    # bounded PC job before scene-revision checks so tracking updates cannot
+    # invalidate a spoken authoring request during transcription.
+    if not experiment and "captureId" not in body and mode != "offline-rules" and wants_blender_asset(prompt):
+        check_cancelled()
+        try:
+            job = state.blender_authoring.submit({"prompt": prompt})
+        except BlenderAuthoringError as error:
+            raise APIError(error.status, str(error)) from None
+        return {"status": "authoring", "authoringJobId": job["jobId"], "commands": [],
+                "requiresApply": False, "summary": "Creating a new asset in Blender on the PC…"}
     with state.lock:
         state.expire()
         require(state.online() and state.latest is not None, state.room_unavailable_message(), 409)
@@ -703,14 +715,6 @@ def plan(state, body, request_context=None, content_stage=0, progress=None, canc
         screenshot = None
         if "captureId" in body:
             screenshot, current = state.selected_capture(body["captureId"])
-    if not experiment and screenshot is None and mode != "offline-rules" and wants_blender_asset(prompt):
-        check_cancelled()
-        try:
-            job = state.blender_authoring.submit({"prompt": prompt})
-        except BlenderAuthoringError as error:
-            raise APIError(error.status, str(error)) from None
-        return {"status": "authoring", "authoringJobId": job["jobId"], "commands": [],
-                "requiresApply": False, "summary": "Creating a new asset in Blender on the PC…"}
     try:
         options = {"codex": codex} if codex is not None else {}
         candidates = state.content.planner_context(prompt if mode in ("codex-cli", "openai-compatible") else "",
@@ -1218,6 +1222,9 @@ class Handler(BaseHTTPRequestHandler):
                 data = planner_preferences(state, body)
             elif path == "/api/voice":
                 data = start_voice(state, body)
+            elif path == "/api/voice/speak":
+                self.send_data(200, tts.synthesize(body.get("text")), "audio/wav")
+                return
             elif path == "/api/voice/cancel":
                 data = cancel_voice(state, body)
             elif path == "/api/apply_plan":
@@ -1242,7 +1249,7 @@ class Handler(BaseHTTPRequestHandler):
             self.send_data(200, data)
         except (WebAuthoringError, BlenderAuthoringError) as error:
             self.send_api_error(APIError(error.status, str(error)))
-        except (APIError, LearningError, speech.SpeechError, CodexProviderError, ContentError, ClientError) as error:
+        except (APIError, LearningError, speech.SpeechError, tts.TTSError, CodexProviderError, ContentError, ClientError) as error:
             self.send_api_error(error)
         except (OSError, ValueError, RecursionError):
             self.send_api_error(APIError(500, "Service I/O error"))

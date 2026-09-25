@@ -171,6 +171,9 @@ class WebRuntimeContractTests(unittest.TestCase):
         self.assertEqual(json.loads(raw)["jobs"], [])
 
     def test_creation_request_designs_registers_and_exposes_a_new_blender_asset(self):
+        from server import wants_blender_asset
+        self.assertTrue(wants_blender_asset("Create a small robot and blend"))
+        self.assertFalse(wants_blender_asset("Make another chair"))
         recipe = {"name": "Requested Portal", "parts": [{"kind": "torus", "name": "Portal ring",
                   "location": [0, 1, 0], "rotation": [0, 0, 0], "dimensions": [1.6, 1.6, .3],
                   "color": "#33CCFF", "metallic": .7, "roughness": .3, "emission": 2}]}

@@ -12,13 +12,27 @@ catch {sessionStorage.removeItem('matrix-web-scene');}
 
 let proposal=null,operatorMessageUntil=0,lastOperatorReply='',lastConnectionOnline=null,modeTouched=false;
 const recorder=new VoiceRecorder();let voiceStarting=false,voiceRecording=false,voiceStopRequested=false,voiceJob=null,voiceSnapshot=null;
+let replyContext=null,replySource=null;
+function unlockReplyAudio(){
+  if(!$('speak-replies').checked)return;
+  const AudioContextClass=window.AudioContext||window.webkitAudioContext;
+  if(!AudioContextClass)return;
+  if(!replyContext)replyContext=new AudioContextClass();
+  replyContext.resume().catch(()=>{});
+}
 const feedback=(message,isError=false)=>{$('feedback').textContent=message;$('feedback').classList.toggle('error',isError);};
-const view=new MatrixView($('view'),world,()=>{proposal=null;$('proposal').classList.add('hidden');feedback(`Selected ${world.selection.objectId||'placement point'} at ${Object.values(world.selection.position).join(', ')} m.`);},()=>$('token').value.trim(),message=>feedback(message,true),(id,position)=>{proposal=null;$('proposal').classList.add('hidden');renderScene();feedback(`Moved ${id.slice(0,8)} to ${Object.values(position).join(', ')} m. Undo and Save are available.`);},()=>{proposal=null;$('proposal').classList.add('hidden');renderScene();},beginVoice,endVoice,()=>{$('speak-replies').checked=!$('speak-replies').checked;view.setVoiceOutputEnabled($('speak-replies').checked);});
+const view=new MatrixView($('view'),world,()=>{proposal=null;$('proposal').classList.add('hidden');feedback(`Selected ${world.selection.objectId||'placement point'} at ${Object.values(world.selection.position).join(', ')} m.`);},()=>$('token').value.trim(),message=>feedback(message,true),(id,position)=>{proposal=null;$('proposal').classList.add('hidden');renderScene();feedback(`Moved ${id.slice(0,8)} to ${Object.values(position).join(', ')} m. Undo and Save are available.`);},()=>{proposal=null;$('proposal').classList.add('hidden');renderScene();},beginVoice,endVoice,()=>{$('speak-replies').checked=!$('speak-replies').checked;view.setVoiceOutputEnabled($('speak-replies').checked);unlockReplyAudio();});
 view.sync();
 view.setVoiceOutputEnabled($('speak-replies').checked);
 view.initXR($('xr-buttons')).catch(e=>feedback(e.message,true));
 
-function renderScene(){view.sync();$('object-count').textContent=`${world.scene.objects.length} object${world.scene.objects.length===1?'':'s'}`;if(!pendingScene&&!world.spatial)sessionStorage.setItem('matrix-web-scene',JSON.stringify(world.scene));}
+function renderScene(){
+  view.sync();$('object-count').textContent=`${world.scene.objects.length} object${world.scene.objects.length===1?'':'s'}`;
+  if(!pendingScene){
+    const scene=world.spatial?{...world.virtualScene.scene,objects:world.scene.objects.filter(object=>object.anchorId==='web-floor')}:world.scene;
+    sessionStorage.setItem('matrix-web-scene',JSON.stringify(scene));
+  }
+}
 renderScene();
 const bridge=new MatrixBridge(world,()=>$('token').value.trim(),event=>{
   if(event.type==='scene')renderScene();
@@ -65,6 +79,7 @@ async function refreshScenes(){
 }
 async function propose(){
   const text=$('prompt').value.trim();if(!text){feedback('Enter a request first.',true);return;}
+  unlockReplyAudio();
   lastOperatorReply='';operatorMessageUntil=0;
   $('propose').disabled=true;feedback('Planning…');
   const data=await call('/api/plan',{text,mode:$('mode').value});$('propose').disabled=false;
@@ -72,10 +87,27 @@ async function propose(){
   await showProposal(data);
 }
 const SAFE_AUTO_OPS=new Set(['spawn','duplicate','set_transform','set_behavior','remove_behavior','select']);
-function speakReply(message){
-  if(!$('speak-replies').checked||!('speechSynthesis' in window))return;
-  speechSynthesis.cancel();const utterance=new SpeechSynthesisUtterance(String(message).slice(0,500));
-  utterance.rate=1;utterance.volume=.85;speechSynthesis.speak(utterance);
+async function speakReply(message){
+  if(!$('speak-replies').checked)return;
+  const fallback=()=>{
+    if(!('speechSynthesis' in window))return;
+    speechSynthesis.cancel();const utterance=new SpeechSynthesisUtterance(String(message).slice(0,300));
+    utterance.rate=1;utterance.volume=.85;speechSynthesis.speak(utterance);
+  };
+  try{
+    unlockReplyAudio();
+    if(!replyContext)throw Error('Web Audio unavailable');
+    const headers={'Content-Type':'application/json'},token=$('token').value.trim();
+    if(token)headers.Authorization=`Bearer ${token}`;
+    const response=await fetch('/api/voice/speak',{method:'POST',headers,body:JSON.stringify({text:String(message).slice(0,300)}),cache:'no-store'});
+    if(!response.ok)throw Error(`PC speech output HTTP ${response.status}`);
+    const buffer=await replyContext.decodeAudioData(await response.arrayBuffer());
+    if(replyContext.state!=='running')await replyContext.resume();
+    if(replyContext.state!=='running')throw Error('Browser audio is suspended');
+    replySource?.stop();
+    replySource=replyContext.createBufferSource();replySource.buffer=buffer;
+    replySource.connect(replyContext.destination);replySource.start();
+  }catch(error){console.warn('Operator voice output:',error);fallback();}
 }
 async function pollBlender(jobId,request){
   for(let attempt=0;attempt<600;attempt++){
@@ -135,12 +167,13 @@ async function applyProposal(){
 $('propose').addEventListener('click',propose);
 $('blender-request').addEventListener('click',async()=>{
   const prompt=$('prompt').value.trim();if(!prompt){feedback('Describe the object to create first.',true);return;}
+  unlockReplyAudio();
   const button=$('blender-request');button.disabled=true;
   try{const job=await bridge.request('/api/web/blender',{prompt});await pollBlender(job.jobId,prompt);}
   catch(error){feedback(error.message,true);view.setOperatorStatus(error.message,'error');}
   finally{button.disabled=false;}
 });
-$('speak-replies').addEventListener('change',()=>view.setVoiceOutputEnabled($('speak-replies').checked));
+$('speak-replies').addEventListener('change',()=>{view.setVoiceOutputEnabled($('speak-replies').checked);unlockReplyAudio();});
 $('prompt').addEventListener('keydown',event=>{if(event.key==='Enter'&&(event.ctrlKey||event.metaKey))propose();});
 $('discard').addEventListener('click',()=>{proposal=null;$('proposal').classList.add('hidden');feedback('Proposal discarded.');});
 $('apply').addEventListener('click',applyProposal);
@@ -148,6 +181,7 @@ function voiceStatus(message,isError=false){$('voice-status').textContent=messag
 function voiceButtons(){for(const id of ['voice-button','xr-voice']){$(id).textContent=voiceStarting||voiceRecording?'Tap to send':'Tap to speak';$(id).disabled=!!voiceJob;}}
 async function beginVoice(){
   if(voiceStarting||voiceRecording||voiceJob)return;
+  unlockReplyAudio();
   lastOperatorReply='';operatorMessageUntil=0;
   voiceStarting=true;voiceStopRequested=false;voiceButtons();voiceStatus('Requesting microphone…');
   try{await recorder.start();voiceRecording=true;voiceSnapshot=world.snapshot(view.viewer());voiceStatus('Recording… release the controller or tap Send.');}
