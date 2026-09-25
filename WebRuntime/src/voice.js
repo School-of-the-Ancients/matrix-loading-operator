@@ -40,9 +40,13 @@ export class VoiceRecorder {
       let context;try{context=new Audio({sampleRate:TARGET_RATE});}catch{context=new Audio();}
       await context.resume();
       const source=context.createMediaStreamSource(stream),processor=context.createScriptProcessor(4096,1,1),mute=context.createGain();
-      mute.gain.value=0;this.chunks=[];this.active=true;this.stream=stream;this.context=context;
+      mute.gain.value=0;this.chunks=[];this.recordedFrames=0;this.active=true;this.stream=stream;this.context=context;
       this.source=source;this.processor=processor;this.mute=mute;
-      processor.onaudioprocess=event=>{if(this.active)this.chunks.push(new Float32Array(event.inputBuffer.getChannelData(0)));};
+      processor.onaudioprocess=event=>{
+        if(!this.active)return;
+        const data=event.inputBuffer.getChannelData(0),remaining=Math.max(0,Math.ceil(context.sampleRate*15)-this.recordedFrames);
+        if(remaining){const chunk=new Float32Array(data.subarray(0,remaining));this.chunks.push(chunk);this.recordedFrames+=chunk.length;}
+      };
       source.connect(processor);processor.connect(mute);mute.connect(context.destination);
     }catch(error){stream.getTracks().forEach(track=>track.stop());throw error;}
   }

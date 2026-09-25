@@ -15,7 +15,7 @@
     </header>
     <aside class="panel">
       <div class="panel-title"><span>WORLD OPERATOR</span><span id="object-count">0 objects</span></div>
-      <p class="hint">Desktop: arrow keys or WASD move, right-drag looks around, left-drag moves an object across the floor, and Shift + left-drag raises or lowers it. In AR or VR, aim at the Operator panel and hold a trigger to speak; hold either grip as a shortcut. Say “Create a portal in Blender” to make and import a new object. Pin the panel to a wall or a fixed point, and use a trigger to grab other objects.</p>
+      <p class="hint">Desktop: arrow keys or WASD move, right-drag looks around, left-drag moves an object across the floor, and Shift + left-drag raises or lowers it. In AR or VR, use the in-world Operator panel to speak, review, apply, and confirm room alignment. Say “Create a portal in Blender” for an object, or “Create a sci-fi collect-and-deliver game” for a playable challenge. Grab objects with a trigger.</p>
       <label for="token">Service token <small>(only if configured)</small></label>
       <input id="token" type="password" autocomplete="off" placeholder="Kept only in this tab" />
       <label for="mode">Planner</label>
@@ -24,7 +24,10 @@
       <textarea id="prompt" rows="3" placeholder="Put a table here with four chairs."></textarea>
       <button id="propose" class="primary">Create proposal</button>
       <button id="blender-request">Create requested object in Blender</button>
-      <button id="review-view">Review current rendered view with AI</button>
+      <button id="review-view">Review current view with AI</button>
+      <button id="enable-camera" disabled>Enable environment camera for AI review</button>
+      <p id="camera-status" class="hint" role="status">Enter AR to test the Quest environment camera.</p>
+      <button id="confirm-room" disabled>Outlines align — enable AR editing</button>
       <div class="row"><button id="new-chat">New conversation</button><span id="conversation-status" class="asset-count">0 recent turns in this tab</span></div>
       <div class="row voice-row"><button id="voice-button">Tap to speak</button><span id="voice-status" role="status">Local speech on PC</span></div>
       <label class="check-label"><input id="speak-replies" type="checkbox" checked> Speak Operator replies aloud</label>
@@ -37,22 +40,11 @@
       </div>
       <div class="separator"></div>
       <div class="row"><button id="refresh-assets">Refresh assets</button><span id="asset-count" class="asset-count">7 built-in</span></div>
-      <details class="authoring">
-        <summary>Create a procedural asset</summary>
-        <p class="hint">Build a new static GLB on the PC, then place it at the selected point. The brief is saved for later visual authoring; this prototype uses the controls below.</p>
-        <label for="asset-name">Asset name</label><input id="asset-name" value="New arch" maxlength="80" />
-        <label for="asset-brief">Visual brief</label><textarea id="asset-brief" rows="2" maxlength="500" placeholder="Mood and detail notes for later image and Blender work"></textarea>
-        <div class="row"><div><label for="asset-shape">Shape</label><select id="asset-shape"><option value="arch">Arch</option><option value="monolith">Monolith</option><option value="pedestal">Pedestal</option></select></div><div><label for="asset-palette">Palette</label><select id="asset-palette"><option value="slate">Slate</option><option value="sandstone">Sandstone</option><option value="copper">Copper</option><option value="midnight">Midnight</option></select></div></div>
-        <div class="row"><div><label for="asset-width">Width m</label><input id="asset-width" type="number" min="0.5" max="4" step="0.1" value="1.8" /></div><div><label for="asset-height">Height m</label><input id="asset-height" type="number" min="0.5" max="4" step="0.1" value="2.2" /></div><div><label for="asset-depth">Depth m</label><input id="asset-depth" type="number" min="0.2" max="2" step="0.1" value="0.45" /></div></div>
-        <button id="create-asset" class="primary">Build asset</button>
-        <p id="authoring-status" role="status">No authoring job yet.</p>
-        <button id="place-asset" disabled>Place generated asset at selected point</button>
-      </details>
+      <p id="game-status" class="hint" role="status">No game running.</p>
       <div class="row"><button id="undo">Undo</button><button id="redo">Redo</button><button id="clear">Clear</button></div>
       <div class="row"><input id="save-name" aria-label="Scene name" placeholder="Scene name" /><button id="save">Save</button></div>
       <div class="row"><select id="saved-scenes" aria-label="Saved scenes"><option value="">Saved scenes</option></select><button id="restore">Restore</button></div>
       <p id="feedback" role="status">Starting runtime…</p>
-      <a id="operator-link" href="/" target="_blank" rel="noopener">Open full Operator ↗</a>
     </aside>
     <div class="xr-buttons" id="xr-buttons"></div>
     <div class="view-label" id="view-label">DESKTOP · VIRTUAL ROOM</div>

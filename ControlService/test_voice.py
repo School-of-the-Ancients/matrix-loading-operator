@@ -198,6 +198,22 @@ class VoiceJobTests(unittest.TestCase):
         self.wait_idle()
         self.assertEqual(self.planner.call_args.kwargs["conversation"], prior)
 
+    def test_web_voice_can_return_a_reviewable_game_plan(self):
+        self.snapshot["scene"]["roomId"] = "web-virtual-room-v1"
+        self.body["snapshot"] = copy.deepcopy(self.snapshot)
+        self.body["webRuntime"] = True
+        self.exchange(self.snapshot)
+        self.transcribe.return_value = "Create a collect-and-deliver game"
+        from test_web_game import PLAN
+        game = copy.deepcopy(PLAN)
+        with patch.object(server, "design_game", return_value=game):
+            job_id = self.begin()
+            self.wait_idle()
+        result = server.voice_status(self.state, job_id)
+        self.assertEqual(result["phase"], "ready")
+        self.assertEqual(result["gamePlan"], game)
+        self.planner.assert_not_called()
+
     def test_voice_rejects_oversized_or_malformed_history_before_transcription(self):
         for history in ([{"user": "request", "assistant": "reply"}] * 7,
                         [{"user": "request", "assistant": "reply", "role": "system"}],

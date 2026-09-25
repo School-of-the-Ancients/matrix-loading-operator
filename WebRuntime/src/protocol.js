@@ -28,6 +28,7 @@ export class MatrixWorld {
     this.idFactory=idFactory;
     this.externalAssets=[];
     this.scene={schemaVersion:1,roomId:ROOM_ID,objects:[]};
+    this.game=null;
     this.selection={anchorId:ANCHOR_ID,objectId:'',position:{x:0,y:0,z:-2}};
     this.spatial=null;this.virtualScene=null;
     this.undo=[]; this.redo=[];
@@ -132,13 +133,15 @@ export class MatrixWorld {
     try {
       if (!command || !validId(command.requestId)) throw Error('Invalid requestId');
       const op=command.op;
+      if(this.spatial?.stale&&['spawn','duplicate','set_transform','set_behavior','remove_behavior','delete','load','undo','redo','select'].includes(op))
+        throw Error('Room tracking is stale; editing is paused until the room is recovered');
       const mutation=['spawn','duplicate','set_transform','set_behavior','remove_behavior','delete','clear','load'].includes(op);
       const before=mutation?clone(this.scene):null;
       let object;
       switch(op) {
         case 'get_scene': case 'list_assets': case 'list_targets': break;
         case 'confirm_room':
-          if(!this.spatial||!this.spatial.anchors.some(anchor=>anchor.surface.kind==='support'))throw Error('No measured support surface to confirm');
+          if(!this.spatial||this.spatial.stale||!this.spatial.anchors.some(anchor=>anchor.surface.kind==='support'))throw Error('No ready measured support surface to confirm');
           this.spatial.alignmentVerified=true;break;
         case 'spawn':
           if (!this.asset(command.assetId)) throw Error('Unknown assetId');
@@ -150,7 +153,7 @@ export class MatrixWorld {
           this.scene.objects.push(object); result.objectId=object.objectId; break;
         case 'select':
           object=this.requireObject(command.objectId); result.objectId=object.objectId;
-          this.setSelection(object.objectId,object.transform.position); break;
+          this.setSelection(object.objectId,object.transform.position,object.anchorId); break;
         case 'duplicate':
           object=this.requireObject(command.objectId);
           if (this.scene.objects.length>=MAX_OBJECTS) throw Error('Scene object limit reached');

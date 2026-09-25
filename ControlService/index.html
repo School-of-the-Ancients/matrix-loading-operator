@@ -137,9 +137,18 @@ function captureAvailability(mode=$('mode').value){
 }
 function captureControls(){
   const capture=latest?.capture,typed=captureAvailability(),voice=captureAvailability('codex-cli'),armed=!!capture?.voiceCaptureId;
-  const modes=capture?.capabilities?.modes||['virtual'],mixed=$('captureMode').value==='mixed';
+  const modes=capture?.capabilities?.modes||['virtual'],mixedAvailable=modes.includes('mixed');
+  const webCamera=capture?.capabilities?.device==='WebXR environment camera';
+  const mixedOption=$('captureMode').querySelector('option[value="mixed"]');
+  mixedOption.disabled=!mixedAvailable;
+  mixedOption.textContent=webCamera?'Quest camera + virtual view (side by side)':
+    mixedAvailable?'Quest 3 real room + virtual objects':'Quest 3 real room + virtual objects (enable WebXR camera or use native AR)';
+  if(!mixedAvailable&&$('captureMode').value==='mixed')$('captureMode').value='virtual';
+  const mixed=$('captureMode').value==='mixed';
   $('captureMode').disabled=busy||captureBusy||capture?.status==='pending';
-  $('captureModeStatus').textContent=mixed?(capture?.capabilities?.reason||'Quest 3 camera access requires an updated AR player.')+' This captures a physical-room photograph. A headset permission prompt may appear. No physical depth occlusion.':'Virtual rendering only; physical camera pixels are excluded.';
+  $('captureModeStatus').textContent=mixed?(webCamera?'Separate Quest camera and virtual render, side by side; no pixel alignment or physical depth.':
+    'Native Quest 3 AR camera composite. A headset permission prompt may appear. No physical depth occlusion.'):
+    'Virtual rendering only; physical camera pixels are excluded.'+(!mixedAvailable&&latest?.online?' Mixed capture is unavailable from the connected runtime: '+(capture?.capabilities?.reason||'use the native Quest 3 AR player for camera imagery.'):'');
   $('captureScene').disabled=!modes.includes(mixed?'mixed':'virtual')||busy||captureBusy||!latest?.online||!latest?.snapshot||!capture?.supported||capture.status==='pending'||!!latest?.pendingCount;
   $('includeCapture').disabled=busy||(!$('includeCapture').checked&&!typed.ok);
   $('plan').disabled ||= $('includeCapture').checked&&!typed.ok;
@@ -154,8 +163,9 @@ function renderCapture(){
   const status=capture?.status||'none';
   const labels={none:'No preview captured.',pending:'Capturing the headset view…',ready:'Preview ready. Review the image before choosing to include it.',stale:'Preview is stale. Capture a fresh view before sending it.',error:'Capture failed.'};
   $('captureStatus').textContent=!capture?.supported?'Rendered scene capture is unavailable in this runtime.':(labels[status]||'Capture state unavailable.')+(capture?.error?' '+capture.error:'')+(previewError?' '+previewError:'');
-  $('captureDetails').textContent=[capture?.width&&capture?.height?capture.width+' × '+capture.height:null,capture?.capturedAtUtc?'Captured '+capture.capturedAtUtc:null,Number.isFinite(capture?.ageSeconds)?Math.floor(capture.ageSeconds)+' seconds old':null,Number.isFinite(capture?.captureDurationMs)?Number(capture.captureDurationMs.toFixed(1))+' ms capture':null,capture?.includesPassthrough?'Physical camera + virtual content; no physical depth occlusion':'Virtual content only; no physical passthrough'].filter(Boolean).join(' · ');
-  $('captureImage').alt=capture?.includesPassthrough?'Physical Quest camera photograph combined with virtual scene objects':'Captured virtual scene; physical passthrough excluded';
+  $('captureDetails').textContent=[capture?.width&&capture?.height?capture.width+' × '+capture.height:null,capture?.capturedAtUtc?'Captured '+capture.capturedAtUtc:null,Number.isFinite(capture?.ageSeconds)?Math.floor(capture.ageSeconds)+' seconds old':null,Number.isFinite(capture?.captureDurationMs)?Number(capture.captureDurationMs.toFixed(1))+' ms capture':null,capture?.source==='webxr_camera_pair'?'Separate environment camera + virtual view; uncalibrated':capture?.includesPassthrough?'Physical camera + virtual content; no physical depth occlusion':'Virtual content only; no physical camera image'].filter(Boolean).join(' · ');
+  $('captureImage').alt=capture?.source==='webxr_camera_pair'?'Quest environment camera beside a virtual scene render, without pixel alignment':
+    capture?.includesPassthrough?'Physical Quest camera photograph combined with virtual scene objects':'Captured virtual scene; physical camera excluded';
   captureControls();
 }
 async function loadCapturePreview(){
@@ -172,7 +182,7 @@ async function loadCapturePreview(){
     image.src=preview.imageDataUrl;
   }catch(e){if(capturePreviewKey===key){previewLoadedId=null;previewError=e.message;$('capturePreview').hidden=true;renderCapture();}}
 }
-function screenshotDescription(screenshot){return screenshot?'Image included: '+(screenshot.includesPassthrough?'physical room + virtual scene; no physical depth occlusion':'rendered virtual scene; physical passthrough excluded')+(screenshot.capturedAtUtc?' captured '+screenshot.capturedAtUtc:'')+'.':'No image included; scene metadata and text only.';}
+function screenshotDescription(screenshot){return screenshot?'Image included: '+(screenshot.source==='webxr_camera_pair'?'separate environment camera and virtual render, side by side without pixel calibration':screenshot.includesPassthrough?'physical room + virtual scene; no physical depth occlusion':'rendered virtual scene; physical camera excluded')+(screenshot.capturedAtUtc?' captured '+screenshot.capturedAtUtc:'')+'.':'No image included; scene metadata and text only.';}
 function canApply(value){return !!value&&(value.status===undefined||value.status==='ready')&&value.requiresApply===true&&typeof value.planId==='string'&&value.planId.trim().length>0&&Array.isArray(value.commands)&&value.commands.length>0;}
 function canReviewVoice(value){return !!value&&(value.phase==='ready'&&canApply(value)||value.phase==='review_only'&&value.status==='review_only'&&value.requiresApply===false&&Array.isArray(value.commands)&&value.commands.length===0);}
 function canReviewApplied(){return !busy&&!!latest?.online&&!latest?.pendingCount&&reviewReadyRevision!==null&&latest.revision===reviewReadyRevision&&latest.clientId===reviewReadyClient&&!!latest.capture?.supported&&imageCapability().supported;}
