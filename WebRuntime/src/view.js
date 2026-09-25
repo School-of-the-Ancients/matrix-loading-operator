@@ -38,37 +38,79 @@ function planeLabel(label){
 function operatorPanel(){
   const canvas=document.createElement('canvas');canvas.width=1024;canvas.height=768;
   const texture=new THREE.CanvasTexture(canvas);texture.colorSpace=THREE.SRGBColorSpace;
-  const mesh=new THREE.Mesh(new THREE.PlaneGeometry(.78,.58),new THREE.MeshBasicMaterial({map:texture,transparent:true,depthTest:false,depthWrite:false,side:THREE.DoubleSide}));
+  const mesh=new THREE.Mesh(new THREE.PlaneGeometry(.96,.72),new THREE.MeshBasicMaterial({map:texture,transparent:true,depthTest:false,depthWrite:false,side:THREE.DoubleSide}));
   mesh.renderOrder=100;mesh.userData.operatorVoice=true;
   const group=new THREE.Group();group.add(mesh);group.visible=false;
-  let message='Aim here, hold trigger, and ask for a scene.',tone='idle',page=0,pinLabel='PIN TO WALL',voiceLabel='VOICE ON',originLabel='ROOM ORIGIN UNKNOWN',conversationCount=0;
+  let message='Aim here, hold trigger, and ask for a scene.',tone='idle',page=0,mode='chat',proposal=null;
+  let pinLabel='PIN TO WALL',voiceLabel='VOICE ON',originLabel='ROOM ORIGIN UNKNOWN',conversationCount=0;
+  let gameStatus='No game running.',worldInfo={objects:0,canConfirm:false,alignment:'No room scan'},worldWarning='';
+  let cameraStatus='Camera not tested',cameraActive=false;
+  let buttons=[];
   const paint=()=>{
     const ctx=canvas.getContext('2d');ctx.fillStyle='#071923';ctx.fillRect(0,0,1024,768);
     ctx.strokeStyle=tone==='error'?'#ffad8d':'#55e9d2';ctx.lineWidth=9;ctx.strokeRect(10,10,1004,748);
     ctx.fillStyle='#75f4df';ctx.font='bold 51px sans-serif';ctx.fillText('◈  OPERATOR',55,90);
-    ctx.fillStyle='#245568';ctx.fillRect(544,35,210,72);
-    ctx.fillStyle='#e9f9fa';ctx.font='bold 24px sans-serif';ctx.textAlign='center';ctx.fillText(`NEW CHAT ${conversationCount}`,649,80);ctx.textAlign='left';
-    ctx.fillStyle='#245568';ctx.fillRect(766,35,210,72);
-    ctx.fillStyle='#e9f9fa';ctx.font='bold 25px sans-serif';ctx.textAlign='center';ctx.fillText('REVIEW VIEW',871,80);ctx.textAlign='left';
+    buttons=[];
+    const button=(id,label,x,y,w,h,active=false)=>{
+      ctx.fillStyle=active?'#53dcc5':'#245568';ctx.fillRect(x,y,w,h);
+      ctx.fillStyle=active?'#062b34':'#e9f9fa';ctx.font=`bold ${label.length>15?21:25}px sans-serif`;
+      ctx.textAlign='center';ctx.textBaseline='middle';ctx.fillText(label,x+w/2,y+h/2);ctx.textAlign='left';ctx.textBaseline='alphabetic';
+      buttons.push({id,x,y,w,h});
+    };
+    button('toggle-world',mode==='world'?'CHAT':'WORLD',544,35,210,72);
+    button(proposal&&mode!=='proposal'?'open-proposal':'review-view',proposal&&mode!=='proposal'?'PROPOSAL':'REVIEW VIEW',766,35,210,72);
     ctx.fillStyle='#8bb8c2';ctx.font='bold 21px sans-serif';ctx.fillText(originLabel,55,123);
-    ctx.font=message.length>500?'25px sans-serif':'31px sans-serif';ctx.fillStyle='#dff7f8';
-    const lines=[];
-    for(const paragraph of message.split('\n')){
-      let line='';
-      for(const word of paragraph.split(/\s+/)){
-        const next=line?`${line} ${word}`:word;
-        if(ctx.measureText(next).width>900&&line){lines.push(line);line=word;}else line=next;
+    if(mode==='world'){
+      ctx.fillStyle='#dff7f8';ctx.font='29px sans-serif';
+      ctx.fillText(`${worldInfo.objects} scene objects · ${worldInfo.alignment}`,55,180);
+      ctx.font='25px sans-serif';
+      const label=gameStatus.length>70?gameStatus.slice(0,67)+'…':gameStatus;
+      ctx.fillText(label,55,235);
+      ctx.fillStyle='#8bb8c2';ctx.fillText(`Conversation: ${conversationCount} recent turn${conversationCount===1?'':'s'}`,55,290);
+      if(worldInfo.canConfirm)button('confirm-room','OUTLINES ALIGN — ENABLE EDITING',55,328,914,76,true);
+      else {ctx.fillStyle='#8bb8c2';ctx.font='24px sans-serif';ctx.fillText(
+        worldInfo.alignment==='AR room aligned'?'Room confirmed; measured editing enabled.':
+        'Room confirmation appears when AR support planes are detected.',55,380);}
+      ctx.fillStyle='#8bb8c2';ctx.font='21px sans-serif';
+      ctx.fillText(`Camera: ${cameraStatus.slice(0,75)}`,55,424);
+      button('save-world','SAVE WORLD',55,440,285,76);
+      button('restore-world',worldInfo.restoreArmed?'CONFIRM RESTORE':'RESTORE SAVED',370,440,285,76);
+      button('undo','UNDO',685,440,285,76);
+      button('redo','REDO',55,535,285,76);
+      button('new-chat','NEW CHAT',370,535,285,76);
+      button('toggle-camera',cameraActive?'STOP CAMERA':'ENABLE CAMERA',685,535,285,76);
+    }else{
+      const content=mode==='proposal'&&proposal?
+        `REVIEW BEFORE APPLY\n${proposal.summary||''}\n\n${proposal.kind==='game'?
+          `GAME: ${proposal.gamePlan?.title||''}\nROLES\n${proposal.gamePlan?.roles?.map(role=>`${role.count} × ${role.assetId} as ${role.roleId} (${role.kind})`).join('\n')||''}\nRULES\n${proposal.gamePlan?.rules?.map(rule=>`${rule.actorRoleId} → ${rule.targetRoleId}: ${rule.event} within ${rule.distanceMeters} m, +${rule.scorePoints}`).join('\n')||''}\nOBJECTIVES\n${proposal.gamePlan?.objectives?.map(objective=>`${objective.roleId}: ${objective.targetCount} delivered`).join('\n')||''}`:
+          `COMMANDS (${proposal.commands?.length||0})\n${JSON.stringify(proposal.commands||[],null,2)}`}`:message;
+      ctx.font=content.length>500?'24px sans-serif':'30px sans-serif';ctx.fillStyle='#dff7f8';
+      const lines=[];
+      for(const paragraph of content.split('\n')){
+        let line='';
+        for(const word of paragraph.split(/\s+/)){
+          const next=line?`${line} ${word}`:word;
+          if(ctx.measureText(next).width>900&&line){lines.push(line);line=word;}else line=next;
+        }
+        lines.push(line);
       }
-      lines.push(line);
+      const perPage=content.length>500?14:12,pages=Math.max(1,Math.ceil(lines.length/perPage));page%=pages;
+      const step=content.length>500?30:37;
+      lines.slice(page*perPage,(page+1)*perPage).forEach((line,index)=>ctx.fillText(line,55,160+index*step));
+      ctx.fillStyle='#8bb8c2';ctx.font='24px sans-serif';ctx.fillText(`Page ${page+1}/${pages}`,55,596);
     }
-    const perPage=message.length>500?14:13,pages=Math.max(1,Math.ceil(lines.length/perPage));page%=pages;
-    const step=message.length>500?30:36;
-    lines.slice(page*perPage,(page+1)*perPage).forEach((line,index)=>ctx.fillText(line,55,150+index*step));
-    ctx.fillStyle='#8bb8c2';ctx.font='24px sans-serif';ctx.fillText(`Page ${page+1}/${pages}`,55,606);
-    ctx.fillStyle=tone==='recording'?'#ff8f7c':'#53dcc5';ctx.fillRect(35,636,472,90);
-    ctx.fillStyle='#245568';ctx.fillRect(519,636,210,90);ctx.fillRect(741,636,132,90);ctx.fillRect(885,636,104,90);
-    ctx.fillStyle='#062b34';ctx.font='bold 31px sans-serif';ctx.textAlign='center';ctx.fillText('HOLD TO SPEAK',271,693);
-    ctx.fillStyle='#e9f9fa';ctx.font='bold 23px sans-serif';ctx.fillText(pinLabel,624,691);ctx.font='bold 20px sans-serif';ctx.fillText(voiceLabel,807,691);ctx.fillText('NEXT',937,691);ctx.textAlign='left';
+    if(worldWarning){ctx.fillStyle='#ffad8d';ctx.font='bold 19px sans-serif';ctx.fillText(worldWarning,55,625);}
+    if(mode==='proposal'&&proposal){
+      button('voice','HOLD TO SPEAK',35,636,330,90,true);
+      button('apply','APPLY',377,636,207,90,true);
+      button('discard','DISCARD',596,636,207,90);
+      button('next','NEXT',815,636,174,90);
+    }else{
+      button('voice','HOLD TO SPEAK',35,636,472,90,true);
+      button('pin',pinLabel,519,636,210,90);
+      button('voice-output',voiceLabel,741,636,132,90);
+      button('next','NEXT',885,636,104,90);
+    }
     texture.needsUpdate=true;
   };
   const setMessage=(next,nextTone='idle')=>{message=String(next);tone=nextTone;page=0;paint();};
@@ -76,16 +118,28 @@ function operatorPanel(){
   const setVoiceLabel=next=>{voiceLabel=next;paint();};
   const setOriginLabel=next=>{if(originLabel!==next){originLabel=next;paint();}};
   const setConversationCount=next=>{conversationCount=next;paint();};
+  const setProposal=next=>{proposal=next;if(next)mode='proposal';else if(mode==='proposal')mode='chat';page=0;paint();};
+  const setWorldInfo=next=>{if(JSON.stringify(worldInfo)!==JSON.stringify(next)){worldInfo=next;paint();}};
+  const setGameStatus=next=>{if(gameStatus!==next){gameStatus=next;paint();}};
+  const setWarning=next=>{if(worldWarning!==next){worldWarning=next;paint();}};
+  const setCameraStatus=(next,active)=>{if(cameraStatus!==next||cameraActive!==active){cameraStatus=next;cameraActive=active;paint();}};
+  const toggleWorld=()=>{mode=mode==='world'?'chat':'world';page=0;paint();};
+  const openProposal=()=>{if(proposal){mode='proposal';page=0;paint();}};
+  const hit=uv=>{
+    if(!uv)return null;const x=uv.x*1024,y=(1-uv.y)*768;
+    return buttons.find(item=>x>=item.x&&x<=item.x+item.w&&y>=item.y&&y<=item.y+item.h)?.id||null;
+  };
   const nextPage=()=>{page++;paint();};
   paint();
-  return {group,mesh,setMessage,setPinLabel,setVoiceLabel,setOriginLabel,setConversationCount,nextPage};
+  return {group,mesh,setMessage,setPinLabel,setVoiceLabel,setOriginLabel,setConversationCount,
+    setProposal,setWorldInfo,setGameStatus,setWarning,setCameraStatus,toggleWorld,openProposal,hit,nextPage};
 }
 const v3=v=>new THREE.Vector3(v.x,v.y,v.z);
 const plain=v=>({x:Number(v.x.toFixed(3)),y:Number(v.y.toFixed(3)),z:Number(v.z.toFixed(3))});
 
 export class MatrixView {
   constructor(container,world,onSelection,getToken=()=>'',onAssetError=()=>{},onSceneEdit=()=>{},onRuntimeChange=()=>{},onVoiceStart=()=>{},onVoiceEnd=()=>{},onVoiceOutputToggle=()=>{},onVisualReview=()=>{},onNewChat=()=>{}){
-    this.world=world;this.onSelection=onSelection;this.getToken=getToken;this.onAssetError=onAssetError;this.onSceneEdit=onSceneEdit;this.onRuntimeChange=onRuntimeChange;this.onVoiceStart=onVoiceStart;this.onVoiceEnd=onVoiceEnd;this.onVoiceOutputToggle=onVoiceOutputToggle;this.onVisualReview=onVisualReview;this.onNewChat=onNewChat;this.onFrame=()=>{};
+    this.world=world;this.onSelection=onSelection;this.getToken=getToken;this.onAssetError=onAssetError;this.onSceneEdit=onSceneEdit;this.onRuntimeChange=onRuntimeChange;this.onVoiceStart=onVoiceStart;this.onVoiceEnd=onVoiceEnd;this.onVoiceOutputToggle=onVoiceOutputToggle;this.onVisualReview=onVisualReview;this.onNewChat=onNewChat;this.onPanelAction=()=>{};this.onFrame=()=>{};
     this.container=container;this.objectRoots=new Map();this.anchorRoots=new Map();this.planeOutlines=new Map();this.planeIds=new WeakMap();this.nextPlaneId=0;this.hitSource=null;this.reticleVisible=false;this.xrViewer=null;this.reticleAnchorId='';this.lastPlaneTime=0;
     this.modelCache=new Map();
     this.scene=new THREE.Scene();this.scene.background=new THREE.Color(0x0a1b29);
@@ -228,6 +282,11 @@ export class MatrixView {
   }
   setOperatorStatus(message,tone='idle'){this.operatorPanel.setMessage(message,tone);}
   setConversationCount(count){this.operatorPanel.setConversationCount(count);}
+  setOperatorProposal(proposal){this.operatorPanel.setProposal(proposal);}
+  setOperatorWorldInfo(info){this.operatorPanel.setWorldInfo(info);}
+  setOperatorGameStatus(status){this.operatorPanel.setGameStatus(status);}
+  setOperatorWarning(warning){this.operatorPanel.setWarning(warning);}
+  setOperatorCameraStatus(status,active){this.operatorPanel.setCameraStatus(status,active);}
   setVoiceOutputEnabled(enabled){this.operatorPanel.setVoiceLabel(enabled?'VOICE ON':'VOICE OFF');}
   positionOperatorPanel(){
     if(!this.xrViewer)return;
@@ -431,15 +490,20 @@ export class MatrixView {
     this.raycaster.set(origin,direction);
     const panelHit=this.operatorPanel.group.visible&&this.raycaster.intersectObject(this.operatorPanel.mesh)[0];
     if(panelHit){
-      if(panelHit.uv?.y>.86&&panelHit.uv.x>.74)this.onVisualReview();
-      else if(panelHit.uv?.y>.86&&panelHit.uv.x>.53)this.onNewChat();
-      else if(panelHit.uv?.y<.19&&panelHit.uv.x>.86)this.operatorPanel.nextPage();
-      else if(panelHit.uv?.y<.19&&panelHit.uv.x>.72)this.onVoiceOutputToggle();
-      else if(panelHit.uv?.y<.19&&panelHit.uv.x>.50)this.toggleOperatorPin();
-      else {this.operatorVoiceController=controller;this.onVoiceStart();}
+      const action=this.operatorPanel.hit(panelHit.uv);
+      if(action==='review-view')this.onVisualReview();
+      else if(action==='toggle-world')this.operatorPanel.toggleWorld();
+      else if(action==='open-proposal')this.operatorPanel.openProposal();
+      else if(action==='next')this.operatorPanel.nextPage();
+      else if(action==='voice-output')this.onVoiceOutputToggle();
+      else if(action==='pin')this.toggleOperatorPin();
+      else if(action==='voice'){this.operatorVoiceController=controller;this.onVoiceStart();}
+      else if(action==='new-chat')this.onNewChat();
+      else if(action)this.onPanelAction(action);
       return;
     }
     const id=this.selectFromRay();
+    if(id&&this.world.spatial?.stale){this.onAssetError('Room tracking is stale; object grabs are paused.');return;}
     if(id)this.grab={...beginGrab(controller,this.objectRoots.get(id)),objectId:id};
   }
   releaseGrab(controller){
@@ -456,6 +520,7 @@ export class MatrixView {
     this.operatorVoiceController=null;this.onVoiceEnd();
   }
   commitMove(objectId,transform){
+    if(this.world.spatial?.stale){this.sync();this.onAssetError('Room tracking is stale; object movement was not saved.');return;}
     const result=this.world.execute({requestId:crypto.randomUUID(),op:'set_transform',objectId,transform});
     if(!result.ok){this.sync();this.onAssetError(`Could not move object: ${result.error}`);return;}
     this.world.setSelection(objectId,transform.position,this.world.requireObject(objectId).anchorId);
@@ -546,6 +611,36 @@ export class MatrixView {
       spatialProvenance:{source:'virtual',roomId:snapshot.scene.roomId,anchorCount:snapshot.anchors.length,
         alignmentVerified:false,depthOcclusion:false,physicalDepthIncluded:false},
       renderMs:rendered-started,encodeMs:performance.now()-rendered,frameTimeMs:0};
+  }
+  async captureCameraPair(request,clientId,cameraStream){
+    const started=performance.now();
+    const cameraFrame=cameraStream.captureFrame();
+    const virtual=this.captureVirtual(request,clientId);
+    const image=new Image();
+    image.src=`data:image/jpeg;base64,${virtual.dataBase64}`;
+    await image.decode();
+    const width=1280,height=480,half=width/2;
+    const canvas=document.createElement('canvas');canvas.width=width;canvas.height=height;
+    const context=canvas.getContext('2d');if(!context)throw Error('Camera composite canvas unavailable');
+    context.drawImage(cameraFrame,0,0,half,height);
+    context.drawImage(image,half,0,half,height);
+    context.fillStyle='rgba(0,0,0,.78)';context.fillRect(0,0,width,38);
+    context.fillStyle='#ffffff';context.font='bold 23px sans-serif';
+    context.fillText('QUEST ENVIRONMENT CAMERA · UNCALIBRATED',12,27);
+    context.fillText('MATRIX VIRTUAL VIEW',half+12,27);
+    let encoded='';
+    for(const quality of [.75,.55,.35,.2]){
+      encoded=canvas.toDataURL('image/jpeg',quality).split(',')[1]||'';
+      if(encoded.length<=4*Math.ceil(512*1024/3))break;
+    }
+    if(!encoded||encoded.length>4*Math.ceil(512*1024/3))throw Error('Camera and virtual view exceed 512 KiB');
+    return {...virtual,mode:'mixed',source:'webxr_camera_pair',includesPhysicalCamera:true,
+      includesPassthrough:false,dataBase64:encoded,width,height,capturedAtUtc:new Date().toISOString(),
+      spatialProvenance:{source:'webxr_room_planes',roomId:virtual.snapshot.scene.roomId,
+        anchorCount:virtual.snapshot.anchors.length,alignmentVerified:!!this.world.spatial?.alignmentVerified,
+        depthOcclusion:false,physicalDepthIncluded:false},
+      layout:{kind:'side-by-side',cameraPanel:[0,0,half,height],virtualPanel:[half,0,half,height],
+        calibrated:false},renderMs:virtual.renderMs,encodeMs:performance.now()-started-virtual.renderMs};
   }
   animate(time,frame){
     if(frame&&this.renderer.xr.isPresenting)this.onFrame();

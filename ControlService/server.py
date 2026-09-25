@@ -32,6 +32,7 @@ import scene_capture
 from web_assets import WebAssetCatalog, WebAssetError
 from web_authoring import WebAuthoringJobs, WebAuthoringError
 from blender_authoring import BlenderAuthoringJobs, BlenderAuthoringError
+from web_game import GamePlanError, design_game, wants_game
 from content_service import ContentBridge, runtime_capabilities
 from content_catalog import ContentError
 from quest_connection import QuestConnection
@@ -490,7 +491,7 @@ class State:
             require(scene_revision_data(captured) == scene_revision_data(self.latest),
                     "Image and scene snapshot do not match; capture again", 409)
             validated = scene_capture.image(value)
-            require((validated["source"] == "quest_camera_composite") == (capture.get("mode") == "mixed"),
+            require((validated["source"] in {"quest_camera_composite", "webxr_camera_pair"}) == (capture.get("mode") == "mixed"),
                     "Capture did not match the requested image source; no fallback is allowed", 409)
             if validated.get("spatialProvenance"):
                 provenance = validated["spatialProvenance"]
@@ -498,11 +499,14 @@ class State:
                         and provenance["anchorCount"] == len(captured["anchors"]), "Spatial provenance does not match the paired room", 409)
                 room = captured.get("roomContext") or {}
                 measured = any(anchor.get("source") == "mruk" for anchor in captured["anchors"])
-                require(provenance["source"] == ("mruk_scene_model_v1" if measured else "virtual")
+                web_pair = validated["source"] == "webxr_camera_pair"
+                require(provenance["source"] == ("webxr_room_planes" if web_pair else
+                                                 "mruk_scene_model_v1" if measured else "virtual")
                         and (not measured or room.get("mode") == "ar")
-                        and provenance["alignmentVerified"] == (measured and room.get("alignmentVerified") is True),
+                        and provenance["alignmentVerified"] == ((room.get("alignmentVerified") is True) if web_pair
+                                                                  else (measured and room.get("alignmentVerified") is True)),
                         "Spatial provenance does not match the paired room source or alignment", 409)
-                require(validated["source"] != "quest_camera_composite" or room.get("mode") == "ar",
+                require(validated["source"] not in {"quest_camera_composite", "webxr_camera_pair"} or room.get("mode") == "ar",
                         "Mixed capture requires an AR room snapshot", 409)
             validated.update(captureId=capture["captureId"], clientId=capture["clientId"], revision=capture["revision"],
                              content=scene_capture.content_description(captured, validated))
@@ -699,12 +703,15 @@ def plan(state, body, request_context=None, content_stage=0, progress=None, canc
     experiment = body.get("kind") == "block-scale"
     prompt = None if experiment else text(body.get("text"), "text", limit=4000)
     prior_turns = conversation(body.get("conversation"))
+    web_runtime = body.get("webRuntime", False)
+    require(type(web_runtime) is bool, "Invalid webRuntime flag")
     mode = body.get("mode")
     require(mode in (None, "offline-rules", "openai-compatible", "codex-cli"), "Invalid planner mode")
     # Asset creation is independent of the current AR plane pose. Start its
     # bounded PC job before scene-revision checks so tracking updates cannot
     # invalidate a spoken authoring request during transcription.
-    if not experiment and "captureId" not in body and mode != "offline-rules" and wants_blender_asset(prompt):
+    if (not experiment and "captureId" not in body and mode != "offline-rules" and
+            not (web_runtime and wants_game(prompt)) and wants_blender_asset(prompt)):
         check_cancelled()
         try:
             job = state.blender_authoring.submit({"prompt": prompt})
@@ -728,6 +735,27 @@ def plan(state, body, request_context=None, content_stage=0, progress=None, canc
         screenshot = None
         if "captureId" in body:
             screenshot, current = state.selected_capture(body["captureId"])
+    if web_runtime and not experiment and wants_game(prompt):
+        require(current["scene"]["roomId"].startswith("web"), "Game planning requires the browser runtime", 409)
+        require(mode == "codex-cli", "Choose Codex AI on the PC to build a game", 422)
+        require(screenshot is None, "Create the game separately from visual review", 422)
+        check_cancelled()
+        if prior_turns:
+            current["conversation"] = prior_turns
+        try:
+            game = design_game(prompt, current, codex)
+        except GamePlanError as error:
+            raise APIError(error.status, str(error)) from None
+        check_cancelled()
+        with state.lock:
+            state.expire()
+            require(state.online() and state.client_id == client_id and state.revision == revision
+                    and not state.pending, "Scene changed during game planning; try again", 409)
+        if game["kind"] == "unsupported":
+            return {"status": "needs_clarification", "requiresApply": False,
+                    "commands": [], "summary": game["summary"]}
+        return {"status": "ready", "requiresApply": True, "commands": [],
+                "gamePlan": game, "summary": game["summary"]}
     try:
         options = {"codex": codex} if codex is not None else {}
         if prior_turns:
@@ -888,9 +916,14 @@ def voice_status(state, job_id=None):
             job_id = next(reversed(state.voice_jobs), None)
         job = state.voice_jobs.get(job_id)
         require(job is not None, "Voice request not found", 404)
-        if job["public"]["phase"] == "ready" and job["public"].get("planId") not in state.proposals:
+        if job["public"]["phase"] == "ready" and "gamePlan" in job["public"]:
+            if (not state.online() or state.client_id != job["clientId"] or state.revision != job["revision"]
+                    or state.clock() > job.get("gameExpires", 0)):
+                job["public"].update(phase="error", requiresApply=False,
+                                     error="World changed or game proposal expired. Speak again.")
+        elif job["public"]["phase"] == "ready" and job["public"].get("planId") not in state.proposals:
             job["public"].update(phase="finished", requiresApply=False)
-        if job["public"]["phase"] == "ready":
+        if job["public"]["phase"] == "ready" and "gamePlan" not in job["public"]:
             proposal = state.proposals[job["public"]["planId"]]
             if (not state.online() or state.client_id != job["clientId"] or state.revision != job["revision"]
                     or state.clock() > proposal["expires"]):
@@ -951,7 +984,7 @@ def start_voice(state, body):
                     return
                 public.update(phase="planning", transcript=transcript)
             request = {"text": transcript, "mode": "codex-cli", "codex": preferences,
-                       "conversation": prior_turns}
+                       "conversation": prior_turns, "webRuntime": body.get("webRuntime", False)}
             if voice_capture_id is not None:
                 request["captureId"] = voice_capture_id
             def progress(phase, detail):
@@ -967,6 +1000,8 @@ def start_voice(state, body):
                 job["revision"] = state.revision
                 public.update(result)
                 public["phase"] = "ready" if result.get("requiresApply") else result.get("status", "needs_clarification")
+                if "gamePlan" in result:
+                    job["gameExpires"] = state.clock() + 120
         except (APIError, ContentError, speech.SpeechError, PlannerError) as error:
             with state.lock:
                 if not job["cancelled"]:

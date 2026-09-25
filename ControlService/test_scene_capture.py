@@ -76,6 +76,47 @@ class CaptureTests(unittest.TestCase):
         self.assertEqual(image["camera"]["coordinateFrame"],
                          "webxr_reference_space; use snapshot.viewer frames for anchor-relative placement")
 
+    def test_webxr_camera_pair_is_accepted_as_uncalibrated_mixed_capture(self):
+        web = copy.deepcopy(SNAPSHOT)
+        web["scene"]["roomId"] = "webxr-session-test"
+        web["roomContext"] = {"mode": "ar", "state": "ready", "alignmentVerified": True}
+        capabilities = {"modes": ["virtual", "mixed"], "device": "WebXR environment camera",
+                        "mixedStatus": "available", "reason": "Separate camera and virtual view",
+                        "depthOcclusion": False}
+        self.exchange(snapshot=web, captureCapabilities=capabilities)
+        self.state.request_capture({"mode": "mixed"})
+        raw = bytearray(JPEG)
+        raw[7:9] = (480).to_bytes(2, "big")
+        raw[9:11] = (1280).to_bytes(2, "big")
+        value = capture_result(self.state, source="webxr_camera_pair", mode="mixed",
+                               includesPhysicalCamera=True, includesPassthrough=False,
+                               dataBase64=base64.b64encode(raw).decode(), width=1280, height=480,
+                               layout={"kind": "side-by-side", "cameraPanel": [0, 0, 640, 480],
+                                       "virtualPanel": [640, 0, 640, 480], "calibrated": False},
+                               spatialProvenance={"source": "webxr_room_planes", "roomId": "webxr-session-test",
+                                                  "anchorCount": len(web["anchors"]), "alignmentVerified": True,
+                                                  "depthOcclusion": False, "physicalDepthIncluded": False})
+        self.exchange(snapshot=web, captureCapabilities=capabilities, capture=value)
+        image = self.state.selected_capture(value["captureId"])[0]
+        self.assertEqual(image["source"], "webxr_camera_pair")
+        self.assertTrue(image["includesPhysicalCamera"])
+        self.assertFalse(image["includesPassthrough"])
+        self.assertIn("not pixel aligned", image["content"])
+        self.assertNotIn("physicalCamera", image)
+
+    def test_webxr_camera_pair_rejects_a_false_alignment_claim(self):
+        self.state.request_capture({})
+        raw = bytearray(JPEG)
+        raw[7:9] = (480).to_bytes(2, "big")
+        raw[9:11] = (1280).to_bytes(2, "big")
+        value = capture_result(self.state, source="webxr_camera_pair", mode="mixed",
+                               includesPhysicalCamera=True, includesPassthrough=False,
+                               dataBase64=base64.b64encode(raw).decode(), width=1280, height=480,
+                               layout={"kind": "side-by-side", "cameraPanel": [0, 0, 640, 480],
+                                       "virtualPanel": [640, 0, 640, 480], "calibrated": True})
+        with self.assertRaisesRegex(scene_capture.CaptureError, "uncalibrated"):
+            scene_capture.image(value)
+
     def test_missing_and_unsupported_runtime_feedback(self):
         with self.assertRaisesRegex(APIError, "unavailable"):
             self.state.selected_capture("missing")
