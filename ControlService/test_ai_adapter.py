@@ -41,6 +41,17 @@ class OfflineTests(unittest.TestCase):
                 with self.subTest(candidate=bad), self.assertRaisesRegex(PlannerError, "exact loadable"):
                     planner.plan("Import science props", SNAPSHOT, mode="openai-compatible", catalog_context=bad)
 
+    def test_prior_conversation_reaches_ai_as_untrusted_context_without_mutating_scene(self):
+        planner = Planner(ProviderConfig("http://127.0.0.1:1234", "mock"))
+        prior = [{"user": "Create a robot", "assistant": "Robot proposed."}]
+        original = copy.deepcopy(SNAPSHOT)
+        with patch.object(planner, "_remote_plan", return_value={"commands": [], "summary": "Which robot?"}) as remote:
+            planner.plan("Make it blue", SNAPSHOT, mode="openai-compatible", conversation=prior)
+        context = remote.call_args.args[2]
+        self.assertEqual(context["conversation"], prior)
+        self.assertEqual(SNAPSHOT, original)
+        self.assertEqual(remote.call_args.args[1], "Make it blue")
+
     def test_default_is_explicitly_labeled_offline_without_provider(self):
         status = self.planner.public_status()
         self.assertEqual(status["mode"], "offline-rules")

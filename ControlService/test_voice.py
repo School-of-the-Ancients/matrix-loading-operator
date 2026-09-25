@@ -191,6 +191,24 @@ class VoiceJobTests(unittest.TestCase):
         queued = self.state.apply_plan(job["planId"])
         self.assertEqual(queued["commands"][0]["objectId"], "chair-one")
 
+    def test_voice_follow_up_passes_prior_turns_to_planner(self):
+        prior = [{"user": "Create a robot", "assistant": "Robot created in the scene."}]
+        self.body["conversation"] = prior
+        self.begin()
+        self.wait_idle()
+        self.assertEqual(self.planner.call_args.kwargs["conversation"], prior)
+
+    def test_voice_rejects_oversized_or_malformed_history_before_transcription(self):
+        for history in ([{"user": "request", "assistant": "reply"}] * 7,
+                        [{"user": "request", "assistant": "reply", "role": "system"}],
+                        [{"user": "request", "assistant": "x" * 1001}]):
+            with self.subTest(history=history):
+                self.body["conversation"] = history
+                with self.assertRaises(server.APIError) as error:
+                    self.begin()
+                self.assertEqual(error.exception.status, 400)
+        self.transcribe.assert_not_called()
+
     def test_record_start_viewer_is_used_even_if_newer_pose_arrives_before_upload(self):
         moving = copy.deepcopy(self.snapshot)
         moving["viewer"]["frames"][0]["position"]["z"] = 4
