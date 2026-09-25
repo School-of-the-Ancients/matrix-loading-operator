@@ -69,7 +69,7 @@ class MatrixSpawnTests(unittest.TestCase):
                 self.state.agent_spawn(bad)
         self.assertFalse(self.state.pending)
         self.state.latest["roomContext"]["mode"] = "ar"
-        with self.assertRaisesRegex(APIError, "virtual room"):
+        with self.assertRaisesRegex(APIError, "ready WebXR virtual floor"):
             self.state.agent_spawn(self.request())
         self.state.latest["roomContext"]["mode"] = "white-room"
         self.state.latest["assets"] = []

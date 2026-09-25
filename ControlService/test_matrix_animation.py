@@ -81,7 +81,7 @@ class MatrixAnimationTests(unittest.TestCase):
                 self.state.agent_bind_animation(bad)
         self.assertFalse(self.state.pending)
         self.state.latest["roomContext"]["mode"] = "ar"
-        with self.assertRaisesRegex(APIError, "virtual room"):
+        with self.assertRaisesRegex(APIError, "WebXR virtual floor"):
             self.state.agent_bind_animation(self.request())
         self.state.latest["roomContext"]["mode"] = "white-room"
         self.state.latest["assets"][0]["animationClips"] = []
