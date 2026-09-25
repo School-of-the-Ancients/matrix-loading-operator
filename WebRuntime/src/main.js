@@ -8,6 +8,7 @@ import {loadStoredWorld,saveStoredWorld,restoreStoredWorld,storedWorld,quarantin
   saveCheckpoint,loadCheckpoint} from './scene_store.js';
 import {loadConversation,rememberTurn,clearConversation} from './conversation.js';
 import {startGame,deliverMovedObject,gameStatus,validSavedGame} from './game.js';
+import {archiveAndClearRoom,archiveAndRebaseRoom,roomArchives,ROOM_ARCHIVES_KEY} from './room_origin.js';
 
 const $=id=>document.getElementById(id);
 const world=new MatrixWorld();
@@ -17,6 +18,8 @@ let pendingWorld=loadStoredWorld(sessionStorage,localStorage);
 let proposal=null,gameProposal=null,operatorMessageUntil=0,lastOperatorReply='',lastConnectionOnline=null,modeTouched=false;
 let conversation=loadConversation(sessionStorage);
 let restoreArmedUntil=0;
+let roomResetArmedUntil=0;
+let roomRecoveryChoice='';
 let persistenceWarning='',restoreWarning='';
 let cameraBusy=false;
 const recorder=new VoiceRecorder();let voiceStarting=false,voiceRecording=false,voiceStopRequested=false,voiceJob=null,voiceSnapshot=null;
@@ -33,7 +36,7 @@ const feedback=(message,isError=false)=>{
   $('feedback').textContent=[message,warning].filter(Boolean).join('\n');
   $('feedback').classList.toggle('error',isError||!!warning);
 };
-const view=new MatrixView($('view'),world,()=>{discardProposal();feedback(`Selected ${world.selection.objectId||'placement point'} at ${Object.values(world.selection.position).join(', ')} m.`);},()=>$('token').value.trim(),message=>feedback(message,true),(id,position)=>{discardProposal();const delivered=deliverMovedObject(world,id);if(delivered)speakReply(delivered);renderScene();feedback(delivered||`Moved ${id.slice(0,8)} to ${Object.values(position).join(', ')} m. Undo and Save are available.`);},()=>{if(!view.isAR)cameraStream.stop();updateCameraControls();discardProposal();renderScene();},beginVoice,endVoice,()=>{$('speak-replies').checked=!$('speak-replies').checked;view.setVoiceOutputEnabled($('speak-replies').checked);unlockReplyAudio();},reviewView,newChat);
+const view=new MatrixView($('view'),world,()=>{discardProposal();feedback(`Selected ${world.selection.objectId||'placement point'} at ${Object.values(world.selection.position).join(', ')} m.`);},()=>$('token').value.trim(),message=>feedback(message,true),(id,position)=>{discardProposal();const delivered=deliverMovedObject(world,id);if(delivered)speakReply(delivered);renderScene();feedback(delivered||`Moved ${id.slice(0,8)} to ${Object.values(position).join(', ')} m. Undo and Save are available.`);},()=>{if(!view.isAR)cameraStream.stop();if(!view.isAR||!world.spatial?.originUnavailable){roomResetArmedUntil=0;roomRecoveryChoice='';}updateCameraControls();discardProposal();renderScene();},beginVoice,endVoice,()=>{$('speak-replies').checked=!$('speak-replies').checked;view.setVoiceOutputEnabled($('speak-replies').checked);unlockReplyAudio();},reviewView,newChat);
 view.onPanelAction=panelAction;
 view.sync();
 view.setVoiceOutputEnabled($('speak-replies').checked);
@@ -67,12 +70,30 @@ function discardProposal(){
 }
 
 function updateWorldControls(){
-  const canConfirm=!!world.spatial&&!world.spatial.alignmentVerified&&!world.spatial.stale&&
+  const originUnavailable=!!world.spatial?.originUnavailable;
+  const resetAvailable=!!view.isAR&&originUnavailable&&view.roomAnchorRestoreFailed;
+  const canRetryOrigin=originUnavailable&&(view.roomAnchorHandleAvailable||view.roomAnchorCreationFailed);
+  const canConfirm=!!world.spatial&&!originUnavailable&&!world.spatial.alignmentVerified&&!world.spatial.stale&&
     world.spatial.anchors.some(anchor=>anchor.surface?.kind==='support');
   $('confirm-room').disabled=!canConfirm;
   view.setOperatorWorldInfo({objects:world.scene.objects.length,canConfirm,restoreArmed:performance.now()<restoreArmedUntil,
-    alignment:!world.spatial?'Virtual room':world.spatial.alignmentVerified?'AR room aligned':
+    originUnavailable,resetAvailable,canRetryOrigin,
+    recoveryArmed:performance.now()<roomResetArmedUntil?roomRecoveryChoice:'',
+    alignment:!world.spatial?'Virtual room':originUnavailable?'Room origin unavailable':world.spatial.alignmentVerified?'AR room aligned':
       canConfirm?'Check outlines, then confirm':'Waiting for room planes'});
+  $('retry-room-origin').classList.toggle('hidden',!canRetryOrigin);
+  $('reset-room-origin').classList.toggle('hidden',!resetAvailable);
+  $('rebase-room-origin').classList.toggle('hidden',!resetAvailable);
+  $('reset-room-origin').textContent=performance.now()<roomResetArmedUntil&&roomRecoveryChoice==='empty'?
+    'Confirm archive and start empty':'Archive and start empty';
+  $('rebase-room-origin').textContent=performance.now()<roomResetArmedUntil&&roomRecoveryChoice==='rebase'?
+    'Confirm archive and place here':'Archive and place world here';
+  $('room-origin-status').textContent=!view.isAR?'Room origin status appears in AR.':
+    resetAvailable?'Saved world hidden. Retry, place it here explicitly, or archive and start empty.':
+    originUnavailable?'Waiting for a tracked room anchor; editing is paused.':
+    view.roomAnchorLocated?'Room origin tracked.':'Room origin has not been tracked yet.';
+  try{$('download-room-archives').classList.toggle('hidden',roomArchives(localStorage).length===0);}
+  catch{$('download-room-archives').classList.remove('hidden');}
   const status=gameStatus(world);
   $('game-status').textContent=status;view.setOperatorGameStatus(status);
   updateCameraControls();
@@ -346,6 +367,39 @@ function restoreWorld(){
     view.setOperatorStatus('World checkpoint restored.');
   }catch(error){feedback(`Checkpoint could not be restored: ${error.message}`,true);}
 }
+function retryRoomOrigin(){
+  if(!view.retryRoomOrigin()){feedback('No room anchor can be retried in this session.',true);return;}
+  roomResetArmedUntil=0;roomRecoveryChoice='';updateWorldControls();
+  feedback('Retrying room anchor localization. Old world remains hidden until its saved origin is tracked.');
+}
+function recoverRoomOrigin(choice){
+  if(!view.isAR||!world.spatial?.originUnavailable||!view.roomAnchorRestoreFailed)return;
+  if(performance.now()>=roomResetArmedUntil||roomRecoveryChoice!==choice){
+    roomRecoveryChoice=choice;
+    roomResetArmedUntil=performance.now()+10000;updateWorldControls();
+    feedback(choice==='rebase'?
+      'Tap Confirm Archive and Place Here within ten seconds. This deliberately moves the old virtual world to a new physical origin after saving a local archive.':
+      'Tap Confirm Archive and Start Empty within ten seconds. The old world will be archived locally; the new room starts empty.',true);
+    return;
+  }
+  roomResetArmedUntil=0;roomRecoveryChoice='';
+  try{
+    const archive=choice==='rebase'?archiveAndRebaseRoom(world,localStorage):archiveAndClearRoom(world,localStorage);
+    view.startNewRoomOrigin();discardProposal();renderScene();
+    feedback(`Archived old world (${archive.archiveId.slice(0,8)}). ${choice==='rebase'?'It will appear at the new origin after tracking.':'The new room is empty.'} Export recovery archives from the browser panel.`);
+  }catch(error){feedback(`Room reset stopped: ${error.message}. Old world remains hidden.`,true);}
+}
+function downloadRoomArchives(){
+  try{
+    const raw=localStorage.getItem(ROOM_ARCHIVES_KEY);
+    if(!raw)throw Error('No room recovery archives exist');
+    const blob=new Blob([raw],{type:'application/json'});
+    const url=URL.createObjectURL(blob),link=document.createElement('a');
+    link.href=url;link.download='matrix-webxr-room-recovery.json';document.body.append(link);link.click();link.remove();
+    setTimeout(()=>URL.revokeObjectURL(url),60000);
+    feedback('Prepared the room recovery archives for download. Keep the exported file before clearing browser site data.');
+  }catch(error){feedback(`Could not export room archives: ${error.message}`,true);}
+}
 function panelAction(action){
   if(action==='apply')applyProposal();
   else if(action==='discard'){discardProposal();feedback('Proposal discarded.');view.setOperatorStatus('Proposal discarded.');}
@@ -353,6 +407,9 @@ function panelAction(action){
   else if(action==='save-world')saveWorld();
   else if(action==='restore-world')restoreWorld();
   else if(action==='toggle-camera')toggleCamera();
+  else if(action==='retry-room-origin')retryRoomOrigin();
+  else if(action==='reset-room-origin')recoverRoomOrigin('empty');
+  else if(action==='rebase-room-origin')recoverRoomOrigin('rebase');
   else if(action==='undo'||action==='redo')call('/api/command',{op:action},`${action} queued.`);
 }
 $('propose').addEventListener('click',propose);
@@ -367,6 +424,10 @@ $('blender-request').addEventListener('click',async()=>{
 $('review-view').addEventListener('click',reviewView);
 $('enable-camera').addEventListener('click',toggleCamera);
 $('confirm-room').addEventListener('click',confirmRoom);
+$('retry-room-origin').addEventListener('click',retryRoomOrigin);
+$('reset-room-origin').addEventListener('click',()=>recoverRoomOrigin('empty'));
+$('rebase-room-origin').addEventListener('click',()=>recoverRoomOrigin('rebase'));
+$('download-room-archives').addEventListener('click',downloadRoomArchives);
 $('new-chat').addEventListener('click',newChat);
 $('speak-replies').addEventListener('change',()=>{view.setVoiceOutputEnabled($('speak-replies').checked);unlockReplyAudio();});
 $('prompt').addEventListener('keydown',event=>{if(event.key==='Enter'&&(event.ctrlKey||event.metaKey))propose();});
