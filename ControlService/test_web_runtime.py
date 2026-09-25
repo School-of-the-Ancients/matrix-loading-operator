@@ -11,6 +11,7 @@ import urllib.request
 from unittest.mock import patch
 
 from server import Server, State
+from codex_provider import CodexConfig
 from test_web_assets import glb
 
 
@@ -185,11 +186,15 @@ class WebRuntimeContractTests(unittest.TestCase):
             output.write_bytes(glb())
             return output, bounds
         worker = self.server.state.blender_authoring
-        worker.designer = lambda prompt: recipe
+        chosen = []
+        worker.designer = lambda prompt, config=None: (chosen.append(config), recipe)[1]
         worker.builder = build
+        codex_exe = Path(self.temp.name) / "codex.exe"
+        codex_exe.write_bytes(b"MZfixture")
         self.assertEqual(self.post("/api/exchange", {"clientId": "web-client", "snapshot": SNAPSHOT,
                          "results": [], "captureSupported": False})[0], 200)
-        with patch("blender_authoring.blender_executable", return_value="fixture-blender.exe"):
+        with patch("blender_authoring.blender_executable", return_value="fixture-blender.exe"), \
+             patch("server.CodexConfig.from_environment", return_value=CodexConfig(str(codex_exe), "base-model")):
             code, proposal = self.post("/api/plan", {"text": "Create a portal in Blender", "mode": "codex-cli"})
         self.assertEqual(code, 200, proposal)
         self.assertEqual(proposal["status"], "authoring")
@@ -203,7 +208,63 @@ class WebRuntimeContractTests(unittest.TestCase):
         self.assertEqual(job["phase"], "ready", job)
         self.assertEqual(job["asset"]["displayName"], "Requested Portal")
         self.assertEqual(job["asset"]["localBounds"], bounds)
+        self.assertEqual((chosen[0].model, chosen[0].reasoning_effort), ("base-model", None))
         self.assertEqual(self.get(job["asset"]["url"])[0], 200)
+
+    def test_blender_jobs_capture_operator_model_and_request_override(self):
+        recipe = {"name": "Selection Cube", "parts": [{"kind": "cube", "name": "Body",
+                  "location": [0, 0, .5], "rotation": [0, 0, 0], "dimensions": [1, 1, 1],
+                  "color": "#335577", "metallic": 0, "roughness": .7, "emission": 0}]}
+        bounds = {"center": {"x": 0, "y": .5, "z": 0},
+                  "size": {"x": 1, "y": 1, "z": 1}}
+        chosen = []
+        worker = self.server.state.blender_authoring
+        worker.designer = lambda prompt, config=None: (chosen.append(config), recipe)[1]
+        def build(value, directory):
+            output = Path(directory) / "asset.glb"
+            output.write_bytes(glb())
+            return output, bounds
+        worker.builder = build
+        codex_exe = Path(self.temp.name) / "codex.exe"
+        codex_exe.write_bytes(b"MZfixture")
+        options = {"models": [{"id": "operator-model", "reasoningEfforts": ["high"]},
+                              {"id": "override-model", "reasoningEfforts": ["low"]}]}
+        config = CodexConfig(str(codex_exe), "base-model")
+        with patch("server.CodexConfig.from_environment", return_value=config), \
+             patch("codex_provider.codex_options", return_value=options), \
+             patch("blender_authoring.blender_executable", return_value="fixture-blender.exe"):
+            code, _ = self.post("/api/planner_preferences", {"codex": {
+                "model": "operator-model", "reasoningEffort": "high"}})
+            self.assertEqual(code, 200)
+            code, first = self.post("/api/web/blender", {"prompt": "Create a Blender cube"})
+            self.assertEqual(code, 200, first)
+            for _ in range(100):
+                _, raw = self.get("/api/web/blender/" + first["jobId"])
+                if json.loads(raw)["phase"] in ("ready", "error"):
+                    break
+                time.sleep(.02)
+            self.assertEqual(json.loads(raw)["phase"], "ready")
+            self.assertEqual((chosen[0].model, chosen[0].reasoning_effort),
+                             ("operator-model", "high"))
+            code, second = self.post("/api/plan", {"text": "Create a cube in Blender", "mode": "codex-cli",
+                "codex": {"model": "override-model", "reasoningEffort": "low"}})
+            self.assertEqual(code, 200, second)
+            for _ in range(100):
+                _, raw = self.get("/api/web/blender/" + second["authoringJobId"])
+                if json.loads(raw)["phase"] in ("ready", "error"):
+                    break
+                time.sleep(.02)
+            self.assertEqual(json.loads(raw)["phase"], "ready")
+            self.assertEqual((chosen[1].model, chosen[1].reasoning_effort),
+                             ("override-model", "low"))
+            self.assertEqual(self.server.state.codex_preferences,
+                             {"model": "operator-model", "reasoningEffort": "high"})
+            self.assertEqual(self.post("/api/plan", {"text": "Create a cube in Blender", "mode": "codex-cli",
+                "codex": {"model": "unknown-model", "reasoningEffort": "high"}})[0], 422)
+            self.assertEqual(self.post("/api/web/blender", {"prompt": "Create a Blender cube",
+                "codex": {"model": "override-model"}})[0], 400)
+            self.assertEqual(len(worker.status()["jobs"]), 2,
+                             "invalid selections must not queue an authoring job")
 
 
 if __name__ == "__main__":

@@ -48,6 +48,61 @@ export function insideBoundary(position,boundary){
   return inside;
 }
 
+const cross2=(a,b)=>a.x*b.z-a.z*b.x;
+const FOOTPRINT_EPSILON=1e-5;
+function onBoundary(point,boundary){
+  return boundary.some((a,index)=>{
+    const b=boundary[(index+1)%boundary.length],edge={x:b.x-a.x,z:b.z-a.z};
+    const relative={x:point.x-a.x,z:point.z-a.z};
+    const lengthSquared=edge.x*edge.x+edge.z*edge.z;
+    return lengthSquared>FOOTPRINT_EPSILON*FOOTPRINT_EPSILON&&
+      Math.abs(cross2(relative,edge))<=FOOTPRINT_EPSILON*Math.sqrt(lengthSquared)&&
+      relative.x*edge.x+relative.z*edge.z>=-FOOTPRINT_EPSILON&&
+      relative.x*edge.x+relative.z*edge.z<=lengthSquared+FOOTPRINT_EPSILON;
+  });
+}
+const insideOrOnBoundary=(point,boundary)=>onBoundary(point,boundary)||insideBoundary(point,boundary);
+
+// Every segment of the rectangular footprint must stay inside the (possibly
+// concave) support polygon. Four accepted corners alone can bridge a notch.
+export function footprintInsideBoundary(corners,boundary){
+  if(!Array.isArray(corners)||corners.length!==4||!Array.isArray(boundary)||boundary.length<3||
+     !corners.every(point=>Number.isFinite(point.x)&&Number.isFinite(point.z)))return false;
+  if(!corners.every(point=>insideOrOnBoundary(point,boundary)))return false;
+  const center={x:corners.reduce((sum,point)=>sum+point.x,0)/4,
+    z:corners.reduce((sum,point)=>sum+point.z,0)/4};
+  if(!insideOrOnBoundary(center,boundary))return false;
+  for(let index=0;index<4;index++){
+    const a=corners[index],b=corners[(index+1)%4],r={x:b.x-a.x,z:b.z-a.z};
+    const lengthSquared=r.x*r.x+r.z*r.z;
+    if(lengthSquared<=FOOTPRINT_EPSILON*FOOTPRINT_EPSILON)return false;
+    const breaks=[0,1];
+    for(let edge=0;edge<boundary.length;edge++){
+      const c=boundary[edge],d=boundary[(edge+1)%boundary.length];
+      const s={x:d.x-c.x,z:d.z-c.z},q={x:c.x-a.x,z:c.z-a.z};
+      const denominator=cross2(r,s);
+      if(Math.abs(denominator)>FOOTPRINT_EPSILON){
+        const t=cross2(q,s)/denominator,u=cross2(q,r)/denominator;
+        if(t>=-FOOTPRINT_EPSILON&&t<=1+FOOTPRINT_EPSILON&&
+           u>=-FOOTPRINT_EPSILON&&u<=1+FOOTPRINT_EPSILON)
+          breaks.push(Math.max(0,Math.min(1,t)));
+      }else if(Math.abs(cross2(q,r))<=FOOTPRINT_EPSILON){
+        for(const point of [c,d]){
+          const t=((point.x-a.x)*r.x+(point.z-a.z)*r.z)/lengthSquared;
+          if(t>=0&&t<=1)breaks.push(t);
+        }
+      }
+    }
+    breaks.sort((left,right)=>left-right);
+    for(let part=1;part<breaks.length;part++){
+      if(breaks[part]-breaks[part-1]<=FOOTPRINT_EPSILON)continue;
+      const t=(breaks[part]+breaks[part-1])/2;
+      if(!insideOrOnBoundary({x:a.x+r.x*t,z:a.z+r.z*t},boundary))return false;
+    }
+  }
+  return true;
+}
+
 function extent(boundary,axis){
   const values=boundary.map(point=>point[axis]);return Math.max(...values)-Math.min(...values);
 }
