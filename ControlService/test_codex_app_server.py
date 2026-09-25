@@ -8,7 +8,7 @@ import time
 import unittest
 from pathlib import Path
 
-from codex_app_server import AppServerError, AppServerTransport
+from codex_app_server import AppServerError, AppServerTransport, MAX_EVENT
 
 
 FAKE_SERVER = r'''
@@ -126,6 +126,14 @@ class AppServerTransportTests(unittest.TestCase):
             self.transport.turn_start("thread-test", " ")
         with self.assertRaises(ValueError):
             self.transport.turn_start("thread-test", "x" * 16001)
+
+    def test_oversized_event_retains_routing_and_completion(self):
+        self.transport._receive({"method": "turn/completed", "params": {
+            "threadId": "thread-test", "turn": {"id": "turn-7", "status": "completed",
+                                                "payload": "x" * MAX_EVENT}, "credential": "do-not-retain"}})
+        event = self.transport.events_since()[-1]
+        self.assertEqual(event["params"], {"truncated": True, "threadId": "thread-test",
+                                            "turn": {"id": "turn-7", "status": "completed"}})
 
 
 if __name__ == "__main__":

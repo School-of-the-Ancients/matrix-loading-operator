@@ -24,6 +24,24 @@ MAX_APPROVALS = 16
 APPROVAL_METHODS = {"item/commandExecution/requestApproval", "item/fileChange/requestApproval"}
 
 
+def _truncated_event_params(params: dict) -> dict:
+    """Keep bounded routing/lifecycle metadata when a tool payload is oversized."""
+    safe = {"truncated": True}
+    for key in ("threadId", "turnId", "itemId", "requestId"):
+        value = params.get(key)
+        if isinstance(value, (int, str)) and len(str(value)) <= 128:
+            safe[key] = value
+    for key, fields in (("turn", ("id", "status")),
+                        ("item", ("id", "type", "server"))):
+        value = params.get(key)
+        if isinstance(value, dict):
+            nested = {field: value[field] for field in fields
+                      if isinstance(value.get(field), str) and len(value[field]) <= 128}
+            if nested:
+                safe[key] = nested
+    return safe
+
+
 class AppServerError(Exception):
     """A local app-server protocol or lifecycle failure."""
 
@@ -179,7 +197,7 @@ class AppServerTransport:
                     self._approvals.pop(request_id, None)
             self._sequence += 1
             raw = json.dumps(params, ensure_ascii=False, separators=(",", ":"))
-            safe_params = params if len(raw.encode("utf-8")) <= MAX_EVENT else {"truncated": True}
+            safe_params = params if len(raw.encode("utf-8")) <= MAX_EVENT else _truncated_event_params(params)
             self._events.append({"sequence": self._sequence, "method": method,
                                  "params": safe_params, **({"requestId": message["id"]} if "id" in message else {})})
 
