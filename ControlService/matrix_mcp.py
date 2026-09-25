@@ -5,7 +5,7 @@ import os
 
 from mcp.server.fastmcp import FastMCP
 from mcp.types import ToolAnnotations
-from matrix_tool_bridge import move_object, move_status, read_scene
+from matrix_tool_bridge import list_assets, move_object, move_status, read_scene, register_glb
 
 
 server = FastMCP("matrix-webxr")
@@ -44,6 +44,30 @@ def matrix_move_object(room_id: str, scene_revision: int, object_id: str,
 def matrix_move_status(request_id: str) -> dict:
     """Read the runtime receipt for a Matrix move. Never retry a queued move."""
     return move_status(os.environ["MATRIX_CONTROL_URL"], os.environ["MATRIX_CONTROL_TOKEN"], request_id)
+
+
+@server.tool(annotations=ToolAnnotations(readOnlyHint=True))
+def matrix_list_assets(offset: int = 0, limit: int = 24) -> dict:
+    """List a bounded page of validated Matrix WebXR GLB catalog assets."""
+    return list_assets(os.environ["MATRIX_CONTROL_URL"], os.environ["MATRIX_CONTROL_TOKEN"],
+                       offset, limit)
+
+
+@server.tool(annotations=ToolAnnotations(readOnlyHint=False, destructiveHint=False,
+                                         idempotentHint=False, openWorldHint=False))
+def matrix_register_glb(source_path: str, expected_sha256: str, name: str,
+                        description: str = "", spawn_scale: float = 1,
+                        local_bounds: dict | None = None) -> dict:
+    """Register an already exported PC-local GLB through Matrix's existing validator.
+
+    First compute the source file SHA-256 with a PC tool, then pass the exact
+    digest here. This does not spawn or change any scene object. Codex app-server
+    requests native approval before the catalog write.
+    """
+    return register_glb(os.environ["MATRIX_CONTROL_URL"], os.environ["MATRIX_CONTROL_TOKEN"],
+                        {"source_path": source_path, "expected_sha256": expected_sha256,
+                         "name": name, "description": description,
+                         "spawn_scale": spawn_scale, "local_bounds": local_bounds})
 
 
 if __name__ == "__main__":
