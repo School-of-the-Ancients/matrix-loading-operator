@@ -1,4 +1,4 @@
-"""Register a Blender-exported static GLB for hot loading by Matrix Web Runtime."""
+"""Register a self-contained GLB for hot loading by Matrix Web Runtime."""
 import argparse
 import json
 from pathlib import Path
