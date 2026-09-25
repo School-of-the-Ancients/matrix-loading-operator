@@ -13,7 +13,7 @@ There are four important tracks:
 3. **Matrix World** — persistent/georeferenced world work such as Matrix Boulder, Earth registration and future AR overlays.
 4. **AI Citizens** — characters, animation/embodiment, needs, schedules, GOAP, memory and social simulation.
 
-They share a PC-side **ControlService / Matrix Core** layer, but they are not interchangeable implementations.
+Matrix Web and Matrix Unity currently use the PC-side **ControlService / Matrix Core** layer. Matrix World and AI Citizens have separate prototype paths and may adopt that shared layer later. These tracks are not interchangeable implementations.
 
 ---
 
