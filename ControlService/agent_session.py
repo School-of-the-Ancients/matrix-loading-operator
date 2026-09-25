@@ -7,7 +7,9 @@ command arguments, tool outputs, and credentials stay on PC.
 from __future__ import annotations
 
 from pathlib import Path
+import json
 import re
+import sys
 from typing import Protocol
 
 from codex_app_server import AppServerTransport
@@ -133,10 +135,24 @@ def normalize_event(event: dict) -> dict | None:
 class LocalCodexAgentBackend:
     """Codex app-server implementation of the Matrix session contract."""
 
-    def __init__(self, config: CodexConfig, cwd: str | Path):
+    def __init__(self, config: CodexConfig, cwd: str | Path, matrix_bridge=None):
         config.validate()
         self.config = config
-        self.transport = AppServerTransport([config.executable, "app-server", "--stdio"], cwd)
+        command = [config.executable]
+        environment = {}
+        if matrix_bridge is not None:
+            script = Path(__file__).with_name("matrix_mcp.py")
+            settings = {"command": sys.executable, "args": [str(script)],
+                        "env_vars": ["MATRIX_CONTROL_URL", "MATRIX_CONTROL_TOKEN"],
+                        "enabled_tools": ["matrix_scene_summary"],
+                        "default_tools_approval_mode": "auto",
+                        "startup_timeout_sec": 10}
+            for key, value in settings.items():
+                command += ["-c", f"mcp_servers.matrix_webxr.{key}={json.dumps(value)}"]
+            environment = {"MATRIX_CONTROL_URL": matrix_bridge.url,
+                           "MATRIX_CONTROL_TOKEN": matrix_bridge.token}
+        command += ["app-server", "--stdio"]
+        self.transport = AppServerTransport(command, cwd, environment=environment)
 
     def start(self) -> None:
         self.transport.start()
