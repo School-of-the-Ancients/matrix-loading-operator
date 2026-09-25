@@ -138,6 +138,11 @@ class AppServerTransportTests(unittest.TestCase):
         self.assertEqual(event["params"], {"truncated": True, "threadId": "thread-test",
                                             "turn": {"id": "turn-7", "status": "completed"}})
 
+    def test_failed_reader_is_visible_to_event_polling(self):
+        self.transport._fail("Codex app-server connection closed")
+        with self.assertRaisesRegex(AppServerError, "connection closed"):
+            self.transport.events_since()
+
 
 if __name__ == "__main__":
     unittest.main()

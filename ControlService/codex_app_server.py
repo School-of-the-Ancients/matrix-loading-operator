@@ -204,6 +204,8 @@ class AppServerTransport:
     def events_since(self, sequence: int = 0) -> list[dict]:
         """PC-internal raw events. Never forward this return value to the browser."""
         with self._lock:
+            if self._failure:
+                raise AppServerError(self._failure)
             return [deepcopy(event) for event in self._events if event["sequence"] > sequence]
 
     def pending_approvals(self) -> list[dict]:
