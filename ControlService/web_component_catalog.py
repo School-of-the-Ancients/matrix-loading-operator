@@ -24,7 +24,9 @@ def _canonical(package):
 def _identity(package, digest):
     slug = re.sub(r"[^a-z0-9]+", "-", package["name"].lower()).strip("-")[:40].strip("-")
     if not slug:
-        raise ComponentError("Component name needs letters or digits")
+        # The package schema permits Unicode letters. Keep the public ID ASCII
+        # without rejecting a valid localized name or changing its digest.
+        slug = "component-" + digest[:8]
     component_id = f"webcomp:{slug}:{digest[:12]}"
     if not COMPONENT_ID.fullmatch(component_id):
         raise ComponentError("Invalid component ID")

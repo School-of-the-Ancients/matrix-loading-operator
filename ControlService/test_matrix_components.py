@@ -154,7 +154,20 @@ class MatrixComponentTests(unittest.TestCase):
         publication = {**approval,
                        "message": 'Allow the matrix_webxr MCP server to run tool "matrix_publish_component"?',
                        "_meta": {"codex_approval_kind": "mcp_tool_call", "tool_params": {"package": PACKAGE}}}
-        self.assertFalse(_mcp_approval_description(publication)[1])
+        publication_summary, publication_reviewable = _mcp_approval_description(publication)
+        self.assertTrue(publication_reviewable)
+        self.assertIn(self.published["componentId"], publication_summary)
+        self.assertIn("no world change", publication_summary)
+        self.assertFalse(_mcp_approval_description({**publication, "_meta": {
+            **publication["_meta"], "tool_params": {"package": PACKAGE, "secret": "none"}}})[1])
+
+    def test_unicode_component_name_keeps_immutable_ascii_identity(self):
+        localized = deepcopy(PACKAGE)
+        localized["name"] = "轨道"
+        published = self.state.agent_publish_component({"package": localized})
+        self.assertRegex(published["componentId"], r"^webcomp:component-[0-9a-f]{8}:[0-9a-f]{12}$")
+        self.assertEqual(self.state.agent_publish_component({"package": localized}), published)
+        self.assertEqual(self.state.web_components.get(published["componentId"])["package"]["name"], "轨道")
 
 
 if __name__ == "__main__":

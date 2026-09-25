@@ -7,6 +7,7 @@ command arguments, tool outputs, and credentials stay on PC.
 from __future__ import annotations
 
 from pathlib import Path
+import hashlib
 import json
 import math
 import re
@@ -15,6 +16,8 @@ from typing import Protocol
 
 from codex_app_server import AppServerTransport
 from codex_provider import CodexConfig
+from web_component_catalog import _identity
+from web_components import ComponentError, validate_package
 
 
 class AgentSessionBackend(Protocol):
@@ -129,6 +132,19 @@ def _mcp_approval_description(params: dict) -> tuple[str, bool]:
             summary = f"Register {Path(source).name} as {name} (GLB SHA-256 {digest[:12]}…) in the Matrix asset catalog."
             if len(summary) <= 200:
                 return summary, True
+    if (params.get("message") == 'Allow the matrix_webxr MCP server to run tool "matrix_publish_component"?' and
+            isinstance(arguments, dict) and set(arguments) == {"package"}):
+        try:
+            package = validate_package(arguments["package"])
+            digest = hashlib.sha256(json.dumps(package, ensure_ascii=False, sort_keys=True,
+                allow_nan=False, separators=(",", ":")).encode("utf-8")).hexdigest()
+            component_id = _identity(package, digest)
+            summary = (f"Publish bounded numeric Matrix component {component_id} with "
+                       f"{len(package['outputs'])} transform channels. Catalog only; no world change.")
+            if len(summary) <= 200:
+                return summary, True
+        except (ComponentError, TypeError, ValueError, RecursionError):
+            pass
     for action in ("attach", "stop", "remove"):
         if params.get("message") != f'Allow the matrix_webxr MCP server to run tool "matrix_{action}_component"?':
             continue

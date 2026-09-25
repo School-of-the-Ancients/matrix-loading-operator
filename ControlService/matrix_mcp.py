@@ -74,7 +74,7 @@ def matrix_register_glb(source_path: str, expected_sha256: str, name: str,
 @server.tool(annotations=ToolAnnotations(readOnlyHint=False, destructiveHint=False,
                                          idempotentHint=True, openWorldHint=False))
 def matrix_publish_component(package: dict) -> dict:
-    """Publish an immutable Matrix numeric component package after native PC approval.
+    """Publish an immutable Matrix numeric component package after native approval.
 
     Schema 1 has name, schemaVersion=1 and outputs mapping transform channels to
     bounded expression trees. Nodes: const(value), time, self(path), target(path),
