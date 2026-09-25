@@ -240,19 +240,23 @@ class AppServerTransport:
             self._write({"id": request_id, "result": result})
             self._approvals.pop(request_id, None)
 
-    def thread_start(self, *, model: str | None = None) -> str:
+    def thread_start(self, *, model: str | None = None, sandbox: str = "workspace-write") -> str:
+        if sandbox not in ("read-only", "workspace-write", "danger-full-access"):
+            raise ValueError("Unsupported Agent Portal sandbox")
         params = {"cwd": str(self.cwd), "approvalPolicy": "on-request", "approvalsReviewer": "user",
-                  "sandbox": "read-only",
+                  "sandbox": sandbox,
                   "serviceName": "matrix_agent_portal"}
         if model:
             params["model"] = model
         result = self.request("thread/start", params)
         return self._id_from(result, "thread")
 
-    def thread_resume(self, thread_id: str) -> str:
+    def thread_resume(self, thread_id: str, *, sandbox: str = "workspace-write") -> str:
+        if sandbox not in ("read-only", "workspace-write", "danger-full-access"):
+            raise ValueError("Unsupported Agent Portal sandbox")
         result = self.request("thread/resume", {"threadId": thread_id, "cwd": str(self.cwd),
                                                  "approvalPolicy": "on-request", "approvalsReviewer": "user",
-                                                 "sandbox": "read-only"})
+                                                 "sandbox": sandbox})
         return self._id_from(result, "thread")
 
     def thread_read(self, thread_id: str) -> dict:

@@ -337,7 +337,11 @@ class AgentPortal:
                                 ("running_command", "editing_files") else "using_tool",
                                 "summary": summary if safe_summary else "Codex action needs PC review.",
                                 "reviewable": bool(safe_summary and item.get("reviewable") is True)})
+        access_mode = getattr(self._backend, "access_mode", None)
+        if access_mode not in ("read-only", "workspace-write", "danger-full-access"):
+            access_mode = None
         return {"sessionId": self._session_id, "activity": self._activity,
+                "accessMode": access_mode,
                 "activeTurnId": self._active_turn, "transcript": deepcopy(self._transcript),
                 "pendingApprovals": pending, "cursor": self._sequence,
                 "events": deepcopy([event for event in self._events if event["sequence"] > cursor][-16:])}

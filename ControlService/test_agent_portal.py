@@ -10,6 +10,8 @@ from agent_portal import AgentPortal, AgentPortalError, MAX_STORE
 
 
 class FakeBackend:
+    access_mode = "workspace-write"
+
     def __init__(self, persisted):
         self.persisted = persisted
         self.events = []
@@ -109,6 +111,7 @@ class AgentPortalTests(unittest.TestCase):
     def test_persists_opaque_session_and_followup_after_restart(self):
         portal = self.portal()
         opened = portal.open()
+        self.assertEqual(opened["accessMode"], "workspace-write")
         session_id = opened["sessionId"]
         self.assertEqual(len(session_id), 32)
         self.assertNotEqual(session_id, "native-thread-id")

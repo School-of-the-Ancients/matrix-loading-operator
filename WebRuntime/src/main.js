@@ -180,6 +180,8 @@ function renderAgent(){
   const status=agentClient?.status,turns=status?.transcript||[],pending=status?.pendingApprovals?.[0];
   const activity=agentClient?.error?'Connection needs attention':status?agentActivityLabel(status.activity):'Not connected';
   $('agent-activity').textContent=activity;
+  const access=({"read-only":"Read only", "workspace-write":"Workspace write", "danger-full-access":"Full PC access"})[status?.accessMode];
+  $('agent-access').textContent=access?`Codex access: ${access} (set on the PC gateway).`:'Access mode appears after connection.';
   const transcript=turns.slice(-4).map(turn=>{
     const user=turn.user.slice(0,1000),assistant=turn.assistant.slice(-2500);
     return `You: ${user}${turn.user.length>1000||turn.userTruncated?'\n[Part of request omitted from this view]':''}\n\nCodex: ${assistant||'…'}${turn.assistant.length>2500||turn.assistantTruncated?'\n[Earlier reply text omitted]':''}`;
@@ -198,7 +200,7 @@ function renderAgent(){
   const latest=turns.at(-1);
   const inWorld=latest?`You: ${latest.user.slice(0,180)}${latest.user.length>180?'…':''}\n\nCodex: ${(latest.assistant||'…').slice(-900)}`:
     status?'Ready. Hold the trigger or grip to speak to Codex.':'Connect to Codex on the PC.';
-  view.setOperatorAgentStatus({activity,content:[agentVoiceStatus,agentApprovalText(pending),
+  view.setOperatorAgentStatus({activity,content:[access?`Codex access: ${access}`:'',agentVoiceStatus,agentApprovalText(pending),
     agentClient?.error?`Connection: ${agentClient.error}`:'',inWorld].filter(Boolean).join('\n\n'),
     pending:!!pending,approvalReviewable:pending?.reviewable===true,
     active:!!status?.activeTurnId,connected:!!status&&!agentClient.error});

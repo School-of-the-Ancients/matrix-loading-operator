@@ -20,8 +20,30 @@ pending command/file approval scoped to its thread and turn. Unknown server
 requests are rejected. Raw events and approval parameters must never be
 forwarded directly to `/web/`.
 Thread start and resume explicitly select the `user` approval reviewer and a
-read-only sandbox. The installed Codex configuration otherwise routed a safe
-isolated write through `auto_review` without a Matrix approval request.
+PC-configured Codex sandbox. The default is `workspace-write`, so the real
+agent can use its normal repository tools. Set `SANDBOX_CODEX_AGENT_SANDBOX`
+on the PC to `read-only`, `workspace-write`, or `danger-full-access`. The last
+mode is an explicit PC-operator choice: Codex can act outside the workspace
+without relying on a sandbox escalation prompt. `/web/` displays the active
+mode but cannot change it or pass a sandbox value in an Agent API request.
+Approval requests that Codex does emit still use the native lifecycle. The
+bounded proposal planner continues to run its separate `read-only` CLI path.
+
+On Windows, `SANDBOX_CODEX_WINDOWS_SANDBOX=unelevated` is an optional PC-only
+fallback when the default Codex sandbox cannot launch. The native Windows
+sandbox is preferred; the unelevated fallback has weaker network isolation.
+The service does not run elevated sandbox setup or change Windows policy.
+The PC launcher exposes the same bounded settings as `-AgentSandbox` and
+`-WindowsSandbox`. On a PC where native sandbox setup fails, for example:
+
+```powershell
+.\Start-CodexControlService.ps1 -AgentSandbox workspace-write -WindowsSandbox unelevated
+```
+
+The wearer can see the effective access mode on the Agent page. Changing it
+requires restarting the PC service. Full PC access is available with
+`-AgentSandbox danger-full-access`; it does not wait for sandbox escalation
+approval before ordinary shell or file operations.
 
 `agent_session.py` defines the provider-neutral Matrix backend interface and
 the first local Codex adapter. It maps native text, activity, tool, and approval
@@ -77,3 +99,21 @@ started a session, streamed a reply, followed up, resumed after refresh,
 displayed and denied a native command approval, and cancelled a long turn.
 The denied scratch-file command left the file absent. This was not a Quest
 hardware test, and browser microphone/voice operation remains unverified.
+
+On the installed Codex CLI 0.155.0-alpha.16.4, the exact request "create a cool
+flying ice dragon and have it be animated and interactive" reached the Agent
+field in an isolated desktop `/web/` smoke test. The previous `read-only`
+sandbox failed to start a Windows shell command; Blender MCP also requested an
+approval the XR allowlist could not make reviewable. No dragon was created.
+Direct disposable-worktree app-server probes showed `workspace-write` with
+`windows.sandbox="unelevated"` completing a real file edit, and `read-only`
+with the same Windows fallback completing a read command. An isolated
+`danger-full-access` probe also edited a file without an approval request,
+which is why full access requires explicit PC configuration. A subsequent
+isolated `/web/` Agent field run with `workspace-write` and the Windows
+fallback displayed the access mode, created and verified a real workspace
+file, retained the same conversation after page refresh, and read that file
+in a follow-up. The exact dragon request then reached a native MCP approval
+that was not reviewable in XR; Deny and Stop worked. A Blender MCP creation,
+dragon import through the Matrix runtime, and Quest wearer acceptance remain
+unverified.

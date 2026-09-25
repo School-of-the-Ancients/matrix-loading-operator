@@ -3,8 +3,10 @@ import tempfile
 import unittest
 from pathlib import Path
 from types import SimpleNamespace
+from unittest.mock import patch
 
 from agent_session import LocalCodexAgentBackend, normalize_event, _approval_description, _mcp_approval_description
+from codex_provider import CodexConfig
 
 
 class FakeTransport:
@@ -31,12 +33,12 @@ class FakeTransport:
         return [{"requestId": 42, "method": "item/commandExecution/requestApproval",
                  "params": {"threadId": "thread-1", "turnId": "turn-1", "command": "echo secret"}}]
 
-    def thread_start(self, *, model=None):
-        self.calls.append(("start", model))
+    def thread_start(self, *, model=None, sandbox="workspace-write"):
+        self.calls.append(("start", model, sandbox))
         return "thread-1"
 
-    def thread_resume(self, identifier):
-        self.calls.append(("resume", identifier))
+    def thread_resume(self, identifier, *, sandbox="workspace-write"):
+        self.calls.append(("resume", identifier, sandbox))
         return identifier
 
     def turn_start(self, identifier, text, *, effort=None):
@@ -51,12 +53,27 @@ class FakeTransport:
 
 
 class AgentSessionTests(unittest.TestCase):
+    def test_windows_fallback_is_a_pc_only_codex_process_setting(self):
+        with tempfile.TemporaryDirectory() as folder:
+            executable = Path(folder) / "codex.exe"
+            executable.write_bytes(b"MZ test")
+            config = CodexConfig(str(executable), windows_sandbox="unelevated",
+                                 agent_sandbox="danger-full-access")
+            with patch("agent_session.AppServerTransport") as transport:
+                backend = LocalCodexAgentBackend(config, folder)
+            command = transport.call_args.args[0]
+            self.assertEqual(command[:3], [str(executable), "-c", 'windows.sandbox="unelevated"'])
+            self.assertEqual(command[-2:], ["app-server", "--stdio"])
+            self.assertEqual(backend.access_mode, "danger-full-access")
+
     def test_normalizer_drops_tool_arguments_and_credentials(self):
         backend = LocalCodexAgentBackend.__new__(LocalCodexAgentBackend)
-        backend.config = SimpleNamespace(model="model-test", reasoning_effort="medium")
+        backend.config = SimpleNamespace(model="model-test", reasoning_effort="medium", agent_sandbox="workspace-write")
         backend.transport = FakeTransport()
         self.assertEqual(backend.start_conversation(), "thread-1")
         self.assertEqual(backend.resume_conversation("thread-1"), "thread-1")
+        self.assertIn(("start", "model-test", "workspace-write"), backend.transport.calls)
+        self.assertIn(("resume", "thread-1", "workspace-write"), backend.transport.calls)
         self.assertEqual(backend.send_text("thread-1", "Hello"), "turn-1")
         events = backend.events_since(0)
         self.assertEqual([event["type"] for event in events],

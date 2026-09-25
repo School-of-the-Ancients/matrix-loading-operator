@@ -33,6 +33,8 @@ class AgentSessionBackend(Protocol):
     def decide(self, approval_id: int | str, conversation_id: str, turn_id: str, approve: bool) -> None: ...
     def cancel(self, conversation_id: str, turn_id: str) -> None: ...
     def close(self) -> None: ...
+    @property
+    def access_mode(self) -> str: ...
 
 
 def _identifier(value):
@@ -268,6 +270,8 @@ class LocalCodexAgentBackend:
         config.validate()
         self.config = config
         command = [config.executable]
+        if config.windows_sandbox:
+            command += ["-c", f'windows.sandbox="{config.windows_sandbox}"']
         environment = {}
         if matrix_bridge is not None:
             script = Path(__file__).with_name("matrix_mcp.py")
@@ -299,11 +303,15 @@ class LocalCodexAgentBackend:
     def start(self) -> None:
         self.transport.start()
 
+    @property
+    def access_mode(self) -> str:
+        return self.config.agent_sandbox
+
     def start_conversation(self) -> str:
-        return self.transport.thread_start(model=self.config.model)
+        return self.transport.thread_start(model=self.config.model, sandbox=self.config.agent_sandbox)
 
     def resume_conversation(self, conversation_id: str) -> str:
-        return self.transport.thread_resume(conversation_id)
+        return self.transport.thread_resume(conversation_id, sandbox=self.config.agent_sandbox)
 
     def send_text(self, conversation_id: str, text: str) -> str:
         return self.transport.turn_start(conversation_id, text, effort=self.config.reasoning_effort)
