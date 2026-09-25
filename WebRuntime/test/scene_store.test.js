@@ -2,8 +2,9 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import {MatrixWorld} from '../src/protocol.js';
 import {loadStoredScene,saveStoredScene,restoreStoredScene,saveCheckpoint,loadCheckpoint,
-  storedWorld,saveStoredWorld,loadStoredWorld,restoreStoredWorld,quarantineStoredWorld,
-  TAB_SCENE_KEY,DURABLE_SCENE_KEY,WORLD_KEY,TAB_WORLD_KEY,QUARANTINE_KEY} from '../src/scene_store.js';
+  storedWorld,saveStoredWorld,loadStoredWorld,restoreStoredWorld,restoreBestStoredWorld,
+  quarantineStoredWorld,TAB_SCENE_KEY,DURABLE_SCENE_KEY,WORLD_KEY,TAB_WORLD_KEY,
+  QUARANTINE_KEY,QUARANTINE_BACKUP_KEY} from '../src/scene_store.js';
 import {startGame,deliverMovedObject} from '../src/game.js';
 import {rememberTurn,clearConversation} from '../src/conversation.js';
 
@@ -145,6 +146,56 @@ test('both failed browser writes report both missing copies',()=>{
   const warning=saveStoredWorld(storedWorld(new MatrixWorld()),failing,failing);
   assert.match(warning,/Persistent browser save failed/);
   assert.match(warning,/Tab world save failed/);
+});
+
+test('an invalid newest world is quarantined before restoring the older valid copy',()=>{
+  const tab=storage(),durable=storage(),original=new MatrixWorld(()=> 'kept-object');
+  original.execute({requestId:'spawn',op:'spawn',assetId:'orb',anchorId:'web-floor',transform:pose});
+  assert.equal(saveStoredWorld(storedWorld(original),tab,durable),'');
+  const newest=JSON.parse(durable.getItem(WORLD_KEY));
+  newest.savedAtMs++;
+  newest.scene.objects[0].assetId='web:missing';
+  const raw=JSON.stringify(newest);
+  durable.setItem(WORLD_KEY,raw);
+  const pending=loadStoredWorld(tab,durable);
+  assert.equal(pending.source,WORLD_KEY);
+  const reopened=new MatrixWorld();
+  const result=restoreBestStoredWorld(reopened,pending,durable);
+  assert.equal(result.state,'restored');
+  assert.equal(result.source,TAB_WORLD_KEY);
+  assert.equal(result.rejected.length,1);
+  assert.deepEqual(reopened.scene,original.scene);
+  assert.equal(durable.getItem(QUARANTINE_KEY),raw);
+  assert.equal(saveStoredWorld(storedWorld(reopened),tab,durable),'');
+  assert.equal(durable.getItem(QUARANTINE_KEY),raw,'new saves do not overwrite the rejected raw copy');
+});
+
+test('failed quarantine blocks recovery before either browser copy is overwritten',()=>{
+  const tab=storage(),durable=storage(),world=new MatrixWorld();
+  assert.equal(saveStoredWorld(storedWorld(world),tab,durable),'');
+  const invalid=JSON.parse(durable.getItem(WORLD_KEY));
+  invalid.savedAtMs++;
+  invalid.scene.objects=[{objectId:'missing',assetId:'web:missing',anchorId:'web-floor',transform:pose}];
+  durable.setItem(WORLD_KEY,JSON.stringify(invalid));
+  const before=durable.getItem(WORLD_KEY);
+  const noSpace={getItem:key=>durable.getItem(key),setItem(){throw Error('quota exceeded');}};
+  const result=restoreBestStoredWorld(new MatrixWorld(),loadStoredWorld(tab,durable),noSpace);
+  assert.equal(result.state,'blocked');
+  assert.equal(durable.getItem(WORLD_KEY),before);
+  assert.equal(durable.getItem(QUARANTINE_KEY),null);
+});
+
+test('two invalid browser worlds get separate recovery copies',()=>{
+  const tab=storage(),durable=storage(),base=storedWorld(new MatrixWorld());
+  const invalid=assetId=>({...base,scene:{...base.scene,objects:[
+    {objectId:assetId,assetId,anchorId:'web-floor',transform:pose}]}});
+  tab.setItem(TAB_WORLD_KEY,JSON.stringify({...invalid('web:old'),savedAtMs:1}));
+  durable.setItem(WORLD_KEY,JSON.stringify({...invalid('web:new'),savedAtMs:2}));
+  const result=restoreBestStoredWorld(new MatrixWorld(),loadStoredWorld(tab,durable),durable);
+  assert.equal(result.state,'invalid');
+  assert.equal(result.rejected.length,2);
+  assert.equal(JSON.parse(durable.getItem(QUARANTINE_KEY)).scene.objects[0].assetId,'web:new');
+  assert.equal(JSON.parse(durable.getItem(QUARANTINE_BACKUP_KEY)).scene.objects[0].assetId,'web:old');
 });
 
 test('checkpoint restore clears selection missing from the restored scene, including after leaving AR',()=>{

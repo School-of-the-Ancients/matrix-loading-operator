@@ -6,6 +6,7 @@ export const WORLD_KEY='matrix-web-world-v2';
 export const TAB_WORLD_KEY='matrix-web-world-tab-v2';
 export const CHECKPOINT_KEY='matrix-web-checkpoint-v2';
 export const QUARANTINE_KEY='matrix-web-world-rejected-v2';
+export const QUARANTINE_BACKUP_KEY='matrix-web-world-rejected-backup-v2';
 let lastSavedAtMs=0;
 
 const savedAt=value=>Number.isSafeInteger(value?.savedAtMs)&&
@@ -53,14 +54,34 @@ export function loadStoredWorld(tabStorage,durableStorage){
   }
   if(candidates.length){
     candidates.sort((left,right)=>savedAt(right.value)-savedAt(left.value));
-    return candidates[0];
+    return {...candidates[0],alternates:candidates.slice(1)};
   }
   const scene=loadStoredScene(tabStorage,durableStorage);
   return scene?{value:{version:2,scene,game:null},source:'scene-only',raw:JSON.stringify(scene)}:rejected;
 }
 
-export function quarantineStoredWorld(pending,storage){
-  try{storage.setItem(QUARANTINE_KEY,pending.raw);}catch{ /* A full store may also reject quarantine. */ }
+export function quarantineStoredWorld(pending,storage,index=0){
+  const key=index===0?QUARANTINE_KEY:QUARANTINE_BACKUP_KEY;
+  try{
+    storage.setItem(key,pending.raw);
+    return storage.getItem(key)===pending.raw;
+  }catch{return false;}
+}
+
+export function restoreBestStoredWorld(world,pending,storage){
+  const rejected=[];
+  for(const candidate of [pending,...(pending.alternates||[])]){
+    try{
+      restoreStoredWorld(world,candidate.value);
+      return {state:'restored',source:candidate.source,rejected};
+    }catch(error){
+      if(!quarantineStoredWorld(candidate,storage,rejected.length))
+        return {state:'blocked',reason:`Could not preserve rejected ${candidate.source} before recovery: ${error.message}`,
+          rejected};
+      rejected.push({source:candidate.source,error:error.message});
+    }
+  }
+  return {state:'invalid',rejected};
 }
 
 export function restoreStoredWorld(world,value){
