@@ -112,6 +112,23 @@ def _mcp_approval_description(params: dict) -> tuple[str, bool]:
                    f"at scene revision {arguments['scene_revision']}.")
         if len(summary) <= 200:
             return summary, True
+    if (params.get("message") == 'Allow the matrix_webxr MCP server to run tool "matrix_register_glb"?' and
+            isinstance(arguments, dict) and
+            {"source_path", "expected_sha256", "name"} <= set(arguments) <=
+            {"source_path", "expected_sha256", "name", "description", "spawn_scale", "local_bounds"}):
+        source, name, digest = (arguments[key] for key in ("source_path", "name", "expected_sha256"))
+        scale = arguments.get("spawn_scale", 1)
+        if (isinstance(source, str) and 1 <= len(source) <= 1024 and
+                not any(ord(char) < 32 for char in source) and Path(source).is_absolute() and
+                not str(Path(source).drive).startswith("\\\\") and Path(source).suffix.lower() == ".glb" and
+                isinstance(name, str) and 1 <= len(name) <= 80 and
+                not any(ord(char) < 32 for char in name) and
+                isinstance(digest, str) and re.fullmatch(r"[0-9a-f]{64}", digest) and
+                arguments.get("description", "") == "" and arguments.get("local_bounds") is None and
+                type(scale) in (int, float) and scale == 1):
+            summary = f"Register {Path(source).name} as {name} (GLB SHA-256 {digest[:12]}…) in the Matrix asset catalog."
+            if len(summary) <= 200:
+                return summary, True
     return "Codex requests an MCP tool. Review it on PC before approval.", False
 
 
@@ -177,12 +194,14 @@ class LocalCodexAgentBackend:
             script = Path(__file__).with_name("matrix_mcp.py")
             settings = {"command": sys.executable, "args": [str(script)],
                         "env_vars": ["MATRIX_CONTROL_URL", "MATRIX_CONTROL_TOKEN"],
-                        "enabled_tools": ["matrix_scene_summary", "matrix_move_object", "matrix_move_status"],
+                        "enabled_tools": ["matrix_scene_summary", "matrix_move_object", "matrix_move_status",
+                                          "matrix_list_assets", "matrix_register_glb"],
                         "default_tools_approval_mode": "auto",
                         "startup_timeout_sec": 10}
             for key, value in settings.items():
                 command += ["-c", f"mcp_servers.matrix_webxr.{key}={json.dumps(value)}"]
             command += ["-c", 'mcp_servers.matrix_webxr.tools.matrix_move_object.approval_mode="prompt"']
+            command += ["-c", 'mcp_servers.matrix_webxr.tools.matrix_register_glb.approval_mode="prompt"']
             environment = {"MATRIX_CONTROL_URL": matrix_bridge.url,
                            "MATRIX_CONTROL_TOKEN": matrix_bridge.token}
         command += ["app-server", "--stdio"]

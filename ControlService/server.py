@@ -5,6 +5,7 @@ import argparse
 import ssl
 import collections
 import copy
+import hashlib
 import hmac
 import ipaddress
 import json
@@ -32,7 +33,7 @@ from matrix_tool_bridge import MatrixToolBridge
 import speech
 import tts
 import scene_capture
-from web_assets import WebAssetCatalog, WebAssetError
+from web_assets import WebAssetCatalog, WebAssetError, MAX_BYTES as MAX_GLB_BYTES
 from web_authoring import WebAuthoringJobs, WebAuthoringError
 from blender_authoring import BlenderAuthoringJobs, BlenderAuthoringError
 from web_game import GamePlanError, design_game, wants_game
@@ -762,6 +763,59 @@ class State:
                 result["status"] = "failed"
                 result["error"] = receipt["error"][:200]
             return result
+
+    def agent_list_assets(self, offset=0, limit=24):
+        require(type(offset) is int and 0 <= offset <= 255 and type(limit) is int and 1 <= limit <= 24,
+                "Invalid Matrix asset page")
+        items = self.web_assets.list()
+        return {"total": len(items), "offset": offset,
+                "assets": [{key: item[key] for key in
+                            ("assetId", "displayName", "sha256", "byteLength", "geometry", "spawnScale", "localBounds")
+                            if key in item} for item in items[offset:offset + limit]]}
+
+    def agent_register_glb(self, value):
+        """Stage exact PC-local bytes and use the existing GLB validator/catalog."""
+        require(isinstance(value, dict) and set(value) ==
+                {"source_path", "expected_sha256", "name", "description", "spawn_scale", "local_bounds"},
+                "Invalid Matrix GLB registration")
+        source_name = text(value["source_path"], "source_path", limit=1024)
+        digest = value["expected_sha256"]
+        require(isinstance(digest, str) and re.fullmatch(r"[0-9a-f]{64}", digest),
+                "Invalid expected GLB digest")
+        source = Path(source_name)
+        require(source.is_absolute() and not str(source.drive).startswith("\\\\") and
+                source.suffix.lower() == ".glb" and not source.is_symlink() and source.is_file(),
+                "Use an existing local PC .glb file", 400)
+        staged = None
+        try:
+            digest_reader = hashlib.sha256()
+            size = 0
+            with source.open("rb") as original, tempfile.NamedTemporaryFile(
+                    dir=self.directory, prefix=".agent-glb-", suffix=".glb", delete=False) as temporary:
+                staged = Path(temporary.name)
+                while chunk := original.read(128 * 1024):
+                    size += len(chunk)
+                    require(size <= MAX_GLB_BYTES, "GLB exceeds 16 MiB", 413)
+                    digest_reader.update(chunk)
+                    temporary.write(chunk)
+                temporary.flush()
+                os.fsync(temporary.fileno())
+            require(digest_reader.hexdigest() == digest,
+                    "GLB changed since Codex identified it; inspect and retry", 409)
+            # The catalog treats a supplied scale as an update on duplicate IDs.
+            # A default registration should not reset an existing asset's scale.
+            scale = (None if type(value["spawn_scale"]) in (int, float) and
+                     value["spawn_scale"] == 1 else value["spawn_scale"])
+            entry = self.web_assets.register(staged, value["name"], value["description"],
+                                             scale, value["local_bounds"])
+            return {"status": "registered", "assetId": entry["assetId"],
+                    "sha256": entry["sha256"], "byteLength": entry["byteLength"],
+                    "displayName": entry["displayName"], "geometry": entry["geometry"],
+                    "spawnScale": entry["spawnScale"],
+                    **({"localBounds": entry["localBounds"]} if "localBounds" in entry else {})}
+        finally:
+            if staged is not None:
+                staged.unlink(missing_ok=True)
 
     def status(self):
         with self.lock:

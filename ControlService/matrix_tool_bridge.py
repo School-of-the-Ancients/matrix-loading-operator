@@ -14,6 +14,9 @@ import secrets
 import threading
 import time
 import urllib.request
+import urllib.parse
+
+from web_assets import WebAssetError
 
 
 MAX_SUMMARY_OBJECTS = 24
@@ -49,6 +52,18 @@ def move_status(url: str, token: str, request_id: str) -> dict:
     if not url.endswith("/scene") or not re.fullmatch(r"[0-9a-f]{32}", request_id):
         raise ValueError("Invalid Matrix move receipt request")
     return _request_json(url[:-6] + "/moves/" + request_id, token)
+
+
+def list_assets(url: str, token: str, offset: int = 0, limit: int = 24) -> dict:
+    if not url.endswith("/scene"):
+        raise ValueError("Invalid Matrix tool bridge URL")
+    return _request_json(url[:-6] + f"/assets?offset={offset}&limit={limit}", token)
+
+
+def register_glb(url: str, token: str, value: dict) -> dict:
+    if not url.endswith("/scene"):
+        raise ValueError("Invalid Matrix tool bridge URL")
+    return _request_json(url[:-6] + "/register-glb", token, value)
 
 
 def scene_summary(state) -> dict:
@@ -114,13 +129,23 @@ class _Handler(BaseHTTPRequestHandler):
             except Exception as error:
                 self._send_json(getattr(error, "status", 500),
                                 {"error": str(error) if hasattr(error, "status") else "Matrix tool failed"})
+        elif self.path.startswith("/assets?"):
+            try:
+                query = urllib.parse.parse_qs(self.path[8:], strict_parsing=True)
+                if set(query) != {"offset", "limit"} or any(len(values) != 1 for values in query.values()):
+                    raise ValueError()
+                self._send_json(200, self.server.state.agent_list_assets(int(query["offset"][0]),
+                                                                    int(query["limit"][0])))
+            except Exception as error:
+                self._send_json(getattr(error, "status", 400 if isinstance(error, ValueError) else 500),
+                                {"error": str(error) if hasattr(error, "status") else "Invalid asset page"})
         else:
             self.send_error(404)
 
     def do_POST(self):
         if not self._authorized():
             return
-        if self.path != "/move":
+        if self.path not in ("/move", "/register-glb"):
             self.send_error(404)
             return
         try:
@@ -128,15 +153,19 @@ class _Handler(BaseHTTPRequestHandler):
             if not 0 < length <= 4096:
                 raise ValueError("Invalid Matrix move size")
             value = json.loads(self.rfile.read(length))
-            result = self.server.state.agent_move(value)
-            deadline = time.monotonic() + MOVE_WAIT
-            while result["status"] == "queued" and time.monotonic() < deadline:
-                time.sleep(.1)
-                result = self.server.state.agent_move_status(result["requestId"])
+            if self.path == "/register-glb":
+                result = self.server.state.agent_register_glb(value)
+            else:
+                result = self.server.state.agent_move(value)
+                deadline = time.monotonic() + MOVE_WAIT
+                while result["status"] == "queued" and time.monotonic() < deadline:
+                    time.sleep(.1)
+                    result = self.server.state.agent_move_status(result["requestId"])
             self._send_json(200, result)
         except Exception as error:
-            self._send_json(getattr(error, "status", 400 if isinstance(error, ValueError) else 500),
-                            {"error": str(error) if hasattr(error, "status") else "Invalid Matrix move request"})
+            known = hasattr(error, "status") or isinstance(error, WebAssetError)
+            self._send_json(getattr(error, "status", 400 if known or isinstance(error, ValueError) else 500),
+                            {"error": str(error) if known else "Invalid Matrix tool request"})
 
 
 class MatrixToolBridge:
