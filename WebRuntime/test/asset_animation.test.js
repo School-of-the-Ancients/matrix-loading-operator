@@ -4,6 +4,7 @@ import * as THREE from 'three';
 import {GLTFLoader} from 'three/addons/loaders/GLTFLoader.js';
 import {readFile} from 'node:fs/promises';
 import {instantiateAnimatedAsset,stopAnimatedAsset} from '../src/asset_animation.js';
+import {animationSelectionState} from '../src/view.js';
 
 function animatedRig(){
   const scene=new THREE.Group();
@@ -74,6 +75,14 @@ test('named selection clip plays once, restarts on reselection, and returns to l
   assert.throws(()=>instantiateAnimatedAsset(gltf,asset,{binding:{loopClip:'Unknown',selectClip:'Roar'}}),/binding differs/);
   stopAnimatedAsset(first.mixer,first.model);
   stopAnimatedAsset(second.mixer,second.model);
+});
+
+test('selection waits while the GLB loads and a failed placeholder remains grabbable',()=>{
+  const bound={animation:{loopClip:'Flight',selectClip:'Roar'}};
+  assert.equal(animationSelectionState(bound,{userData:{assetLoading:true}}),'loading');
+  assert.equal(animationSelectionState(bound,{userData:{assetLoading:false}}),'unavailable');
+  assert.equal(animationSelectionState(bound,{userData:{selectAnimation:()=>{}}}),'ready');
+  assert.equal(animationSelectionState({},null),'none');
 });
 
 test('Blender 5.2 exported GLB clip loads and advances in the Matrix mixer',async()=>{

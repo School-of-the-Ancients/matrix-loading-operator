@@ -35,6 +35,11 @@ export function validateRenderedFootprint(asset,size){
   if(bounds&&(size.x>bounds.size.x+.005||size.z>bounds.size.z+.005))
     throw Error('GLB rendered footprint exceeds its registered bounds; remeasure and register the asset');
 }
+export function animationSelectionState(object,root){
+  if(!object?.animation?.selectClip)return 'none';
+  if(typeof root?.userData?.selectAnimation==='function')return 'ready';
+  return root?.userData?.assetLoading?'loading':'unavailable';
+}
 function disposeGroup(root){root.traverse(node=>{if(node.geometry&&!node.userData.cachedGeometry)node.geometry.dispose();if(node.material){const materials=Array.isArray(node.material)?node.material:[node.material];for(const material of materials){if(node.userData.ownedTexture)material.map?.dispose();material.dispose();}}});}
 function planeLabel(label){
   const canvas=document.createElement('canvas');canvas.width=512;canvas.height=96;
@@ -508,7 +513,7 @@ export class MatrixView {
       }
       visual.userData.objectId=object.objectId;root.add(visual);root.userData.visual=visual;root.userData.behaviors=object.behaviors||[];
       (this.anchorRoots.get(object.anchorId)||this.virtualFloorRoot).add(root);this.objectRoots.set(object.objectId,root);
-      if(asset.url)this.loadExternal(asset,root,visual,object.objectId);
+      if(asset.url){root.userData.assetLoading=true;this.loadExternal(asset,root,visual,object.objectId);}
     }
     this.highlight();
   }
@@ -539,8 +544,8 @@ export class MatrixView {
       model.traverse(node=>{if(node.isMesh){node.userData.cachedGeometry=true;node.material=Array.isArray(node.material)?node.material.map(material=>material.clone()):node.material.clone();}});
       for(const child of [...visual.children]){visual.remove(child);disposeGroup(child);}
       visual.add(model);root.userData.model=model;root.userData.mixer=mixer;
-      root.userData.selectAnimation=select;
-    }catch(error){this.modelCache.delete(asset.assetId);this.onAssetError(`${asset.displayName}: ${error.message}`);}
+      root.userData.selectAnimation=select;root.userData.assetLoading=false;
+    }catch(error){root.userData.assetLoading=false;this.modelCache.delete(asset.assetId);this.onAssetError(`${asset.displayName}: ${error.message}`);}
   }
   highlight(){
     for(const [id,root] of this.objectRoots){
@@ -558,7 +563,9 @@ export class MatrixView {
     if(event.button===2){this.pointerLook={pointerId:event.pointerId,x:event.clientX,y:event.clientY};return;}
     this.rayFromPointer(event);
     const id=this.selectFromRay();
-    if(id&&this.world.requireObject(id).animation?.selectClip)return;
+    if(id){const animation=animationSelectionState(this.world.requireObject(id),this.objectRoots.get(id));
+      if(animation==='ready')return;
+      if(animation==='loading'){this.onAssetError('Animation is still loading; select again when the GLB appears.');return;}}
     if(id&&this.world.requireObject(id).component?.status==='running'){
       this.onAssetError('Stop this component before moving the object.');return;}
     if(id){const grab=beginPointerGrab(this.raycaster,this.objectRoots.get(id));if(grab)this.pointerGrab={...grab,objectId:id,pointerId:event.pointerId,lastY:event.clientY,vertical:false};}
@@ -614,7 +621,9 @@ export class MatrixView {
       return;
     }
     const id=this.selectFromRay();
-    if(id&&this.world.requireObject(id).animation?.selectClip)return;
+    if(id){const animation=animationSelectionState(this.world.requireObject(id),this.objectRoots.get(id));
+      if(animation==='ready')return;
+      if(animation==='loading'){this.onAssetError('Animation is still loading; select again when the GLB appears.');return;}}
     if(id&&(this.world.spatial?.stale||this.world.spatial?.originUnavailable)){
       this.onAssetError('Room origin or tracking is unavailable; object grabs are paused.');return;
     }
