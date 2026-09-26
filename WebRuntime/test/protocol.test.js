@@ -52,6 +52,24 @@ test('local observed movement validates and receipts without filling authored Un
   assert.equal(world.undo.length,beforeUndo);
 });
 
+test('an unrecorded mutation invalidates stale redo history',()=>{
+  const world=new MatrixWorld(()=> 'resident-1');
+  const spawn=world.execute(command('spawn','spawn',
+    {assetId:'orb',anchorId:ANCHOR_ID,transform:pose(0)}));
+  assert.equal(spawn.ok,true);
+  assert.equal(world.execute(command('author-move','set_transform',
+    {objectId:spawn.objectId,transform:pose(1)})).ok,true);
+  assert.equal(world.execute(command('undo','undo')).ok,true);
+  assert.equal(world.redo.length,1);
+  const move=world.execute(command('simulation-move','set_transform',
+    {objectId:spawn.objectId,transform:pose(2)}),{recordHistory:false});
+  assert.equal(move.ok,true);
+  assert.equal(world.requireObject(spawn.objectId).transform.position.x,2);
+  assert.equal(world.redo.length,0);
+  assert.match(world.execute(command('redo','redo')).error,/History is empty/);
+  assert.equal(world.requireObject(spawn.objectId).transform.position.x,2);
+});
+
 test('an advertised finite interaction returns an in-range observed outcome',()=>{
   let n=0;const world=new MatrixWorld(()=>`object-${++n}`);
   const chair=world.execute(command('spawn-chair','spawn',

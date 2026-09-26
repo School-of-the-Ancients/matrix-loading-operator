@@ -473,7 +473,9 @@ export class MatrixWorld {
         case 'redo': this.replay(this.redo,this.undo); break;
         default: throw Error('Unknown operation');
       }
-      if (before) {this.undo.push(before); if(this.undo.length>32)this.undo.shift(); this.redo=[];}
+      if (before) {this.undo.push(before); if(this.undo.length>32)this.undo.shift();}
+      // An unrecorded simulation edit still supersedes any undone future.
+      if (mutation)this.redo=[];
       result.ok=true;
     } catch(error) {result.error=error.message||String(error);}
     return result;
