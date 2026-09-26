@@ -1,63 +1,67 @@
 # Instructions for coding agents
 
-Read [PROJECTS.md](PROJECTS.md), the current [PRD](PRD.md), and [IMPLEMENTATION_PLAN.md](IMPLEMENTATION_PLAN.md) before making architectural decisions. The implementation plan selects the next small step; the controlling issue retains its detailed acceptance criteria.
+Read [VISION.md](VISION.md), [PROJECTS.md](PROJECTS.md), [PRD.md](PRD.md), and [IMPLEMENTATION_PLAN.md](IMPLEMENTATION_PLAN.md) before making architectural or work-selection decisions. The vision explains why, the PRD defines the product, the implementation plan selects the next small slice, and the controlling issue retains detailed acceptance. [Current checkpoints](Docs/Current-Checkpoint.md) and `Validation/` record evidence, not an independent work queue.
 
-This repository contains multiple generations of Matrix. Do not assume every existing subsystem belongs to the current implementation direction.
+## Product direction — September 26, 2026
+
+**Return to the 2023/2024 creation-and-learning roots: WebXR + Matrix White Room + voice-to-creation, with fun interactive student demos and educational experiences.** The user should be able to say “Operator, load XYZ,” create a usable experience, play/experiment, revise it, and save/resume. Everyday AR glasses are the long-term delivery aspiration, not a new-device dependency.
+
+The default feature priority is [#122 — Immersive Creator Mode](https://github.com/School-of-the-Ancients/matrix-loading-operator/issues/122), supported by #44/#59, #116, and the relevant runtime/experiment contracts. Do not revert to an older Citizens-first or indefinitely desktop-only queue because a dated checkpoint or earlier prompt says “next.” Preserve that work and its acceptance; do not erase it or claim it is merged.
+
+Procedural generation, reusable catalog assets and Blender are complementary creation methods. Prefer a fast usable result over mandatory modeling of every object. **Dynamic world upgrading is later roadmap work**: do not start its autonomous reviewer or overnight scheduler as part of the current demo slice.
 
 ## Default target
 
 Unless the task or issue explicitly says otherwise, **new generalized Matrix runtime work targets the Three.js/WebXR Matrix in `WebRuntime/` and the shared PC-side capability boundary in `ControlService/`.**
 
-The current architecture is:
-
 ```text
 Web / Quest WebXR
       |
-Three.js Matrix
+Three.js Matrix — White Room / AR experience
       |
 ControlService / Agent Portal
       |
 PC-local Codex + tools/MCPs
 ```
 
-Codex remains on the PC. Browser/headset code is a bounded client and must not receive Codex, GitHub, Blender, MCP or other privileged credentials.
+The White Room is the UX starting point, not a direction to rebuild in Unity. Codex remains on the PC. Browser/headset code is a bounded client and must not receive Codex, GitHub, Blender, MCP or other privileged credentials.
 
 ## Do not confuse these tracks
 
-- **Unity/original Matrix:** `Assets/`, `Packages/`, `ProjectSettings/`, Unity build scripts, White Room, Room AR, old content packs.
-- **Current Web Matrix:** `WebRuntime/`, Agent Portal, Matrix MCP/tools, Blender/GLB, runtime components, HTML/Three.js/WebXR experiences.
-- **Matrix World:** geospatial persistent world / Matrix Boulder / Earth registration.
-- **AI Citizens:** character embodiment, navigation, needs, schedules, GOAP, memory and social simulation.
-- **School of the Ancients:** separate product. Do not place curriculum/learner-state ownership in Matrix.
+- **Current Web Matrix:** `WebRuntime/`, Agent Portal, Matrix tools, procedural creation, Blender/GLB, reusable behaviors, HTML/Three.js/WebXR experiences and demonstrations.
+- **Unity/original Matrix:** `Assets/`, `Packages/`, `ProjectSettings/`, Unity build scripts, original White Room, Room AR and content packs. Preserve the supported native/legacy client.
+- **Matrix World:** geospatial persistence / Matrix Boulder / Earth registration; not needed for a local classroom or game.
+- **AI Citizens:** embodiment, navigation, needs, schedules, GOAP, memory and social simulation; preserve the open stack, but do not require a society to create a world or teach a concept.
+- **School of the Ancients:** independent education product. Matrix may host a reusable demonstration/adapter; School owns curriculum, mentor pedagogy, learner records and assessment.
+- **Dynamic upgrader:** later use of shared world/asset tools, not a new default service or replacement runtime.
 
 ## Current design rules
 
-1. Preserve Unity as a supported legacy/native client unless a task explicitly retires something.
-2. Do not make Unity the default target for new generalized creation capabilities.
-3. Do not reproduce Codex inside WebXR. Matrix is a thin spatial/interactive client to the PC-local Codex agent.
-4. Do not build hundreds of one-off semantic actions when a reusable component/capability can express the behavior.
-5. Blender is an optional asset/rig/animation factory; Three.js/WebXR is the current programmable spatial runtime.
-6. Interactive experiences may have HTML, Three.js browser and WebXR surfaces over the same authoritative state.
-7. Shared ControlService changes should remain renderer-neutral when practical.
-8. World mutations require validation and observed runtime receipts; never claim success from intent alone.
-9. Keep desktop/browser fixture evidence separate from real Quest wearer evidence.
-10. Do not silently broaden an issue into Matrix Boulder, Citizens, School or multiplayer work.
+1. Preserve working Unity/native paths and release evidence. Do not make Unity the default for new generalized creation.
+2. Do not reproduce Codex inside WebXR or add another agent gateway, scene-state owner, catalog, framework, database or universal DSL without a concrete requirement.
+3. Use reusable capabilities/components, not hundreds of object-specific semantic endpoints. A new mechanic follows the ordinary reviewed code/test/build/deploy path; imported assets do not authorize arbitrary downloaded code.
+4. Use one authoritative experience state across HTML, Three.js and WebXR views. Human controls and agent actions should share transitions/observations, though their authority may differ.
+5. Keep Creator versus Play/Test authority separate from desktop versus VR versus AR presentation. A client-side mode toggle cannot grant PC or owner privileges.
+6. Keep voice, contextual selection, readable immersive feedback, in-world controls, Stop/Pause and return-to-creator in the current product loop. Desktop is a regression/development surface and text is a fallback, not a substitute for headset acceptance.
+7. Preserve existing validation, approvals, runtime receipts and truthful status. Generated, queued, rendered, applied and observed are different states. Query the connected runtime rather than reciting obsolete Unity/white-room capability prompts; coordinate with #116.
+8. Preserve stable entity IDs, manual edits, compatible interactions and supported play/lesson/resident state on revision. Handle stale jobs, unavailable assets, transform ownership and save migration. Never silently replace the live world.
+9. Real rigid-body/collider behavior is in scope for #122. A bounded drop animation or measured bounding box is not proof of general collision. Keep virtual-floor and physically aligned AR claims distinct.
+10. An educational display must reflect real tested state with units/assumptions where relevant. Label historical-character emulation and distinguish sourced material from invented dialogue; never treat persuasive presentation as validation.
+11. Keep shared ControlService contracts renderer-neutral where practical. Keep credentials and private room/learner data out of clients, world exports and public evidence.
+12. Keep desktop tests, browser observations, VR wearer evidence and AR wearer evidence separate. Do not mark a requirement complete because its priority changed.
 
 ## Before coding
 
-- Read the controlling GitHub issue and its dependencies.
-- Check current open PRs: the newest capability may be stacked and not on `main`.
-- Identify the project track from PROJECTS.md.
-- Reuse existing state, validation, receipt, asset and component contracts instead of creating parallel systems.
-- Preserve open stacked PR history and resolved review fixes.
-- Select one implementation-plan step. Start by verifying existing behavior; an unchecked umbrella issue does not mean its subfeatures are absent.
-- Do not add a service, framework, database, universal DSL, or provider layer without a concrete requirement from that step. Ordinary modules in the existing repositories are the default.
-- Keep new runtime development on the normal reviewed code/build path; asset hot loading is not permission to execute arbitrary downloaded code.
+- Read the controlling issue and dependencies; select one user-visible slice from the implementation plan.
+- Inspect `main`, current open PRs, their base/head refs and active worktrees. The latest implementation may be stacked and not on `main`; a running service may be older again.
+- Preserve stacked history, review fixes, state migrations and existing demos. Do not force-push, mass-move code, close umbrella issues or auto-merge as part of a documentation/priority change.
+- Identify the track from PROJECTS.md and reuse existing world, validation, receipt, asset, component and checkpoint contracts.
+- Verify existing behavior before building. Fix prerequisites that block the chosen demo; do not continue unrelated resident refinements merely because they were the previous task.
+- Use an isolated service/scene/profile for validation. Do not clear the user's live worlds, anchors, authoring source or checkpoints.
+- Measure generation/rendering cost on the tested surface. Do not promise instant arbitrary mechanics, unlimited worlds, unlimited inference or unverified headset/provider support.
 
 ## Pull requests
 
-Prefer small reviewable slices with exact validation and explicit remaining hardware checks. State which plan step and existing issue the change advances, what was reused, and what is deliberately out of scope.
+Prefer small reviewable slices with a concrete user-visible result, reused contracts, exact tests actually run, explicit pending device checks and deliberately excluded scope. Update the active plan for a new owner decision or evidence-backed queue change; keep the detailed chronological evidence in checkpoints/runbooks rather than expanding the PRD into a test diary.
 
-Unless explicitly instructed to merge, **leave PRs open for review**.
-
-Do not claim a hardware capability based only on desktop/unit tests.
+Unless explicitly instructed to merge, **leave PRs open for review**. Reading updated documentation does not itself update an already-running Codex session, service or headset build.

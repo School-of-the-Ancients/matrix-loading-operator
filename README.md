@@ -1,17 +1,25 @@
 # Matrix Loading Operator
 
-> **Repo map:** this repository contains several Matrix generations/tracks. Before making architectural changes, read **[PROJECTS.md](PROJECTS.md)**. Coding agents should also read **[AGENTS.md](AGENTS.md)**. New generalized runtime work defaults to the Three.js/WebXR + Codex Agent Portal track unless the controlling issue says otherwise.
+**Speak a world into existence, then play with it and learn from it.**
 
-Matrix lets an Operator create and change spatial scenes by voice or text. The current generalized client is **[Matrix Web](WebRuntime/README.md)**: a Three.js scene on desktop and a WebXR White Room or passthrough AR scene in Quest Browser. A PC-local [ControlService](ControlService/README.md) connects that client to a persistent Codex Agent Portal, asset and component catalogs, validated scene commands, and runtime receipts. The original Unity apps remain supported for their own builds and content packs.
+The product direction is **Ready Player Matrix / Ready Player One–inspired creation: WebXR + a Matrix White Room or AR space + “Operator, load XYZ.”** Create a usable experience, interact or experiment, revise it conversationally, save, and return. Student demonstrations and educational material presented in a fun, hands-on way are the immediate proving ground; everyday AR glasses are the longer-term aspiration, not a new-hardware requirement.
+
+> **Start here:** [VISION.md](VISION.md) preserves the 2023/2024 roots. [PRD.md](PRD.md) defines the product, [IMPLEMENTATION_PLAN.md](IMPLEMENTATION_PLAN.md) selects the current work, [PROJECTS.md](PROJECTS.md) explains ownership, and [AGENTS.md](AGENTS.md) guides coding agents. The current feature is [#122 — Immersive Creator Mode](https://github.com/School-of-the-Ancients/matrix-loading-operator/issues/122). Requirements and example requests are targets, not claims of implemented or headset-validated support.
+
+Matrix lets an Operator create and change spatial scenes by voice or text. The current generalized client is **[Matrix Web](WebRuntime/README.md)**: a Three.js scene on desktop and a WebXR White Room or passthrough AR scene in Quest Browser. A PC-local [ControlService](ControlService/README.md) connects that client to a persistent Codex Agent Portal, asset and component catalogs, validated scene commands, and runtime receipts. The original Unity apps remain supported for their own builds and content packs. The White Room is the creation experience, not an instruction to move new generalized work back to Unity.
+
+**Now:** make the create → play/learn → revise → save loop reliable and useful in the same WebXR application. Procedural generation, reusable catalog content and Blender are complementary authoring paths; not every object needs a Blender job. Desktop remains an access/development/regression surface, while immersive voice, controls and VR/AR acceptance stay in the current product goal.
+
+**Later:** an opt-in dynamic world-improvement agent can review assets, layout, interactions and performance, use Blender/catalogs or other existing tools to improve them, and verify or revert the result. [That upgrader is deferred](VISION.md#later-dynamic-world-improvement); no overnight worker is being enabled by this roadmap update. Preserve Citizens work and larger-world ambitions without making them prerequisites for the next student demo.
 
 | Track | Use it for | Entry point |
 | --- | --- | --- |
-| **Matrix Web — current default** | Blender/GLB creation, animation, reusable components, virtual-floor physics, Agent-driven scene edits, browser/Quest AR and VR | [`/web/`](WebRuntime/README.md) |
+| **Matrix Web — current default** | Voice/text creation, interactive experiences, Blender/GLB, reusable components and browser/Quest AR/VR; see #122 for the procedural/physics/demo targets | [`/web/`](WebRuntime/README.md) |
 | **Matrix Unity — original** | Native Quest/desktop builds, MRUK room AR, Unity prefabs and AssetBundles, historical coursework scenes | [Unity quick start](#desktop-quick-start) |
 | **Matrix World** | Persistent geospatial worlds such as Matrix Boulder and future Earth-aligned overlays | [Project map](PROJECTS.md#3-matrix-world) |
-| **AI Citizens** | Character embodiment, planning, memory and social simulation | [Project map](PROJECTS.md#4-ai-citizens--character-body) |
+| **AI Citizens** | Existing character/simulation work; further autonomy is a separately selected lane | [Project map](PROJECTS.md#4-ai-citizens--character-body) |
 
-Matrix is an independent spatial runtime. [School of the Ancients](https://github.com/School-of-the-Ancients/school-of-the-ancients-roadmap) is a separate product that may later use Matrix through a versioned API; mentors, lessons and learner records belong to School. See [PROJECTS.md](PROJECTS.md#6-school-of-the-ancients-is-a-separate-product) for ownership and routing.
+Matrix is an independent spatial runtime, with education as a primary use case. [School of the Ancients](https://github.com/School-of-the-Ancients/school-of-the-ancients-roadmap) remains a separate product: mentors, curriculum, lessons and learner records belong to School; reusable demonstrations and world/experiment execution belong to Matrix. A fun interactive Matrix demo does not require a new School backend. See [PROJECTS.md](PROJECTS.md#6-school-of-the-ancients-is-a-separate-product) for ownership and routing.
 
 **[Releases](https://github.com/School-of-the-Ancients/matrix-loading-operator/releases)** · **[Current checkpoint and evidence](Docs/Current-Checkpoint.md)** · **[Product requirements](PRD.md)** · **[Implementation plan](IMPLEMENTATION_PLAN.md)** · **[Issues](https://github.com/School-of-the-Ancients/matrix-loading-operator/issues)**
 
