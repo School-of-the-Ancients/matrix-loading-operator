@@ -15,11 +15,19 @@ authored physics configuration with “Scene physics requires the WebXR physics
 runtime.” The integration change forwards that already-advertised version.
 The new Python regression failed before this fix and passed afterward.
 
+Review of the integrated Agent and checkpoint flow found a second race: a
+queued Agent command could enter a staged PC-restored world before the browser
+completed its restore exchange. PR #88 now pauses periodic exchanges, drains
+any active exchange before staging, and uses a revision-guarded restore
+exchange. The service rejects a changed revision or pending command without
+replacing the active snapshot. Browser rollback preserves the previous world
+and any command receipt. The combined branch includes that upstream fix.
+
 ## Automated checks
 
 - Windows 11, Python 3.13.14: `python -m unittest discover -s ControlService
-  -p test_*.py -q` — **637 passed**.
-- Node 24.16.0: `npm test` in `WebRuntime` — **122 passed**.
+  -p test_*.py -q` — **638 passed**.
+- Node 24.16.0: `npm test` in `WebRuntime` — **124 passed**.
 - Vite 7.3.6: `npm run build` — passed.
 - `git diff --check` — passed.
 
@@ -101,3 +109,29 @@ and one turn. The combined port-18777 run did not test AR physics, a full Agent
 conversation, or headset save/reopen. AR physical-floor contact,
 object-to-object collision, and general rigid-body physics remain outside this
 bounded virtual-floor capability.
+
+## Agent Portal desktop follow-up on the combined build
+
+An isolated Agent-enabled service on port 18778 used a separate scratch scene
+and copied test GLB catalog. Its PC gateway reported Codex CLI with full PC
+access and automatic approvals, matching the user's configured preference.
+One continuing Codex conversation received an Operator request to load the
+registered Ice Dragon at `(0, 1.5, -2)`, scale `0.5`, and bind `Flight`.
+Spawn receipt `3a6cace3a9b24f4fb24309816f75a6e7` and animation receipt
+`213bdfb7bb144bdb83a3cedcc5609ede` both succeeded for exact object ID
+`75735dcc16c747f3aeb8426e74bfffa5`.
+
+In the **same** conversation, a follow-up asked for virtual-floor gravity and
+a soft bounce while retaining `Flight`. Physics receipt
+`89c85c415f7c45b1ba8e55c6536e1260` succeeded. The service observed three
+approximate floor contacts and a settled runtime pose `(0, 0, -2)`; the
+authored pose stayed `(0, 1.5, -2)`, `Flight` stayed bound, and physics config
+was `gravity-floor` with restitution `0.2`. The desktop **Save world** control
+reported a saved PC checkpoint named `Agent Physics Dragon`, including the
+scene and game progress. On a fresh service and browser origin (port 18780)
+using the updated combined source and the same scratch checkpoint and GLB
+catalog, **Restore world → Confirm restore** succeeded. The restored snapshot
+had the exact same object ID, authored y=`1.5`, `Flight` binding and restitution
+`0.2`; `physicsStates` was empty and no command was pending. This exercised the
+new revision-guarded restore exchange end to end. These were desktop checks;
+Quest Agent conversation, save, and reopen remain to be tested separately.
