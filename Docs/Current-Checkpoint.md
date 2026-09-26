@@ -2,6 +2,8 @@
 
 ## Citizens appointment revision candidate (September 26, 2026)
 
+Open review: [PR #119](https://github.com/School-of-the-Ancients/matrix-loading-operator/pull/119), stacked on open [PR #117](https://github.com/School-of-the-Ancients/matrix-loading-operator/pull/117).
+
 The `codex/citizens-appointment-revision` branch continues the open [#17](https://github.com/School-of-the-Ancients/matrix-loading-operator/issues/17) scheduling work on the existing two-resident `/web/` world. While Citizens is paused, an operator can revise the kind or absolute window of a **pending** appointment, or cancel it with a terminal `cancelled by operator` outcome. Both actions check the selected appointment's expected old values against the current world before committing. Active, completed, missed, cancelled, or stale entries cannot be edited. A pending revision or cancellation leaves current travel/use/egress, social sessions, station claims and FIFO waiters in place. Overlap warnings advise about a resident's own windows and other residents using the same station; the runtime keeps its deterministic deadline and FIFO policy rather than promising conflict-free execution.
 
 Nested Citizens v11 adds a resident-local monotonic appointment sequence, allows up to three open commitments, and retains the three most recent terminal outcomes. When another outcome becomes terminal, the oldest terminal record is pruned by resolved minute and numeric ID; a stale decision reference is cleared. This lets a resident schedule again after three completed, missed, or cancelled outcomes. Valid v10 checkpoints migrate with their appointments, decisions and current execution intact. The outer whole-world envelope remains v3, with the existing browser and PC save/restore path.
