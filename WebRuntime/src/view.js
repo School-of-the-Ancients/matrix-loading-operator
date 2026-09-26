@@ -1,7 +1,6 @@
 import * as THREE from 'three';
-import {ARButton} from 'three/addons/webxr/ARButton.js';
-import {VRButton} from 'three/addons/webxr/VRButton.js';
 import {GLTFLoader} from 'three/addons/loaders/GLTFLoader.js';
+import {XRSessionController} from './xr_session.js';
 import {beginGrab,moveGrab,finishGrab,beginPointerGrab,movePointerGrab,movePointerGrabVertical,finishPointerGrab,moveDesktopCamera} from './grab.js';
 import {viewerPose,planeData,insideBoundary,matchPlaneAnchor,samePlaneShape,measuredFloorHeight} from './spatial.js';
 import {ROOM_ANCHOR_KEY,hasWorldToProtect} from './room_origin.js';
@@ -66,15 +65,16 @@ function planeLabel(label){
   const texture=new THREE.CanvasTexture(canvas);const sprite=new THREE.Sprite(new THREE.SpriteMaterial({map:texture,transparent:true,depthTest:false}));
   sprite.userData.ownedTexture=true;sprite.scale.set(.7,.13,1);sprite.position.set(0,.075,0);return sprite;
 }
-function operatorPanel(){
+export function operatorPanel(){
   const canvas=document.createElement('canvas');canvas.width=1024;canvas.height=768;
   const texture=new THREE.CanvasTexture(canvas);texture.colorSpace=THREE.SRGBColorSpace;
   const mesh=new THREE.Mesh(new THREE.PlaneGeometry(.96,.72),new THREE.MeshBasicMaterial({map:texture,transparent:true,depthTest:false,depthWrite:false,side:THREE.DoubleSide}));
   mesh.renderOrder=100;mesh.userData.operatorVoice=true;
   const group=new THREE.Group();group.add(mesh);group.visible=false;
   let message='Aim here, hold trigger, and ask for a scene.',tone='idle',page=0,mode='chat',proposal=null;
-  let agent={activity:'Not connected',content:'Connect to Codex on the PC.',pending:false,approvalReviewable:false,active:false,connected:false};
+  let agent={activity:'Not connected',content:'Connect to Codex on the PC.',pending:false,approvalReviewable:false,active:false,connected:false,voiceStatus:'',latestTurnId:''};
   let pinLabel='PIN TO WALL',voiceLabel='VOICE ON',originLabel='ROOM ORIGIN UNKNOWN',conversationCount=0;
+  let voiceInputLabel='HOLD TO SPEAK';
   let gameStatus='No game running.',worldInfo={objects:0,canConfirm:false,alignment:'No room scan'},worldWarning='';
   let cameraStatus='Camera not tested',cameraActive=false;
   let buttons=[];
@@ -156,17 +156,17 @@ function operatorPanel(){
         button('next','NEXT',776,636,213,90);
       }else{
         button(agent.active?'agent-stop':agent.connected?'voice':'agent-connect',
-          agent.active?'STOP TURN':agent.connected?'HOLD TO SPEAK':'CONNECT CODEX',35,636,472,90,agent.active);
+          agent.active?'STOP TURN':agent.connected?voiceInputLabel:'CONNECT CODEX',35,636,472,90,agent.active);
         button('pin',pinLabel,519,636,210,90);
         button('next','NEXT',741,636,248,90);
       }
     }else if(mode==='proposal'&&proposal){
-      button('voice','HOLD TO SPEAK',35,636,330,90,true);
+      button('voice',voiceInputLabel,35,636,330,90,true);
       button('apply','APPLY',377,636,207,90,true);
       button('discard','DISCARD',596,636,207,90);
       button('next','NEXT',815,636,174,90);
     }else{
-      button('voice','HOLD TO SPEAK',35,636,472,90,true);
+      button('voice',voiceInputLabel,35,636,472,90,true);
       button('pin',pinLabel,519,636,210,90);
       button('voice-output',voiceLabel,741,636,132,90);
       button('next','NEXT',885,636,104,90);
@@ -176,6 +176,7 @@ function operatorPanel(){
   const setMessage=(next,nextTone='idle')=>{message=String(next);tone=nextTone;page=0;paint();};
   const setPinLabel=next=>{pinLabel=next;paint();};
   const setVoiceLabel=next=>{voiceLabel=next;paint();};
+  const setVoiceInputLabel=next=>{if(voiceInputLabel!==next){voiceInputLabel=next;paint();}};
   const setOriginLabel=next=>{if(originLabel!==next){originLabel=next;paint();}};
   const setConversationCount=next=>{conversationCount=next;paint();};
   const setProposal=next=>{proposal=next;if(next)mode='proposal';else if(mode==='proposal')mode='chat';page=0;paint();};
@@ -184,7 +185,7 @@ function operatorPanel(){
   const setWarning=next=>{if(worldWarning!==next){worldWarning=next;paint();}};
   const setCameraStatus=(next,active)=>{if(cameraStatus!==next||cameraActive!==active){cameraStatus=next;cameraActive=active;paint();}};
   const setAgentStatus=next=>{if(JSON.stringify(agent)!==JSON.stringify(next)){
-    if(agent.pending!==next.pending)page=0;
+    if(agent.pending!==next.pending||agent.voiceStatus!==next.voiceStatus||agent.latestTurnId!==next.latestTurnId)page=0;
     agent=next;if(mode==='agent')paint();
   }};
   const toggleWorld=()=>{mode=mode==='world'?'chat':'world';page=0;paint();};
@@ -198,7 +199,7 @@ function operatorPanel(){
   const nextPage=()=>{page++;paint();};
   paint();
   return {group,mesh,setMessage,setPinLabel,setVoiceLabel,setOriginLabel,setConversationCount,
-    setProposal,setWorldInfo,setGameStatus,setWarning,setCameraStatus,setAgentStatus,toggleWorld,toggleAgent,isAgentMode,openProposal,hit,nextPage};
+    setProposal,setWorldInfo,setGameStatus,setWarning,setCameraStatus,setAgentStatus,setVoiceInputLabel,toggleWorld,toggleAgent,isAgentMode,openProposal,hit,nextPage};
 }
 const v3=v=>new THREE.Vector3(v.x,v.y,v.z);
 const plain=v=>({x:Number(v.x.toFixed(3)),y:Number(v.y.toFixed(3)),z:Number(v.z.toFixed(3))});
@@ -261,12 +262,38 @@ export class MatrixView {
     if(!navigator.xr){buttons.textContent='WebXR unavailable in this browser';return;}
     const [ar,vr]=await Promise.all(['immersive-ar','immersive-vr'].map(mode=>navigator.xr.isSessionSupported(mode).catch(()=>false)));
     const overlay=document.getElementById('xr-overlay');
-    if(ar){const button=ARButton.createButton(this.renderer,{requiredFeatures:['plane-detection'],optionalFeatures:['hit-test','anchors','local-floor','dom-overlay'],domOverlay:{root:overlay}});button.textContent='Enter AR';buttons.append(button);}
-    if(vr){const button=VRButton.createButton(this.renderer,{optionalFeatures:['anchors','dom-overlay'],domOverlay:{root:overlay}});button.textContent='Enter VR';buttons.append(button);}
+    // initXRIfReady may have replaced this container with a loading message.
+    // Create the status alongside the buttons so it always survives that step.
+    const entryStatus=document.createElement('span');entryStatus.className='xr-entry-status';
+    entryStatus.id='xr-entry-status';entryStatus.setAttribute('role','status');
+    buttons.textContent='';buttons.append(entryStatus);
+    const entries=[];
+    const refresh=()=>{
+      for(const {button,mode,label} of entries){
+        button.textContent=this.xrControls.currentMode===mode?`Exit ${label}`:`Enter ${label}`;
+        button.disabled=this.xrControls.busy||!!this.renderer.xr.getSession()&&this.xrControls.currentMode!==mode;
+      }
+    };
+    this.xrControls=new XRSessionController(navigator.xr,this.renderer.xr,refresh,message=>{
+      entryStatus.textContent=message;this.onAssetError(message);
+    });
+    const add=(mode,label,options)=>{
+      const button=document.createElement('button');entries.push({button,mode,label});
+      button.addEventListener('click',()=>{
+        entryStatus.textContent='';
+        return this.xrControls.currentMode===mode?this.xrControls.exit():this.xrControls.enter(mode,options);
+      });
+      buttons.append(button);
+    };
+    if(ar)add('immersive-ar','AR',{requiredFeatures:['plane-detection'],optionalFeatures:['hit-test','anchors','local-floor','dom-overlay'],domOverlay:{root:overlay}});
+    if(vr)add('immersive-vr','VR',{requiredFeatures:['local-floor'],optionalFeatures:['anchors','dom-overlay'],domOverlay:{root:overlay}});
+    refresh();
     if(!ar&&!vr)buttons.textContent='XR requires a compatible headset browser';
   }
+  exitXR(){return this.xrControls?.exit();}
   async onSessionStart(){
     const session=this.renderer.xr.getSession();this.isAR=session.environmentBlendMode!=='opaque';
+    document.getElementById('xr-exit').textContent=this.isAR?'Exit AR':'Exit VR';
     if(session.domOverlayState)document.getElementById('xr-overlay').style.display='';
     this.operatorPanel.group.visible=true;
     this.operatorMount={kind:'head'};this.operatorPanel.setPinLabel(this.isAR?'PIN TO WALL':'PIN HERE');
@@ -277,9 +304,19 @@ export class MatrixView {
     for(const ray of this.controllerRays)ray.visible=true;
     this.floor.visible=!this.isAR;this.grid.visible=!this.isAR;this.scene.background=this.isAR?null:new THREE.Color(0x0a1b29);
     document.getElementById('view-label').textContent=this.isAR?'WEBXR AR · SCANNING ROOM PLANES':'WEBXR VR · VIRTUAL ROOM';
-    if(this.isAR){try{const viewer=await session.requestReferenceSpace('viewer');this.hitSource=await session.requestHitTestSource({space:viewer});}catch{this.hitSource=null;}}
+    if(this.isAR)await this.acquireARHitSource(session);
+  }
+  async acquireARHitSource(session){
+    try{
+      const viewer=await session.requestReferenceSpace('viewer');
+      if(this.renderer.xr.getSession()!==session)return;
+      const source=await session.requestHitTestSource({space:viewer});
+      if(this.renderer.xr.getSession()===session)this.hitSource=source;
+      else source.cancel();
+    }catch{if(this.renderer.xr.getSession()===session)this.hitSource=null;}
   }
   restoreRoomAnchor(session){
+    if(!this.isAR)return;
     this.roomAnchor=null;this.roomAnchorPending=false;this.roomAnchorPersistent=false;this.roomAnchorHandleAvailable=false;this.roomPoseMissingSince=0;
     let handle;
     try{handle=localStorage.getItem(ROOM_ANCHOR_KEY);}
@@ -361,7 +398,7 @@ export class MatrixView {
       .finally(()=>{if(this.renderer.xr.getSession()===session)this.roomAnchorPending=false;});
   }
   updateRoomAnchor(frame,ref){
-    if(!this.roomAnchor)return;
+    if(!this.isAR||!this.roomAnchor)return;
     const pose=frame.getPose(this.roomAnchor.anchorSpace,ref);
     if(!pose){
       if(!this.isAR)return;
@@ -397,7 +434,7 @@ export class MatrixView {
     this.roomAnchor=null;this.roomAnchorPending=false;this.roomAnchorPersistent=false;this.roomAnchorRestoreFailed=false;this.roomAnchorLocated=false;this.roomAnchorHandleAvailable=false;this.roomPoseMissingSince=0;
     this.virtualFloorRoot.visible=true;this.virtualFloorRoot.position.set(0,0,0);this.virtualFloorRoot.quaternion.identity();this.virtualFloorCalibrated=false;
     this.world.leaveAR();this.sync();this.onRuntimeChange();
-    document.getElementById('xr-overlay').style.display='none';this.floor.visible=true;this.grid.visible=true;
+    document.getElementById('xr-overlay').style.display='none';document.getElementById('xr-exit').textContent='Exit AR';this.floor.visible=true;this.grid.visible=true;
     this.scene.background=new THREE.Color(0x0a1b29);document.getElementById('view-label').textContent='DESKTOP · VIRTUAL ROOM';
   }
   setOperatorStatus(message,tone='idle'){this.operatorPanel.setMessage(message,tone);}
@@ -408,6 +445,7 @@ export class MatrixView {
   setOperatorWarning(warning){this.operatorPanel.setWarning(warning);}
   setOperatorCameraStatus(status,active){this.operatorPanel.setCameraStatus(status,active);}
   setOperatorAgentStatus(status){this.operatorPanel.setAgentStatus(status);}
+  setOperatorVoiceInputLabel(label){this.operatorPanel.setVoiceInputLabel(label);}
   isOperatorAgentMode(){return this.operatorPanel.isAgentMode();}
   setVoiceOutputEnabled(enabled){this.operatorPanel.setVoiceLabel(enabled?'VOICE ON':'VOICE OFF');}
   positionOperatorPanel(){
