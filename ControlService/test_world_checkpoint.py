@@ -88,6 +88,33 @@ class WorldCheckpointTests(unittest.TestCase):
         self.assertEqual(restored["world"]["scene"]["objects"][2]["component"]["status"], "running")
         self.assertEqual(restored["world"]["scene"]["objects"][0]["animation"]["loopClip"], "Flight")
         self.assertEqual(fresh.latest, before, "load returns data for browser validation; it does not queue or replace")
+        staged = copy.deepcopy(empty)
+        staged["scene"] = copy.deepcopy(restored["world"]["scene"])
+        accepted = fresh.exchange({"clientId": "reopened-browser", "snapshot": staged, "results": [],
+                                   "worldRestoreExpectedRevision": restored["expectedRevision"]})
+        self.assertEqual(accepted["commands"], [])
+        self.assertEqual(fresh.latest["scene"], restored["world"]["scene"])
+
+    def test_queued_command_cannot_enter_the_staged_restored_world(self):
+        self.state.save_world_checkpoint("Demo", self.world)
+        active = copy.deepcopy(self.snapshot)
+        active["scene"]["objects"][0]["transform"]["position"]["x"] = 1
+        self.state.exchange({"clientId": "browser", "snapshot": active, "results": []})
+        loaded = self.state.load_world_checkpoint("Demo")
+        staged = copy.deepcopy(active)
+        staged["scene"] = copy.deepcopy(loaded["world"]["scene"])
+        moved = copy.deepcopy(POSE)
+        moved["position"]["x"] = 2
+        queued = self.state.queue([{"op": "set_transform", "objectId": "pickup-1", "transform": moved}])["commands"][0]
+        before = copy.deepcopy(self.state.latest)
+        with self.assertRaisesRegex(APIError, "command was queued") as failure:
+            self.state.exchange({"clientId": "browser", "snapshot": staged, "results": [],
+                                 "worldRestoreExpectedRevision": loaded["expectedRevision"]})
+        self.assertEqual(failure.exception.status, 409)
+        self.assertEqual(self.state.latest, before)
+        self.assertIn(queued["requestId"], self.state.pending)
+        resumed = self.state.exchange({"clientId": "browser", "snapshot": active, "results": []})
+        self.assertEqual([item["requestId"] for item in resumed["commands"]], [queued["requestId"]])
 
     def test_missing_or_corrupt_glb_rejects_without_replacing_active_world(self):
         self.state.save_world_checkpoint("Demo", self.world)

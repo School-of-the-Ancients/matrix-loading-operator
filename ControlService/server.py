@@ -587,6 +587,11 @@ class State:
         content_capabilities = runtime_capabilities(body.get("contentCapabilities"))
         require(isinstance(body, dict), "Expected exchange object")
         client_id = text(body.get("clientId"), "clientId")
+        restoring_world = "worldRestoreExpectedRevision" in body
+        expected_revision = body.get("worldRestoreExpectedRevision")
+        if restoring_world:
+            require(type(expected_revision) is int and expected_revision >= 0,
+                    "Invalid world restore revision")
         require(type(body.get("captureSupported", False)) is bool, "Invalid capture capability")
         try:
             capture_capabilities = scene_capture.capabilities(body.get("captureCapabilities"), body.get("captureSupported", False))
@@ -624,6 +629,17 @@ class State:
         with self.lock:
             self.expire()
             require(self.client_id in (None, client_id), "Another client holds the active lease", 409)
+            if restoring_world:
+                require(self.client_id == client_id and self.revision == expected_revision and
+                        not self.pending and self.latest is not None and current is not None and
+                        self.latest["scene"]["roomId"] == "web-virtual-room-v1" and
+                        current["scene"]["roomId"] == "web-virtual-room-v1" and
+                        (self.latest.get("roomContext") or {}).get("mode") == "white-room" and
+                        (self.latest.get("roomContext") or {}).get("state") == "ready" and
+                        (current.get("roomContext") or {}).get("mode") == "white-room" and
+                        (current.get("roomContext") or {}).get("state") == "ready" and
+                        not self.latest.get("readOnly") and not current.get("readOnly"),
+                        "World changed or a command was queued; retry the PC world restore", 409)
             if self.client_id != client_id:
                 self.runtime_generation += 1
             self.client_id, self.last_seen = client_id, self.clock()
@@ -1367,7 +1383,7 @@ class State:
                 if item.get("component", {}).get("status") == "running":
                     item["component"]["startedAtMs"] = started_at_ms
             return {"name": name, "schemaVersion": 1, "world": restored_world,
-                    "dependencies": dependencies}
+                    "dependencies": dependencies, "expectedRevision": self.revision}
 
     def world_checkpoints(self):
         directory = self.directory / "world_checkpoints"
