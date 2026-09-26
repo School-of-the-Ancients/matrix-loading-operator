@@ -68,5 +68,10 @@ the VR floor matches their real floor. This does not isolate whether the
 earlier failure came from the controller state, Quest Browser, or the previous
 Matrix session code.
 
-Voice in VR and the complete M4 workflow remain unverified on this branch. No
-room imagery or conversation content was retained.
+In a subsequent wearer check on the same port 18772 build, the wearer entered
+VR, selected CODEX, connected, held and released **HOLD TO SPEAK**, and said
+“Operator, describe this room.” They reported that the mic labels changed and
+exactly one Codex turn appeared. This is partial VR voice evidence. The
+transcript, microphone permission result, and a typed follow-up in the same
+thread were not recorded at that point. The full M4 Agent journey remains
+unverified on this branch. No room imagery or conversation content was retained.
