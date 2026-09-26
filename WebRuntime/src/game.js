@@ -82,14 +82,24 @@ export function validSavedGame(game,scene,asset=()=>true){
     }
     const deliveredRoles=[...new Set(game.spec.objectives.filter(item=>item.kind==='delivered-count').map(item=>item.roleId))];
     if(Object.keys(state.objectiveProgress).sort().join('|')!==deliveredRoles.sort().join('|'))return null;
-    let minimum=0,maximum=0;
-    for(const id of state.deliveries){
+    let reachable=new Set([0]);
+    const prefixCounts=new Map();
+    for(const [index,id] of state.deliveries.entries()){
       const role=game.spec.roles.find(item=>item.kind==='pickup'&&game.bindings[item.roleId].includes(id));
-      const points=game.spec.rules.filter(rule=>rule.actorRoleId===role.roleId).map(rule=>rule.scorePoints);
-      if(!points.length)return null;
-      minimum+=Math.min(...points);maximum+=Math.max(...points);
+      prefixCounts.set(role.roleId,(prefixCounts.get(role.roleId)||0)+1);
+      const points=new Set(game.spec.rules.filter(rule=>rule.actorRoleId===role.roleId).map(rule=>rule.scorePoints));
+      if(!points.size)return null;
+      const next=new Set();
+      for(const subtotal of reachable)for(const award of points)
+        if(subtotal+award<=state.score)next.add(subtotal+award);
+      if(index<state.deliveries.length-1)for(const subtotal of next)
+        if(game.spec.objectives.every(objective=>objective.kind==='score-at-least'?
+          subtotal>=objective.targetPoints:(prefixCounts.get(objective.roleId)||0)>=objective.targetCount))
+          next.delete(subtotal);
+      reachable=next;
+      if(!reachable.size)return null;
     }
-    if(state.score<minimum||state.score>maximum)return null;
+    if(!reachable.has(state.score))return null;
     const won=game.spec.objectives.every(objective=>achieved(objective,state));
     if((state.phase==='won')!==won)return null;
     return game;

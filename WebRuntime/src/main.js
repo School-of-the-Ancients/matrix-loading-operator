@@ -8,6 +8,7 @@ import {AgentClient,agentActivityLabel} from './agent_client.js';
 import {captureAgentContext} from './agent_context.js';
 import {loadStoredWorld,saveStoredWorld,restoreStoredWorld,restoreBestStoredWorld,storedWorld,
   saveCheckpoint,loadCheckpoint} from './scene_store.js';
+import {applyPCWorld} from './world_checkpoint.js';
 import {loadConversation,rememberTurn,clearConversation} from './conversation.js';
 import {startGame,deliverMovedObject,gameStatus,validSavedGame} from './game.js';
 import {archiveAndClearRoom,archiveAndRebaseRoom,roomArchives,
@@ -22,6 +23,8 @@ let xrInitialized=false;
 let proposal=null,gameProposal=null,operatorMessageUntil=0,lastOperatorReply='',lastConnectionOnline=null,modeTouched=false;
 let conversation=loadConversation(sessionStorage);
 let restoreArmedUntil=0;
+let pcRestoreArmedUntil=0,pcRestoreName='';
+let pcWorldBusy=false;
 let roomResetArmedUntil=0;
 let roomRecoveryChoice='';
 let clearArchivesArmedUntil=0;
@@ -89,6 +92,9 @@ function updateWorldControls(){
     world.spatial.anchors.some(anchor=>anchor.surface?.kind==='support');
   $('confirm-room').disabled=!canConfirm;
   for(const id of ['undo','redo','clear','save','restore'])$(id).disabled=originUnavailable;
+  for(const id of ['save-pc-world','restore-pc-world'])$(id).disabled=!!world.spatial||!!pendingWorld||pcWorldBusy;
+  $('restore-pc-world').textContent=performance.now()<pcRestoreArmedUntil&&
+    $('pc-worlds').value===pcRestoreName?'Confirm restore':'Restore world';
   view.setOperatorWorldInfo({objects:world.scene.objects.length,canConfirm,restoreArmed:performance.now()<restoreArmedUntil,
     originUnavailable,resetAvailable,canRetryOrigin,
     recoveryArmed:performance.now()<roomResetArmedUntil?roomRecoveryChoice:'',
@@ -287,6 +293,13 @@ async function refreshScenes(){
   const select=$('saved-scenes'),current=select.value;select.replaceChildren(new Option('Saved scenes',''));
   for(const name of data.scenes||[])select.add(new Option(name,name));select.value=current;
 }
+async function refreshPCWorlds(){
+  const data=await call('/api/web/worlds');if(!data)return;
+  const select=$('pc-worlds'),current=select.value;
+  select.replaceChildren(new Option('PC world checkpoints',''));
+  for(const name of data.worlds||[])select.add(new Option(name,name));
+  select.value=current;
+}
 async function propose(){
   const text=$('prompt').value.trim();if(!text){feedback('Enter a request first.',true);return;}
   unlockReplyAudio();
@@ -470,6 +483,41 @@ function restoreWorld(){
     view.setOperatorStatus('World checkpoint restored.');
   }catch(error){feedback(`Checkpoint could not be restored: ${error.message}`,true);}
 }
+async function savePCWorld(){
+  const name=$('world-save-name').value.trim();
+  if(!name){feedback('Enter a PC world checkpoint name.',true);return;}
+  if(world.spatial||pendingWorld){feedback('PC world checkpoints require the ready desktop virtual room.',true);return;}
+  pcWorldBusy=true;updateWorldControls();feedback('Saving world and game progress on the PC…');
+  try{
+    await bridge.sync();
+    if(world.spatial||pendingWorld)throw Error('The browser left the ready desktop virtual room');
+    await bridge.request('/api/web/world/save',{name,world:storedWorld(world)});
+    await refreshPCWorlds();$('pc-worlds').value=name;
+    feedback(`PC world checkpoint saved: ${name}. Scene and game progress are included.`);
+  }catch(error){feedback(`PC world checkpoint was not saved: ${error.message}`,true);}
+  finally{pcWorldBusy=false;updateWorldControls();}
+}
+async function restorePCWorld(){
+  const name=$('pc-worlds').value;
+  if(!name){feedback('Choose a PC world checkpoint.',true);return;}
+  if(world.spatial||pendingWorld){feedback('Leave AR or finish browser recovery before restoring a PC world.',true);return;}
+  if(performance.now()>=pcRestoreArmedUntil||pcRestoreName!==name){
+    pcRestoreArmedUntil=performance.now()+10000;pcRestoreName=name;updateWorldControls();
+    feedback(`Click Confirm restore within ten seconds to replace this browser world with ${name}.`);return;
+  }
+  pcRestoreArmedUntil=0;pcRestoreName='';updateWorldControls();
+  pcWorldBusy=true;updateWorldControls();feedback(`Checking PC world checkpoint ${name}…`);
+  try{
+    await refreshAssets(true);
+    await bridge.sync();
+    const data=await bridge.request('/api/web/world/load',{name});
+    if(world.spatial||pendingWorld)throw Error('The browser left the ready desktop virtual room');
+    await bridge.withExclusiveExchange(()=>applyPCWorld(world,data.world,()=>bridge.sync(data.expectedRevision)));
+    discardProposal();renderScene();
+    feedback(`PC world checkpoint restored: ${name}. Object IDs and game progress are active.`);
+  }catch(error){renderScene();feedback(`PC world checkpoint could not be restored: ${error.message}`,true);}
+  finally{pcWorldBusy=false;updateWorldControls();}
+}
 function retryRoomOrigin(){
   if(!view.retryRoomOrigin()){feedback('No room anchor can be retried in this session.',true);return;}
   roomResetArmedUntil=0;roomRecoveryChoice='';updateWorldControls();
@@ -624,7 +672,11 @@ $('restore').addEventListener('click',async()=>{
   const name=$('saved-scenes').value;if(!name){feedback('Choose a saved scene.',true);return;}
   await call('/api/load',{name},`Restore of ${name} queued.`);
 });
+$('save-pc-world').addEventListener('click',savePCWorld);
+$('restore-pc-world').addEventListener('click',restorePCWorld);
+$('pc-worlds').addEventListener('change',()=>{pcRestoreArmedUntil=0;pcRestoreName='';updateWorldControls();});
 $('mode').addEventListener('change',()=>{modeTouched=true;discardProposal();});
 $('refresh-assets').addEventListener('click',()=>refreshAssets());
 $('token').addEventListener('change',()=>refreshAssets());
 refreshScenes();
+refreshPCWorlds();
