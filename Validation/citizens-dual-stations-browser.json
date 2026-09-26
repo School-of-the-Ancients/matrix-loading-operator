@@ -1,0 +1,65 @@
+{
+  "date": "2026-09-26",
+  "surface": "ordinary /web/ desktop virtual room",
+  "isolation": {
+    "loopbackPort": 19849,
+    "sceneDirectory": "work/citizens-dual-demo-state/scenes",
+    "assetDirectory": "work/citizens-dual-demo-catalog",
+    "earlierDemoPortsUntouched": [19846, 19847, 19848]
+  },
+  "seed": 29,
+  "reviewedAssets": [
+    {
+      "fixture": "WebRuntime/test/fixtures/citizens-demo-chair.glb",
+      "assetId": "web:citizens-demo-chair:fb5408949487",
+      "sha256": "fb54089494875f803bcd00dedd8410906ec213e52071351b7911e1ad5ceefa55",
+      "kind": "rest",
+      "stationObjectId": "821fc875805840c5b4d3dfa9e4b21d8b"
+    },
+    {
+      "fixture": "WebRuntime/test/fixtures/citizens-demo-food-table.glb",
+      "assetId": "web:citizens-demo-food-table:53b79a6a6f7f",
+      "sha256": "53b79a6a6f7f8950d004b2beb55d42bd4a547d719500dfbb40414166cf9ef0c7",
+      "kind": "eat",
+      "stationObjectId": "7448c0018a8a45e1acf5d0a55aa7e561"
+    }
+  ],
+  "matrixCommandReceipts": [
+    {"operation": "spawn chair", "requestId": "df3af39d9f00428c910549bc3432d3ea", "ok": true},
+    {"operation": "spawn food", "requestId": "412494aea9094641b480063a49a6188f", "ok": true},
+    {"operation": "set_interaction chair", "requestId": "af3318d104274ac9adfd8c57da297dd5", "ok": true},
+    {"operation": "set_interaction food", "requestId": "622464d5d5474c35ae31d3024d0b72d2", "ok": true}
+  ],
+  "browserObservations": [
+    "Both registered static GLBs rendered in the same Three.js scene after queued Matrix spawn and set_interaction commands returned applied browser receipts.",
+    "Clicking the rendered chair and Use selected station started two seed-29 residents without replacing the authored scene. Clicking the rendered food table and Add selected station attached the second station while paused; the scene had four objects.",
+    "At minute 1 Ada held capacity-one chair claim execution 1 and Bo held FIFO wait execution 2; food was available.",
+    "Bo completed rest at minute 29. Ada then went to eat, Bo waited for food, and Bo completed eat at minute 62. The needs and recent-decision panel updated after observed outcomes.",
+    "Ada initiated conversation at minute 83, Bo accepted at minute 84, and social-29-9-ended-96 ended at minute 96 with receipt reference citizens-29-social-9-91; their relationship changed from 50/100 to 55/100.",
+    "At minute 123 Ada's latest outcome was rest at minute 112 and Bo's latest outcome was eat at minute 121. Both authored assets and the ended social event remained visible after a browser reload and named PC world restore.",
+    "Restoring named minute-1 PC checkpoint and clicking Step 95 times reproduced minute 96, the same ended social event ID and receipt reference, and relationship 55/100. That replay was saved as dual-stations-replayed-m96, then dual-stations-m123 was restored as the final paused browser state.",
+    "Browser console error log was empty after the final restore."
+  ],
+  "checkpoints": {
+    "outerEnvelopeSchemaVersion": 1,
+    "worldVersion": 3,
+    "citizensSchemaVersion": 6,
+    "names": ["dual-stations-m0", "dual-stations-m1", "dual-stations-m123", "dual-stations-replayed-m96"],
+    "minute123": {
+      "paused": true,
+      "sceneObjects": 4,
+      "registeredAssetDependencies": 2,
+      "residentObjectIds": ["48c153fafbb3405590749fabbd0630d8", "3fc1c2b72653498a94baf423dc760e71"],
+      "latestSocialEvent": "social-29-9-ended-96",
+      "relationshipScore": 55,
+      "adaLastOutcome": "Completed rest at minute 112",
+      "boLastOutcome": "Completed eat at minute 121"
+    }
+  },
+  "screenshots": ["citizens-dual-stations-browser.png", "citizens-dual-stations-log.png"],
+  "limits": [
+    "The observed browser run uses two static registered GLBs in the desktop virtual room. It does not validate Quest, AR room alignment, animated furniture, or moving stations.",
+    "At minute 82 one chair route attempt failed after retries because the destination overlapped another resident; the social session and later rest/eat outcomes still completed. Broader navigation refinements remain open.",
+    "The browser panel shows observed completion and needs but does not expose every raw Citizens interaction receipt. Focused automated tests assert exact rest/eat receipt matching and rejection behavior."
+  ]
+}

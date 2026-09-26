@@ -248,6 +248,74 @@ class WorldCheckpointTests(unittest.TestCase):
         self.assertEqual(path.read_bytes(), original_bytes)
         self.assertEqual(self.state.latest, before)
 
+    def test_citizens_v6_two_reviewed_glb_stations_require_both_exact_asset_files(self):
+        world, active, seat_asset = self.citizens_v6_glb_interaction_world()
+        fixture = Path(__file__).resolve().parents[1] / "WebRuntime" / "test" / "fixtures"
+        source = self.root / "food-table.glb"
+        source.write_bytes((fixture / "citizens-demo-food-table.glb").read_bytes())
+        food_bounds = {"center": {"x": 0, "y": .4215, "z": 0},
+                       "size": {"x": 1.2, "y": .843, "z": .8}}
+        food_asset = self.state.web_assets.register(
+            source, "Food table", local_bounds=food_bounds)
+        food_interaction = json.loads((fixture / "citizens-demo-food-table-interaction.json")
+                                      .read_text(encoding="utf-8"))
+        self.assertEqual(food_interaction["assetSha256"], food_asset["sha256"])
+        food_pose = copy.deepcopy(POSE)
+        food_pose["position"].update(x=2, z=0)
+        world["scene"]["objects"] = [
+            obj for obj in world["scene"]["objects"]
+            if obj["objectId"] in {"citizen-ada", "citizen-bo", "registered-seat"}]
+        world["scene"]["objects"].append({
+            "objectId": "registered-food", "assetId": food_asset["assetId"],
+            "anchorId": "web-floor", "transform": food_pose,
+            "interaction": copy.deepcopy(food_interaction)})
+        world["game"] = None
+        food_station = next(station for station in world["citizens"]["stations"]
+                            if station["kind"] == "eat")
+        food_station["objectId"] = "registered-food"
+        food_station["interaction"] = copy.deepcopy(food_interaction)
+        active["scene"] = copy.deepcopy(world["scene"])
+        active["assets"].append({
+            "assetId": food_asset["assetId"], "displayName": "Food table",
+            "sha256": food_asset["sha256"], "spawnScale": 1,
+            "localBounds": food_bounds, "animationClips": []})
+        self.state.exchange({"clientId": "browser", "snapshot": active, "results": []})
+        live_before = copy.deepcopy(self.state.latest)
+
+        saved = self.state.save_world_checkpoint("TwoReviewedStations", world)
+        expected_dependencies = {seat_asset["assetId"]: seat_asset["sha256"],
+                                 food_asset["assetId"]: food_asset["sha256"]}
+        self.assertEqual({item["assetId"]: item["sha256"]
+                          for item in saved["dependencies"]}, expected_dependencies)
+        restored = self.state.load_world_checkpoint("TwoReviewedStations")
+        self.assertEqual(restored["world"], world)
+        self.assertEqual(restored["dependencies"], saved["dependencies"])
+        self.assertEqual(restored["world"]["citizens"]["schemaVersion"], 6)
+        self.assertEqual({station["kind"] for station in
+                          restored["world"]["citizens"]["stations"]}, {"rest", "eat"})
+        self.assertEqual(self.state.latest, live_before,
+                         "returning a named checkpoint must not replace the live world")
+
+        path = self.scenes / "world_checkpoints" / "TwoReviewedStations.json"
+        checkpoint_bytes = path.read_bytes()
+        for asset in (seat_asset, food_asset):
+            asset_path = self.assets / (asset["sha256"] + ".glb")
+            original_bytes = asset_path.read_bytes()
+            for bad_bytes in (None, b"mismatched GLB bytes"):
+                with self.subTest(asset=asset["assetId"],
+                                  corruption="missing" if bad_bytes is None else "mismatched"):
+                    if bad_bytes is None:
+                        asset_path.unlink()
+                    else:
+                        asset_path.write_bytes(bad_bytes)
+                    with self.assertRaisesRegex(APIError, "missing or corrupt"):
+                        self.state.load_world_checkpoint("TwoReviewedStations")
+                    self.assertEqual(self.state.latest, live_before)
+                    self.assertEqual(path.read_bytes(), checkpoint_bytes)
+                    asset_path.write_bytes(original_bytes)
+            self.assertEqual(self.state.load_world_checkpoint("TwoReviewedStations")
+                             ["dependencies"], saved["dependencies"])
+
     def citizens_v4_authored_furniture_world(self, kind):
         world = self.citizens_v4_completed_world()
         state = world["citizens"]

@@ -62,6 +62,44 @@ test('panel enables selected authored furniture and preserves other world object
   }
 });
 
+test('panel adds a selected complementary station to paused Citizens without replacing residents',()=>{
+  const dom=stubDocument();
+  let panel;
+  try{
+    let sequence=0;
+    const world=new MatrixWorld(()=>`second-panel-${++sequence}`);
+    const transform=(x,z)=>({position:{x,y:0,z},rotation:{x:0,y:0,z:0},
+      scale:{x:1,y:1,z:1}});
+    const chair=world.execute({requestId:'first-panel-chair',op:'spawn',assetId:'chair',
+      anchorId:'web-floor',transform:transform(0,-2)});
+    const food=world.execute({requestId:'second-panel-food',op:'spawn',assetId:'table',
+      anchorId:'web-floor',transform:transform(3,0)});
+    assert.equal(chair.ok,true);assert.equal(food.ok,true);
+    const feedback=[];
+    panel=new CitizensPanel(world,{onChange(){},
+      canStart:mode=>mode==='selected'?
+        citizensFurnitureReadiness(world,world.selection.objectId):
+        mode==='addition'?'':'The fixture needs an empty world.',
+      onFeedback(message){feedback.push(message);}});
+    world.setSelection(chair.objectId,{x:0,y:0,z:-2});
+    panel.render();panel.start('selected');
+    const residentIds=world.citizens.residents.map(resident=>resident.objectId);
+    world.setSelection(food.objectId,{x:3,y:0,z:0});
+    panel.render();
+    assert.equal(dom.elements.get('citizens-add-selected').disabled,false);
+    panel.addStation();
+    assert.equal(world.citizens.stations.length,2);
+    assert.deepEqual(world.citizens.stations.map(station=>station.objectId),
+      [chair.objectId,food.objectId]);
+    assert.deepEqual(world.citizens.residents.map(resident=>resident.objectId),residentIds);
+    assert.equal(dom.elements.get('citizens-add-selected').disabled,true);
+    assert.match(feedback.at(-1),/existing Citizens world/);
+  }finally{
+    if(panel)clearInterval(panel.timer);
+    dom.restore();
+  }
+});
+
 async function selectedChairGlbLoad(shouldFail){
   const dom=stubDocument();
   let panel;

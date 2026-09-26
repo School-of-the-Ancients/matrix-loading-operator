@@ -213,6 +213,7 @@ citizensPanel=new CitizensPanel(world,{
   canMutate:()=>pcWorldBusy?'Wait for the current PC world save or restore to finish.':'',
   canStart:(mode='fixture')=>pendingWorld?'Finish saved-world recovery before starting Citizens.':
     world.spatial?'Citizens starts only in the desktop virtual room.':
+    mode==='addition'?'':
     world.citizens?'Citizens is already in this world.':
     mode==='selected'?citizensFurnitureReadiness(world,world.selection.objectId):
     world.scene.objects.length||world.game?'Save or choose an empty world before starting this seeded scenario.':'',
