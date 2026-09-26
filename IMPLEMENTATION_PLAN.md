@@ -40,7 +40,8 @@ The original **Start here** path remains a fixed two-resident scenario on an
 empty virtual floor; the isolated page remains useful for reproducible debugging.
 The current [#15](https://github.com/School-of-the-Ancients/matrix-loading-operator/issues/15)
 candidate adds an explicit selected built-in chair/table path in `/web/` that
-keeps existing scene objects and spawns only the two orb residents.
+keeps existing scene objects and spawns only the two orb residents in open
+[PR #104](https://github.com/School-of-the-Ancients/matrix-loading-operator/pull/104).
 
 The current [#19](https://github.com/School-of-the-Ancients/matrix-loading-operator/issues/19)
 candidate strengthens capacity-one reservation lifecycles with execution identities,

@@ -2,7 +2,9 @@
 
 ## Selected existing Citizens furniture candidate (September 26, 2026)
 
-The current [#15](https://github.com/School-of-the-Ancients/matrix-loading-operator/issues/15)
+Open [PR #104](https://github.com/School-of-the-Ancients/matrix-loading-operator/pull/104)
+stacks this candidate on the open social-session PR #103. The current
+[#15](https://github.com/School-of-the-Ancients/matrix-loading-operator/issues/15)
 slice adds an explicit **Use selected chair or table** path to the ordinary
 `/web/` desktop virtual room. A selected, existing built-in chair or table
 becomes the simulation's rest or food station by its Matrix object ID. Two orb
