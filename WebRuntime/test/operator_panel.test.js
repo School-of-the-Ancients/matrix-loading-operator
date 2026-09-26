@@ -106,3 +106,23 @@ test('WORLD page keeps checkpoint feedback visible through ordinary redraws',()=
     else globalThis.document=previousDocument;
   }
 });
+
+test('Hide remains reachable on every Operator page',()=>{
+  const context={fillRect(){},strokeRect(){},fillText(){},measureText(){return {width:0};}};
+  const previousDocument=globalThis.document;
+  globalThis.document={createElement:kind=>{
+    assert.equal(kind,'canvas');return {width:0,height:0,getContext:()=>context};
+  }};
+  try{
+    const panel=operatorPanel();
+    const hide={x:894/1024,y:1-71/768};
+    assert.equal(panel.hit(hide),'hide-panel');
+    panel.toggleWorld();assert.equal(panel.hit(hide),'hide-panel');
+    panel.toggleAgent();assert.equal(panel.hit(hide),'hide-panel');
+    panel.setProposal({summary:'Create one block',commands:[]});
+    assert.equal(panel.hit(hide),'hide-panel');
+  }finally{
+    if(previousDocument===undefined)delete globalThis.document;
+    else globalThis.document=previousDocument;
+  }
+});

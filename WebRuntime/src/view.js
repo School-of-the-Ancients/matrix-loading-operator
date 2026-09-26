@@ -82,7 +82,7 @@ export function operatorPanel(){
   const paint=()=>{
     const ctx=canvas.getContext('2d');ctx.fillStyle='#071923';ctx.fillRect(0,0,1024,768);
     ctx.strokeStyle=tone==='error'?'#ffad8d':'#55e9d2';ctx.lineWidth=9;ctx.strokeRect(10,10,1004,748);
-    ctx.fillStyle='#75f4df';ctx.font='bold 51px sans-serif';ctx.fillText('◈  OPERATOR',55,90);
+    ctx.fillStyle='#75f4df';ctx.font='bold 35px sans-serif';ctx.fillText('◈  OPERATOR',55,83);
     buttons=[];
     const button=(id,label,x,y,w,h,active=false)=>{
       ctx.fillStyle=active?'#53dcc5':'#245568';ctx.fillRect(x,y,w,h);
@@ -90,10 +90,12 @@ export function operatorPanel(){
       ctx.textAlign='center';ctx.textBaseline='middle';ctx.fillText(label,x+w/2,y+h/2);ctx.textAlign='left';ctx.textBaseline='alphabetic';
       buttons.push({id,x,y,w,h});
     };
-    button('toggle-agent',mode==='agent'?'CHAT':'CODEX',414,35,118,72,mode==='agent');
-    button('toggle-world',mode==='world'?'CHAT':'WORLD',544,35,210,72);
-    button(proposal&&mode!=='proposal'?'open-proposal':'review-view',proposal&&mode!=='proposal'?'PROPOSAL':'REVIEW VIEW',766,35,210,72);
+    button('toggle-agent',mode==='agent'?'CHAT':'CODEX',320,35,120,72,mode==='agent');
+    button('toggle-world',mode==='world'?'CHAT':'WORLD',452,35,142,72);
+    button(proposal&&mode!=='proposal'?'open-proposal':'review-view',proposal&&mode!=='proposal'?'PROPOSAL':'REVIEW VIEW',606,35,194,72);
+    button('hide-panel','HIDE',812,35,164,72);
     ctx.fillStyle='#8bb8c2';ctx.font='bold 21px sans-serif';ctx.fillText(originLabel,55,123);
+    ctx.font='19px sans-serif';ctx.fillText('STICK CLICK: RECALL · HIDE · SHOW',540,123);
     if(mode==='world'){
       ctx.fillStyle='#dff7f8';ctx.font='29px sans-serif';
       ctx.fillText(`${worldInfo.objects} scene objects · ${worldInfo.alignment}`,55,180);
@@ -242,7 +244,7 @@ export class MatrixView {
     this.floor=new THREE.Mesh(new THREE.PlaneGeometry(200,200),new THREE.MeshStandardMaterial({color:0x163149,roughness:1}));this.floor.rotation.x=-Math.PI/2;this.floor.receiveShadow=true;this.virtualFloorRoot.add(this.floor);
     this.grid=new THREE.GridHelper(200,200,0x2e8499,0x24506a);this.grid.position.y=.002;this.virtualFloorRoot.add(this.grid);
     this.reticle=new THREE.Mesh(new THREE.RingGeometry(.06,.075,32),new THREE.MeshBasicMaterial({color:0x5ef7d7,side:THREE.DoubleSide}));this.reticle.rotation.x=-Math.PI/2;this.reticle.visible=false;this.scene.add(this.reticle);
-    this.operatorPanel=operatorPanel();this.scene.add(this.operatorPanel.group);this.operatorVoiceController=null;this.operatorMount={kind:'head'};
+    this.operatorPanel=operatorPanel();this.scene.add(this.operatorPanel.group);this.operatorVoiceController=null;this.operatorMount={kind:'head'};this.operatorThumbstickHeld=false;
     this.raycaster=new THREE.Raycaster();this.pointer=new THREE.Vector2();this.pointerKnown=false;this.lastPointingController=null;
     this.controllers=[0,1].map(index=>this.renderer.xr.getController(index));
     this.controllerRays=[];
@@ -314,6 +316,7 @@ export class MatrixView {
     if(session.domOverlayState)document.getElementById('xr-overlay').style.display='';
     this.operatorPanel.group.visible=true;
     this.operatorMount={kind:'head'};this.operatorPanel.setPinLabel(this.isAR?'PIN TO WALL':'PIN HERE');
+    this.operatorThumbstickHeld=false;
     this.sessionStartedAt=performance.now();this.roomCaptureRequested=false;this.virtualFloorCalibrated=false;this.roomAnchorCreationFailed=false;this.roomAnchorRestoreFailed=false;this.roomAnchorLocated=false;this.roomPoseMissingSince=0;
     if(this.isAR)this.world.enterAR();
     this.restoreRoomAnchor(session);
@@ -443,6 +446,7 @@ export class MatrixView {
   onSessionEnd(){
     if(this.operatorVoiceController)this.releaseOperatorVoice(this.operatorVoiceController);
     this.operatorPanel.group.visible=false;this.operatorMount={kind:'head'};
+    this.operatorThumbstickHeld=false;
     this.operatorPanel.setPinLabel('PIN TO WALL');this.operatorPanel.setOriginLabel('ROOM ORIGIN UNKNOWN');
     if(this.grab)this.releaseGrab(this.grab.controller);
     for(const ray of this.controllerRays)ray.visible=false;
@@ -507,6 +511,23 @@ export class MatrixView {
     }
     this.operatorMount=best||{kind:'world'};
     this.operatorPanel.setPinLabel('FOLLOW ME');this.positionOperatorPanel();
+  }
+  hideOperatorPanel(){this.operatorPanel.group.visible=false;}
+  toggleOperatorPanel(){
+    if(this.operatorPanel.group.visible&&this.operatorMount.kind==='head'){
+      this.hideOperatorPanel();return;
+    }
+    this.operatorPanel.group.visible=true;
+    this.operatorMount={kind:'head'};
+    this.operatorPanel.setPinLabel(this.isAR?'PIN TO WALL':'PIN HERE');
+    this.positionOperatorPanel();
+  }
+  updateOperatorShortcut(){
+    const sources=this.renderer.xr.getSession()?.inputSources||[];
+    // The xr-standard mapping reserves button 3 for the thumbstick click.
+    const pressed=Array.from(sources).some(source=>source.gamepad?.mapping==='xr-standard'&&source.gamepad.buttons?.[3]?.pressed);
+    if(pressed&&!this.operatorThumbstickHeld)this.toggleOperatorPanel();
+    this.operatorThumbstickHeld=pressed;
   }
   clearPlanes(){for(const group of this.planeOutlines.values()){this.scene.remove(group);disposeGroup(group);}this.planeOutlines.clear();}
   anchorPose(group,anchor){const pose=anchor.roomPose;group.position.copy(v3(pose.position));group.rotation.set(...['x','y','z'].map(key=>THREE.MathUtils.degToRad(pose.rotation[key])),'XYZ');group.updateMatrixWorld(true);}
@@ -720,6 +741,7 @@ export class MatrixView {
       else if(action==='next')this.operatorPanel.nextPage();
       else if(action==='voice-output')this.onVoiceOutputToggle();
       else if(action==='pin')this.toggleOperatorPin();
+      else if(action==='hide-panel')this.hideOperatorPanel();
       else if(action==='voice'){this.operatorVoiceController=controller;this.onVoiceStart();}
       else if(action==='new-chat')this.onNewChat();
       else if(action)this.onPanelAction(action);
@@ -928,7 +950,7 @@ export class MatrixView {
     if(this.lastFrameTime!==null&&!this.renderer.xr.isPresenting)moveDesktopCamera(this.camera,this.keys,(time-this.lastFrameTime)/1000);
     this.lastFrameTime=time;
     if(!this.isAR)this.world.advancePhysics?.(delta);
-    if(frame&&this.renderer.xr.isPresenting){const ref=this.renderer.xr.getReferenceSpace();if(ref){this.xrViewer=viewerPose(frame,ref);this.positionOperatorPanel();this.updatePlanes(time,frame,ref);this.updateRoomAnchor(frame,ref);
+    if(frame&&this.renderer.xr.isPresenting){const ref=this.renderer.xr.getReferenceSpace();if(ref){this.xrViewer=viewerPose(frame,ref);this.updateOperatorShortcut();this.positionOperatorPanel();this.updatePlanes(time,frame,ref);this.updateRoomAnchor(frame,ref);
       if(!this.isAR&&!this.virtualFloorCalibrated&&this.xrViewer&&this.measuredEyeHeight!==null){
         this.virtualFloorRoot.position.y=this.xrViewer.position.y-this.measuredEyeHeight;
         this.virtualFloorCalibrated=true;
