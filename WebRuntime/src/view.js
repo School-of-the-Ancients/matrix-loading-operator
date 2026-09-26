@@ -629,6 +629,8 @@ export class MatrixView {
     if(this.pointerGrab)this.world.resumePhysics?.(this.pointerGrab.objectId);
     this.grab=null;this.pointerGrab=null;
     for(const root of this.objectRoots.values()){
+      // A routine redraw rebuilds the same content-addressed model. Keep its
+      // measured navigation footprint; only physics needs a fresh instance.
       this.world.invalidatePhysicsAsset?.(root.userData.objectId);
       stopAnimatedAsset(root.userData.mixer,root.userData.model);
       root.parent?.remove(root);disposeGroup(root);
@@ -700,10 +702,13 @@ export class MatrixView {
       visual.add(model);root.userData.model=model;root.userData.mixer=mixer;
       root.userData.selectAnimation=select;root.userData.assetLoading=false;
       // Model and its named clips must instantiate successfully before this
-      // exact object can take part in a floor drop.
+      // exact object can take part in navigation or a floor drop.
       this.world.verifyPhysicsAsset?.(asset.assetId,source.measuredSize,objectId);
     }catch(error){
-      if(this.objectRoots.get(objectId)===root)this.world.invalidatePhysicsAsset?.(objectId,true);
+      if(this.objectRoots.get(objectId)===root){
+        const invalidate=this.world.invalidateRenderedAsset||this.world.invalidatePhysicsAsset;
+        invalidate?.call(this.world,objectId,true);
+      }
       root.userData.assetLoading=false;this.modelCache.delete(asset.assetId);
       this.onAssetError(`${asset.displayName}: ${error.message}`);
     }

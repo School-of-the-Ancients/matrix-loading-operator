@@ -50,11 +50,12 @@ const sameTransform=(a,b)=>a&&b&&['position','rotation','scale'].every(part=>
   ['x','y','z'].every(axis=>a[part]?.[axis]===b[part]?.[axis]));
 const objectById=(world,id)=>world.scene.objects.find(object=>object.objectId===id);
 const positionOf=(world,id)=>objectById(world,id)?.transform?.position;
-// Running components and behaviors can move the rendered object without
-// changing its authored transform. Citizens must not navigate to that stale pose.
+// Runtime motion and GLB clips can move rendered geometry without changing its
+// authored transform. Citizens must not route through that stale footprint.
 const hasActiveTransformOwner=object=>!!(object?.physics||
   object?.component?.status==='running'||
-  object?.behaviors?.some(behavior=>behavior.enabled&&!behavior.paused));
+  object?.behaviors?.some(behavior=>behavior.enabled&&!behavior.paused)||
+  object?.animation?.loopClip);
 const supportedResident=object=>object?.assetId==='orb'&&
   object.anchorId===ANCHOR_ID&&!object.component&&!hasActiveTransformOwner(object)&&
   Math.abs(object.transform?.position?.y)<=.05&&
@@ -66,9 +67,15 @@ function navigationObstacles(world,actorObjectId=''){
   const obstacles=[];
   for(const object of world.scene.objects){
     if(object.objectId===actorObjectId)continue;
+    const asset=world.asset?.(object.assetId);
+    // The catalog footprint is measured at the GLB's rest pose. A one-clip
+    // model plays automatically, and a select clip can move mesh nodes while
+    // the authored object transform stays fixed. No swept bounds exist yet.
+    if(asset?.url&&asset.geometry?.animationClips?.length)
+      throw Error(`Navigation cannot use animated GLB ${object.objectId}`);
     if(object.anchorId!==ANCHOR_ID||hasActiveTransformOwner(object))
       throw Error(`Navigation cannot use moving or anchored object ${object.objectId}`);
-    const asset=world.asset?.(object.assetId),bounds=asset?.localBounds;
+    const bounds=asset?.localBounds;
     const transform=object.transform;
     const scale=asset?.spawnScale??1;
     if(!bounds||!transform||!finite(scale)||scale<=0||
@@ -85,6 +92,10 @@ function navigationObstacles(world,actorObjectId=''){
     const halfZ=bounds.size.z*transform.scale.z*scale/2;
     if(halfX<=0||halfZ<=0||halfX>20||halfZ>20)
       throw Error(`Navigation bounds for ${object.objectId} are unsupported`);
+    // Catalog bounds are only an authored claim. An imported model must have
+    // loaded and been measured for this exact scene object before routing.
+    if(asset.url&&!world.renderedAssetVerified?.(object))
+      throw Error(`Navigation is waiting for verified rendered GLB ${object.objectId}`);
     obstacles.push({id:object.objectId,cx:transform.position.x,
       cz:transform.position.z,halfX,halfZ,
       yawRadians:transform.rotation.y*Math.PI/180});
@@ -724,6 +735,7 @@ export class CitizensSimulation {
     this.observedTransforms=new Map([...current.residents,...current.stations].map(bound=>
       [bound.objectId,clone(objectById(world,bound.objectId).transform)]));
     this.invalidBindings=new Set();
+    this.navigationBlockedReason='';
   }
   static restore(world,saved){return new CitizensSimulation(world,saved);}
   snapshot(){return clone(this.state);}
@@ -833,9 +845,26 @@ export class CitizensSimulation {
     if(!this.state.paused){this.state.paused=true;this.log('', 'paused','Simulation paused.');}
     return this.snapshot();
   }
+  navigationIssue(){
+    try{navigationObstacles(this.world);return '';}
+    catch(error){return error.message||String(error);}
+  }
+  pauseForNavigation(reason){
+    if(this.navigationBlockedReason===reason&&this.state.paused)return;
+    this.cancelSocial(`navigation unavailable: ${reason}`);
+    for(const resident of this.state.residents)
+      if(resident.activity||this.waitingFor(resident))
+        this.fail(resident,`navigation unavailable: ${reason}`);
+    this.state.paused=true;
+    this.navigationBlockedReason=reason;
+    this.log('','paused',`Navigation unavailable: ${reason}. Verify the scene before resuming.`);
+  }
   resume(){
     if(this.reconcileBindings())return this.snapshot();
     if(this.state.residents.length===0)return this.snapshot();
+    const reason=this.navigationIssue();
+    if(reason){this.pauseForNavigation(reason);return this.snapshot();}
+    this.navigationBlockedReason='';
     if(this.state.paused){this.state.paused=false;this.log('','resumed','Simulation resumed.');}
     return this.snapshot();
   }
@@ -1274,6 +1303,9 @@ export class CitizensSimulation {
   step(){
     if(this.reconcileBindings())return this.snapshot();
     if(this.state.residents.length===0){this.state.paused=true;return this.snapshot();}
+    const reason=this.navigationIssue();
+    if(reason){this.pauseForNavigation(reason);return this.snapshot();}
+    this.navigationBlockedReason='';
     if(this.state.clockTick>=1000000000){
       this.state.paused=true;this.log('','failed','Simulation clock limit reached.');
       return this.snapshot();

@@ -1,5 +1,47 @@
 # Matrix Operator checkpoints
 
+## Registered GLB navigation readiness candidate (September 26, 2026)
+
+The `codex/citizens-glb-readiness` branch extends the open Citizens stack from
+[PR #105](https://github.com/School-of-the-Ancients/matrix-loading-operator/pull/105)
+for a narrow [#15](https://github.com/School-of-the-Ancients/matrix-loading-operator/issues/15)
+readiness slice. A registered GLB obstacle must load in the actual Three.js
+view, and its measured model size must fit the catalog footprint, before
+Citizens uses that footprint for virtual-floor routes. Verification belongs to
+the current scene object and asset signature. Catalog or scene replacement,
+failed loading, and AR entry clear it; ordinary redraws during resident ticks
+preserve evidence for the same content-addressed GLB. A nearby unverified GLB
+also blocks a direct `MatrixWorld.interact` clearance receipt. Any catalog GLB
+with animation clips blocks finite interaction because its motion has no
+measured envelope. If the footprint
+becomes unavailable while Citizens runs, the simulation pauses before the next
+tick, releases claims and waits, and grants no speculative need benefit. The
+panel explains the reason and disables Run/Step until the renderer verifies the
+model again. Registered GLBs with catalog animation clips are refused as
+obstacles because the initial measured box is not a swept animation envelope.
+
+The built `/web/` page on isolated port **19846** showed a static registered
+GLB and selected chair in the same scene. Deliberately shrinking the catalog
+footprint to 0.1 m refused Citizens start with an explicit verification
+message. After restoring the measured footprint, seed 29 added two residents;
+Ada claimed the chair and Bo queued. Bo completed a rest at minute 27. A named
+PC whole-world checkpoint at minute 76 survived browser reload. Run/Step
+waited for the reloaded GLB, then minute 82 completed Ada's rest and raised
+her energy to 100. PC restore returned minute 76, and six steps replayed that
+outcome. A live catalog mismatch later paused the run at minute 91, failed
+Bo's active rest execution, and released his chair claim without that rest
+benefit. The final isolated browser scene was restored to the clean minute-76
+checkpoint with four objects and the measured catalog. [Structured browser
+evidence](../Validation/citizens-glb-readiness-browser.json) records the
+fixture, IDs, and limits. The full WebRuntime suite passed **250/250**,
+ControlService passed **672/672**, and Vite built.
+
+This verifies a static, registered GLB obstacle on a desktop virtual floor.
+General geometry versions and route repair,
+versioned object affordances, moving-target ownership, real-room geometry, and
+Quest wearer checks remain open under #15 and M4. Keep the port-19844 and
+port-19845 demos and their saved state intact.
+
 ## Live Citizens revisions and interaction clearance candidate (September 26, 2026)
 
 Open [PR #105](https://github.com/School-of-the-Ancients/matrix-loading-operator/pull/105)

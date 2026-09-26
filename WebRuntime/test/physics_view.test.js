@@ -113,7 +113,7 @@ test('GLB load submits measured X/Y/Z size before a model is eligible for physic
   assert.deepEqual(errors,[]);
 });
 
-test('a failed GLB clip instantiation revokes only that object’s physics eligibility',async()=>{
+test('a failed GLB clip instantiation revokes only that object’s rendered eligibility',async()=>{
   const asset={assetId:'web:test',displayName:'Broken clip',spawnScale:1,
     geometry:{animationClips:[{name:'Flight',durationSeconds:1}]}};
   const root=new THREE.Group(),visual=new THREE.Group();root.add(visual);
@@ -125,7 +125,8 @@ test('a failed GLB clip instantiation revokes only that object’s physics eligi
   const verified=[],invalidated=[],errors=[];
   view.world={scene:{objects:[{objectId:'bad-model',anchorId:'web-floor'}]},
     verifyPhysicsAsset:(...args)=>verified.push(args),
-    invalidatePhysicsAsset:(...args)=>invalidated.push(args)};
+    invalidatePhysicsAsset:()=>assert.fail('renderer failures must revoke navigation readiness'),
+    invalidateRenderedAsset:(...args)=>invalidated.push(args)};
   view.onAssetError=message=>errors.push(message);
   await view.loadExternal(asset,root,visual,'bad-model');
   assert.deepEqual(verified,[]);
