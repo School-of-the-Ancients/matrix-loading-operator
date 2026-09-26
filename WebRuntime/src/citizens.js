@@ -2005,8 +2005,24 @@ export class CitizensSimulation {
     if(!due.length)return false;
     const actor=positionOf(this.world,resident.objectId);
     if(!actor)return false;
+    const currentStationId=optional.action?.stationId??
+      optional.waiting?.station.id;
+    // Critical hunger may be unable to release a claimant that physically
+    // holds the station approach. If that same execution is already doing a
+    // due appointment's work, attach the appointment before considering a
+    // different goal. The existing claim or FIFO ticket remains in place.
+    for(const appointment of due){
+      if(optional.kind!==appointment.kind||
+        resident.cooldowns[appointment.kind]>this.state.clockTick)continue;
+      const candidate=this.decisionCandidate(resident,actor,appointment.kind);
+      if(!candidate.station||candidate.unavailable||
+        currentStationId!==candidate.station.id)continue;
+      this.linkAppointment(resident,appointment,candidate,
+        optional.executionId,'adopted optional');
+      return true;
+    }
     // Keep the existing urgent-food precedence. A due meal can use that food
-    // trip; a due rest cannot displace it while reachable food is critical.
+    // trip; a different due rest cannot displace it while food is critical.
     let eligible=due;
     if(resident.needs.hunger<=15){
       const food=this.decisionCandidate(resident,actor,'eat');
@@ -2019,16 +2035,8 @@ export class CitizensSimulation {
       if(resident.cooldowns[appointment.kind]>this.state.clockTick)continue;
       const candidate=this.decisionCandidate(resident,actor,appointment.kind);
       if(!candidate.station||candidate.unavailable)continue;
-      const currentStationId=optional.action?.stationId??
-        optional.waiting?.station.id;
       if(optional.kind===appointment.kind&&
-        currentStationId===candidate.station.id){
-        // The already-held claim or FIFO ticket is the finite execution that
-        // will produce the receipt. Relabel it without moving or rewarding.
-        this.linkAppointment(resident,appointment,candidate,
-          optional.executionId,'adopted optional');
-        return true;
-      }
+        currentStationId===candidate.station.id)continue;
       if(this.state.actionSequence>=1000000000||
         !this.canReleaseOptionalClaim(resident,optional))continue;
       this.release(resident);

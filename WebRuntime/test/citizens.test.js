@@ -430,7 +430,7 @@ test('a due goal keeps optional work when its target is unavailable or cooling d
     oldTicket);
 });
 
-test('an occupied chair approach prevents a due meal from releasing its claimant',()=>{
+const reviewedDueStations=()=>{
   const matrix=world(),chairSha='a'.repeat(64),foodSha='b'.repeat(64);
   const asset=(id,sha,size)=>({assetId:`web:${id}:${sha.slice(0,12)}`,
     displayName:id,description:'Static reviewed station',spawnScale:1,
@@ -466,6 +466,11 @@ test('an occupied chair approach prevents a due meal from releasing its claimant
     interaction:interaction('eat',foodSha,{x:0,z:-.9},{x:0,z:-.28},
       {need:'hunger',delta:32})}).ok,true);
   sim.addSelectedStation(table.objectId);
+  return {matrix,sim};
+};
+
+test('an occupied chair approach prevents a due meal from releasing its claimant',()=>{
+  const {matrix,sim}=reviewedDueStations();
   const first=sim.step(),ada=first.residents[0];
   const chair=first.stations.find(item=>item.kind==='rest');
   assert.equal(ada.activity?.phase,'travel');
@@ -488,6 +493,60 @@ test('an occupied chair approach prevents a due meal from releasing its claimant
   assert.equal(after.residents[0].activity?.kind,'rest');
   assert.ok(!after.log.some(entry=>entry.tick===2&&
     entry.message.includes('interrupted optional rest')));
+});
+
+test('critical hunger links a due rest when its chair claim cannot safely release',()=>{
+  const {matrix,sim}=reviewedDueStations();
+  const first=sim.step(),ada=first.residents[0];
+  const chair=first.stations.find(item=>item.kind==='rest');
+  const executionId=chair.claim.executionId;
+  const ticket=structuredClone(chair.waiters[0]);
+  sim.scheduleAppointment('ada',{kind:'rest',startTick:2,deadlineTick:40});
+  const transform=structuredClone(matrix.requireObject(ada.objectId).transform);
+  transform.position.x=0;
+  transform.position.z=-2.75;
+  assert.equal(matrix.execute({requestId:'place-hungry-ada-at-chair-approach',
+    op:'set_transform',objectId:ada.objectId,transform},{recordHistory:false}).ok,true);
+  const saved=sim.snapshot();
+  saved.residents[0].needs.hunger=15.4;
+  const resumed=CitizensSimulation.restore(matrix,saved);
+  const resident=resumed.state.residents[0];
+  const actor=matrix.requireObject(ada.objectId).transform.position;
+  const food=resumed.decisionCandidate(resident,actor,'eat');
+  const rest=resumed.decisionCandidate(resident,actor,'rest');
+  const optional=resumed.optionalTravelOrWait(resident);
+  assert.ok(food.station&&!food.unavailable,'critical food is reachable');
+  assert.ok(rest.station&&!rest.unavailable,'chair route remains valid');
+  assert.ok(optional);
+  assert.equal(resumed.canReleaseOptionalClaim(resident,optional),false);
+
+  const linked=resumed.step(),linkedAda=linked.residents[0];
+  const appointment=appointmentOf(linked);
+  const heldChair=linked.stations.find(item=>item.kind==='rest');
+  assert.equal(linked.clockTick,2);
+  assert.equal(linkedAda.needs.hunger,14.95);
+  assert.equal(appointment.status,'active');
+  assert.equal(appointment.executionId,executionId);
+  assert.equal(linkedAda.lastDecision.selectedAppointmentId,appointment.id);
+  assert.equal(linkedAda.activity?.kind,'rest');
+  assert.equal(heldChair.claim?.executionId,executionId);
+  assert.deepEqual(heldChair.waiters[0],ticket);
+  assert.equal(linkedAda.needs.energy,
+    Math.round((ada.needs.energy-.55)*100)/100,
+    'adoption alone grants no chair benefit');
+  assert.ok(!linked.log.some(entry=>entry.tick===2&&
+    entry.message.includes('interrupted optional')));
+  const checkpoint=resumed.exportState();
+  assert.deepEqual(checkpoint,linked);
+  assert.deepEqual(CitizensSimulation.restore(matrix,checkpoint).exportState(),
+    checkpoint,'active appointment has a valid v11 checkpoint trace');
+
+  const completed=stepUntil(resumed,state=>
+    appointmentOf(state).status==='completed',40);
+  assert.match(appointmentOf(completed).requestId,
+    new RegExp(`^citizens-31-action-${executionId}-[0-9]+$`));
+  assert.ok(completed.residents[0].needs.energy>linkedAda.needs.energy,
+    'only the checked chair receipt grants the benefit');
 });
 
 test('due appointments preserve station use, egress and already linked work',()=>{
