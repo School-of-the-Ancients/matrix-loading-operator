@@ -71,7 +71,7 @@ test('authored GLB interaction needs renderer verification and yields only an ob
   assert.equal(attached.ok,true);
   assert.equal(world.undo.length,beforeHistory+1);
   assert.deepEqual(world.requireObject(targetId).interaction,descriptor);
-  assert.equal(world.snapshot().interactionSchemaVersion,1);
+  assert.equal(world.snapshot().interactionSchemaVersion,2);
   assert.equal(world.snapshot().assets.find(item=>item.assetId===asset.assetId).sha256,sha);
   assert.match(use({interactionId:'other'}).error,/definition changed/);
   assert.match(use({expectedInteraction:{...descriptor,effect:{need:'energy',delta:32}}}).error,
@@ -84,6 +84,34 @@ test('authored GLB interaction needs renderer verification and yields only an ob
     usePoint:{x:0,z:-1.65}});
   assert.equal(world.undo.length,beforeHistory+1,
     'finite use must not add an authored Undo entry');
+});
+
+test('authored GLB poses use the rendered recentered footprint, not its export pivot',()=>{
+  let sequence=0;
+  const world=new MatrixWorld(()=>`offset-seat-${++sequence}`);
+  const offsetAsset={...asset,localBounds:{
+    center:{x:10,y:.5,z:0},size:{x:1,y:1,z:1}}};
+  world.registerAssets([offsetAsset]);
+  const target=world.execute(command('offset-seat','spawn',
+    {assetId:offsetAsset.assetId,anchorId:ANCHOR_ID,transform:pose()}));
+  const actor=world.execute(command('offset-actor','spawn',
+    {assetId:'orb',anchorId:ANCHOR_ID,transform:pose(0,-1.22)}));
+  assert.equal(target.ok,true,target.error);
+  assert.equal(actor.ok,true,actor.error);
+  assert.equal(world.verifyPhysicsAsset(offsetAsset.assetId,
+    {x:1,y:1,z:1},target.objectId),true);
+  const reviewed=interaction();
+  assert.equal(world.execute(command('offset-attach','set_interaction',
+    {objectId:target.objectId,interaction:reviewed})).ok,true);
+  const use=world.execute(command('offset-use','interact',{
+    actorObjectId:actor.objectId,targetObjectId:target.objectId,kind:'rest',
+    interactionId:reviewed.interactionId,expectedInteraction:reviewed}));
+  assert.equal(use.ok,true,use.error);
+  const pivotPose={...reviewed,approachPose:{x:10,z:.78},
+    usePose:{x:10,z:.35}};
+  assert.match(world.execute(command('pivot-attach','set_interaction',{
+    objectId:target.objectId,expectedInteraction:reviewed,
+    interaction:pivotPose})).error,/measured GLB footprint/);
 });
 
 test('authored GLB interaction validates measured poses and current static clearance',()=>{

@@ -95,21 +95,34 @@ const renderedNavigationFootprint=(asset,measuredSize)=>
   ['x','y','z'].every(axis=>measuredSize[axis]<=asset.localBounds.size[axis]+.005);
 const INTERACTION_CAPABILITIES=['static-virtual-floor','verified-rendered-bounds'];
 const INTERACTION_AVAILABILITY=['target-static','floor-aligned','rendered-verified'];
+const PROCEDURAL_INTERACTION_CAPABILITIES=[
+  'static-virtual-floor','reviewed-procedural-geometry'];
+const PROCEDURAL_INTERACTION_AVAILABILITY=[
+  'target-static','floor-aligned','generator-available'];
 const interactionPose=pose=>exactKeys(pose,['x','z'])&&
   finite(pose.x,-20,20)&&finite(pose.z,-20,20);
 export function validInteractionDescriptor(value){
-  return exactKeys(value,['schemaVersion','interactionId','kind','assetSha256',
-    'requiredCapabilities','availability','approachPose','usePose',
-    'rangeMeters','durationTicks','capacity','effect'])&&
-    value.schemaVersion===1&&
+  const procedural=value?.schemaVersion===2;
+  return exactKeys(value,['schemaVersion','interactionId','kind',
+    procedural?'proceduralSource':'assetSha256','requiredCapabilities',
+    'availability','approachPose','usePose','rangeMeters','durationTicks',
+    'capacity','effect'])&&
+    [1,2].includes(value.schemaVersion)&&
     typeof value.interactionId==='string'&&
     /^[a-z0-9](?:[a-z0-9-]{0,30}[a-z0-9])?$/.test(value.interactionId)&&
-    ['rest','eat'].includes(value.kind)&&
-    typeof value.assetSha256==='string'&&/^[0-9a-f]{64}$/.test(value.assetSha256)&&
+    ['rest','eat'].includes(value.kind)&&(!procedural||value.kind==='rest')&&
+    (procedural?exactKeys(value.proceduralSource,
+      ['generatorId','generatorVersion','sourceRevision'])&&
+      /^[a-z][a-z0-9-]{0,47}$/.test(value.proceduralSource.generatorId)&&
+      /^[1-9]\d*\.[0-9]+\.[0-9]+$/.test(value.proceduralSource.generatorVersion)&&
+      /^[a-z][a-z0-9-]{0,47}$/.test(value.proceduralSource.sourceRevision):
+      typeof value.assetSha256==='string'&&/^[0-9a-f]{64}$/.test(value.assetSha256))&&
     Array.isArray(value.requiredCapabilities)&&
-    JSON.stringify(value.requiredCapabilities)===JSON.stringify(INTERACTION_CAPABILITIES)&&
+    JSON.stringify(value.requiredCapabilities)===JSON.stringify(procedural?
+      PROCEDURAL_INTERACTION_CAPABILITIES:INTERACTION_CAPABILITIES)&&
     Array.isArray(value.availability)&&
-    JSON.stringify(value.availability)===JSON.stringify(INTERACTION_AVAILABILITY)&&
+    JSON.stringify(value.availability)===JSON.stringify(procedural?
+      PROCEDURAL_INTERACTION_AVAILABILITY:INTERACTION_AVAILABILITY)&&
     interactionPose(value.approachPose)&&interactionPose(value.usePose)&&
     finite(value.rangeMeters,.1,2)&&
     Number.isInteger(value.durationTicks)&&value.durationTicks>=1&&
@@ -120,13 +133,29 @@ export function validInteractionDescriptor(value){
     value.effect.delta<=50;
 }
 const interactionSignature=value=>JSON.stringify([value.schemaVersion,
-  value.interactionId,value.kind,value.assetSha256,value.requiredCapabilities,
+  value.interactionId,value.kind,value.schemaVersion===2?[
+    value.proceduralSource.generatorId,value.proceduralSource.generatorVersion,
+    value.proceduralSource.sourceRevision]:value.assetSha256,value.requiredCapabilities,
   value.availability,value.approachPose.x,value.approachPose.z,
   value.usePose.x,value.usePose.z,value.rangeMeters,value.durationTicks,
   value.capacity,value.effect.need,value.effect.delta]);
-// Poses are on the GLB's horizontally recentered, floor-aligned local root.
+export function interactionSourceMatches(object,asset,descriptor){
+  if(!validInteractionDescriptor(descriptor))return false;
+  if(descriptor.schemaVersion===1)
+    return object?.assetId?.startsWith('web:')&&
+      physicsRegisteredGlb(asset)&&asset.sha256===descriptor.assetSha256;
+  const source=descriptor.proceduralSource,recipe=object?.procedural;
+  // The PC validator independently knows this generator's measured geometry.
+  return object?.assetId===PROCEDURAL_ASSET_ID&&
+    source.generatorId==='curved-bench'&&source.generatorVersion==='1.0.0'&&
+    source.sourceRevision==='curved-bench-v1'&&
+    recipe?.generatorId===source.generatorId&&
+    recipe.generatorVersion===source.generatorVersion&&
+    recipe.sourceRevision===source.sourceRevision;
+}
+// Poses are on the GLB's recentered root or the procedural generator's root.
 export function interactionWorldPoint(object,asset,pose){
-  const scale=asset.spawnScale;
+  const scale=asset?.spawnScale??1;
   const x=pose.x*object.transform.scale.x*scale;
   const z=pose.z*object.transform.scale.z*scale;
   const yaw=object.transform.rotation.y*Math.PI/180;
@@ -138,29 +167,42 @@ export function interactionWorldPoint(object,asset,pose){
 function assertInteractionTarget(object,asset,descriptor){
   if(!validInteractionDescriptor(descriptor))
     throw Error('Invalid interaction descriptor');
-  if(object.anchorId!==ANCHOR_ID||!physicsRegisteredGlb(asset)||
-     !asset.localBounds||asset.sha256!==descriptor.assetSha256)
-    throw Error('Interaction requires its current registered virtual-floor GLB');
+  const procedural=descriptor.schemaVersion===2;
+  if(object.anchorId!==ANCHOR_ID||
+     !interactionSourceMatches(object,asset,descriptor)||
+     (!procedural&&!asset.localBounds))
+    throw Error(procedural?'Interaction requires its current reviewed procedural source':
+      'Interaction requires its current registered virtual-floor GLB');
   if(asset.geometry?.animationClips?.length||object.animation||object.physics||object.rigidBody||
      object.component?.status==='running'||
      object.behaviors?.some(behavior=>behavior.enabled&&!behavior.paused))
     throw Error('Interaction target has another transform owner or animation');
-  const transform=object.transform,bounds=asset.localBounds;
+  const transform=object.transform,bounds=procedural?
+    generateProcedural(object.procedural).localBounds:asset.localBounds;
   if(!validTransform(transform)||Math.abs(transform.position.y)>.05||
      Math.abs(transform.rotation.x)>.01||Math.abs(transform.rotation.z)>.01)
     throw Error('Interaction target needs an upright floor-aligned pose');
   const scaleX=transform.scale.x*asset.spawnScale;
   const scaleZ=transform.scale.z*asset.spawnScale;
-  const halfX=bounds.size.x*scaleX/2,halfZ=bounds.size.z*scaleZ/2;
+  // MatrixView recenters GLBs horizontally; procedural geometry keeps its
+  // measured local offset from the construction root.
+  const centerX=procedural?bounds.center.x:0;
+  const centerZ=procedural?bounds.center.z:0;
+  const minX=(centerX-bounds.size.x/2)*scaleX;
+  const maxX=(centerX+bounds.size.x/2)*scaleX;
+  const minZ=(centerZ-bounds.size.z/2)*scaleZ;
+  const maxZ=(centerZ+bounds.size.z/2)*scaleZ;
   const approachX=descriptor.approachPose.x*scaleX;
   const approachZ=descriptor.approachPose.z*scaleZ;
   const useX=descriptor.usePose.x*scaleX;
   const useZ=descriptor.usePose.z*scaleZ;
-  if(!Number.isFinite(halfX)||!Number.isFinite(halfZ)||halfX<=0||halfZ<=0||
-     halfX>20||halfZ>20||
-     !(Math.abs(approachX)>halfX+.24||Math.abs(approachZ)>halfZ+.24)||
-     Math.abs(useX)>halfX||Math.abs(useZ)>halfZ)
-    throw Error('Interaction poses do not match the measured GLB footprint');
+  if(![minX,maxX,minZ,maxZ].every(Number.isFinite)||
+     maxX-minX<=0||maxZ-minZ<=0||maxX-minX>40||maxZ-minZ>40||
+     !(approachX<minX-.24||approachX>maxX+.24||
+       approachZ<minZ-.24||approachZ>maxZ+.24)||
+     useX<minX||useX>maxX||useZ<minZ||useZ>maxZ)
+    throw Error(procedural?'Interaction poses do not match measured procedural geometry':
+      'Interaction poses do not match the measured GLB footprint');
   const approach=interactionWorldPoint(object,asset,descriptor.approachPose);
   const use=interactionWorldPoint(object,asset,descriptor.usePose);
   if(Math.abs(approach.x)>99.8||Math.abs(approach.z)>99.8||
@@ -220,7 +262,7 @@ export class MatrixWorld {
     const anchors=this.availableAnchors();
     const context=this.spatial?{mode:'ar',state:this.spatial.originUnavailable||this.spatial.stale?'missing':'ready',message:this.spatial.originUnavailable?'Saved room origin is unavailable. The old world is hidden and editing is paused until it is restored or explicitly archived for a new room.':this.spatial.stale?'A plane holding a scene object is no longer tracked; keep the scene for recovery and recheck the room.':this.spatial.anchors.length?`${this.spatial.anchors.length} WebXR room plane(s) detected. Virtual-floor objects remain visible as unanchored previews.`:'Waiting for Quest room planes. Virtual-floor objects remain visible as unanchored previews.',alignmentVerified:this.spatial.alignmentVerified&&!this.spatial.originUnavailable}
       :{mode:'white-room',state:'ready',message:'Browser virtual floor; physical room alignment is not verified.',alignmentVerified:false};
-    const snapshot={scene:clone(this.scene),assets:clone([...ASSETS,proceduralAsset,...this.externalAssets].map(({assetId,displayName,description,spawnScale,localBounds,geometry,interactions,sha256})=>({assetId,displayName,description,spawnScale,...(localBounds?{localBounds}:{}),...(interactions?{interactions}:{}),...(sha256?{sha256}:{}),...(geometry?.animationClips?{animationClips:geometry.animationClips.map(clip=>clip.name)}:{})}))),anchors:clone(anchors),selection:clone(this.selection),behaviorKinds:['rotate','bob'],componentSchemaVersion:1,animationSchemaVersion:1,physicsSchemaVersion:1,interactionSchemaVersion:1,physicsStates:this.physicsStates(),rigidSchemaVersion:1,rigidGravity:clone(this.rigidGravity),rigidStates:this.rigidPhysics?.states().filter(state=>this.scene.objects.some(item=>item.objectId===state.objectId))||[],entityActionSchemaVersion:1,agentGrab:clone(this.agentGrab),proceduralGenerators:listProceduralGenerators(),creatorMode:clone(this.creatorMode),game:clone(this.game),gameStatus:this.game?{phase:this.game.state.phase,score:this.game.state.score,objectiveProgress:clone(this.game.state.objectiveProgress),unlockedObjectIds:clone(this.game.state.unlockedObjectIds||[])}:null,roomContext:context,runtimeDescriptor:{schemaVersion:1,client:'matrix-web',renderer:'threejs-webxr',presentation:this.runtimePresentation}};
+    const snapshot={scene:clone(this.scene),assets:clone([...ASSETS,proceduralAsset,...this.externalAssets].map(({assetId,displayName,description,spawnScale,localBounds,geometry,interactions,sha256})=>({assetId,displayName,description,spawnScale,...(localBounds?{localBounds}:{}),...(interactions?{interactions}:{}),...(sha256?{sha256}:{}),...(geometry?.animationClips?{animationClips:geometry.animationClips.map(clip=>clip.name)}:{})}))),anchors:clone(anchors),selection:clone(this.selection),behaviorKinds:['rotate','bob'],componentSchemaVersion:1,animationSchemaVersion:1,physicsSchemaVersion:1,interactionSchemaVersion:2,physicsStates:this.physicsStates(),rigidSchemaVersion:1,rigidGravity:clone(this.rigidGravity),rigidStates:this.rigidPhysics?.states().filter(state=>this.scene.objects.some(item=>item.objectId===state.objectId))||[],entityActionSchemaVersion:1,agentGrab:clone(this.agentGrab),proceduralGenerators:listProceduralGenerators(),creatorMode:clone(this.creatorMode),game:clone(this.game),gameStatus:this.game?{phase:this.game.state.phase,score:this.game.state.score,objectiveProgress:clone(this.game.state.objectiveProgress),unlockedObjectIds:clone(this.game.state.unlockedObjectIds||[])}:null,roomContext:context,runtimeDescriptor:{schemaVersion:1,client:'matrix-web',renderer:'threejs-webxr',presentation:this.runtimePresentation}};
     // The PC-local exchange uses this persisted state as an exact switch guard.
     // Agent-facing summaries must omit it; authoredGeneration alone does not
     // cover Citizens clock, appointment, or pause progress.
@@ -846,6 +888,16 @@ export class MatrixWorld {
              JSON.stringify(recipe?.dependencies)!==JSON.stringify(object.procedural.dependencies))
             throw Error('Changing a procedural implementation needs an explicit migration');
           generateProcedural(recipe); // Keep the last valid geometry on failure.
+          if(object.interaction){
+            const station=this.citizens?.stations?.find(item=>
+              item.objectId===object.objectId);
+            if(station&&(!this.citizens.paused||station.claim||
+                station.waiters?.length||this.citizens.residents?.some(resident=>
+                  resident.activity?.stationId===station.id)))
+              throw Error('Pause Citizens and release this station before revising it');
+            assertInteractionTarget({...object,procedural:recipe},
+              this.asset(object.assetId),object.interaction);
+          }
           rigidMutationStarted=true;
           object.procedural=recipe;result.objectId=object.objectId;
           break;}
@@ -940,7 +992,8 @@ export class MatrixWorld {
                  interactionSignature(object.interaction))
             throw Error('Interaction definition changed since it was reviewed');
           assertInteractionTarget(object,this.asset(object.assetId),command.interaction);
-          if(!this.renderedAssetVerified(object))
+          if(command.interaction.schemaVersion===1&&
+             !this.renderedAssetVerified(object))
             throw Error('Interaction authoring waits for the verified rendered GLB');
           object.interaction=clone(command.interaction);
           result.objectId=object.objectId;break;
@@ -963,7 +1016,8 @@ export class MatrixWorld {
             const authoredPose=authored?assertInteractionTarget(target,
               this.asset(target.assetId),target.interaction):null;
             if(authored){
-              if(!this.renderedAssetVerified(target))
+              if(target.interaction.schemaVersion===1&&
+                 !this.renderedAssetVerified(target))
                 throw Error('Interaction target awaits its verified rendered GLB');
               if(command.interactionId!==target.interaction.interactionId||
                  !validInteractionDescriptor(command.expectedInteraction)||
@@ -1021,6 +1075,11 @@ export class MatrixWorld {
               const uncertainPose=Math.abs(transform.rotation.x)>.01||
                 Math.abs(transform.rotation.z)>.01;
               const dynamic=moving(item)||uncertainPose||!!item.animation?.loopClip;
+              // MatrixView recenters imported GLBs at the object transform;
+              // only built-in and procedural bounds retain their local offset.
+              const footprintCenter=bounds&&!dynamic&&!asset?.url?
+                interactionWorldPoint(item,asset,{x:bounds.center.x,z:bounds.center.z}):
+                transform.position;
               const verifiedGlb=!asset?.url||this.renderedAssetVerified(item);
               // Loaded GLBs are recentered by MatrixView and verified at <=20 m
               // per model axis. Unknown bounds can therefore matter only near
@@ -1041,7 +1100,7 @@ export class MatrixWorld {
               const unboundedMotion=componentOutputs&&
                 ['position.x','position.z','scale.x','scale.z'].some(
                   channel=>Object.hasOwn(componentOutputs,channel));
-              if(!unboundedMotion&&distanceToUseLine(transform.position)>radius+1e-9)
+              if(!unboundedMotion&&distanceToUseLine(footprintCenter)>radius+1e-9)
                 continue;
               if(item.anchorId!==ANCHOR_ID||dynamic||
                  !bounds||Math.abs(transform.position.y)>.05||
@@ -1049,7 +1108,7 @@ export class MatrixWorld {
                 throw Error('Interaction clearance is unavailable for moving or unmeasured geometry');
               const yaw=-transform.rotation.y*Math.PI/180;
               blockers.push({id:item.objectId,
-                cx:transform.position.x,cz:transform.position.z,
+                cx:footprintCenter.x,cz:footprintCenter.z,
                 halfX:bounds.size.x*transform.scale.x*scale/2,
                 halfZ:bounds.size.z*transform.scale.z*scale/2,
                 yawRadians:yaw});

@@ -1574,9 +1574,10 @@ test('selected chair residents detour around an authored wall before an observed
   assert.equal(sim.snapshot().stations[0].objectId,chairId);
 });
 
-test('Citizens waits for the exact imported obstacle to be measured before routing',()=>{
+test('Citizens routes around the recentered imported obstacle after exact measurement',()=>{
   const matrix=world();
-  const asset=registeredObstacle();
+  const asset={...registeredObstacle(),localBounds:{
+    center:{x:10,y:.5,z:0},size:{x:1,y:1,z:1}}};
   matrix.registerAssets([asset]);
   const chairId=spawn(matrix,'chair',pose(0,0));
   const obstacleId=spawn(matrix,asset.assetId,pose(-.9,0));
@@ -1727,7 +1728,7 @@ test('selected furniture readiness rejects unsupported, moving and unknown scene
   const chairId=spawn(matrix,'chair',pose(0,0));
   const wallId=spawn(matrix,'wall',pose(4,0));
   const authored=structuredClone(matrix.scene);
-  assert.match(citizensFurnitureReadiness(matrix,''),/Select an existing chair/);
+  assert.match(citizensFurnitureReadiness(matrix,''),/Select an existing station/);
   assert.match(citizensFurnitureReadiness(matrix,wallId),/registered GLB with a reviewed interaction/);
   matrix.game={active:true};
   assert.match(citizensFurnitureReadiness(matrix,chairId),/active game/);

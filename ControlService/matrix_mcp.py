@@ -523,13 +523,13 @@ def matrix_physics_status(request_id: str) -> dict:
                                          idempotentHint=False, openWorldHint=False))
 def matrix_set_interaction(room_id: str, scene_revision: int, object_id: str,
                            expected_asset_id: str, interaction: dict) -> dict:
-    """Author a rest or eat affordance on one registered static Matrix Web GLB.
+    """Author a reviewed rest or eat affordance on one static Matrix object.
 
-    Read matrix_scene_summary and matrix_list_assets first. The descriptor must
-    name the exact installed asset SHA and use local floor X/Z poses. The PC
-    checks geometry and asset bytes; the browser checks rendered bounds. Native
-    approval reviews the bounded effect. Check matrix_interaction_status:
-    queued or unconfirmed does not mean the world changed.
+    Read matrix_scene_summary first. V1 names a registered GLB asset SHA;
+    V2 names the exact curved-bench procedural generator source. Both use local
+    floor X/Z poses and a bounded effect. The PC checks the matching GLB bytes
+    or reviewed bench geometry. Native approval reviews the effect. Check
+    matrix_interaction_status: queued or unconfirmed is not applied.
     """
     return interaction_action(os.environ["MATRIX_CONTROL_URL"],
                               os.environ["MATRIX_CONTROL_TOKEN"],
@@ -543,7 +543,7 @@ def matrix_set_interaction(room_id: str, scene_revision: int, object_id: str,
                                          idempotentHint=False, openWorldHint=False))
 def matrix_remove_interaction(room_id: str, scene_revision: int, object_id: str,
                               expected_asset_id: str) -> dict:
-    """Remove one saved GLB affordance, including when its catalog is stale."""
+    """Remove one saved GLB or procedural affordance."""
     return interaction_action(os.environ["MATRIX_CONTROL_URL"],
                               os.environ["MATRIX_CONTROL_TOKEN"],
                               {"action": "remove", "room_id": room_id,

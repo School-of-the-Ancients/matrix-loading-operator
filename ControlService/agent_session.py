@@ -500,8 +500,9 @@ def _mcp_approval_description(params: dict) -> tuple[str, bool]:
                 all(isinstance(arguments[key], str) and
                     re.fullmatch(r"[A-Za-z0-9._:-]{1,128}", arguments[key])
                     for key in ("object_id", "expected_asset_id")) and
-                re.fullmatch(r"web:[a-z0-9][a-z0-9-]{0,39}:[0-9a-f]{12}",
-                             arguments["expected_asset_id"])):
+                (arguments["expected_asset_id"] == "matrix:procedural" or
+                 re.fullmatch(r"web:[a-z0-9][a-z0-9-]{0,39}:[0-9a-f]{12}",
+                              arguments["expected_asset_id"]))):
             if setting:
                 # The module is already loaded by the time native approval is
                 # requested; reuse its exact descriptor contract here.
@@ -510,8 +511,18 @@ def _mcp_approval_description(params: dict) -> tuple[str, bool]:
                     descriptor = interaction_descriptor(arguments["interaction"])
                 except (APIError, TypeError, KeyError):
                     descriptor = None
-                if descriptor is not None:
+                if descriptor is not None and (
+                        descriptor["schemaVersion"] == 1 and
+                        arguments["expected_asset_id"].startswith("web:") or
+                        descriptor["schemaVersion"] == 2 and
+                        arguments["expected_asset_id"] == "matrix:procedural"):
                     approach, use = descriptor["approachPose"], descriptor["usePose"]
+                    source = (f"asset SHA {descriptor['assetSha256'][:12]}…" if
+                              descriptor["schemaVersion"] == 1 else
+                              "generator " + ":".join((
+                                  descriptor["proceduralSource"]["generatorId"] + "@" +
+                                  descriptor["proceduralSource"]["generatorVersion"],
+                                  descriptor["proceduralSource"]["sourceRevision"])))
                     summary = (f"Set {descriptor['kind']} {descriptor['interactionId']} on "
                                f"{arguments['object_id']} ({arguments['expected_asset_id']}) "
                                f"at revision {arguments['scene_revision']}: "
@@ -519,7 +530,16 @@ def _mcp_approval_description(params: dict) -> tuple[str, bool]:
                                f"in {descriptor['durationTicks']} ticks; approach "
                                f"({approach['x']},{approach['z']}), use ({use['x']},{use['z']}), "
                                f"range {descriptor['rangeMeters']} m; "
-                               f"asset SHA {descriptor['assetSha256'][:12]}…")
+                               f"{source}")
+                    if descriptor["schemaVersion"] == 2:
+                        summary = (f"Set {descriptor['kind']} {descriptor['interactionId']} on "
+                                   f"{arguments['object_id']} ({arguments['expected_asset_id']}) "
+                                   f"at revision {arguments['scene_revision']}: "
+                                   f"{descriptor['effect']['need']} +{descriptor['effect']['delta']}"
+                                   f"/{descriptor['durationTicks']} ticks; approach "
+                                   f"({approach['x']},{approach['z']}), use "
+                                   f"({use['x']},{use['z']}), range "
+                                   f"{descriptor['rangeMeters']} m; {source}")
                     if len(summary) <= MAX_XR_APPROVAL_SUMMARY:
                         return summary, True
             else:

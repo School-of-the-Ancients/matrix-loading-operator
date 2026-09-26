@@ -2,7 +2,7 @@
 
 The browser owns the reviewed generator implementation. This PC boundary pins
 the advertised version and bounded parameter schema without executing scene
-data or knowing object-specific generator names.
+data. Interactable procedural sources also need a reviewed PC bounds contract.
 """
 from __future__ import annotations
 
@@ -21,6 +21,14 @@ RECIPE_KEYS = {"schemaVersion", "generatorId", "generatorVersion",
                "sourceRevision", "parameters", "seed", "dependencies"}
 METADATA_KEYS = {"generatorId", "generatorVersion", "sourceRevision",
                  "description", "parameterSchema", "dependencies"}
+
+CURVED_BENCH_PARAMETERS = {
+    "lengthMeters": {"type": "number", "default": 1.8, "min": .8, "max": 3},
+    "depthMeters": {"type": "number", "default": .5, "min": .3, "max": .8},
+    "seatHeightMeters": {"type": "number", "default": .46, "min": .35, "max": .7},
+    "backHeightMeters": {"type": "number", "default": .45, "min": .25, "max": .8},
+    "arcDegrees": {"type": "number", "default": 75, "min": 30, "max": 120},
+}
 
 
 def _fail(message):
@@ -117,6 +125,28 @@ def available_recipe(value, catalog):
         elif type(item) is not bool:
             _fail(f"Invalid procedural parameter: {key}")
     return value
+
+
+def interaction_bounds(value, catalog):
+    """Return the measured curved-bench-v1 box; other sources need review."""
+    available_recipe(value, catalog)
+    if (value["generatorId"], value["generatorVersion"],
+            value["sourceRevision"]) != ("curved-bench", "1.0.0", "curved-bench-v1"):
+        _fail("Procedural interaction source has no reviewed PC bounds contract")
+    entry = next(item for item in catalog if item["generatorId"] == "curved-bench")
+    if entry["parameterSchema"] != CURVED_BENCH_PARAMETERS:
+        _fail("Curved bench generator parameters differ from reviewed PC bounds")
+    p = value["parameters"]
+    half_angle = math.radians(p["arcDegrees"]) / 2
+    radius = p["lengthMeters"] / (2 * math.sin(half_angle))
+    depth = p["depthMeters"]
+    half_x = (radius + depth / 2 + .015) * math.sin(half_angle)
+    z_min = -(depth / 2) * math.cos(half_angle)
+    z_max = radius * (1 - math.cos(half_angle)) + depth / 2 + .015
+    return {"center": {"x": 0, "y": (p["seatHeightMeters"] + p["backHeightMeters"]) / 2,
+                       "z": (z_min + z_max) / 2},
+            "size": {"x": 2 * half_x, "y": p["seatHeightMeters"] + p["backHeightMeters"],
+                     "z": z_max - z_min}}
 
 
 def new_recipe(catalog, generator_id, parameters=None):

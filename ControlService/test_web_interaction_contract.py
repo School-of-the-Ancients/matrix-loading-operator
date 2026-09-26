@@ -64,6 +64,11 @@ class WebInteractionContractTests(unittest.TestCase):
         self.assertEqual(scene({"schemaVersion": 1, "roomId": "web-virtual-room-v1",
                                 "objects": [authored]})["objects"][0]["interaction"],
                          self.interaction)
+        upgraded = copy.deepcopy(self.current)
+        upgraded["interactionSchemaVersion"] = 2
+        upgraded["scene"]["objects"] = [authored]
+        self.assertEqual(snapshot(upgraded)["scene"]["objects"][0]["interaction"],
+                         self.interaction)
         for bad in (
                 {**self.interaction, "extra": "code"},
                 {**self.interaction, "schemaVersion": True},
@@ -145,6 +150,21 @@ class WebInteractionContractTests(unittest.TestCase):
                              "results": []})
         with self.assertRaisesRegex(APIError, "metadata is stale"):
             self.state.queue([op])
+
+    def test_queue_rejects_rigid_body_interaction_target(self):
+        for body_type in ("static", "dynamic"):
+            with self.subTest(body_type=body_type):
+                present = copy.deepcopy(self.current)
+                present["rigidSchemaVersion"] = 1
+                present["scene"]["objects"][0]["rigidBody"] = {
+                    "schemaVersion": 1, "type": body_type, "collider": "bounds-box",
+                    "restitution": 0, "friction": .5, "sensor": False}
+                self.state.exchange({"clientId": "web-interaction-test", "snapshot": present,
+                                     "results": []})
+                with self.assertRaisesRegex(APIError, "matching static registered Web GLB"):
+                    self.state.queue([{"op": "set_interaction", "objectId": "seat-1",
+                                       "interaction": self.interaction}])
+                self.assertFalse(self.state.pending)
 
     def test_stale_descriptor_survives_exchange_for_cleanup_but_not_new_set(self):
         present = copy.deepcopy(self.current)
