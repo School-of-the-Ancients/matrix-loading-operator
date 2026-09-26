@@ -49,13 +49,15 @@ import scale_experiment
 MAX_BODY = 1024 * 1024
 MAX_EXCHANGE_BODY = 3 * 1024 * 1024  # two bounded snapshots plus a base64 JPEG
 MAX_OBJECTS = 100
+MAX_PHYSICS_BODIES = 16
 MAX_PENDING = 64
 MAX_BATCH = 20
 LEASE_SECONDS = 15
 NAME = re.compile(r"[A-Za-z0-9][A-Za-z0-9 _-]{0,63}\Z")
 OPS = {"spawn", "set_transform", "select", "duplicate", "delete", "undo", "redo", "clear", "load",
        "get_scene", "list_assets", "list_targets", "confirm_room", "set_behavior", "remove_behavior",
-       "attach_component", "stop_component", "remove_component", "bind_animation"}
+       "attach_component", "stop_component", "remove_component", "bind_animation",
+       "set_physics", "remove_physics"}
 
 
 class APIError(Exception):
@@ -128,6 +130,22 @@ def animation_binding(value, *, allow_empty=False):
     return result
 
 
+def physics_config(value):
+    require(type(value) is dict and set(value) ==
+            {"schemaVersion", "kind", "collider", "restitution"}, "Invalid physics configuration")
+    require(type(value["schemaVersion"]) is int and value["schemaVersion"] == 1 and
+            value["kind"] == "gravity-floor" and
+            value["collider"] in ("rendered-bounds-box", "catalog-bounds-box"),
+            "Unsupported physics configuration")
+    restitution = value["restitution"]
+    require(type(restitution) in (int, float) and math.isfinite(restitution) and
+            0 <= restitution <= .75, "Physics restitution must be 0-0.75")
+    # Existing schema-1 saves used the catalog name for the same renderer-aligned
+    # floor proxy. Canonicalize it as scenes and snapshots pass through here.
+    return {"schemaVersion": 1, "kind": "gravity-floor", "collider": "rendered-bounds-box",
+            "restitution": restitution}
+
+
 def scene(value):
     require(isinstance(value, dict), "Invalid scene")
     require(type(value.get("schemaVersion")) is int and value["schemaVersion"] == 1,
@@ -162,6 +180,19 @@ def scene(value):
             normalized[-1]["component"] = copy.deepcopy(item["component"])
         if "animation" in item:
             normalized[-1]["animation"] = animation_binding(item["animation"])
+        if "physics" in item:
+            normalized[-1]["physics"] = physics_config(item["physics"])
+            authored = normalized[-1]
+            pose = authored["transform"]
+            require(authored["anchorId"] == "web-floor" and
+                    abs(pose["rotation"]["x"]) <= .01 and
+                    abs(pose["rotation"]["z"]) <= .01 and
+                    0 <= pose["position"]["y"] <= 5 and
+                    "component" not in authored and
+                    not any(behavior["enabled"] for behavior in authored.get("behaviors", [])),
+                    "Physics requires an upright virtual-floor object without another motion writer")
+    require(sum("physics" in item for item in normalized) <= MAX_PHYSICS_BODIES,
+            "Scene physics body limit reached")
     for item in normalized:
         component = item.get("component")
         if component:
@@ -173,6 +204,48 @@ def scene(value):
                      target is None and component["status"] == "failed"),
                     "Invalid component target")
     return {"schemaVersion": 1, "roomId": room, "objects": normalized}
+
+
+def physics_states(value, authored_scene):
+    require(type(value) is list and len(value) <= MAX_PHYSICS_BODIES,
+            "Invalid physics states")
+    configured = {item["objectId"] for item in authored_scene["objects"] if "physics" in item}
+    result, seen = [], set()
+    for item in value:
+        require(type(item) is dict and set(item) ==
+                {"objectId", "executionId", "status", "position", "verticalVelocityMps",
+                 "contactCount", "lastContact"}, "Invalid physics state")
+        object_id = text(item["objectId"], "physics objectId")
+        execution_id = text(item["executionId"], "physics executionId")
+        require(object_id in configured and object_id not in seen, "Unknown or duplicate physics objectId")
+        seen.add(object_id)
+        require(item["status"] in ("falling", "settled", "paused"), "Invalid physics status")
+        position = item["position"]
+        require(type(position) is dict and set(position) == {"x", "y", "z"},
+                "Invalid physics position")
+        position = vector(position, "position")
+        velocity = item["verticalVelocityMps"]
+        require(type(velocity) in (int, float) and math.isfinite(velocity) and -50 <= velocity <= 50,
+                "Invalid physics velocity")
+        count = item["contactCount"]
+        require(type(count) is int and 0 <= count <= 1000, "Invalid physics contact count")
+        contact = item["lastContact"]
+        if contact is None:
+            require(count == 0, "Missing physics contact")
+        else:
+            require(type(contact) is dict and set(contact) ==
+                    {"index", "surface", "impactSpeedMps", "approximate"},
+                    "Invalid physics contact")
+            speed = contact["impactSpeedMps"]
+            require(type(contact["index"]) is int and contact["index"] == count and count > 0 and
+                    contact["surface"] == "web-floor" and contact["approximate"] is True and
+                    type(speed) in (int, float) and math.isfinite(speed) and 0 <= speed <= 50,
+                    "Invalid physics contact")
+        result.append({"objectId": object_id, "executionId": execution_id,
+                       "status": item["status"], "position": position,
+                       "verticalVelocityMps": velocity, "contactCount": count,
+                       "lastContact": copy.deepcopy(contact)})
+    return result
 
 
 def catalog(value, key, limit):
@@ -250,12 +323,19 @@ def snapshot(value):
             require(type(value["animationSchemaVersion"]) is int and value["animationSchemaVersion"] == 1,
                     "Unsupported animation schema")
             result["animationSchemaVersion"] = 1
+        if value.get("physicsSchemaVersion") is not None:
+            require(type(value["physicsSchemaVersion"]) is int and value["physicsSchemaVersion"] == 1,
+                    "Unsupported physics schema")
+            result["physicsSchemaVersion"] = 1
         require(result.get("componentSchemaVersion") == 1 or
                 not any("component" in item for item in result["scene"]["objects"]),
                 "Scene components require the WebXR component runtime")
         require(result.get("animationSchemaVersion") == 1 or
                 not any("animation" in item for item in result["scene"]["objects"]),
                 "Scene animation bindings require the WebXR runtime")
+        require(result.get("physicsSchemaVersion") == 1 or
+                not any("physics" in item for item in result["scene"]["objects"]),
+                "Scene physics requires the WebXR physics runtime")
         for item in result["scene"]["objects"]:
             if "animation" not in item:
                 continue
@@ -264,6 +344,12 @@ def snapshot(value):
                     all(not clip or clip in asset.get("animationClips", [])
                         for clip in item["animation"].values()),
                     "Scene animation clip is unavailable")
+        for item in result["scene"]["objects"]:
+            if "physics" not in item:
+                continue
+            asset = next((asset for asset in result["assets"] if asset["assetId"] == item["assetId"]), None)
+            require(item["assetId"].startswith("web:") and asset is not None,
+                    "Physics requires a registered Web GLB")
         viewer = validate_viewer(value.get("viewer"), {a["anchorId"] for a in result["anchors"]})
         pointing = validate_pointing(value.get("pointing"),
                                      {a["anchorId"]: a for a in result["anchors"]},
@@ -277,6 +363,13 @@ def snapshot(value):
         result["pointing"] = pointing
     if room is not None:
         result["roomContext"] = room
+    if "physicsStates" in value:
+        require(result.get("physicsSchemaVersion") == 1,
+                "Physics observations require the WebXR physics runtime")
+        states = physics_states(value["physicsStates"], result["scene"])
+        require(not states or room is not None and room["mode"] == "white-room" and
+                room["state"] == "ready", "Physics observations require the ready White Room")
+        result["physicsStates"] = states
     read_only = value.get("readOnly", False)
     require(type(read_only) is bool, "Invalid readOnly marker")
     if read_only:
@@ -290,7 +383,7 @@ def scene_revision_data(value):
     # Voice captures head/controller pose at recording start. Movement isn't a scene edit.
     if value is None:
         return None
-    result = {key: item for key, item in value.items() if key not in ("viewer", "pointing")}
+    result = {key: item for key, item in value.items() if key not in ("viewer", "pointing", "physicsStates")}
     # Browser planes refine their poses and polygons while the wearer moves. Their
     # session-local IDs identify the same targets; the browser checks current fit
     # again when it executes a command. Do not stale a proposal for pose jitter.
@@ -313,6 +406,7 @@ def command(value):
                 "attach_component": {"objectId", "componentId", "package", "targetObjectId"},
                 "stop_component": {"objectId"}, "remove_component": {"objectId"},
                 "bind_animation": {"objectId", "loopClip", "selectClip"},
+                "set_physics": {"objectId", "physics"}, "remove_physics": {"objectId"},
                 "select": {"objectId"}, "duplicate": {"objectId"}, "delete": {"objectId"},
                 "load": {"scene"}}.get(op, set())
     allowed |= required
@@ -338,6 +432,8 @@ def command(value):
             result["behavior"] = validate_behavior(value["behavior"])
         except PlannerError as error:
             raise APIError(400, str(error)) from None
+    if "physics" in value:
+        result["physics"] = physics_config(value["physics"])
     if "behaviorKind" in value:
         require(isinstance(value["behaviorKind"], str) and value["behaviorKind"] in ("rotate", "bob", "all"),
                 "Unknown behavior kind")
@@ -526,7 +622,34 @@ def virtual_floor_command(snapshot, item):
         return (other is not None and other["anchorId"] == "web-floor" and
                 other["objectId"] != target["objectId"])
     return item["op"] in {"duplicate", "set_behavior", "remove_behavior",
-                          "stop_component", "remove_component", "bind_animation", "delete"}
+                          "stop_component", "remove_component", "bind_animation",
+                          "remove_physics", "delete"}
+
+
+def require_physics_eligible(obj, assets, registered_assets, pose=None):
+    """Check the current Web GLB and authored pose before a floor-solver command."""
+    require(obj is not None and obj["anchorId"] == "web-floor" and
+            obj["assetId"].startswith("web:") and "component" not in obj and
+            not any(behavior["enabled"] for behavior in obj.get("behaviors", [])),
+            "Physics requires a virtual-floor Web GLB without a competing transform writer", 409)
+    asset = next((asset for asset in assets if asset["assetId"] == obj["assetId"]), None)
+    registered = next((asset for asset in registered_assets
+                       if asset["assetId"] == obj["assetId"]), None)
+    digest = registered.get("sha256") if registered else None
+    require(asset is not None and registered is not None and
+            isinstance(digest, str) and re.fullmatch(r"[0-9a-f]{64}", digest) and
+            re.fullmatch(r"web:[a-z0-9][a-z0-9-]{0,39}:[0-9a-f]{12}", obj["assetId"]) and
+            obj["assetId"].endswith(":" + digest[:12]) and
+            registered.get("url") == f"/api/web/assets/{digest}.glb" and
+            asset.get("spawnScale", 1) == registered.get("spawnScale", 1),
+            "Physics requires the current registered GLB identity and scale", 409)
+    transform_value = obj["transform"] if pose is None else pose
+    require(abs(transform_value["rotation"]["x"]) <= .01 and
+            abs(transform_value["rotation"]["z"]) <= .01 and
+            0 <= transform_value["position"]["y"] <= 5,
+            "Physics needs an upright start 0-5 metres above the virtual floor", 409)
+    # GLB loading subtracts its rendered bounds.min.y, so root-local Y=0 is
+    # the model bottom even when the raw export pivot starts elsewhere.
 
 
 class State:
@@ -552,6 +675,7 @@ class State:
         self.agent_spawn_ids = collections.OrderedDict()
         self.agent_animation_ids = collections.OrderedDict()
         self.agent_component_ids = collections.OrderedDict()
+        self.agent_physics_ids = collections.OrderedDict()
         self.agent_scale_session_id = None
         self.client_pairing_enabled = False
         self.revision = 0
@@ -869,6 +993,15 @@ class State:
         require(isinstance(raw_commands, list) and 0 < len(raw_commands) <= MAX_BATCH,
                 f"Expected 1-{MAX_BATCH} commands")
         checked = [command(item) for item in raw_commands]
+        physics_targets = [item["objectId"] for item in checked
+                           if item["op"] in {"set_physics", "remove_physics"}]
+        if physics_targets:
+            require(len(set(physics_targets)) == len(physics_targets) and
+                    not any(item["op"] in {"load", "clear", "undo", "redo"} or
+                            item.get("objectId") in physics_targets and
+                            item["op"] not in {"set_physics", "remove_physics"}
+                            for item in checked),
+                    "Review conflicting physics and scene commands separately", 409)
         with self.lock:
             self.expire()
             require(not self.learning or not self.learning.restore, "Finish the pending lesson restore before editing", 409)
@@ -882,8 +1015,11 @@ class State:
                     require(bool(supported), "Connected player does not support behaviors; update the Quest app", 409)
                     kind = item["behavior"]["kind"] if item["op"] == "set_behavior" else item["behaviorKind"]
                     require(kind == "all" or kind in supported, "Connected player does not support this behavior", 409)
-                    require(item["objectId"] in {obj["objectId"] for obj in self.latest["scene"]["objects"]},
-                            "Behavior target object is unavailable", 409)
+                    behavior_target = next((obj for obj in self.latest["scene"]["objects"]
+                                            if obj["objectId"] == item["objectId"]), None)
+                    require(behavior_target is not None, "Behavior target object is unavailable", 409)
+                    require(item["op"] != "set_behavior" or "physics" not in behavior_target,
+                            "Remove physics before adding a visual behavior", 409)
                     if item["op"] == "set_behavior" and kind == "select_toggle":
                         target = next(obj for obj in self.latest["scene"]["objects"] if obj["objectId"] == item["objectId"])
                         asset = next((asset for asset in self.latest["assets"] if asset["assetId"] == target["assetId"]), None)
@@ -895,6 +1031,10 @@ class State:
                     require(web_virtual_floor_ready(self.latest),
                             "Components currently require a ready WebXR virtual floor", 409)
                     if item["op"] == "attach_component":
+                        component_target = next((obj for obj in self.latest["scene"]["objects"]
+                                                 if obj["objectId"] == item["objectId"]), None)
+                        require(component_target is not None and "physics" not in component_target,
+                                "Remove physics before attaching a component", 409)
                         try:
                             registered = self.web_components.get(item["componentId"])
                         except ComponentError as error:
@@ -915,6 +1055,34 @@ class State:
                     require(registered is not None and
                             all(not item[key] or item[key] in names for key in ("loopClip", "selectClip")),
                             "Requested GLB animation clip is unavailable", 409)
+                elif item["op"] in {"set_physics", "remove_physics"}:
+                    require(self.latest.get("physicsSchemaVersion") == 1,
+                            "Connected WebXR runtime does not support physics", 409)
+                    obj = next((obj for obj in self.latest["scene"]["objects"]
+                                if obj["objectId"] == item["objectId"]), None)
+                    require(obj is not None and obj["anchorId"] == "web-floor",
+                            "Physics target is unavailable on the virtual floor", 409)
+                    if item["op"] == "set_physics":
+                        require(room and room["mode"] == "white-room" and room["state"] == "ready",
+                                "Gravity-floor physics runs only in the ready White Room", 409)
+                        configured = sum("physics" in other for other in self.latest["scene"]["objects"])
+                        require("physics" in obj or configured < MAX_PHYSICS_BODIES,
+                                "Scene physics body limit reached", 409)
+                        require_physics_eligible(obj, self.latest["assets"], self.web_assets.list())
+                    else:
+                        require("physics" in obj, "Object has no physics configuration", 409)
+                elif item["op"] == "set_transform":
+                    obj = next((obj for obj in self.latest["scene"]["objects"]
+                                if obj["objectId"] == item["objectId"]), None)
+                    if obj is not None and "physics" in obj:
+                        require_physics_eligible(obj, self.latest["assets"], self.web_assets.list(),
+                                                 item["transform"])
+                elif item["op"] == "duplicate":
+                    obj = next((obj for obj in self.latest["scene"]["objects"]
+                                if obj["objectId"] == item["objectId"]), None)
+                    if obj is not None and "physics" in obj:
+                        require(sum("physics" in other for other in self.latest["scene"]["objects"]) <
+                                MAX_PHYSICS_BODIES, "Scene physics body limit reached", 409)
                 elif item["op"] == "load":
                     require(all(behavior["kind"] in supported for obj in item["scene"]["objects"]
                                 for behavior in obj.get("behaviors", [])),
@@ -925,6 +1093,13 @@ class State:
                     require(self.latest.get("animationSchemaVersion") == 1 or
                             not any("animation" in obj for obj in item["scene"]["objects"]),
                             "Saved animation bindings need the WebXR runtime; scene has not been loaded", 409)
+                    physics_objects = [obj for obj in item["scene"]["objects"] if "physics" in obj]
+                    require(self.latest.get("physicsSchemaVersion") == 1 or not physics_objects,
+                            "Saved physics needs the WebXR runtime; scene has not been loaded", 409)
+                    if physics_objects:
+                        registered = self.web_assets.list()
+                        for obj in physics_objects:
+                            require_physics_eligible(obj, self.latest["assets"], registered)
                 if self.latest.get("readOnly"):
                     require(item["op"] in {"clear", "get_scene", "list_assets", "list_targets"},
                             "Room changed. Save the retained poses, clear objects, then reload room data and verify outlines", 409)
@@ -935,6 +1110,25 @@ class State:
                     require(item["op"] in {"clear", "select", "get_scene", "list_assets", "list_targets"}
                             or virtual_floor_command(self.latest, item),
                             "Check the labeled outlines in the headset, then confirm room alignment on this panel", 409)
+            configured_ids = {obj["objectId"] for obj in self.latest["scene"]["objects"]
+                              if "physics" in obj}
+            projected_count = len(configured_ids)
+            for item in checked:
+                op, object_id = item["op"], item.get("objectId")
+                if op == "set_physics" and object_id not in configured_ids:
+                    configured_ids.add(object_id)
+                    projected_count += 1
+                elif op in {"remove_physics", "delete"} and object_id in configured_ids:
+                    configured_ids.remove(object_id)
+                    projected_count -= 1
+                elif op == "duplicate" and object_id in configured_ids:
+                    projected_count += 1
+                elif op == "load":
+                    configured_ids = {obj["objectId"] for obj in item["scene"]["objects"]
+                                      if "physics" in obj}
+                    projected_count = len(configured_ids)
+                require(projected_count <= MAX_PHYSICS_BODIES,
+                        "Scene physics body limit reached", 409)
             require(len(self.pending) + len(checked) <= MAX_PENDING, "Command queue full", 409)
             for item in checked:
                 item["requestId"] = uuid.uuid4().hex
@@ -1133,6 +1327,110 @@ class State:
                      and item["assetId"] == issued["assetId"]), None)
                 expected = issued["binding"] if any(issued["binding"].values()) else None
                 result["status"] = "succeeded" if observed and observed.get("animation") == expected else "unconfirmed"
+            return result
+
+    def agent_physics_action(self, value):
+        """Queue a bounded Web floor drop through the existing runtime receipt path."""
+        require(type(value) is dict and value.get("action") in ("set", "remove"),
+                "Invalid Matrix physics action")
+        action = value["action"]
+        required = {"action", "room_id", "scene_revision", "object_id", "expected_asset_id"}
+        if action == "set":
+            required.add("restitution")
+        require(set(value) == required, "Invalid Matrix physics action fields")
+        room_id = text(value["room_id"], "room_id")
+        object_id = text(value["object_id"], "object_id")
+        asset_id = text(value["expected_asset_id"], "expected_asset_id")
+        revision = value["scene_revision"]
+        require(type(revision) is int and revision >= 0, "Invalid scene revision")
+        if action == "set":
+            restitution = value["restitution"]
+            require(type(restitution) in (int, float) and math.isfinite(restitution) and
+                    0 <= restitution <= .75, "Restitution must be 0–0.75")
+            configuration = {"schemaVersion": 1, "kind": "gravity-floor",
+                             "collider": "rendered-bounds-box", "restitution": restitution}
+        else:
+            configuration = None
+        with self.lock:
+            self.expire()
+            require(self.online() and self.latest is not None, self.room_unavailable_message(), 409)
+            current = self.latest
+            require(current["scene"]["roomId"] == room_id and self.revision == revision,
+                    "Matrix scene changed; inspect the current room and retry", 409)
+            require(room_id == "web-virtual-room-v1" and
+                    (current.get("roomContext") or {}).get("mode") == "white-room" and
+                    current.get("physicsSchemaVersion") == 1,
+                    "This physics tool requires the ready Matrix Web White Room", 409)
+            require(not current.get("readOnly") and not self.pending and not self.content.busy(),
+                    "Matrix world is not ready for a physics change", 409)
+            obj = next((item for item in current["scene"]["objects"]
+                        if item["objectId"] == object_id), None)
+            require(obj is not None and obj["assetId"] == asset_id and
+                    obj["anchorId"] == "web-floor" and asset_id.startswith("web:"),
+                    "Physics object is no longer available on the virtual floor", 409)
+            if action == "set":
+                registry = self.web_assets.list()
+                require_physics_eligible(obj, current["assets"], registry)
+                registered = next(asset for asset in registry if asset["assetId"] == asset_id)
+                try:
+                    self.web_assets.file(registered["sha256"])
+                except WebAssetError as error:
+                    raise APIError(409, str(error)) from None
+                require(sum("physics" in item for item in current["scene"]["objects"]
+                            if item["objectId"] != object_id) < 16,
+                        "Floor physics body limit reached", 409)
+                command_value = {"op": "set_physics", "objectId": object_id,
+                                 "physics": configuration}
+            else:
+                require("physics" in obj, "Object has no physics to remove", 409)
+                command_value = {"op": "remove_physics", "objectId": object_id}
+            queued = self.queue([command_value])["commands"][0]
+            request_id = queued["requestId"]
+            self.agent_physics_ids[request_id] = {"action": action, "roomId": room_id,
+                                                  "objectId": object_id, "assetId": asset_id,
+                                                  "physics": configuration}
+            while len(self.agent_physics_ids) > 64:
+                self.agent_physics_ids.popitem(last=False)
+            return self.agent_physics_status(request_id)
+
+    def agent_physics_status(self, request_id):
+        require(isinstance(request_id, str) and re.fullmatch(r"[0-9a-f]{32}", request_id),
+                "Invalid Matrix physics receipt ID")
+        with self.lock:
+            self.expire()
+            issued = self.agent_physics_ids.get(request_id)
+            require(issued is not None, "Matrix physics receipt is unavailable", 404)
+            receipt = next((item for item in reversed(self.results)
+                            if item["requestId"] == request_id), None)
+            result = {"requestId": request_id, "roomId": issued["roomId"],
+                      "objectId": issued["objectId"], "assetId": issued["assetId"],
+                      "action": issued["action"], "sceneRevision": self.revision}
+            if receipt is None:
+                result["status"] = "queued" if request_id in self.pending else "unconfirmed"
+            elif not receipt["ok"]:
+                result["status"] = "unconfirmed" if "outcome unknown" in receipt["error"] else "failed"
+                if result["status"] == "failed":
+                    result["error"] = receipt["error"][:200]
+            else:
+                current = self.latest
+                obj = (next((item for item in current["scene"]["objects"]
+                             if item["objectId"] == issued["objectId"] and
+                             item["assetId"] == issued["assetId"]), None)
+                       if current and current["scene"]["roomId"] == issued["roomId"] else None)
+                observed = (next((item for item in current.get("physicsStates", [])
+                                  if item["objectId"] == issued["objectId"] and
+                                  item["executionId"] == request_id), None)
+                            if current else None)
+                if issued["action"] == "set":
+                    result["status"] = ("succeeded" if obj and
+                                        obj.get("physics") == issued["physics"] and observed else "unconfirmed")
+                    if result["status"] == "succeeded":
+                        result["physicsState"] = copy.deepcopy(observed)
+                        result["contactObserved"] = bool(observed["contactCount"])
+                else:
+                    result["status"] = ("succeeded" if obj and "physics" not in obj and
+                                        not any(item["objectId"] == issued["objectId"]
+                                                for item in current.get("physicsStates", [])) else "unconfirmed")
             return result
 
     def agent_publish_component(self, value):
@@ -1471,6 +1769,7 @@ class State:
             saved = copy.deepcopy(self.latest)
             saved.pop("viewer", None)
             saved.pop("pointing", None)
+            saved.pop("physicsStates", None)  # Solver pose, velocity and contacts are transient.
             saved.pop("roomContext", None)
             saved.pop("readOnly", None)
             saved.pop("behaviorKinds", None)  # Capability belongs to the connected player, not the save.

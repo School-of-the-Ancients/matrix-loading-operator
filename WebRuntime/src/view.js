@@ -548,8 +548,11 @@ export class MatrixView {
     }
   }
   sync(){
+    if(this.grab)this.world.resumePhysics?.(this.grab.objectId);
+    if(this.pointerGrab)this.world.resumePhysics?.(this.pointerGrab.objectId);
     this.grab=null;this.pointerGrab=null;
     for(const root of this.objectRoots.values()){
+      this.world.invalidatePhysicsAsset?.(root.userData.objectId);
       stopAnimatedAsset(root.userData.mixer,root.userData.model);
       root.parent?.remove(root);disposeGroup(root);
     }
@@ -559,7 +562,10 @@ export class MatrixView {
     if(this.world.spatial)for(const anchor of this.world.spatial.anchors){const root=new THREE.Group();this.anchorPose(root,anchor);this.scene.add(root);this.anchorRoots.set(anchor.anchorId,root);}
     for(const object of this.world.scene.objects){
       if(!this.world.spatial&&object.anchorId!=='web-floor')continue;
-      const root=new THREE.Group();root.userData.objectId=object.objectId;root.position.copy(v3(object.transform.position));
+      const root=new THREE.Group();root.userData.objectId=object.objectId;
+      root.position.copy(v3(object.transform.position));
+      const physics=!this.isAR&&this.world.physicsState?.(object.objectId);
+      if(physics)root.position.y=physics.position.y;
       root.rotation.set(...['x','y','z'].map(k=>THREE.MathUtils.degToRad(object.transform.rotation[k])),'XYZ');
       root.scale.copy(v3(object.transform.scale));
       const asset=this.world.asset(object.assetId);
@@ -570,9 +576,22 @@ export class MatrixView {
       }
       visual.userData.objectId=object.objectId;root.add(visual);root.userData.visual=visual;root.userData.behaviors=object.behaviors||[];
       (this.anchorRoots.get(object.anchorId)||this.virtualFloorRoot).add(root);this.objectRoots.set(object.objectId,root);
-      if(asset.url){root.userData.assetLoading=true;this.loadExternal(asset,root,visual,object.objectId);}
+      if(asset.url){
+        this.world.invalidatePhysicsAsset?.(object.objectId);
+        root.userData.assetLoading=true;this.loadExternal(asset,root,visual,object.objectId);
+      }
     }
     this.highlight();
+  }
+  refreshAssets(changedAssetIds){
+    if(!changedAssetIds?.length)return false;
+    const changed=new Set(changedAssetIds);
+    for(const id of changed)this.modelCache.delete(id);
+    if(!this.world.scene.objects.some(object=>changed.has(object.assetId)))return false;
+    // Rebuild loaded instances against the new catalog metadata or GLB bytes.
+    // loadExternal() re-verifies the exact rendered object after instantiation.
+    this.sync();
+    return true;
   }
   async loadExternal(asset,root,visual,objectId){
     try{
@@ -589,7 +608,7 @@ export class MatrixView {
           validateRenderedFootprint(asset,size);
           const center=bounds.getCenter(new THREE.Vector3());scene.position.sub(new THREE.Vector3(center.x,bounds.min.y,center.z));
           scene.traverse(node=>{if(node.isMesh){node.castShadow=true;node.receiveShadow=true;}});
-          return {scene,animations:gltf.animations};
+          return {scene,animations:gltf.animations,measuredSize:{x:size.x,y:size.y,z:size.z}};
         });
         this.modelCache.set(asset.assetId,pending);
       }
@@ -602,7 +621,14 @@ export class MatrixView {
       for(const child of [...visual.children]){visual.remove(child);disposeGroup(child);}
       visual.add(model);root.userData.model=model;root.userData.mixer=mixer;
       root.userData.selectAnimation=select;root.userData.assetLoading=false;
-    }catch(error){root.userData.assetLoading=false;this.modelCache.delete(asset.assetId);this.onAssetError(`${asset.displayName}: ${error.message}`);}
+      // Model and its named clips must instantiate successfully before this
+      // exact object can take part in a floor drop.
+      this.world.verifyPhysicsAsset?.(asset.assetId,source.measuredSize,objectId);
+    }catch(error){
+      if(this.objectRoots.get(objectId)===root)this.world.invalidatePhysicsAsset?.(objectId,true);
+      root.userData.assetLoading=false;this.modelCache.delete(asset.assetId);
+      this.onAssetError(`${asset.displayName}: ${error.message}`);
+    }
   }
   highlight(){
     for(const [id,root] of this.objectRoots){
@@ -625,7 +651,10 @@ export class MatrixView {
       if(animation==='loading'){this.onAssetError('Animation is still loading; select again when the GLB appears.');return;}}
     if(id&&this.world.requireObject(id).component?.status==='running'){
       this.onAssetError('Stop this component before moving the object.');return;}
-    if(id){const grab=beginPointerGrab(this.raycaster,this.objectRoots.get(id));if(grab)this.pointerGrab={...grab,objectId:id,pointerId:event.pointerId,lastY:event.clientY,vertical:false};}
+    if(id){const grab=beginPointerGrab(this.raycaster,this.objectRoots.get(id));if(grab){
+      this.world.pausePhysics?.(id);
+      this.pointerGrab={...grab,objectId:id,pointerId:event.pointerId,lastY:event.clientY,vertical:false};
+    }}
   }
   pointerMove(event){
     if(!this.renderer.xr.isPresenting)this.rayFromPointer(event);
@@ -649,13 +678,14 @@ export class MatrixView {
     if(this.pointerLook?.pointerId===event.pointerId)this.pointerLook=null;
     if(this.pointerGrab?.pointerId!==event.pointerId)return;
     const grab=this.pointerGrab;this.pointerGrab=null;
-    if(this.objectRoots.get(grab.objectId)!==grab.root)return;
+    if(this.objectRoots.get(grab.objectId)!==grab.root){this.world.resumePhysics?.(grab.objectId);return;}
     const transform=finishPointerGrab(grab,this.world.requireObject(grab.objectId).transform);
     if(transform)this.commitMove(grab.objectId,transform);
+    else this.world.resumePhysics?.(grab.objectId);
   }
   cancelPointer(){
     this.pointerLook=null;
-    if(this.pointerGrab){this.pointerGrab=null;this.sync();}
+    if(this.pointerGrab){this.world.resumePhysics?.(this.pointerGrab.objectId);this.pointerGrab=null;this.sync();}
   }
   selectFromController(controller){
     if(this.grab)return;
@@ -685,15 +715,16 @@ export class MatrixView {
     }
     if(id&&this.world.requireObject(id).component?.status==='running'){
       this.onAssetError('Stop this component before moving the object.');return;}
-    if(id)this.grab={...beginGrab(controller,this.objectRoots.get(id)),objectId:id};
+    if(id){this.grab={...beginGrab(controller,this.objectRoots.get(id)),objectId:id};
+      this.world.pausePhysics?.(id);}
   }
   releaseGrab(controller){
     if(!this.grab||this.grab.controller!==controller)return;
     const grab=this.grab;this.grab=null;
-    if(this.objectRoots.get(grab.objectId)!==grab.root)return;
+    if(this.objectRoots.get(grab.objectId)!==grab.root){this.world.resumePhysics?.(grab.objectId);return;}
     const object=this.world.requireObject(grab.objectId);
     const transform=finishGrab(grab,object.transform);
-    if(!transform)return;
+    if(!transform){this.world.resumePhysics?.(grab.objectId);return;}
     this.commitMove(grab.objectId,transform);
   }
   releaseOperatorVoice(controller){
@@ -702,10 +733,11 @@ export class MatrixView {
   }
   commitMove(objectId,transform){
     if(this.world.spatial?.stale||this.world.spatial?.originUnavailable){
+      this.world.resumePhysics?.(objectId);
       this.sync();this.onAssetError('Room origin or tracking is unavailable; object movement was not saved.');return;
     }
     const result=this.world.execute({requestId:crypto.randomUUID(),op:'set_transform',objectId,transform});
-    if(!result.ok){this.sync();this.onAssetError(`Could not move object: ${result.error}`);return;}
+    if(!result.ok){this.world.resumePhysics?.(objectId);this.sync();this.onAssetError(`Could not move object: ${result.error}`);return;}
     this.world.setSelection(objectId,transform.position,this.world.requireObject(objectId).anchorId);
     this.onSceneEdit(objectId,transform.position);
   }
@@ -877,6 +909,7 @@ export class MatrixView {
     if(frame&&this.renderer.xr.isPresenting)this.onFrame();
     if(this.lastFrameTime!==null&&!this.renderer.xr.isPresenting)moveDesktopCamera(this.camera,this.keys,(time-this.lastFrameTime)/1000);
     this.lastFrameTime=time;
+    if(!this.isAR)this.world.advancePhysics?.(delta);
     if(frame&&this.renderer.xr.isPresenting){const ref=this.renderer.xr.getReferenceSpace();if(ref){this.xrViewer=viewerPose(frame,ref);this.positionOperatorPanel();this.updatePlanes(time,frame,ref);this.updateRoomAnchor(frame,ref);
       if(!this.isAR&&!this.virtualFloorCalibrated&&this.xrViewer&&this.measuredEyeHeight!==null){
         this.virtualFloorRoot.position.y=this.xrViewer.position.y-this.measuredEyeHeight;
@@ -918,6 +951,9 @@ export class MatrixView {
           }
         }
       }
+      const held=this.grab?.objectId===object.objectId||this.pointerGrab?.objectId===object.objectId;
+      const physics=!this.isAR&&this.world.physicsState?.(object.objectId);
+      if(physics&&!held&&component?.status!=='running')root.position.y=physics.position.y;
       const visual=root.userData.visual;visual.position.y=0;visual.rotation.set(0,0,0);
       for(const behavior of root.userData.behaviors){if(!behavior.enabled)continue;const t=behavior.paused?0:time/1000;
         if(behavior.kind==='bob')visual.position.y+=(1-Math.cos(2*Math.PI*behavior.frequencyHz*t))*.5*behavior.amplitudeMeters;

@@ -225,6 +225,31 @@ def _mcp_approval_description(params: dict) -> tuple[str, bool]:
                    f"loop={arguments['loop_clip']!r}, select={arguments['select_clip']!r}.")
         if len(summary) <= 200:
             return summary, True
+    physics_tool = params.get("message")
+    if physics_tool in (
+            'Allow the matrix_webxr MCP server to run tool "matrix_set_physics"?',
+            'Allow the matrix_webxr MCP server to run tool "matrix_remove_physics"?') and isinstance(arguments, dict):
+        setting = '"matrix_set_physics"' in physics_tool
+        required = {"room_id", "scene_revision", "object_id", "expected_asset_id"}
+        allowed = required | ({"restitution"} if setting else set())
+        restitution = arguments.get("restitution", .4)
+        if (required <= set(arguments) <= allowed and
+                type(arguments["scene_revision"]) is int and arguments["scene_revision"] >= 0 and
+                all(isinstance(arguments[key], str) and
+                    re.fullmatch(r"[A-Za-z0-9._:-]{1,128}", arguments[key])
+                    for key in ("room_id", "object_id")) and
+                arguments["room_id"] == "web-virtual-room-v1" and
+                isinstance(arguments["expected_asset_id"], str) and
+                re.fullmatch(r"web:[a-z0-9][a-z0-9-]{0,39}:[0-9a-f]{12}",
+                             arguments["expected_asset_id"]) and
+                (not setting or type(restitution) in (int, float) and
+                 math.isfinite(restitution) and 0 <= restitution <= .75)):
+            verb = (f"Start a virtual-floor gravity drop with restitution {restitution} on"
+                    if setting else "Stop floor physics and remove its saved setting from")
+            summary = (f"{verb} {arguments['expected_asset_id']} ({arguments['object_id']}) "
+                       f"in {arguments['room_id']} at revision {arguments['scene_revision']}.")
+            if len(summary) <= 230:
+                return summary, True
     for action in ("attach", "stop", "remove"):
         if params.get("message") != f'Allow the matrix_webxr MCP server to run tool "matrix_{action}_component"?':
             continue
@@ -320,6 +345,7 @@ class LocalCodexAgentBackend:
                                           "matrix_list_assets", "matrix_register_glb",
                                           "matrix_spawn_asset", "matrix_spawn_status",
                                           "matrix_bind_animation", "matrix_animation_status",
+                                          "matrix_set_physics", "matrix_remove_physics", "matrix_physics_status",
                                           "matrix_publish_component", "matrix_list_components",
                                           "matrix_attach_component", "matrix_stop_component",
                                           "matrix_remove_component", "matrix_component_status"],
@@ -331,7 +357,8 @@ class LocalCodexAgentBackend:
                 for name in ("matrix_move_object", "matrix_scale_block", "matrix_reset_block_scale",
                              "matrix_register_glb", "matrix_spawn_asset",
                              "matrix_bind_animation", "matrix_publish_component", "matrix_attach_component",
-                             "matrix_stop_component", "matrix_remove_component"):
+                             "matrix_stop_component", "matrix_remove_component",
+                             "matrix_set_physics", "matrix_remove_physics"):
                     command += ["-c", f'mcp_servers.matrix_webxr.tools.{name}.approval_mode="prompt"']
             environment = {"MATRIX_CONTROL_URL": matrix_bridge.url,
                            "MATRIX_CONTROL_TOKEN": matrix_bridge.token}

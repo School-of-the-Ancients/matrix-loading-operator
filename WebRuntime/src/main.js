@@ -268,7 +268,9 @@ $('agent-input').addEventListener('keydown',event=>{if(event.key==='Enter'&&(eve
 $('token').addEventListener('change',()=>{if(agentClient.sessionId)agentClient.restore().catch(()=>{});});
 async function refreshAssets(silent=false){
   try{
-    const data=await bridge.request('/api/web/assets');world.registerAssets(data.assets||[]);
+    const data=await bridge.request('/api/web/assets');
+    const changed=world.registerAssets(data.assets||[]);
+    view.refreshAssets(changed);
     $('asset-count').textContent=`${7+world.externalAssets.length} available`;
     if(pendingWorld){
       const restored=restoreBestStoredWorld(world,pendingWorld,localStorage);

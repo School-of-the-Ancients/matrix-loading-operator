@@ -78,6 +78,18 @@ def animation_status(url: str, token: str, request_id: str) -> dict:
     return _request_json(url[:-6] + "/animations/" + request_id, token)
 
 
+def physics_action(url: str, token: str, value: dict) -> dict:
+    if not url.endswith("/scene"):
+        raise ValueError("Invalid Matrix tool bridge URL")
+    return _request_json(url[:-6] + "/physics", token, value)
+
+
+def physics_status(url: str, token: str, request_id: str) -> dict:
+    if not url.endswith("/scene") or not re.fullmatch(r"[0-9a-f]{32}", request_id):
+        raise ValueError("Invalid Matrix physics receipt request")
+    return _request_json(url[:-6] + "/physics/" + request_id, token)
+
+
 def list_assets(url: str, token: str, offset: int = 0, limit: int = 24) -> dict:
     if not url.endswith("/scene"):
         raise ValueError("Invalid Matrix tool bridge URL")
@@ -142,9 +154,12 @@ def scene_summary(state) -> dict:
                 "objectCount": len(objects) if online else 0,
                 "componentSchemaVersion": snapshot.get("componentSchemaVersion") if online else None,
                 "animationSchemaVersion": snapshot.get("animationSchemaVersion") if online else None,
+                "physicsSchemaVersion": snapshot.get("physicsSchemaVersion") if online else None,
+                "physicsStates": snapshot.get("physicsStates", [])[:16] if online else [],
                 "objects": [{"objectId": item["objectId"], "assetId": item["assetId"],
                              "anchorId": item["anchorId"], "transform": item["transform"],
                              **({"animation": item["animation"]} if "animation" in item else {}),
+                             **({"physics": item["physics"]} if "physics" in item else {}),
                              **({"component": {"componentId": item["component"]["componentId"],
                                                 "targetObjectId": item["component"]["targetObjectId"],
                                                 "status": item["component"]["status"],
@@ -210,6 +225,12 @@ class _Handler(BaseHTTPRequestHandler):
             except Exception as error:
                 self._send_json(getattr(error, "status", 500),
                                 {"error": str(error) if hasattr(error, "status") else "Matrix tool failed"})
+        elif re.fullmatch(r"/physics/[0-9a-f]{32}", self.path):
+            try:
+                self._send_json(200, self.server.state.agent_physics_status(self.path.rsplit("/", 1)[1]))
+            except Exception as error:
+                self._send_json(getattr(error, "status", 500),
+                                {"error": str(error) if hasattr(error, "status") else "Matrix tool failed"})
         elif re.fullmatch(r"/component-actions/[0-9a-f]{32}", self.path):
             try:
                 self._send_json(200, self.server.state.agent_component_status(self.path.rsplit("/", 1)[1]))
@@ -249,7 +270,7 @@ class _Handler(BaseHTTPRequestHandler):
     def do_POST(self):
         if not self._authorized():
             return
-        if self.path not in ("/move", "/spawn", "/bind-animation", "/register-glb", "/publish-component", "/component-action", "/scale"):
+        if self.path not in ("/move", "/spawn", "/bind-animation", "/register-glb", "/publish-component", "/component-action", "/scale", "/physics"):
             self.send_error(404)
             return
         try:
@@ -272,6 +293,12 @@ class _Handler(BaseHTTPRequestHandler):
                 while result["status"] == "queued" and time.monotonic() < deadline:
                     time.sleep(.1)
                     result = self.server.state.agent_component_status(result["requestId"])
+            elif self.path == "/physics":
+                result = self.server.state.agent_physics_action(value)
+                deadline = time.monotonic() + MOVE_WAIT
+                while result["status"] == "queued" and time.monotonic() < deadline:
+                    time.sleep(.1)
+                    result = self.server.state.agent_physics_status(result["requestId"])
             elif self.path == "/bind-animation":
                 result = self.server.state.agent_bind_animation(value)
                 deadline = time.monotonic() + MOVE_WAIT
