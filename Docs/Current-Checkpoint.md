@@ -14,6 +14,8 @@ Named PC checkpoints `revision-m1`, `revision-m36-outcomes`, `revision-m36-outco
 
 This remains a bounded desktop policy. Conflict warnings do not reserve future capacity; in-flight activity and FIFO waits are still nonpreemptive. More general critical-need interruption and moving or animated interactions remain open, as do independent [M4 Quest wearer checks](../WebRuntime/QUEST3_ACCEPTANCE.md). See the [shared-world runbook](Citizens-Shared-World.md).
 
+Next useful [#17](https://github.com/School-of-the-Ancients/matrix-loading-operator/issues/17) slice: define one guarded critical-hunger interruption at a safe boundary of optional travel or waiting, with explicit claim/ticket release, a recorded interrupted outcome, and no need benefit without a later Matrix interaction receipt. Keep existing rest/eat use and egress ownership intact until their verified handoff; test the same policy through browser checkpoint/replay before widening it.
+
 ## Citizens one-time appointments candidate (September 26, 2026)
 
 Open review: [PR #117](https://github.com/School-of-the-Ancients/matrix-loading-operator/pull/117), stacked on open [PR #115](https://github.com/School-of-the-Ancients/matrix-loading-operator/pull/115).
