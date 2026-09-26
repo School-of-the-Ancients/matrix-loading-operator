@@ -62,6 +62,133 @@ function spawnFood(world,{verify=true,author=true}={}){
   return food.objectId;
 }
 
+test('authored chair keeps its claim through observed egress before FIFO handoff',()=>{
+  const {world,simulation,seatId}=setup(29);
+  const first=simulation.step();
+  const waitingExecution=first.stations[0].waiters[0].executionId;
+  let completed=null;
+  for(let tick=0;tick<100;tick++){
+    const state=simulation.step();
+    if(state.residents.find(item=>item.id==='ada').activity?.phase==='egress'){
+      completed=state;break;
+    }
+  }
+  assert.ok(completed,'Ada must receive the authored interaction outcome');
+  assert.equal(completed.stations[0].claim.residentId,'ada');
+  assert.equal(completed.stations[0].waiters[0].executionId,waitingExecution);
+  assert.ok(completed.log.some(entry=>entry.residentId==='ada'&&
+    entry.event==='completed'&&entry.message.includes('rest')));
+  const saved=simulation.exportState();
+  assert.equal(saved.schemaVersion,8);
+  assert.equal(saved.residents[0].activity.phase,'egress');
+  assert.deepEqual(CitizensSimulation.restore(world,saved).exportState(),saved);
+
+  let handoff=null,boCompleted=null;
+  for(let tick=0;tick<100;tick++){
+    const state=simulation.step();
+    const chair=state.stations[0];
+    if(chair.claim?.residentId==='bo'&&!handoff){
+      handoff=state;
+      assert.equal(chair.claim.executionId,waitingExecution);
+      assert.equal(chair.waiters.length,0);
+      assert.equal(state.residents[0].activity,null,
+        'Ada has moved clear before the FIFO waiter inherits the chair');
+    }
+    if(state.log.some(entry=>entry.residentId==='bo'&&
+      entry.event==='completed'&&entry.message.includes('rest'))){
+      boCompleted=state;break;
+    }
+  }
+  assert.ok(handoff,'Bo must inherit the original FIFO execution');
+  assert.ok(boCompleted,'Bo must reach and use the same authored chair');
+  assert.equal(boCompleted.log.some(entry=>entry.residentId==='bo'&&
+    entry.event==='failed'&&entry.message.includes('route unavailable')),false);
+  assert.ok(world.requireObject(seatId));
+});
+
+test('rejected egress pauses with the original claim and resumes without a second benefit',()=>{
+  const {world,simulation}=setup(29);
+  simulation.resume();
+  let using=null;
+  for(let tick=0;tick<100;tick++){
+    const state=simulation.step();
+    if(state.residents[0].activity?.phase==='egress'){
+      using=state;break;
+    }
+  }
+  assert.ok(using);
+  const executionId=using.stations[0].claim.executionId;
+  const waiterId=using.stations[0].waiters[0].executionId;
+  const energyAfterUse=using.residents[0].needs.energy;
+  const original=world.execute.bind(world);
+  world.execute=(command,options)=>command.op==='set_transform'&&
+    command.objectId===using.residents[0].objectId?{
+      requestId:command.requestId,ok:false,error:'egress movement denied',objectId:''
+    }:original(command,options);
+  const blocked=simulation.step();
+  assert.equal(blocked.paused,true);
+  assert.equal(blocked.residents[0].activity?.phase,'egress');
+  assert.equal(blocked.stations[0].claim.executionId,executionId);
+  assert.equal(blocked.stations[0].waiters[0].executionId,waiterId);
+  assert.ok(blocked.residents[0].needs.energy<energyAfterUse,
+    'the interaction benefit is not awarded again while departure is blocked');
+  const saved=simulation.exportState();
+  assert.deepEqual(CitizensSimulation.restore(world,saved).exportState(),saved);
+  world.execute=original;
+  simulation.resume();
+  let boCompleted=false;
+  for(let tick=0;tick<100;tick++){
+    const state=simulation.step();
+    boCompleted ||= state.log.some(entry=>entry.tick===state.clockTick&&
+      entry.residentId==='bo'&&entry.event==='completed'&&
+      entry.message.includes('rest'));
+    if(boCompleted)break;
+  }
+  assert.equal(boCompleted,true);
+});
+
+test('a blocked departure exhausts bounded route retries without handing the chair to its waiter',()=>{
+  const {world,simulation}=setup(29);
+  simulation.resume();
+  let using=null;
+  for(let tick=0;tick<100;tick++){
+    const state=simulation.step();
+    if(state.residents[0].activity?.phase==='egress'){
+      using=state;break;
+    }
+  }
+  assert.ok(using);
+  const target=using.residents[0].activity.target;
+  const blocker=world.execute({requestId:'block-egress-goal',op:'spawn',
+    assetId:'wall',anchorId:ANCHOR_ID,transform:pose(target.x,target.z)});
+  assert.equal(blocker.ok,true,blocker.error);
+  let blocked=null;
+  for(let tick=0;tick<5;tick++){
+    blocked=simulation.step();
+    if(blocked.paused)break;
+  }
+  assert.equal(blocked.paused,true);
+  assert.equal(blocked.residents[0].activity.phase,'egress');
+  assert.equal(blocked.residents[0].activity.routeRetries,3);
+  assert.equal(blocked.stations[0].claim.residentId,'ada');
+  assert.equal(blocked.stations[0].waiters[0].residentId,'bo');
+  assert.ok(blocked.log.some(entry=>entry.residentId==='ada'&&
+    entry.event==='paused'&&entry.message.includes('after 3 retries')));
+  assert.deepEqual(CitizensSimulation.restore(world,simulation.exportState()).exportState(),
+    simulation.exportState());
+  assert.equal(world.execute({requestId:'clear-egress-goal',op:'delete',
+    objectId:blocker.objectId}).ok,true);
+  assert.equal(simulation.resume().paused,false);
+  let handoff=false;
+  for(let tick=0;tick<30;tick++){
+    const state=simulation.step();
+    if(state.stations[0].claim?.residentId==='bo'){
+      handoff=true;break;
+    }
+  }
+  assert.equal(handoff,true);
+});
+
 test('paused addition keeps resident IDs, active claim and FIFO waiter intact',()=>{
   const {world,simulation,seatId}=setup();
   const first=simulation.step();
@@ -138,7 +265,7 @@ test('both reviewed stations restore and grant only their distinct observed effe
   const scene=structuredClone(world.scene);
   const saved=simulation.exportState();
   assert.deepEqual(added.stations.map(station=>station.kind),['rest','eat']);
-  assert.equal(saved.schemaVersion,7);
+  assert.equal(saved.schemaVersion,8);
 
   let sequence=0;
   const recovered=new MatrixWorld(()=>`dual-restored-${++sequence}`);
@@ -241,9 +368,19 @@ test('adding a built-in table preserves an in-flight selected-chair use across r
       entry.message.includes('rest'))){completed=state;break;}
   }
   assert.ok(completed,'Ada finishes the same chair execution after restore');
-  assert.equal(completed.stations[0].claim?.residentId==='ada',false);
+  assert.equal(completed.stations[0].claim?.residentId,'ada');
+  assert.equal(completed.residents.find(resident=>resident.id==='ada').activity?.phase,
+    'egress');
   assert.ok(completed.residents.find(resident=>resident.id==='ada').needs.energy>
     ada.needs.energy);
   assert.ok(!completed.log.some(entry=>entry.event==='failed'&&
     entry.message.includes('actor or target changed during interaction')));
+  let cleared=null;
+  for(let tick=0;tick<20;tick++){
+    const state=restored.step();
+    if(state.stations[0].claim?.residentId!=='ada'){
+      cleared=state;break;
+    }
+  }
+  assert.ok(cleared,'the restored resident must leave before relinquishing the chair');
 });

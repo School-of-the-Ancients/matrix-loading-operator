@@ -129,6 +129,23 @@ interruptions, social-need scoring or schedule authoring. A bounded rejected
 second-station browser edit and the reproducible minute-82 occupied-approach
 handoff remain #15/#19 follow-ups; M4 wearer checks remain separate.
 
+The next `codex/citizens-station-egress` candidate resolves that occupied
+approach handoff on the existing two-resident world. After a receipt-backed
+rest/eat outcome, a resident keeps the station claim through bounded Matrix
+egress movement; only observed clearance lets the FIFO head inherit its
+existing execution ID. A blocked or uncertain departure, navigation pause,
+external move, or identical scene replacement retains the claim and wait
+ticket. Independent obstruction near the waiter uses its own bounded retries.
+Nested Citizens v8 persists the departure phase and migrates valid v1–v7
+checkpoints; the outer world remains v3. [The isolated browser replay](Validation/citizens-egress-browser.json)
+restored the two-GLB minute-1 world, showed Ada's held claim and Bo's wait
+at minute 14, Bo's FIFO promotion at 18, and Bo's observed rest at 31.
+Named PC checkpoints saved/restored the v8 mid-egress and later state; a
+browser reload retained the replay. WebRuntime passed **306/306**,
+ControlService **687/687**, and Vite built. The rejected unreachable
+second-station browser edit and broader #15/#17 behavior remain open;
+M4 wearer checks remain independent.
+
 No simulated resident gets the Operator's shell credentials
 or permission to run fleet jobs. Richer rigs, ComfyUI/Blender authoring, GOAP,
 general behavior programs, and an LLM call per frame are not prerequisites.

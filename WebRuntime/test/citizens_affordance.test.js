@@ -64,7 +64,7 @@ test('a selected registered GLB seats one resident and grants only its receipt-b
   assert.equal(citizensFurnitureReadiness(world,seatId),'');
   const sim=createCitizensWithSelectedFurniture(world,{seed:17,objectId:seatId});
   const initial=sim.snapshot();
-  assert.equal(initial.schemaVersion,7);
+  assert.equal(initial.schemaVersion,8);
   assert.deepEqual(initial.stations[0].interaction,descriptor());
   assert.equal(initial.stations[0].objectId,seatId);
   assert.equal(initial.stations[0].capacity,1);
