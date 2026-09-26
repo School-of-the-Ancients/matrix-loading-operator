@@ -112,6 +112,8 @@ function needItem(name,value){
 
 function renderResidents(state){
   const waiting=new Map();
+  const residentNames=new Map(state.residents.map(resident=>[resident.id,resident.name]));
+  const social=state.socialSession;
   for(const station of state.stations)
     station.waiters.forEach((waiter,index)=>waiting.set(waiter.residentId,
       {station,position:index+1}));
@@ -127,11 +129,17 @@ function renderResidents(state){
     const meta=document.createElement('div');meta.className='resident-meta';
     const activity=document.createElement('span');activity.className='resident-activity';
     const queue=waiting.get(resident.id);
-    activity.textContent=queue?`Waiting for ${queue.station.kind} · queue #${queue.position}`:
+    const peerId=social?.initiatorId===resident.id?social?.inviteeId:social?.initiatorId;
+    const peer=residentNames.get(peerId)||peerId;
+    const socialActivity=resident.socialSessionId&&resident.socialSessionId===social?.id?
+      social.phase==='offered'?
+        `${resident.id===social.initiatorId?'Inviting':'Invited by'} ${peer} · ${social.id}`:
+        `Conversing with ${peer} · ${social.id}`:null;
+    activity.textContent=socialActivity|| (queue?`Waiting for ${queue.station.kind} · queue #${queue.position}`:
       resident.activity?`${resident.activity.phase==='travel'?'Going to':'Using'} ${resident.activity.kind}`:
-        'Choosing next activity';
+        'Choosing next activity');
     const destination=document.createElement('span');
-    destination.textContent=queue?.station.id||resident.activity?.stationId||'';
+    destination.textContent=socialActivity?'Social session':queue?.station.id||resident.activity?.stationId||'';
     meta.append(activity,destination);
     const needs=document.createElement('div');needs.className='needs';
     for(const key of ['hunger','energy','fun'])needs.append(needItem(key,resident.needs[key]));
@@ -140,6 +148,37 @@ function renderResidents(state){
     return card;
   });
   $('residents').replaceChildren(...cards);
+}
+
+function renderSocial(state){
+  const names=new Map(state.residents.map(resident=>[resident.id,resident.name]));
+  const social=state.socialSession;
+  const latest=state.socialEvents?.at(-1);
+  $('social-status').textContent=social?
+    `${names.get(social.initiatorId)||social.initiatorId} ${social.phase==='offered'?'invited':'is conversing with'} ${names.get(social.inviteeId)||social.inviteeId}. Session ${social.id} is ${social.phase}; expires at minute ${social.expiresTick}.`:
+    latest?`No active session. Latest outcome: ${latest.event} at minute ${latest.tick} (${latest.id}).`:
+      'No active social session yet.';
+  const events=(state.socialEvents||[]).slice(-6).reverse().map(entry=>{
+    const row=document.createElement('li');
+    const time=document.createElement('time');time.textContent=`m ${entry.tick}`;
+    const detail=document.createElement('div');
+    detail.textContent=`${entry.event} · ${names.get(entry.initiatorId)||entry.initiatorId} and ${names.get(entry.inviteeId)||entry.inviteeId} · ${entry.id}${entry.requestId?` · receipt ${entry.requestId}`:''}`;
+    row.append(time,detail);return row;
+  });
+  if(!events.length){
+    const empty=document.createElement('li');empty.className='empty';
+    empty.textContent='No social session outcomes yet.';events.push(empty);
+  }
+  $('social-events').replaceChildren(...events);
+  const relationships=(state.relationships||[]).map(entry=>{
+    const row=document.createElement('div');row.className='station';
+    const pair=document.createElement('strong');
+    pair.textContent=`${names.get(entry.a)||entry.a} ↔ ${names.get(entry.b)||entry.b}`;
+    const score=document.createElement('span');score.className='station-status';
+    score.textContent=`Score ${entry.score}/100`;
+    row.append(pair,score);return row;
+  });
+  $('relationships').replaceChildren(...relationships);
 }
 
 function renderStations(state){
@@ -184,7 +223,7 @@ function render(state=simulation.snapshot()){
   $('run-state').parentElement.classList.toggle('paused',state.paused);
   $('toggle-run').textContent=state.paused?'Run':'Pause';
   $('step').disabled=!state.paused;
-  renderResidents(state);renderStations(state);renderLog(state);
+  renderResidents(state);renderStations(state);renderSocial(state);renderLog(state);
   syncResidentPoses(state);
 }
 

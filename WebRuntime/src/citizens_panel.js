@@ -61,6 +61,7 @@ export class CitizensPanel {
           this.simulation=CitizensSimulation.restore(arWorld,this.world.citizens);
           this.arWorld=arWorld;
           this.simulation.pause();
+          this.simulation.cancelSocial('entering AR cancelled the social session');
           for(const resident of this.simulation.state.residents)
             if(resident.activity||this.simulation.waitingFor(resident))this.simulation.fail(resident,
               'entering AR cancelled the current activity or queued wait');
@@ -73,6 +74,7 @@ export class CitizensPanel {
       if(this.simulation){
         if(!this.arWorld){
           this.simulation.pause();
+          this.simulation.cancelSocial('entering AR cancelled the social session');
           // Keep a paused virtual-room view of the live floor objects. AR edits
           // can delete those objects, so Citizens must still reconcile before
           // the next whole-world browser save.
@@ -221,6 +223,7 @@ export class CitizensPanel {
       return;
     }
     this.stopArmedUntil=0;
+    this.simulation?.cancelSocial('stopping Citizens cancelled the social session');
     this.simulation=null;this.arWorld=null;this.boundState=null;
     this.world.citizens=null;this.error='';
     this.render();this.onChange();
@@ -331,11 +334,18 @@ export class CitizensPanel {
           blocked||'No Citizens in this world. Start a seeded scenario on this empty virtual floor.');
     byId('citizens-toggle').textContent=state?.paused?'Run':'Pause';
     const cards=[];
+    const social=state?.socialSession;
     for(const resident of state?.residents||[]){
       const item=document.createElement('li');
       const queue=waiting.get(resident.id);
-      const action=queue?`waiting for ${queue.stationId} · queue #${queue.position} · execution ${queue.executionId}`:
-        resident.activity?`${resident.activity.phase==='travel'?'going to':'using'} ${resident.activity.kind} · execution ${resident.activity.executionId}`:'choosing';
+      const peerId=social?.initiatorId===resident.id?social?.inviteeId:social?.initiatorId;
+      const peer=residentNames.get(peerId)||peerId;
+      const socialAction=resident.socialSessionId&&resident.socialSessionId===social?.id?
+        social.phase==='offered'?
+          `${resident.id===social.initiatorId?'inviting':'invited by'} ${peer} · session ${social.id}`:
+          `conversing with ${peer} · session ${social.id}`:null;
+      const action=socialAction|| (queue?`waiting for ${queue.stationId} · queue #${queue.position} · execution ${queue.executionId}`:
+        resident.activity?`${resident.activity.phase==='travel'?'going to':'using'} ${resident.activity.kind} · execution ${resident.activity.executionId}`:'choosing');
       item.textContent=`${resident.name}: ${action} · fullness ${Math.round(resident.needs.hunger)} · energy ${Math.round(resident.needs.energy)} · fun ${Math.round(resident.needs.fun)}${resident.lastOutcome?` · ${resident.lastOutcome}`:''}`;
       cards.push(item);
     }
@@ -361,6 +371,27 @@ export class CitizensPanel {
         stations.push(item);
       }
     byId('citizens-stations').replaceChildren(...stations);
+    const latestSocial=state?.socialEvents?.at(-1);
+    const initiator=residentNames.get(social?.initiatorId)||social?.initiatorId;
+    const invitee=residentNames.get(social?.inviteeId)||social?.inviteeId;
+    byId('citizens-social-status').textContent=social?
+      `Session ${social.id}: ${initiator} ${social.phase==='offered'?'invited':'is conversing with'} ${invitee} · ${social.phase} · expires m ${social.expiresTick}`:
+      latestSocial?`No active session · latest ${latestSocial.event} at m ${latestSocial.tick} · ${latestSocial.id}`:
+        'No active social session yet.';
+    const socialEvents=(state?.socialEvents||[]).slice(-6).reverse().map(entry=>{
+      const item=document.createElement('li');
+      const a=residentNames.get(entry.initiatorId)||entry.initiatorId;
+      const b=residentNames.get(entry.inviteeId)||entry.inviteeId;
+      item.textContent=`m ${entry.tick} · ${entry.event} · ${a} and ${b} · ${entry.id}${entry.requestId?` · receipt ${entry.requestId}`:''}`;
+      return item;
+    });
+    byId('citizens-social-events').replaceChildren(...socialEvents);
+    const relationships=(state?.relationships||[]).map(entry=>{
+      const item=document.createElement('li');
+      item.textContent=`${residentNames.get(entry.a)||entry.a} ↔ ${residentNames.get(entry.b)||entry.b}: ${entry.score}/100`;
+      return item;
+    });
+    byId('citizens-relationships').replaceChildren(...relationships);
     const log=(state?.log||[]).slice(-6).reverse().map(entry=>{
       const item=document.createElement('li');
       item.textContent=`m ${entry.tick} · ${entry.message}`;

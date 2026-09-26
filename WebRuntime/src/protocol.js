@@ -13,7 +13,7 @@ export const ASSETS = [
   {assetId:'wall', displayName:'Wall', description:'A straight wall panel 2 metres wide and 2 metres high.', spawnScale:1, localBounds:{center:{x:0,y:1,z:0},size:{x:2,y:2,z:.12}}},
   {assetId:'pedestal', displayName:'Pedestal', description:'A stone display pedestal.', spawnScale:1, localBounds:{center:{x:0,y:.5,z:0},size:{x:.6,y:1,z:.6}}},
   {assetId:'block', displayName:'Block', description:'A one metre cube.', spawnScale:1, localBounds:{center:{x:0,y:.5,z:0},size:{x:1,y:1,z:1}}},
-  {assetId:'orb', displayName:'Orb', description:'A luminous sphere 0.5 metres across.', spawnScale:1, localBounds:{center:{x:0,y:.25,z:0},size:{x:.5,y:.5,z:.5}}},
+  {assetId:'orb', displayName:'Orb', description:'A luminous sphere 0.5 metres across.', spawnScale:1, localBounds:{center:{x:0,y:.25,z:0},size:{x:.5,y:.5,z:.5}},interactions:[{kind:'converse',rangeMeters:.8}]},
   {assetId:'column', displayName:'Column', description:'A cylindrical stone column 2 metres high.', spawnScale:1, localBounds:{center:{x:0,y:1,z:0},size:{x:.5,y:2,z:.5}}}
 ];
 const assetIds = new Set(ASSETS.map(a=>a.assetId));
@@ -364,9 +364,12 @@ export class MatrixWorld {
             const distance=Math.hypot(a.x-b.x,a.z-b.z);
             if(Math.abs(a.y-b.y)>.3||distance>advertised.rangeMeters)
               throw Error('Actor is out of interaction range');
+            if(command.kind==='converse'&&!validId(command.sessionId))
+              throw Error('Invalid social sessionId');
             result.objectId=actor.objectId;
             result.outcome={kind:command.kind,actorObjectId:actor.objectId,
-              targetObjectId:target.objectId,observedDistanceMeters:Math.round(distance*1000)/1000};}
+              targetObjectId:target.objectId,observedDistanceMeters:Math.round(distance*1000)/1000,
+              ...(command.kind==='converse'?{sessionId:command.sessionId}:{})};}
           break;
         case 'duplicate':
           object=this.requireObject(command.objectId);

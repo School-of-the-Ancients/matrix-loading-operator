@@ -96,6 +96,35 @@ test('an advertised finite interaction returns an in-range observed outcome',()=
   assert.equal(rejected.outcome,undefined);
 });
 
+test('converse requires a bounded session ID and an observed in-range resident pair',()=>{
+  let n=0;const world=new MatrixWorld(()=>`object-${++n}`);
+  const actor=world.execute(command('spawn-actor','spawn',
+    {assetId:'orb',anchorId:ANCHOR_ID,transform:pose(0,0,-2)}));
+  const invitee=world.execute(command('spawn-invitee','spawn',
+    {assetId:'orb',anchorId:ANCHOR_ID,transform:pose(.6,0,-2)}));
+  assert.equal(actor.ok,true);assert.equal(invitee.ok,true);
+  assert.deepEqual(world.snapshot().assets.find(asset=>asset.assetId==='orb').interactions,
+    [{kind:'converse',rangeMeters:.8}]);
+  const converse=extra=>world.execute(command('converse','interact',
+    {actorObjectId:actor.objectId,targetObjectId:invitee.objectId,kind:'converse',...extra}));
+  for(const sessionId of [undefined,'','x'.repeat(129),'bad\nID']){
+    const rejected=converse({sessionId});
+    assert.equal(rejected.ok,false);
+    assert.match(rejected.error,/Invalid social sessionId/);
+    assert.equal(rejected.outcome,undefined);
+  }
+  const receipt=converse({sessionId:'social-29-7'});
+  assert.equal(receipt.ok,true);
+  assert.deepEqual(receipt.outcome,{kind:'converse',actorObjectId:actor.objectId,
+    targetObjectId:invitee.objectId,observedDistanceMeters:.6,sessionId:'social-29-7'});
+  assert.equal(world.execute(command('move-invitee','set_transform',
+    {objectId:invitee.objectId,transform:pose(1.2,0,-2)}),{recordHistory:false}).ok,true);
+  const distant=converse({sessionId:'social-29-8'});
+  assert.equal(distant.ok,false);
+  assert.match(distant.error,/out of interaction range/);
+  assert.equal(distant.outcome,undefined);
+});
+
 test('bad geometry bounds and incompatible saved scenes fail without mutation',()=>{
   const world=new MatrixWorld(()=> 'object-1');
   const original=structuredClone(world.scene);
