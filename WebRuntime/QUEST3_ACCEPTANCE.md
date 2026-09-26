@@ -23,7 +23,7 @@ Use the same supported select → request → review → revise → interact →
 | Stop | Interrupt an active turn from XR. Record the turn state and any pending command status; Stop does not silently start another turn or claim rollback of already dispatched work. | Unverified | Unverified |
 | Voice | Record microphone permission, hold/release input, transcript, and a follow-up in the same thread as a typed browser request. If unavailable or denied, record the exact status and verify typing remains usable. Speech output, if enabled, is distinguishable from input. | Unverified | Unverified |
 | Panel placement | Bring the Operator into view and switch between follow and pinned placement. Check aiming at all required controls without losing the ray, and record whether moving or hiding the panel is available and usable in this build. | Unverified | Unverified |
-| Save and reconnect | Save the supported world, close/reopen Quest Browser, and reconnect to the same Agent conversation. Compare object IDs, configuration/game progress, selected target and thread ID; record missing assets or restore errors instead of substituting content. Label the PC backup scene-only. | Unverified | Unverified |
+| Save and reconnect | Save the supported world, close/reopen Quest Browser, and reconnect to the same Agent conversation. Compare object IDs, configuration/game progress, and thread ID. Selection is session-local: the selected target clears on reopen and must be selected again before another targeted edit. Record missing assets or restore errors instead of substituting content. Label the PC backup scene-only. | Unverified | Unverified |
 
 ## AR room checks
 
