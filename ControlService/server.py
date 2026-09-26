@@ -2324,10 +2324,10 @@ class Handler(BaseHTTPRequestHandler):
         try:
             self.validate_host()
             path = urllib.parse.urlsplit(self.path).path
-            if path in ("/web", "/web/") or path.startswith("/web/assets/"):
+            if path in ("/web", "/web/", "/web/citizens.html") or path.startswith("/web/assets/"):
                 dist = Path(__file__).resolve().parent.parent / "WebRuntime" / "dist"
-                if path in ("/web", "/web/"):
-                    asset = dist / "index.html"
+                if path in ("/web", "/web/", "/web/citizens.html"):
+                    asset = dist / ("citizens.html" if path == "/web/citizens.html" else "index.html")
                     content_type = "text/html; charset=utf-8"
                 else:
                     name = path[len("/web/assets/"):]

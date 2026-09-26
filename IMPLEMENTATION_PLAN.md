@@ -1,6 +1,6 @@
 # Matrix implementation plan
 
-Updated September 26, 2026. **Continue from the merged desktop foundation; finish the remaining mode-specific M4 checks before declaring immersive acceptance.** Complete a small step before expanding scope.
+Updated September 26, 2026. **Start a small, persistent AI Citizens simulation using the existing Three.js/MatrixWorld code in an isolated desktop page.** This explicitly supersedes the earlier M4-first work queue. Keep every unfinished mode-specific M4 headset check open; wearer-dependent acceptance does not block independent simulation work. Complete a tested slice before expanding scope.
 
 [PRD](PRD.md) · [Project map](PROJECTS.md) · [School build plan](https://github.com/School-of-the-Ancients/school-of-the-ancients-roadmap/blob/main/BUILD_PLAN.md)
 
@@ -10,11 +10,13 @@ This is the current work-selection guide, not a replacement for detailed issue a
 
 The original baseline below describes `main` at `509a72a` before these slices.
 The source through [PR #98](https://github.com/School-of-the-Ancients/matrix-loading-operator/pull/98)
-is now merged at `2f6554c`. Use the [project map](PROJECTS.md) to choose the
+merged at `2f6554c`; [PR #99](https://github.com/School-of-the-Ancients/matrix-loading-operator/pull/99)
+then merged checkpoint documentation at `0cb8c23`. Use the [project map](PROJECTS.md) to choose the
 current Web track versus the original Unity, Matrix World, or AI Citizens
 work. Post-merge validation passed 643 ControlService Python tests, 141
 WebRuntime Node tests, and the Vite build. At this snapshot,
-`v0.7.0-preview.1` was planned as the next release checkpoint.
+[`v0.7.0-preview.1`](https://github.com/School-of-the-Ancients/matrix-loading-operator/releases/tag/v0.7.0-preview.1)
+tags that `0cb8c23` checkpoint; it predates the Citizens candidate.
 
 | Step | Merged evidence | Remaining distinction |
 | --- | --- | --- |
@@ -25,13 +27,29 @@ WebRuntime Node tests, and the Vite build. At this snapshot,
 | M4 immersive | Quest VR Agent voice, spawn, animation, revision, save/reopen, same-thread continuation, CODEX paging and WORLD save feedback have wearer evidence. The [AR Agent journey](Validation/WebRuntime-AR-World-Transition-2026-09-26.md) exercised voice creation/revision, grab and save/reopen on merged main. [Panel recall](Validation/WebRuntime-M4-Panel-Recall-2026-09-26.md) (#97) worked for the wearer in VR and AR; the initial [VR-to-AR preview fix](Validation/WebRuntime-AR-World-Transition-2026-09-26.md#candidate-fix-vr-world-previews-in-ar) (#98) showed the same animated Dragon in both modes. | Reviewed approval/denial, Stop, panel text readability and active-turn/page survival, saved-origin recovery and physical-surface checks remain open in the [Quest acceptance matrix](WebRuntime/QUEST3_ACCEPTANCE.md). The final #98 provenance refinements have automated coverage but no wearer retest. |
 | Follow-up capabilities | [Virtual-floor GLB drop](Docs/Web-Floor-Physics.md) (#93) and [typed existing-object rotation](Validation/WebRuntime-Typed-Rotation-2026-09-26.md) (#95), including a Quest VR Agent voice/rotation receipt. | These are bounded mechanics, not general rigid-body physics; AR rotation and broader interaction remain separate checks. |
 
-The next acceptance slice is to use an isolated Quest service/scene for one
-remaining M4 gate: reviewed approval/denial or Stop, then room-origin loss and
-recovery on a disposable AR world. The AR Agent creation loop and panel recall
-have wearer evidence already; do not repeat them to substitute for untested
-recovery, readability or physical-surface checks. Keep desktop and Quest
-evidence distinct. Do not move into School, Citizens or geography to stand in
-for these runtime checks.
+The current implementation priority is the [AI Citizens roadmap #29](https://github.com/School-of-the-Ancients/matrix-loading-operator/issues/29),
+starting at `/web/citizens.html` with its own browser-local world and storage.
+Reuse WebRuntime/MatrixWorld code without claiming integration into the live
+`/web/` Agent Portal world. Prove one visible resident whose
+needs change, who chooses an available activity, moves, interacts, and updates
+its state from an observed outcome. Show its activity, needs, and decision/action
+log. Extend that working loop to at least two residents sharing one world and a
+capacity-limited object, with different choices and a reproducible contention
+trace. Make the simulation inspectable, pausable, seeded, and saveable/resumable.
+Use simple existing characters and props. Add only runtime prerequisites that
+this example demonstrates it needs; richer rigs, ComfyUI/Blender authoring,
+general behavior programs, social dialogue, and an LLM call per frame are not
+starting requirements. Citizens selects intentions; Matrix validates and
+executes finite world actions and reports receipts. No simulated resident gets
+the Operator's shell credentials or permission to run fleet jobs.
+
+M4 remains an independent acceptance track. Its next device slice still uses
+an isolated Quest service/scene for reviewed approval/denial or Stop, followed
+by room-origin recovery on a disposable AR world. The AR Agent creation loop
+and panel recall already have wearer evidence, but recovery, readability,
+physical-surface checks, and the final #98 provenance refinements do not.
+Record desktop simulation evidence and Quest wearer evidence separately; a
+desktop Citizens pass does not close an M4 check.
 
 ## Delivery decision — desktop first, immersive UI later
 
@@ -39,7 +57,7 @@ The user reports that Matrix partly works but its current AR/VR UI is poor. The 
 
 M0–M3 use the existing `/web/` Three.js application with mouse/keyboard and normal HTML controls, without entering an immersive session. Keep the same world, agent, assets, validation and persistence; do not build a separate desktop engine. Fix desktop usability where it blocks the workflow. Voice is optional for desktop acceptance.
 
-“Get everything working” means a reliable create → revise → interact → save/reopen loop and one reusable experiment, not every catalog, citizen, city or future feature. Existing XR paths and safety checks stay intact; immersive UI redesign and fresh headset acceptance move to M4. Desktop passes do not close outstanding headset criteria in the parent issues.
+The earlier “get everything working” target meant a reliable create → revise → interact → save/reopen loop and one reusable experiment, rather than every catalog, citizen, city or future feature. The new Citizens fixture reuses that desktop runtime code on a separate page; integration with the main `/web/` world remains future work. Existing XR paths and safety checks stay intact; immersive UI and wearer acceptance remain tracked in M4. Desktop passes do not close outstanding headset criteria in the parent issues.
 
 ## Reviewed baseline — do not rebuild it
 
@@ -108,16 +126,17 @@ Use [the existing Quest checklist](WebRuntime/QUEST3_ACCEPTANCE.md) and record o
 
 **Exit:** the wearer can complete the same supported select → request → review → revise → interact → save/reopen flow with readable controls and predictable targeting. Record actual VR and AR evidence separately, including failures/unavailable features and source/browser/device versions. Camera capture remains optional. Desktop screenshots or tests alone cannot establish immersive comfort or usability.
 
-## Next and later — keep the existing backlog
+## Current and later — keep the existing backlog
 
 | Lane | Existing owners | Small next outcome, when selected |
 | --- | --- | --- |
-| Current Matrix | #44, #59, #28, #24 | Finish remaining M4 mode-specific checks and concrete M3 bridge gaps; no second implementation stack. |
+| AI Citizens — current priority | #29 with the needed slices of #13–#20 | One visible, autonomous desktop resident first; then at least two residents, one shared-object contention, pause, seed, inspection and save/resume. Reuse MatrixWorld identity, validation and receipts in an isolated browser world; main `/web/` integration remains future work. No new engine or full city/economy. |
+| Current Matrix | #44, #59, #28, #24 | Keep remaining M4 mode-specific checks and concrete M3 bridge gaps tracked independently; no second implementation stack. |
 | Shared lesson | #31, #32, #23 | Desktop M3 plus the School build plan; headset presentation follows in M4. No Citizens/Boulder prerequisite. |
 | Reusable runtime | #13, #25 | Extend only for a demonstrated missing interaction; reuse numeric components and existing receipts. |
 | Content and visual feedback | #9, #8 | One additional provider or same-session capture loop after the basic creation path works. |
 | Immersive UI and spatial/device work | #44, #59, #22, #26 | M4 is in progress; finish VR and AR wearer checks separately. Physical-camera support remains optional. |
-| Character and Citizens | #14–#20, #29 | One finite character interaction first, then a small routine/needs loop. GOAP, memory, social behavior and model selectors are separate increments. |
+| Later Citizens extensions | #14–#20, #29 | Add richer body, GOAP prerequisites, grounded memory, and social dialogue only after the small individual/shared-object loop is reliable. |
 | Persistent geography | #38 | Reuse Boulder prototype findings; evaluate one small Web world view and coordinate mapping before a port or city expansion. |
 | Alternative realtime agent | #62 | Reuse the existing session backend; add one provider only for a concrete unmet need. |
 | Legacy/native | #21 and Unity-specific portions of #12/#22/#24 | Maintain existing packs/builds; do not route Web GLBs through AssetBundles. |
@@ -148,4 +167,4 @@ One active Matrix implementation slice at a time. One independent School slice m
 
 Each PR states: user-visible result, reused files/contracts, excluded scope, tests actually run, device checks still pending, and the next step. Update this plan only when evidence changes the queue. Leave PRs open unless the user authorizes merging; do not close umbrella issues from a partial milestone.
 
-**Start prompt:** “Read AGENTS.md, PROJECTS.md, PRD.md and IMPLEMENTATION_PLAN.md. Check current `main`, open issues and PRs, and the Quest acceptance matrix. Continue the merged Three.js/WebXR Matrix: use an isolated service and scene to finish one outstanding M4 wearer check, recording exact VR or AR observations and runtime receipts. Preserve the live scene, PC credentials, Unity client and release checkpoints. Keep untested headset criteria open, and do not expand into School, Citizens or Matrix World without a controlling issue.”
+**Start prompt:** “Read AGENTS.md, PROJECTS.md, PRD.md, IMPLEMENTATION_PLAN.md and AI Citizens issue #29 with its linked issues. Check current `main`, open PRs, existing simulation code, and the Quest acceptance matrix. Continue the isolated `/web/citizens.html` desktop fixture with one visible resident choosing and performing activities from changing needs; then prove two residents contending for one shared object. Reuse MatrixWorld validation and receipts, with separate browser-local persistence, seeded scenarios, pause/save/resume, and a readable decision log. Exercise the actual browser and run relevant tests/builds. Preserve live scenes, PC credentials, the main `/web/` Agent Portal world, the Unity client and release checkpoints. Keep unfinished M4 wearer checks open and independent; do not expand into School, Matrix World, a new engine, or a full city/economy.”
