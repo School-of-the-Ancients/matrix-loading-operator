@@ -1,6 +1,10 @@
 # Matrix: small, programmable world — PRD
 
-Planning snapshot: September 25, 2026. Proposed scope, not a claim of new implementation or device testing.
+Requirements snapshot: September 25, 2026. The desktop foundation and several
+Quest VR checks subsequently merged through #95; the
+[implementation plan](IMPLEMENTATION_PLAN.md#progress-at-the-merged-web-stack)
+and [Quest acceptance matrix](WebRuntime/QUEST3_ACCEPTANCE.md) carry the dated
+implementation status. Requirements here are not claims of device acceptance.
 
 [Build steps](IMPLEMENTATION_PLAN.md) · [Existing project tracks](PROJECTS.md) · [Agent instructions](AGENTS.md)
 
@@ -12,9 +16,9 @@ The long-term vision remains a persistent world with content libraries, AI resid
 
 ## Delivery decision: desktop first
 
-The current AR/VR UI is a user-reported weakness, but redesigning it is not the next step. Finish the existing `/web/` application in ordinary desktop mode with mouse/keyboard and usable HTML controls. M0–M3 do not require immersive session entry or a headset. Voice is optional.
+The initial decision was to finish the existing `/web/` application in ordinary desktop mode with mouse/keyboard and usable HTML controls before redesigning immersive UI. M0–M3 did not require immersive session entry or a headset. Voice remained optional for desktop acceptance.
 
-Then M4 adapts the same working flow for VR controls/layout and separately validates AR room placement/recovery. Keep existing XR paths intact without polishing or replacing them now. This is one Three.js/WebXR application with different input/presentation modes, not a second desktop engine. Do not wait for all future Matrix features before returning to headset work.
+M4 now adapts that same working flow for VR controls/layout and separately validates AR room placement/recovery. This is one Three.js/WebXR application with different input/presentation modes, not a second desktop engine. Do not wait for all future Matrix features before returning to headset work.
 
 ## Keep the architecture we already have
 
@@ -47,11 +51,11 @@ Use the existing dragon/skiff or a simpler object for acceptance. A new spectacu
 | R2 | Spatially grounded edits | Selection and pointing remain distinct; an edit targets the intended object. Stale state is rejected, and queued/unconfirmed is never reported as executed. |
 | R3 | Real creation and revision | One scratch Blender job creates an asset, revises it in the same agent conversation, exports, registers, and places it. Preserve editable source and report whether MCP or local scripting actually performed authoring. |
 | R4 | Reusable interaction | Demonstrate existing clip selection and numeric components. Add a small ordinary code module only when a concrete experience needs more; do not add one endpoint for every imagined object. |
-| R5 | Honest saving | Browser reopen retains the supported scene/game/configuration. Provide a whole-experience PC checkpoint in the next persistence slice; until then, label the existing PC backup as scene-only. Missing assets or room tracking must not silently replace/recenter the world. |
+| R5 | Honest saving | Browser reopen retains the supported scene/game/configuration. The PC whole-world checkpoint preserves the supported experience, while the in-world PC backup remains labeled scene-only. Missing assets or room tracking must not silently replace/recenter the world. |
 | R6 | One shared experiment | Desktop HTML controls, a Three.js view, and an agent operation use one tested scale-experiment state/measurement implementation. Immersive presentation is deferred to M4; simultaneous multi-device synchronization is not required. |
 | R7 | Independent School | A text-only lesson works without Matrix. Its optional connector uses reviewed, scoped world actions and observed results, not Codex shell credentials. |
 
-The Matrix creation release is R1–R5 accepted on desktop. R6–R7 are the next desktop paired integration, not a requirement to finish every School or NPC issue first. M4 subsequently validates the same supported flow on VR/AR hardware. Desktop evidence and actual Quest wearer evidence remain separate; desktop completion does not close headset acceptance criteria.
+The release target is R1–R5 accepted on desktop, with R6's shared experiment and R7's independent School connector tracked separately. M4 validates the same supported flow on VR/AR hardware. Desktop evidence and actual Quest wearer evidence remain separate; desktop completion does not close headset acceptance criteria. Consult the linked status records before declaring any row complete.
 
 ## Two creation paths, not a new mini-engine
 

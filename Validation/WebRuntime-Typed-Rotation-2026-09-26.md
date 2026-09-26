@@ -34,6 +34,39 @@ advanced from 2 to 8. All three receipts had `ok: true`. The disposable
 browser and service stopped after the check.
 
 This proves the typed bridge, service queue, browser `set_transform`, and
-receipt/observed-transform path together in a desktop runtime. It does not
-prove Codex intent parsing or wearer-visible Quest rotation; those remain
-separate checks.
+receipt/observed-transform path together in a desktop runtime.
+
+## Quest VR Agent follow-up
+
+After the PR stack merged, a separate service on port **18782** served the same
+Git tree as merged `main` (`e54707b2a958…`) with a fresh scene, copied Ice
+Dragon catalog, PC-local Codex Agent and local speech. USB ADB reverse connected
+Quest Browser to that service; the normal port-18778 scene was untouched.
+
+In VR, the wearer used CODEX push-to-talk to load the existing Ice Dragon at
+`(0, 1.5, -2)`, scale `0.5`, and bind its `Flight` loop. The wearer confirmed
+the model appeared and animated. The service recorded successful spawn receipt
+`ebd88cb62dad4894893ddd7c81fed20d` and Flight-binding receipt
+`202ef22a11a643328da76fd3d5ea0936` on the same object
+`b7b2c88caa184442a105152e7c264a56`.
+
+In the same Agent conversation, the wearer asked by voice to turn that same
+Dragon 180 degrees around room Y while keeping position, scale and Flight. The
+Agent reported a succeeded Matrix move receipt for request
+`d93fb582e94540e78c125cb865e3dd4c` at scene revision 9, with the requested
+position and scale preserved. The service's browser runtime result was
+`ok: true` for that same object ID, and the wearer confirmed the Dragon visibly
+turned while Flight continued. The wearer subsequently grabbed/moved it with a
+controller; a later revision-13 snapshot therefore has a different pose and
+does not represent the immediate rotation receipt.
+
+This verifies spoken Codex interpretation and wearer-visible rotation in Quest
+VR for this object. It does not establish the same workflow in AR, all panel
+controls, or a general physics/rotation system beyond the typed virtual-floor
+move contract.
+
+On the same merged build, the wearer opened the in-world WORLD page, tapped
+**SAVE WORLD**, and confirmed the save message appeared inside the panel. The
+PC service listed scene-only backup `WebWorld_20260926065501` (4,027-byte JSON)
+afterward. This checks the formerly missing in-world save notice; this run did
+not close/reopen the Quest browser to verify the new browser checkpoint.

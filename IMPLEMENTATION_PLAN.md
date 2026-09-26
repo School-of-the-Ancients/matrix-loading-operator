@@ -1,10 +1,32 @@
 # Matrix implementation plan
 
-Updated September 25, 2026. **Start at M0 in the desktop browser. Complete a small step before expanding scope.**
+Updated September 26, 2026. **Continue from the merged desktop foundation; finish the remaining mode-specific M4 checks before declaring immersive acceptance.** Complete a small step before expanding scope.
 
 [PRD](PRD.md) · [Project map](PROJECTS.md) · [School build plan](https://github.com/School-of-the-Ancients/school-of-the-ancients-roadmap/blob/main/BUILD_PLAN.md)
 
 This is the current work-selection guide, not a replacement for detailed issue acceptance. Existing issue histories, source links, and validation remain intact. A step can finish without closing its broader umbrella issue. No GitHub board statuses are changed by this document.
+
+## Progress at the merged Web stack
+
+The original baseline below describes `main` at `509a72a` before these slices.
+The source through [PR #95](https://github.com/School-of-the-Ancients/matrix-loading-operator/pull/95)
+is now merged. Use the [project map](PROJECTS.md) to choose the current Web
+track versus the original Unity, Matrix World, or AI Citizens work.
+
+| Step | Merged evidence | Remaining distinction |
+| --- | --- | --- |
+| M0 desktop loop | Persistent Agent Portal, selected-object context, typed Matrix tools and runtime receipts were exercised in desktop and later Quest runs. | An umbrella issue may retain broader acceptance. |
+| M1 Blender | [Copper Astrolabe desktop MCP trace](Validation/WebRuntime-Blender-MCP-M1-2026-09-25.md) with revision, GLB registration, placement receipt and browser rendering (#87). | Quest authoring and placed-asset replacement identity were not established by that trace. |
+| M2 world | [PC whole-world checkpoint](ControlService/WORLD_CHECKPOINTS.md) (#88) and [physics/checkpoint integration](Validation/WebRuntime-Physics-Checkpoint-Integration-2026-09-25.md) (#94). | Browser room-origin recovery and physical-plane state need separate Quest checks. |
+| M3 shared experiment | [Reviewed Block Scale Lab](Docs/Scale-Experiment.md) (#92) and desktop equivalence tests. | School bridge consumption and complete multi-surface acceptance remain separate. |
+| M4 immersive | Quest VR Agent voice, spawn, animation, revision, save/reopen, same-thread continuation, CODEX paging and WORLD save feedback have wearer evidence; XR transition and floor height were checked separately (#86/#89/#90/#94). | Complete VR approval/Stop/panel placement checks and the same workflow in AR remain open in the [Quest acceptance matrix](WebRuntime/QUEST3_ACCEPTANCE.md). |
+| Follow-up capabilities | [Virtual-floor GLB drop](Docs/Web-Floor-Physics.md) (#93) and [typed existing-object rotation](Validation/WebRuntime-Typed-Rotation-2026-09-26.md) (#95), including a Quest VR Agent voice/rotation receipt. | These are bounded mechanics, not general rigid-body physics; AR rotation and broader interaction remain separate checks. |
+
+The next acceptance slice is to use an isolated Quest service/scene and record
+the remaining VR panel/approval/Stop observations, then run the same supported
+Agent and save/reopen flow in AR, including room-origin behavior. Keep desktop
+and Quest evidence distinct. Do not move into School, Citizens or geography to
+stand in for these runtime checks.
 
 ## Delivery decision — desktop first, immersive UI later
 
@@ -47,9 +69,9 @@ Reuse configured Blender tools, a dedicated scratch scene, the existing authorin
 
 Make approval handling usable on the PC with the smallest change: exact review for understood operations, or a visible PC handoff for broad code execution. Do not summarize arbitrary Python as a harmless one-click action, bypass native approval, or build a general policy engine. XR-specific approval presentation waits for M4. Keep the primitive blueprint fallback. Local Blender scripting is a valid separate path; only an actual tool trace establishes Blender MCP acceptance.
 
-**Exit:** one real end-to-end desktop trace, revision, registered asset, acknowledged placement, and final browser visual check. A generated file or an interrupted authoring turn alone is not done. See [authoring tiers](WebRuntime/BLENDER_AUTHORING_TIERS.md); its old “portal not implemented” wording must be reconciled with the newer merged PRs when editing that guide.
+**Exit:** one real end-to-end desktop trace, revision, registered asset, acknowledged placement, and final browser visual check. A generated file or an interrupted authoring turn alone is not done. See [authoring tiers](WebRuntime/BLENDER_AUTHORING_TIERS.md).
 
-The [Copper Astrolabe desktop trace](Validation/WebRuntime-Blender-MCP-M1-2026-09-25.md) meets this one-asset M1 exit on the current stacked head: a connected scratch Blender MCP scene, creation and follow-up revision in one Agent Portal conversation, validated registration, receipt-acknowledged placement, browser rendering and reload. It does not close Quest authoring or replacement-identity acceptance.
+The [Copper Astrolabe desktop trace](Validation/WebRuntime-Blender-MCP-M1-2026-09-25.md) meets this one-asset M1 exit on merged `main`: a connected scratch Blender MCP scene, creation and follow-up revision in one Agent Portal conversation, validated registration, receipt-acknowledged placement, browser rendering and reload. It does not close Quest authoring or replacement-identity acceptance.
 
 ## M2 — Save and restore the whole supported experience
 
@@ -85,11 +107,11 @@ Use [the existing Quest checklist](WebRuntime/QUEST3_ACCEPTANCE.md) and record o
 
 | Lane | Existing owners | Small next outcome, when selected |
 | --- | --- | --- |
-| Current Matrix | #44, #59, #28, #24 | M0–M2 on desktop; no second implementation stack. |
+| Current Matrix | #44, #59, #28, #24 | Finish remaining M4 mode-specific checks and concrete M3 bridge gaps; no second implementation stack. |
 | Shared lesson | #31, #32, #23 | Desktop M3 plus the School build plan; headset presentation follows in M4. No Citizens/Boulder prerequisite. |
 | Reusable runtime | #13, #25 | Extend only for a demonstrated missing interaction; reuse numeric components and existing receipts. |
 | Content and visual feedback | #9, #8 | One additional provider or same-session capture loop after the basic creation path works. |
-| Immersive UI and spatial/device work | #44, #59, #22, #26 | M4 after the desktop loop; physical-camera support remains optional. |
+| Immersive UI and spatial/device work | #44, #59, #22, #26 | M4 is in progress; finish VR and AR wearer checks separately. Physical-camera support remains optional. |
 | Character and Citizens | #14–#20, #29 | One finite character interaction first, then a small routine/needs loop. GOAP, memory, social behavior and model selectors are separate increments. |
 | Persistent geography | #38 | Reuse Boulder prototype findings; evaluate one small Web world view and coordinate mapping before a port or city expansion. |
 | Alternative realtime agent | #62 | Reuse the existing session backend; add one provider only for a concrete unmet need. |
@@ -113,7 +135,7 @@ Use the existing [catalog guide](Docs/Content-Catalogs.md), [runtime package not
 | Cesium/Google tiles, open GIS; generated-world leads | Optional visual/data providers for #38. Keep Matrix-owned entities separate from streamed imagery; confirm rights and actual APIs before integration. |
 | Manfred/Omi/phone, Quest/Aura, Demerzel/fleet, NOMAD | Separate input/device/infrastructure tracks. No lifelog, cluster deployment, or new hardware is required to finish this plan. |
 
-This review used available September 20–25 conversation summaries, 26 Matrix issue bodies, 16 roadmap issue bodies, recent organization PR descriptions/evidence, and the linked repository documents. It is not an exhaustive export of every conversation, a line-by-line code review, or fresh runtime testing. External resource mentions are retained leads, not newly verified vendor capability claims.
+The original planning review used available September 20–25 conversation summaries, 26 Matrix issue bodies, 16 roadmap issue bodies, recent organization PR descriptions/evidence, and the linked repository documents. The September 26 progress note above uses the merged PR and validation records. Neither is an exhaustive export of every conversation or a fresh check of every hardware claim. External resource mentions are retained leads, not newly verified vendor capability claims.
 
 ## Working rules and next Codex task
 
@@ -121,4 +143,4 @@ One active Matrix implementation slice at a time. One independent School slice m
 
 Each PR states: user-visible result, reused files/contracts, excluded scope, tests actually run, device checks still pending, and the next step. Update this plan only when evidence changes the queue. Leave PRs open unless the user authorizes merging; do not close umbrella issues from a partial milestone.
 
-**Start prompt:** “Read AGENTS.md, PROJECTS.md, PRD.md and IMPLEMENTATION_PLAN.md. Check current main and open PRs. Work only on M0 in the ordinary desktop `/web/` browser: validate the existing Matrix/Agent Portal with mouse/keyboard and fix demonstrated blockers in small PRs. Preserve live scenes, credentials, XR paths and old builds. Do not redesign AR/VR UI or require a headset for this step. Report actual desktop evidence and retain untested headset criteria for M4; do not implement later steps or merge automatically.”
+**Start prompt:** “Read AGENTS.md, PROJECTS.md, PRD.md and IMPLEMENTATION_PLAN.md. Check current `main`, open issues and PRs, and the Quest acceptance matrix. Continue the merged Three.js/WebXR Matrix: use an isolated service and scene to finish one outstanding M4 wearer check, recording exact VR or AR observations and runtime receipts. Preserve the live scene, PC credentials, Unity client and release checkpoints. Keep untested headset criteria open, and do not expand into School, Citizens or Matrix World without a controlling issue.”

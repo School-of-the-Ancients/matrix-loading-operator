@@ -93,7 +93,7 @@ Do not create independent HTML and XR simulations when they represent the same e
 
 ## Current implementation
 
-The Agent Portal work merged through #60–#73 and #75–#79 establishes:
+The Agent Portal foundation merged through #60–#73 and #75–#79 establishes:
 
 - PC-local Codex app-server transport;
 - durable Matrix session mapping;
@@ -107,7 +107,23 @@ The Agent Portal work merged through #60–#73 and #75–#79 establishes:
 - validated GLB animation playback and selection binding;
 - virtual-floor asset previews in ready WebXR AR rooms.
 
-These capabilities were merged into `main` on 2026-09-25. Check current open PRs for subsequent work.
+The September 26 Web stack merged in #83–#90 and #92–#95 adds the Quest ray and grab
+fixes, PC-owned Agent access/approval modes, the Blender MCP desktop creation
+trace, separate Quest VR/AR acceptance records, visible Codex voice progress,
+serialized VR/AR session entry, reviewed Block Scale Lab, PC whole-world
+checkpoints, virtual-floor GLB drop physics, browser checkpoint integration,
+stable CODEX transcript paging, and typed position/rotation edits to an
+existing virtual-floor object. The release
+[v0.6.0-preview.1](https://github.com/School-of-the-Ancients/matrix-loading-operator/releases/tag/v0.6.0-preview.1)
+preserves an earlier working snapshot; it is not the merged #95 tree.
+
+The [Quest acceptance matrix](WebRuntime/QUEST3_ACCEPTANCE.md) distinguishes
+observed wearer behavior from remaining mode-specific checks. VR Agent
+spawn/revision/reopen and a separate animated floor drop have wearer evidence;
+the full AR workflow, room-origin recovery, camera access, and some panel
+feedback still need their own checks. Inspect current issues and PRs before
+starting another slice; a plan checkbox alone does not show what is already
+implemented.
 
 ---
 
