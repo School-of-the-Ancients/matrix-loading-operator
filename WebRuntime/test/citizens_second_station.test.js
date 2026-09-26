@@ -106,6 +106,38 @@ test('authored chair keeps its claim through observed egress before FIFO handoff
   assert.ok(world.requireObject(seatId));
 });
 
+test('critical hunger waits when a traveling claimant occupies the reviewed chair approach',()=>{
+  const {world,simulation,seatId}=setup(29);
+  const foodId=spawnFood(world);
+  simulation.addSelectedStation(foodId);
+  const first=simulation.step();
+  const ada=first.residents.find(item=>item.id==='ada');
+  const chair=first.stations.find(item=>item.id==='chair');
+  assert.equal(ada.activity?.phase,'travel');
+  assert.equal(chair.claim?.residentId,'ada');
+  assert.equal(chair.waiters[0]?.residentId,'bo');
+  const transform=structuredClone(world.requireObject(ada.objectId).transform);
+  transform.position.x=world.requireObject(seatId).transform.position.x+
+    seatInteraction.approachPose.x;
+  transform.position.z=world.requireObject(seatId).transform.position.z+
+    seatInteraction.approachPose.z;
+  assert.equal(world.execute({requestId:'place-ada-at-reviewed-approach',
+    op:'set_transform',objectId:ada.objectId,transform},{recordHistory:false}).ok,true);
+  const saved=simulation.snapshot();
+  saved.residents.find(item=>item.id==='ada').needs.hunger=15.4;
+  const resumed=CitizensSimulation.restore(world,saved);
+  const after=resumed.step();
+  const held=after.stations.find(item=>item.id==='chair');
+  assert.equal(held.claim?.residentId,'ada');
+  assert.equal(held.claim?.executionId,chair.claim.executionId);
+  assert.equal(held.waiters[0]?.executionId,chair.waiters[0].executionId);
+  assert.ok(['travel','use'].includes(after.residents.find(item=>item.id==='ada')
+    .activity?.phase));
+  assert.ok(!after.log.some(entry=>entry.tick===after.clockTick&&
+    entry.message.includes('interrupted optional rest')));
+  assert.deepEqual(resumed.exportState(),after);
+});
+
 test('rejected egress pauses with the original claim and resumes without a second benefit',()=>{
   const {world,simulation}=setup(29);
   simulation.resume();

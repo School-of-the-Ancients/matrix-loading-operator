@@ -20,7 +20,7 @@
       <section class="citizens-panel" aria-labelledby="citizens-heading">
         <div class="panel-title"><span id="citizens-heading">AI CITIZENS</span><span>Shared Matrix world</span></div>
         <p class="hint">Start a seeded two-resident fixture on an empty desktop floor, or select a built-in chair/table or a registered static GLB with a reviewed rest/eat interaction. Pause and select the complementary station to add it to the same world. Browser save and PC world checkpoints preserve both bindings.</p>
-        <p class="hint">Residents weigh hunger, energy, fun, and social need. A resident may choose a conversation when a peer is available; only a completed interaction raises social need.</p>
+        <p class="hint">Residents weigh hunger, energy, fun, and social need. A resident may choose a conversation when a peer is available; only a completed interaction raises social need. At fullness 15 or below, a reachable meal may interrupt optional rest or exploration travel, or an optional chair wait, when the station can be released safely. The interruption grants no need benefit; eating raises fullness only after a checked Matrix interaction.</p>
         <label for="citizens-seed">Scenario seed</label>
         <div class="row"><input id="citizens-seed" type="number" min="1" max="4294967295" step="1" value="29" /><button id="citizens-start" type="button">Start here</button></div>
         <div class="row"><button id="citizens-bind-selected" type="button" disabled>Use selected station</button></div>
@@ -37,7 +37,7 @@
         <h3>Residents</h3><ul id="citizens-residents" class="citizens-list"></ul>
         <h3>Activity choices and routines</h3><ul id="citizens-routines" class="citizens-list"></ul>
         <h3 id="citizens-routine-editor-heading">Edit an existing routine</h3>
-        <p class="hint">Pause Citizens to change a resident's daily window or priority. The change applies at the next idle choice; an activity already underway continues.</p>
+        <p class="hint">Pause Citizens to change a resident's daily window or priority. The change applies at the next idle choice; an activity already underway continues unless critical hunger safely interrupts optional travel or a chair wait.</p>
         <div role="group" aria-labelledby="citizens-routine-editor-heading">
           <label for="citizens-routine-resident">Resident</label>
           <select id="citizens-routine-resident" disabled></select>
@@ -59,7 +59,7 @@
         <h3>Recent appointment outcomes</h3>
         <ul id="citizens-appointment-history" class="citizens-list" aria-label="Recent completed, missed, and cancelled appointments"></ul>
         <h3 id="citizens-appointment-editor-heading">Schedule or revise an appointment</h3>
-        <p class="hint">Pause Citizens to book or revise a pending rest or eat appointment at an existing station. Overlapping appointments are allowed; the earliest deadline is considered at the next idle choice. An ongoing activity, conversation, or FIFO wait continues, so a deadline can be missed. Only a verified interaction by the inclusive deadline completes an appointment. A later verified action can still update a need after a miss.</p>
+        <p class="hint">Pause Citizens to book or revise a pending rest or eat appointment at an existing station. Overlapping appointments are allowed; the earliest deadline is considered at the next idle choice. Appointment-linked work, station use or departure, and conversations continue; critical hunger may safely interrupt optional travel or a chair wait, so a deadline can still be missed. Only a verified interaction by the inclusive deadline completes an appointment. A later verified action can still update a need after a miss.</p>
         <div role="group" aria-labelledby="citizens-appointment-editor-heading">
           <label for="citizens-appointment-resident">Resident</label>
           <select id="citizens-appointment-resident" disabled></select>

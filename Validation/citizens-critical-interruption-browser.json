@@ -1,0 +1,65 @@
+{
+  "date": "2026-09-26",
+  "branch": "codex/citizens-critical-interruption",
+  "service": "http://127.0.0.1:19857/web/",
+  "isolation": "Port 19857 uses separate scene/checkpoint state and a copy of the two reviewed GLBs in this task's citizens-critical-interruption-state and citizens-critical-interruption-catalog directories. Ports 19853–19856 were left running.",
+  "fixture": "Copied dual-stations-m0 into the isolated service, restored it in the built browser, stepped once with current v11 code so both optional rest choices and the chair claim/FIFO ticket were recorded, and saved critical-generated-m1. For the controlled threshold test, changed only Bo's saved hunger from 41.55 to 15.3 in a copy named critical-optional-wait-m1, then recomputed its normal world/dependency digest with ControlService.world_checkpoint_digest. The browser restored that PC checkpoint through normal validation. No production world or prior service state was edited.",
+  "migrationObservation": "The final build also restored a separate older v6 minute-1 checkpoint with Bo hunger set to 15.3. With no appointment ever booked, the trace-free optional FIFO ticket safely yielded at minute 2; the PC checkpoint critical-m2-migrated saved nested v11 state with Bo hunger 14.85 and interrupted rest. Focused tests verify that trace-free execution stays committed if the resident has any appointment history.",
+  "seed": 29,
+  "worldVersion": 3,
+  "citizensVersion": 11,
+  "worldObjectIds": [
+    "821fc875805840c5b4d3dfa9e4b21d8b",
+    "7448c0018a8a45e1acf5d0a55aa7e561",
+    "48c153fafbb3405590749fabbd0630d8",
+    "3fc1c2b72653498a94baf423dc760e71"
+  ],
+  "assetDependencies": [
+    "web:citizens-demo-chair:fb5408949487",
+    "web:citizens-demo-food-table:53b79a6a6f7f"
+  ],
+  "observations": [
+    {
+      "minute": 1,
+      "bo": "Optional rest FIFO ticket execution 2, hunger 15.3, energy 28.45",
+      "chair": "Ada holds claim execution 1",
+      "food": "Available"
+    },
+    {
+      "minute": 2,
+      "bo": "Interrupted rest for critical hunger; FIFO ticket 2 removed; going to eat as execution 3; hunger 14.85 and energy 27.9 after ordinary decay, with no rest or food reward",
+      "chair": "Ada still holds claim execution 1; no waiters",
+      "food": "Bo holds claim execution 3",
+      "log": "Bo interrupted optional rest execution 2 for critical hunger; claim or FIFO ticket released."
+    },
+    {
+      "minute": 10,
+      "bo": "Completed eat; leaving the food station under execution 3; hunger 43.25",
+      "log": "Bo completed eat; observed outcome updated needs."
+    }
+  ],
+  "checkpoints": [
+    {"name": "critical-optional-wait-m1", "minute": 1, "payloadSha256": "aaf2ee66f3c5024f07601d55f5a2b88c43bdc3e9f52d7ee4b5441ed36ca3f13c"},
+    {"name": "critical-m2-interrupted", "minute": 2, "payloadSha256": "79f9e195aca9a237ef48dcfe0e2d53a04157873976a38d163c5968ce4889ea9b"},
+    {"name": "critical-m2-replay", "minute": 2, "payloadSha256": "79f9e195aca9a237ef48dcfe0e2d53a04157873976a38d163c5968ce4889ea9b"},
+    {"name": "critical-m10-fed", "minute": 10, "payloadSha256": "bafe3ae9abf3607106dbd6fba043825d9a9c6eb150d78abbdec8347281c0c9b2"},
+    {"name": "critical-m10-replay", "minute": 10, "payloadSha256": "bafe3ae9abf3607106dbd6fba043825d9a9c6eb150d78abbdec8347281c0c9b2"},
+    {"name": "critical-m2-final-build", "minute": 2, "payloadSha256": "79f9e195aca9a237ef48dcfe0e2d53a04157873976a38d163c5968ce4889ea9b"},
+    {"name": "critical-m10-final-build", "minute": 10, "payloadSha256": "bafe3ae9abf3607106dbd6fba043825d9a9c6eb150d78abbdec8347281c0c9b2"},
+    {"name": "critical-m2-migrated", "minute": 2, "payloadSha256": "fdc6dfda9c55d463a36322385121de87c3a11231aba54e0d5ddd9a2e37533ab8"}
+  ],
+  "replay": "Restoring critical-optional-wait-m1 and taking one paused browser Step reproduced the exact minute-2 whole-world/dependency payload. Eight more Step actions reproduced the exact minute-10 food outcome payload. The final rebuilt version reproduced both hashes again after the trace-free guard review fix. Browser reload retained minute 10 and the four-object world; the brief GLB-render readiness wait cleared before interaction resumed.",
+  "browserConsoleErrors": 0,
+  "checks": {
+    "webRuntimeTests": "358/358",
+    "controlServiceTests": "693/693",
+    "viteBuild": "passed",
+    "pythonCompilation": "passed",
+    "diffCheck": "passed"
+  },
+  "screenshots": [
+    "citizens-critical-interruption-resident.png",
+    "citizens-critical-interruption-food.png"
+  ],
+  "limits": "This verifies an optional FIFO wait interruption and a later food completion in the desktop two-resident world. Focused tests cover optional travel and protected phases. Trace-free in-flight work with any appointment history remains committed. The ordinary optional eat log does not persist a Matrix request ID; the runtime applies the need effect only after its matching MatrixWorld interaction receipt. General moving affordances and Quest wearer checks remain separate."
+}
