@@ -6,8 +6,8 @@
   `0fb8081`; the renderer-measured follow-up was validated before its commit.
 - Windows 11, Python 3.13.14: `python -m unittest discover -s ControlService
   -p 'test_*.py' -q` — 626 tests passed.
-- Node 24.16.0: `npm test` in `WebRuntime` — 103 tests passed after the
-  renderer-measured and review fixes.
+- Node 24.16.0: `npm test` in `WebRuntime` — 104 tests passed after the
+  renderer-measured and review fixes and the M3 base update.
 - `npm run build` in `WebRuntime` — Vite 7.3.6 build passed.
 - `git diff --check` — passed.
 
