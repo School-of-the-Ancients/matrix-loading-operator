@@ -222,6 +222,10 @@ export function operatorPanel(){
 }
 const v3=v=>new THREE.Vector3(v.x,v.y,v.z);
 const plain=v=>({x:Number(v.x.toFixed(3)),y:Number(v.y.toFixed(3)),z:Number(v.z.toFixed(3))});
+function setRoomContentVisible(view,visible){
+  view.virtualFloorRoot.visible=visible;
+  for(const root of view.anchorRoots?.values()||[])root.visible=visible;
+}
 
 export class MatrixView {
   constructor(container,world,onSelection,getToken=()=>'',onAssetError=()=>{},onSceneEdit=()=>{},onRuntimeChange=()=>{},onVoiceStart=()=>{},onVoiceEnd=()=>{},onVoiceOutputToggle=()=>{},onVisualReview=()=>{},onNewChat=()=>{}){
@@ -230,7 +234,7 @@ export class MatrixView {
     this.modelCache=new Map();
     this.scene=new THREE.Scene();this.scene.background=new THREE.Color(0x0a1b29);
     this.virtualFloorRoot=new THREE.Group();this.scene.add(this.virtualFloorRoot);
-    this.roomAnchor=null;this.roomAnchorPending=false;this.roomAnchorCreationFailed=false;this.roomAnchorPersistent=false;this.roomAnchorRestoreFailed=false;this.roomAnchorLocated=false;this.roomAnchorHandleAvailable=false;this.roomPoseMissingSince=0;
+    this.roomAnchor=null;this.roomAnchorPending=false;this.roomAnchorCreationFailed=false;this.roomAnchorPersistent=false;this.roomAnchorRestoredHandle=null;this.roomAnchorRestoreFailed=false;this.roomAnchorLocated=false;this.roomAnchorHandleAvailable=false;this.roomPoseMissingSince=0;
     const storedEyeHeight=Number(sessionStorage.getItem('matrix-web-eye-height'));
     this.measuredEyeHeight=storedEyeHeight>=.4&&storedEyeHeight<=2.5?storedEyeHeight:null;
     this.virtualFloorCalibrated=false;
@@ -337,16 +341,33 @@ export class MatrixView {
   }
   restoreRoomAnchor(session){
     if(!this.isAR)return;
-    this.roomAnchor=null;this.roomAnchorPending=false;this.roomAnchorPersistent=false;this.roomAnchorHandleAvailable=false;this.roomPoseMissingSince=0;
+    this.roomAnchor=null;this.roomAnchorPending=false;this.roomAnchorPersistent=false;this.roomAnchorRestoredHandle=null;this.roomAnchorHandleAvailable=false;this.roomPoseMissingSince=0;
+    // A world explicitly saved as virtual has no proven relationship to the
+    // browser's last AR anchor. Keep its virtual-floor preview visible even if
+    // that unrelated handle is stale, inaccessible, or restores successfully.
+    // Measured-surface content still requires the guarded recovery path.
+    if(this.world.originBinding==='virtual'&&
+       !this.world.scene.objects.some(object=>object.anchorId!=='web-floor'))return;
     let handle;
     try{handle=localStorage.getItem(ROOM_ANCHOR_KEY);}
     catch(error){
       if(this.isAR)this.markRoomOriginUnavailable(`Room anchor storage: ${error.message}`);
       return;
     }
+    if(this.world.originBinding==='unknown'&&hasWorldToProtect(this.world)){
+      // An old or PC-restored world cannot prove this handle belongs to it.
+      // Keep the handle for the recovery archive, but never auto-restore it.
+      this.markRoomOriginUnavailable('World origin is unknown. Archive and place it here or start empty.');
+      return;
+    }
+    if(this.world.originBinding==='ar'&&hasWorldToProtect(this.world)&&
+       handle&&this.world.originAnchorHandle!==handle){
+      this.markRoomOriginUnavailable('Saved world belongs to a different or unverified room anchor. Archive and place it here or start empty.');
+      return;
+    }
     this.roomAnchorHandleAvailable=!!handle;
     if(!handle){
-      if(this.isAR&&hasWorldToProtect(this.world))
+      if(this.isAR&&hasWorldToProtect(this.world)&&this.world.originBinding!=='virtual')
         this.markRoomOriginUnavailable('Saved world has no persistent room anchor. Retry or archive it before starting a new room.');
       return;
     }
@@ -354,14 +375,14 @@ export class MatrixView {
       if(this.isAR)this.markRoomOriginUnavailable('Saved room origin cannot be restored by this browser session');
       return;
     }
-    if(this.isAR){this.virtualFloorRoot.visible=false;this.world.setOriginUnavailable(true);}
+    if(this.isAR){setRoomContentVisible(this,false);this.world.setOriginUnavailable(true);}
     this.roomAnchorPending=true;
     let restored;
     try{restored=session.restorePersistentAnchor(handle);}
     catch(error){this.roomAnchorPending=false;if(this.isAR)this.markRoomOriginUnavailable(`Room anchor restore: ${error.message}`);return;}
     Promise.resolve(restored).then(anchor=>{
       if(!anchor?.anchorSpace)throw Error('Quest returned no room anchor space');
-      if(this.renderer.xr.getSession()===session){this.roomAnchor=anchor;this.roomAnchorPersistent=true;}
+      if(this.renderer.xr.getSession()===session){this.roomAnchor=anchor;this.roomAnchorPersistent=true;this.roomAnchorRestoredHandle=handle;}
     }).catch(error=>{
       // Never silently replace a saved physical origin with the current head
       // pose. A relocalization failure must leave prior objects hidden.
@@ -369,14 +390,15 @@ export class MatrixView {
     }).finally(()=>{if(this.renderer.xr.getSession()===session)this.roomAnchorPending=false;});
   }
   markRoomOriginUnavailable(message){
-    this.roomAnchorRestoreFailed=true;this.virtualFloorRoot.visible=false;
+    this.roomAnchorRestoreFailed=true;setRoomContentVisible(this,false);
     this.world.setOriginUnavailable(true);
     this.onAssetError(message);
     this.onRuntimeChange();
   }
   retryRoomOrigin(){
     const session=this.renderer.xr.getSession();
-    if(!this.isAR||!session||this.roomAnchorPending)return false;
+    if(!this.isAR||!session||this.roomAnchorPending||
+       (this.world.originBinding==='unknown'&&hasWorldToProtect(this.world)))return false;
     if(this.roomAnchorRestoreFailed&&this.roomAnchorHandleAvailable){
       this.roomAnchorRestoreFailed=false;
       this.restoreRoomAnchor(session);
@@ -384,16 +406,16 @@ export class MatrixView {
     }
     if(this.roomAnchorCreationFailed){
       this.roomAnchorCreationFailed=false;this.roomAnchor=null;this.roomAnchorLocated=false;
-      this.roomPoseMissingSince=0;this.virtualFloorRoot.visible=false;
+      this.roomPoseMissingSince=0;setRoomContentVisible(this,false);
       return true;
     }
     return false;
   }
   startNewRoomOrigin(){
     if(!this.isAR||!this.world.spatial?.originUnavailable)throw Error('Room origin reset requires an unavailable AR origin');
-    this.roomAnchor=null;this.roomAnchorPending=false;this.roomAnchorPersistent=false;
+    this.roomAnchor=null;this.roomAnchorPending=false;this.roomAnchorPersistent=false;this.roomAnchorRestoredHandle=null;
     this.roomAnchorRestoreFailed=false;this.roomAnchorCreationFailed=false;this.roomAnchorLocated=false;this.roomAnchorHandleAvailable=false;this.roomPoseMissingSince=0;
-    this.virtualFloorRoot.visible=false;
+    setRoomContentVisible(this,false);
   }
   createRoomAnchor(frame,ref,floorHeight){
     if(this.roomAnchor||this.roomAnchorPending||this.roomAnchorCreationFailed||this.roomAnchorRestoreFailed||typeof frame.createAnchor!=='function'||!this.xrViewer||typeof XRRigidTransform==='undefined')return;
@@ -412,7 +434,16 @@ export class MatrixView {
       this.roomAnchor=anchor;
       if(typeof anchor.requestPersistentHandle==='function'){
         const handle=await anchor.requestPersistentHandle();
-        if(this.renderer.xr.getSession()===session){localStorage.setItem(ROOM_ANCHOR_KEY,handle);this.roomAnchorPersistent=true;this.roomAnchorHandleAvailable=true;}
+        if(this.renderer.xr.getSession()===session){
+          if(typeof handle!=='string'||!handle)throw Error('Quest returned no persistent room anchor handle');
+          localStorage.setItem(ROOM_ANCHOR_KEY,handle);
+          if(localStorage.getItem(ROOM_ANCHOR_KEY)!==handle)throw Error('Persistent room anchor handle could not be verified');
+          this.roomAnchorPersistent=true;this.roomAnchorHandleAvailable=true;
+          const newlyBound=this.world.originBinding!=='ar'||this.world.originAnchorHandle!==handle;
+          this.world.originBinding='ar';
+          this.world.originAnchorHandle=handle;
+          if(newlyBound&&hasWorldToProtect(this.world))this.onRuntimeChange();
+        }
       }
     }).catch(error=>{if(this.renderer.xr.getSession()===session){this.roomAnchorCreationFailed=true;this.onAssetError(`Room anchor: ${error.message}`);}})
       .finally(()=>{if(this.renderer.xr.getSession()===session)this.roomAnchorPending=false;});
@@ -424,7 +455,7 @@ export class MatrixView {
       if(!this.isAR)return;
       if(!this.roomPoseMissingSince)this.roomPoseMissingSince=performance.now();
       if(this.roomAnchorLocated){
-        this.roomAnchorLocated=false;this.virtualFloorRoot.visible=false;
+        this.roomAnchorLocated=false;setRoomContentVisible(this,false);
         this.world.setOriginUnavailable(true);this.onRuntimeChange();
       }
       if(!this.roomAnchorRestoreFailed&&performance.now()-this.roomPoseMissingSince>10000){
@@ -434,14 +465,20 @@ export class MatrixView {
       }
       return;
     }
+    const wasUnavailable=!!this.world.spatial?.originUnavailable;
     this.roomPoseMissingSince=0;this.roomAnchorRestoreFailed=false;
     this.virtualFloorRoot.position.copy(v3(pose.transform.position));
     const {x,y,z,w}=pose.transform.orientation;
     this.virtualFloorRoot.quaternion.set(x,y,z,w);
-    this.virtualFloorRoot.visible=true;
     this.roomAnchorLocated=true;
     this.virtualFloorCalibrated=true;
-    if(this.world.spatial?.originUnavailable){this.world.setOriginUnavailable(false);this.onRuntimeChange();}
+    const newlyBound=!!this.roomAnchorRestoredHandle&&
+      (this.world.originBinding!=='ar'||this.world.originAnchorHandle!==this.roomAnchorRestoredHandle);
+    if(this.roomAnchorRestoredHandle)this.world.originAnchorHandle=this.roomAnchorRestoredHandle;
+    if(newlyBound)this.world.originBinding='ar';
+    this.world.setOriginUnavailable(false);
+    setRoomContentVisible(this,true);
+    if(wasUnavailable||newlyBound)this.onRuntimeChange();
   }
   onSessionEnd(){
     if(this.operatorVoiceController)this.releaseOperatorVoice(this.operatorVoiceController);
@@ -452,7 +489,7 @@ export class MatrixView {
     for(const ray of this.controllerRays)ray.visible=false;
     this.hitSource?.cancel();this.hitSource=null;this.reticle.visible=false;this.reticleVisible=false;this.reticleAnchorId='';
     this.xrViewer=null;this.planeIds=new WeakMap();this.nextPlaneId=0;this.clearPlanes();this.isAR=false;
-    this.roomAnchor=null;this.roomAnchorPending=false;this.roomAnchorPersistent=false;this.roomAnchorRestoreFailed=false;this.roomAnchorLocated=false;this.roomAnchorHandleAvailable=false;this.roomPoseMissingSince=0;
+    this.roomAnchor=null;this.roomAnchorPending=false;this.roomAnchorPersistent=false;this.roomAnchorRestoredHandle=null;this.roomAnchorRestoreFailed=false;this.roomAnchorLocated=false;this.roomAnchorHandleAvailable=false;this.roomPoseMissingSince=0;
     this.virtualFloorRoot.visible=true;this.virtualFloorRoot.position.set(0,0,0);this.virtualFloorRoot.quaternion.identity();this.virtualFloorCalibrated=false;
     this.world.leaveAR();this.sync();this.onRuntimeChange();
     document.getElementById('xr-overlay').style.display='none';document.getElementById('xr-exit').textContent='Exit AR';this.floor.visible=true;this.grid.visible=true;
@@ -578,7 +615,8 @@ export class MatrixView {
     }
     const floor=anchors.find(anchor=>anchor.semanticLabels.includes('FLOOR'))?.anchorId;
     for(const [id,group] of this.planeOutlines)group.userData.label.visible=id===floor||id===this.world.selection.anchorId;
-    const origin=this.roomAnchorRestoreFailed?'ROOM RELOCALIZATION FAILED':this.roomAnchor&&this.roomAnchorLocated?(this.roomAnchorPersistent?'ROOM ANCHORED':'SESSION ANCHORED'):this.roomAnchorPending||this.roomAnchor?'ALIGNING ROOM':'ROOM ORIGIN UNAVAILABLE';
+    const origin=this.roomAnchorRestoreFailed?'ROOM RELOCALIZATION FAILED':this.roomAnchor&&this.roomAnchorLocated?(this.roomAnchorPersistent?'ROOM ANCHORED':'SESSION ANCHORED'):this.roomAnchorPending||this.roomAnchor?'ALIGNING ROOM':
+      this.world.originBinding==='virtual'&&hasWorldToProtect(this.world)?'UNANCHORED PREVIEW':'ROOM ORIGIN UNAVAILABLE';
     this.operatorPanel.setOriginLabel(origin);
     document.getElementById('view-label').textContent=anchors.length?`WEBXR AR · ${anchors.length} ROOM PLANES · ${origin}`:'WEBXR AR · NO ROOM PLANES';
     if(!anchors.length&&!this.roomCaptureRequested&&time-this.sessionStartedAt>3000&&typeof frame.session?.initiateRoomCapture==='function'){
@@ -620,6 +658,7 @@ export class MatrixView {
         root.userData.assetLoading=true;this.loadExternal(asset,root,visual,object.objectId);
       }
     }
+    setRoomContentVisible(this,!this.isAR||!this.world.spatial?.originUnavailable);
     this.highlight();
   }
   refreshAssets(changedAssetIds){
@@ -782,6 +821,7 @@ export class MatrixView {
     this.onSceneEdit(objectId,transform.position);
   }
   selectFromRay(){
+    if(this.isAR&&this.world.spatial?.originUnavailable)return null;
     const roots=[...this.objectRoots.values()];const hits=this.raycaster.intersectObjects(roots,true);
     if(hits.length){let node=hits[0].object;while(node&&!node.userData.objectId)node=node.parent;
       const id=node?.userData.objectId;if(id){const object=this.world.requireObject(id);this.world.setSelection(id,object.transform.position,object.anchorId);this.highlight();this.onSelection();
@@ -796,6 +836,7 @@ export class MatrixView {
     if(floorHit){const position=plain(floorHit.point);if(['x','y','z'].every(k=>Math.abs(position[k])<=100)){this.world.setSelection('',position);this.highlight();this.onSelection();}}
   }
   pointingTarget(){
+    if(this.isAR&&this.world.spatial?.originUnavailable)return null;
     if(this.renderer.xr.isPresenting){
       const controller=this.lastPointingController;
       if(!controller)return null;

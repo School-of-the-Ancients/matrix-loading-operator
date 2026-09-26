@@ -48,6 +48,10 @@ export class MatrixWorld {
     this.externalAssets=[];
     this.scene={schemaVersion:1,roomId:ROOM_ID,objects:[]};
     this.game=null;
+    // Browser world provenance is separate from the renderer-neutral scene.
+    this.originBinding='virtual';
+    this.originAnchorHandle=null;
+    this.arEntryContent=null;
     this.selection={anchorId:ANCHOR_ID,objectId:'',position:{x:0,y:0,z:-2}};
     this.spatial=null;this.virtualScene=null;
     this.undo=[]; this.redo=[];
@@ -217,18 +221,33 @@ export class MatrixWorld {
     this.scene={...clone(this.scene),roomId:`webxr-session-${this.idFactory()}`};
     this.physicsSceneReference=this.scene;
     this.spatial={anchors:[],alignmentVerified:false,originUnavailable:false};
+    this.resetAROriginBaseline();
     this.undo=[];this.redo=[];
+  }
+  resetAROriginBaseline(){
+    if(this.spatial)this.arEntryContent=this.retainedARContent();
+  }
+  retainedARContent(){
+    // Measured-plane objects are session-only; they do not survive a save or exit.
+    return JSON.stringify([this.scene.objects.filter(object=>object.anchorId===ANCHOR_ID),this.game]);
+  }
+  markAROriginIfChanged(){
+    if(this.spatial&&this.originBinding==='virtual'&&
+       this.arEntryContent!==this.retainedARContent())
+      this.originBinding='ar';
   }
   leaveAR(){
     if(!this.spatial)return;
+    this.markAROriginIfChanged();
     // Carry edits to virtual-floor objects back to desktop. Physical anchors
     // are session-local and must not leak into a virtual-room snapshot.
     const saved=this.virtualScene;
     saved.scene.objects=clone(this.scene.objects.filter(object=>object.anchorId===ANCHOR_ID));
     this.scene=saved.scene;
+    if(!this.scene.objects.length&&this.game===null){this.originBinding='virtual';this.originAnchorHandle=null;}
     this.physicsBodies.clear();this.physicsVerification.clear();this.physicsSceneReference=this.scene;
     this.selection=this.selection.anchorId===ANCHOR_ID?this.selection:saved.selection;
-    this.undo=[];this.redo=[];this.spatial=null;this.virtualScene=null;
+    this.undo=[];this.redo=[];this.spatial=null;this.virtualScene=null;this.arEntryContent=null;
   }
   setSpatialAnchors(anchors){
     if(!this.spatial)return;

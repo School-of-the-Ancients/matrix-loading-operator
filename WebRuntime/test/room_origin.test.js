@@ -3,7 +3,8 @@ import assert from 'node:assert/strict';
 import * as THREE from 'three';
 import {MatrixWorld} from '../src/protocol.js';
 import {MatrixView} from '../src/view.js';
-import {storedWorld,restoreStoredWorld} from '../src/scene_store.js';
+import {storedWorld,storedBrowserWorld,saveStoredWorld,loadStoredWorld,restoreStoredWorld,
+  saveCheckpoint,loadCheckpoint} from '../src/scene_store.js';
 import {ROOM_ANCHOR_KEY,ROOM_ARCHIVES_KEY,hasWorldToProtect,roomArchives,
   archiveAndClearRoom,archiveAndRebaseRoom,clearRoomArchives} from '../src/room_origin.js';
 
@@ -42,20 +43,323 @@ test('unavailable saved origin hides edits until recovery, then archive preserve
   assert.equal(world.scene.objects.length,0);
 });
 
-test('an AR session with saved objects but no anchor handle does not create a new origin silently',()=>{
-  const prior=globalThis.localStorage;globalThis.localStorage=storage();
+test('a passive AR preview with only a session anchor stays virtual after browser reopen',()=>{
+  const prior=globalThis.localStorage,local=storage(),tab=storage();globalThis.localStorage=local;
   try{
-    const world=new MatrixWorld(()=> 'old-object');
+    const world=new MatrixWorld(()=> 'vr-object');
+    assert.equal(world.execute({requestId:'spawn',op:'spawn',assetId:'orb',anchorId:'web-floor',transform}).ok,true);
+    world.enterAR();
+    let updates=0;
+    const view={world,isAR:true,virtualFloorRoot:new THREE.Group(),anchorRoots:new Map(),
+      roomAnchor:null,roomAnchorLocated:false,roomAnchorRestoreFailed:false,roomPoseMissingSince:0,
+      onRuntimeChange(){updates++;}};
+    MatrixView.prototype.restoreRoomAnchor.call(view,{});
+    assert.equal(view.virtualFloorRoot.visible,true);
+    assert.equal(world.snapshot().readOnly,undefined);
+    view.roomAnchor={anchorSpace:{}}; // Session-only: no persistent handle was returned.
+    MatrixView.prototype.updateRoomAnchor.call(view,{getPose:()=>({transform:{
+      position:{x:1,y:0,z:2},orientation:{x:0,y:0,z:0,w:1}}})},{});
+    assert.equal(world.originBinding,'virtual');
+    assert.equal(updates,0,'a passive preview does not force a save or bind the world');
+    assert.equal(saveStoredWorld(storedBrowserWorld(world),tab,local),'');
+    const saved=loadStoredWorld(tab,local).value;
+    assert.equal(saved.originBinding,'virtual');
+    const reopened=new MatrixWorld();restoreStoredWorld(reopened,saved);reopened.enterAR();
+    const reopenedView={world:reopened,isAR:true,virtualFloorRoot:new THREE.Group(),anchorRoots:new Map()};
+    MatrixView.prototype.restoreRoomAnchor.call(reopenedView,{});
+    assert.equal(reopenedView.virtualFloorRoot.visible,true);
+    assert.equal(reopened.snapshot().readOnly,undefined);
+  }finally{
+    if(prior===undefined)delete globalThis.localStorage;else globalThis.localStorage=prior;
+  }
+});
+
+test('a temporary measured-surface object does not bind a surviving VR preview',()=>{
+  const prior=globalThis.localStorage,local=storage();globalThis.localStorage=local;
+  try{
+    const world=new MatrixWorld(()=> 'vr-object');
     world.execute({requestId:'spawn',op:'spawn',assetId:'orb',anchorId:'web-floor',transform});
     world.enterAR();
-    const view={world,isAR:true,roomAnchorRestoreFailed:false,virtualFloorRoot:new THREE.Group(),
+    world.scene.objects.push({...structuredClone(world.scene.objects[0]),
+      objectId:'session-only-object',anchorId:'measured-plane'});
+    const saved=storedBrowserWorld(world);
+    assert.equal(saved.originBinding,'virtual');
+    assert.deepEqual(saved.scene.objects.map(object=>object.objectId),['vr-object']);
+    world.leaveAR();
+    assert.equal(world.originBinding,'virtual');
+    assert.deepEqual(world.scene.objects.map(object=>object.objectId),['vr-object']);
+    const reopened=new MatrixWorld();restoreStoredWorld(reopened,saved);reopened.enterAR();
+    const view={world:reopened,isAR:true,virtualFloorRoot:new THREE.Group(),anchorRoots:new Map()};
+    MatrixView.prototype.restoreRoomAnchor.call(view,{});
+    assert.equal(view.virtualFloorRoot.visible,true);
+    assert.equal(reopened.snapshot().readOnly,undefined);
+  }finally{
+    if(prior===undefined)delete globalThis.localStorage;else globalThis.localStorage=prior;
+  }
+});
+
+test('an explicitly virtual world ignores an unrelated AR handle and remains an unanchored preview',async()=>{
+  const prior=globalThis.localStorage,local=storage();
+  local.setItem(ROOM_ANCHOR_KEY,'old-ar-room-handle');globalThis.localStorage=local;
+  try{
+    for(const outcome of ['resolves','rejects','unsupported']){
+      const world=new MatrixWorld(()=> 'vr-object');
+      world.execute({requestId:'spawn',op:'spawn',assetId:'orb',anchorId:'web-floor',transform});
+      world.enterAR();
+      let restores=0,errors=0;
+      const session=outcome==='unsupported'?{}:{restorePersistentAnchor(){
+        restores++;
+        return outcome==='resolves'?Promise.resolve({anchorSpace:{}}):Promise.reject(Error('stale handle'));
+      }};
+      const view={world,isAR:true,virtualFloorRoot:new THREE.Group(),anchorRoots:new Map(),
+        onAssetError(){errors++;},onRuntimeChange(){}};
+      MatrixView.prototype.restoreRoomAnchor.call(view,session);
+      await Promise.resolve();
+      assert.equal(restores,0,`${outcome}: an unrelated handle must not be restored`);
+      assert.equal(errors,0);
+      assert.equal(view.roomAnchor,null);
+      assert.equal(view.roomAnchorHandleAvailable,false);
+      assert.equal(view.virtualFloorRoot.visible,true);
+      assert.equal(world.snapshot().readOnly,undefined);
+      assert.equal(world.originBinding,'virtual');
+      assert.equal(local.getItem(ROOM_ANCHOR_KEY),'old-ar-room-handle');
+    }
+    let reads=0;
+    globalThis.localStorage={getItem(){reads++;throw Error('storage blocked');}};
+    const world=new MatrixWorld(()=> 'vr-object');
+    world.execute({requestId:'spawn',op:'spawn',assetId:'orb',anchorId:'web-floor',transform});
+    world.enterAR();
+    const view={world,isAR:true,virtualFloorRoot:new THREE.Group(),anchorRoots:new Map()};
+    MatrixView.prototype.restoreRoomAnchor.call(view,{});
+    assert.equal(reads,0,'an unbound virtual world does not require anchor storage');
+    assert.equal(view.virtualFloorRoot.visible,true);
+    assert.equal(world.snapshot().readOnly,undefined);
+  }finally{
+    if(prior===undefined)delete globalThis.localStorage;else globalThis.localStorage=prior;
+  }
+});
+
+test('a session-only physical object does not use the unbound virtual preview exception',()=>{
+  const prior=globalThis.localStorage,local=storage();
+  local.setItem(ROOM_ANCHOR_KEY,'old-ar-room-handle');globalThis.localStorage=local;
+  try{
+    const world=new MatrixWorld(()=> 'vr-object');
+    world.execute({requestId:'spawn',op:'spawn',assetId:'orb',anchorId:'web-floor',transform});
+    world.enterAR();
+    world.scene.objects.push({...structuredClone(world.scene.objects[0]),
+      objectId:'physical',anchorId:'measured-plane'});
+    const view={world,isAR:true,virtualFloorRoot:new THREE.Group(),anchorRoots:new Map(),
       onAssetError(){},onRuntimeChange(){},
       markRoomOriginUnavailable(message){MatrixView.prototype.markRoomOriginUnavailable.call(this,message);}};
     MatrixView.prototype.restoreRoomAnchor.call(view,{});
+    assert.equal(view.virtualFloorRoot.visible,false);
+    assert.equal(world.snapshot().readOnly,true);
+    assert.equal(local.getItem(ROOM_ANCHOR_KEY),'old-ar-room-handle');
+  }finally{
+    if(prior===undefined)delete globalThis.localStorage;else globalThis.localStorage=prior;
+  }
+});
+
+test('an ambiguous legacy world ignores an unrelated saved handle and requires explicit recovery',()=>{
+  const prior=globalThis.localStorage,local=storage();
+  local.setItem(ROOM_ANCHOR_KEY,'unrelated-room-handle');globalThis.localStorage=local;
+  try{
+    const original=new MatrixWorld(()=> 'old-object');
+    original.execute({requestId:'spawn',op:'spawn',assetId:'orb',anchorId:'web-floor',transform});
+    const world=new MatrixWorld();restoreStoredWorld(world,storedWorld(original));
+    assert.equal(world.originBinding,'unknown');
+    world.enterAR();
+    let restores=0;
+    const session={restorePersistentAnchor(){restores++;return Promise.resolve({anchorSpace:{}});}};
+    const view={world,isAR:true,roomAnchorRestoreFailed:false,virtualFloorRoot:new THREE.Group(),
+      renderer:{xr:{getSession:()=>session}},
+      onAssetError(){},onRuntimeChange(){},
+      markRoomOriginUnavailable(message){MatrixView.prototype.markRoomOriginUnavailable.call(this,message);}};
+    MatrixView.prototype.restoreRoomAnchor.call(view,session);
+    assert.equal(restores,0,'an unrelated handle is never restored automatically');
+    assert.equal(view.roomAnchorHandleAvailable,false,'Retry cannot loop on an unknown binding');
+    assert.equal(MatrixView.prototype.retryRoomOrigin.call(view),false);
+    assert.equal(local.getItem(ROOM_ANCHOR_KEY),'unrelated-room-handle','archive choice retains the handle');
     assert.equal(view.roomAnchorRestoreFailed,true);
     assert.equal(view.virtualFloorRoot.visible,false);
     assert.equal(world.snapshot().readOnly,true);
     assert.equal(world.scene.objects.length,1);
+    const archive=archiveAndRebaseRoom(world,local);
+    assert.equal(archive.anchorHandle,'unrelated-room-handle');
+    assert.equal(local.getItem(ROOM_ANCHOR_KEY),null);
+    assert.equal(world.originBinding,'ar');
+    assert.equal(world.snapshot().readOnly,true);
+  }finally{
+    if(prior===undefined)delete globalThis.localStorage;else globalThis.localStorage=prior;
+  }
+});
+
+test('an AR scene edit without a persistent handle binds the browser world and locks reopen',()=>{
+  const prior=globalThis.localStorage,local=storage(),tab=storage(),manual=storage();globalThis.localStorage=local;
+  try{
+    const world=new MatrixWorld(()=> 'ar-object');
+    world.execute({requestId:'spawn',op:'spawn',assetId:'orb',anchorId:'web-floor',transform});
+    world.enterAR();
+    let updates=0;
+    const view={world,isAR:true,roomAnchor:{anchorSpace:{}},roomAnchorLocated:false,
+      roomAnchorRestoreFailed:false,roomPoseMissingSince:0,virtualFloorRoot:new THREE.Group(),
+      anchorRoots:new Map(),onRuntimeChange(){updates++;}};
+    MatrixView.prototype.updateRoomAnchor.call(view,{getPose:()=>({transform:{
+      position:{x:1,y:0,z:2},orientation:{x:0,y:0,z:0,w:1}}})},{});
+    assert.equal(view.roomAnchorLocated,true);
+    assert.equal(world.originBinding,'virtual');
+    assert.equal(updates,0);
+    const moved=structuredClone(transform);moved.position.x=.4;
+    assert.equal(world.execute({requestId:'ar-edit',op:'set_transform',objectId:'ar-object',transform:moved}).ok,true);
+    const browserWorld=storedBrowserWorld(world);
+    assert.equal(browserWorld.originBinding,'ar','the changed AR scene is now room-bound');
+    assert.equal(saveStoredWorld(browserWorld,tab,local),'');
+    assert.equal(saveCheckpoint(browserWorld.scene,browserWorld.game,manual,browserWorld.originBinding,
+      browserWorld.originAnchorHandle),'');
+    assert.equal(loadCheckpoint(manual).originBinding,'ar','manual browser checkpoint carries provenance');
+    const reopened=new MatrixWorld();restoreStoredWorld(reopened,loadStoredWorld(tab,local).value);
+    assert.equal(reopened.originBinding,'ar');
+    reopened.enterAR();
+    const reopenedView={world:reopened,isAR:true,roomAnchorRestoreFailed:false,
+      virtualFloorRoot:new THREE.Group(),anchorRoots:new Map(),
+      onAssetError(){},onRuntimeChange(){},
+      markRoomOriginUnavailable(message){MatrixView.prototype.markRoomOriginUnavailable.call(this,message);}};
+    MatrixView.prototype.restoreRoomAnchor.call(reopenedView,{});
+    assert.equal(reopenedView.virtualFloorRoot.visible,false);
+    assert.equal(reopened.snapshot().readOnly,true);
+  }finally{
+    if(prior===undefined)delete globalThis.localStorage;else globalThis.localStorage=prior;
+  }
+});
+
+test('AR game progress binds a previously virtual world even without a handle',()=>{
+  const world=new MatrixWorld();world.game={state:{score:0}};world.enterAR();
+  assert.equal(storedBrowserWorld(world).originBinding,'virtual');
+  world.game.state.score=1;
+  assert.equal(storedBrowserWorld(world).originBinding,'ar');
+});
+
+test('a verified persistent anchor handle binds a passive preview and restores it at its pose',async()=>{
+  const priorStorage=globalThis.localStorage,priorTransform=globalThis.XRRigidTransform;
+  const local=storage();globalThis.localStorage=local;
+  globalThis.XRRigidTransform=class {constructor(position,orientation){this.position=position;this.orientation=orientation;}};
+  try{
+    const world=new MatrixWorld(()=> 'persisted-object');
+    world.execute({requestId:'spawn',op:'spawn',assetId:'orb',anchorId:'web-floor',transform});
+    world.enterAR();
+    const session={},anchor={anchorSpace:{},requestPersistentHandle:async()=> 'saved-room-handle'};
+    let saves=0;
+    const view={world,isAR:true,roomAnchor:null,roomAnchorPending:false,
+      roomAnchorCreationFailed:false,roomAnchorRestoreFailed:false,
+      xrViewer:{position:new THREE.Vector3(0,1.7,0),direction:new THREE.Vector3(0,0,-1)},
+      virtualFloorRoot:new THREE.Group(),renderer:{xr:{getSession:()=>session}},
+      onRuntimeChange(){saves++;},onAssetError(){}};
+    MatrixView.prototype.createRoomAnchor.call(view,{session,createAnchor:()=>Promise.resolve(anchor)}, {},0);
+    await new Promise(resolve=>setImmediate(resolve));
+    assert.equal(local.getItem(ROOM_ANCHOR_KEY),'saved-room-handle');
+    assert.equal(view.roomAnchorPersistent,true);
+    assert.equal(world.originBinding,'ar');
+    assert.equal(world.originAnchorHandle,'saved-room-handle');
+    assert.equal(saves,1,'new binding is persisted before a browser reopen');
+
+    const saved=storedBrowserWorld(world);
+    assert.equal(saved.originAnchorHandle,'saved-room-handle');
+    const reopened=new MatrixWorld();restoreStoredWorld(reopened,saved);reopened.enterAR();
+    let restores=0;
+    const restoreSession={restorePersistentAnchor:async handle=>{
+      restores++;assert.equal(handle,'saved-room-handle');return anchor;}};
+    const reopenedView={world:reopened,isAR:true,roomAnchorRestoreFailed:false,
+      virtualFloorRoot:new THREE.Group(),anchorRoots:new Map(),
+      renderer:{xr:{getSession:()=>restoreSession}},onRuntimeChange(){},onAssetError(){}};
+    MatrixView.prototype.restoreRoomAnchor.call(reopenedView,restoreSession);
+    assert.equal(reopenedView.virtualFloorRoot.visible,false);
+    assert.equal(reopened.snapshot().readOnly,true);
+    await new Promise(resolve=>setImmediate(resolve));
+    assert.equal(restores,1);
+    assert.equal(reopenedView.roomAnchor,anchor);
+    MatrixView.prototype.updateRoomAnchor.call(reopenedView,{getPose:()=>({transform:{
+      position:{x:1,y:0,z:2},orientation:{x:0,y:0,z:0,w:1}}})},{});
+    assert.equal(reopenedView.virtualFloorRoot.visible,true);
+    assert.equal(reopened.snapshot().readOnly,undefined);
+    assert.equal(reopened.originAnchorHandle,'saved-room-handle');
+  }finally{
+    if(priorStorage===undefined)delete globalThis.localStorage;else globalThis.localStorage=priorStorage;
+    if(priorTransform===undefined)delete globalThis.XRRigidTransform;else globalThis.XRRigidTransform=priorTransform;
+  }
+});
+
+test('an AR-bound world stays hidden until its saved anchor returns with a tracked pose',async()=>{
+  const prior=globalThis.localStorage,local=storage();globalThis.localStorage=local;
+  local.setItem(ROOM_ANCHOR_KEY,'existing-handle');
+  try{
+    const world=new MatrixWorld(()=> 'vr-object');
+    world.execute({requestId:'spawn',op:'spawn',assetId:'orb',anchorId:'web-floor',transform});
+    world.originBinding='ar';world.originAnchorHandle='existing-handle';
+    world.enterAR();
+    const anchor={anchorSpace:{}},session={restorePersistentAnchor:async()=>anchor};
+    let saves=0;
+    const view={world,isAR:true,virtualFloorRoot:new THREE.Group(),anchorRoots:new Map(),
+      renderer:{xr:{getSession:()=>session}},onAssetError(){},onRuntimeChange(){saves++;},
+      markRoomOriginUnavailable(message){MatrixView.prototype.markRoomOriginUnavailable.call(this,message);}};
+    MatrixView.prototype.restoreRoomAnchor.call(view,session);
+    await new Promise(resolve=>setImmediate(resolve));
+    assert.equal(world.snapshot().readOnly,true,'the saved world waits for a tracked pose');
+    assert.equal(view.virtualFloorRoot.visible,false);
+    MatrixView.prototype.updateRoomAnchor.call(view,{getPose:()=>({transform:{
+      position:{x:1,y:0,z:2},orientation:{x:0,y:0,z:0,w:1}}})},{});
+    assert.equal(world.originBinding,'ar');
+    assert.equal(world.originAnchorHandle,'existing-handle');
+    assert.equal(saves,1);
+    const saved=storedBrowserWorld(world);
+    local.removeItem(ROOM_ANCHOR_KEY);
+    const reopened=new MatrixWorld();restoreStoredWorld(reopened,saved);reopened.enterAR();
+    const reopenedView={world:reopened,isAR:true,virtualFloorRoot:new THREE.Group(),anchorRoots:new Map(),
+      onAssetError(){},onRuntimeChange(){},
+      markRoomOriginUnavailable(message){MatrixView.prototype.markRoomOriginUnavailable.call(this,message);}};
+    MatrixView.prototype.restoreRoomAnchor.call(reopenedView,{});
+    assert.equal(reopenedView.virtualFloorRoot.visible,false);
+    assert.equal(reopened.snapshot().readOnly,true);
+  }finally{
+    if(prior===undefined)delete globalThis.localStorage;else globalThis.localStorage=prior;
+  }
+});
+
+test('checkpoint from room A cannot auto-restore under room B handle',()=>{
+  const prior=globalThis.localStorage,local=storage(),checkpointStorage=storage();globalThis.localStorage=local;
+  try{
+    const world=new MatrixWorld(()=> 'room-a-object');
+    world.execute({requestId:'spawn',op:'spawn',assetId:'orb',anchorId:'web-floor',transform});
+    world.originBinding='ar';world.originAnchorHandle='handle-A';
+    const checkpoint=storedBrowserWorld(world);
+    assert.equal(saveCheckpoint(checkpoint.scene,checkpoint.game,checkpointStorage,
+      checkpoint.originBinding,checkpoint.originAnchorHandle),'');
+    assert.equal(loadCheckpoint(checkpointStorage).originAnchorHandle,'handle-A');
+    local.setItem(ROOM_ANCHOR_KEY,'handle-A');
+    world.enterAR();world.setOriginUnavailable(true);
+    archiveAndClearRoom(world,local);world.leaveAR();
+    local.setItem(ROOM_ANCHOR_KEY,'handle-B');
+    restoreStoredWorld(world,loadCheckpoint(checkpointStorage));world.enterAR();
+    let restores=0;
+    const session={restorePersistentAnchor(){restores++;return Promise.resolve({anchorSpace:{}});}};
+    const view={world,isAR:true,virtualFloorRoot:new THREE.Group(),anchorRoots:new Map(),
+      renderer:{xr:{getSession:()=>session}},onAssetError(){},onRuntimeChange(){},
+      markRoomOriginUnavailable(message){MatrixView.prototype.markRoomOriginUnavailable.call(this,message);}};
+    MatrixView.prototype.restoreRoomAnchor.call(view,session);
+    assert.equal(restores,0);
+    assert.equal(view.roomAnchorHandleAvailable,false);
+    assert.equal(view.virtualFloorRoot.visible,false);
+    assert.equal(world.snapshot().readOnly,true);
+    assert.equal(world.originAnchorHandle,'handle-A');
+    assert.equal(local.getItem(ROOM_ANCHOR_KEY),'handle-B');
+    const mismatchedArchive=archiveAndRebaseRoom(world,local);
+    assert.equal(mismatchedArchive.anchorHandle,'handle-A','archive keeps the world’s verified handle');
+    const roomB=new MatrixWorld(()=> 'room-b-object');
+    roomB.execute({requestId:'spawn-b',op:'spawn',assetId:'orb',anchorId:'web-floor',transform});
+    roomB.originBinding='ar';roomB.originAnchorHandle='handle-B';roomB.enterAR();
+    assert.throws(()=>restoreStoredWorld(roomB,loadCheckpoint(checkpointStorage)),
+      /different or unverified room origin/);
+    assert.equal(roomB.scene.objects[0].objectId,'room-b-object');
+    assert.equal(roomB.originAnchorHandle,'handle-B');
   }finally{
     if(prior===undefined)delete globalThis.localStorage;else globalThis.localStorage=prior;
   }
@@ -82,6 +386,15 @@ test('VR ignores a saved AR room anchor and keeps its virtual floor origin',asyn
   }finally{
     if(prior===undefined)delete globalThis.localStorage;else globalThis.localStorage=prior;
   }
+});
+
+test('leaving an empty AR world lets later VR content remain explicitly unbound',()=>{
+  const world=new MatrixWorld(()=> 'later-vr-object');
+  world.enterAR();world.originBinding='ar';world.leaveAR();
+  assert.equal(world.originBinding,'virtual');
+  assert.equal(world.execute({requestId:'spawn',op:'spawn',assetId:'orb',
+    anchorId:'web-floor',transform}).ok,true);
+  assert.equal(storedBrowserWorld(world).originBinding,'virtual');
 });
 
 test('failed archive write leaves the old room and anchor intact',()=>{
@@ -154,5 +467,37 @@ test('loss of a tracked room pose immediately hides the world and restores it on
   assert.equal(root.visible,true);
   assert.equal(view.roomAnchorLocated,true);
   assert.equal(view.roomAnchorRestoreFailed,false);
+  assert.equal(world.snapshot().readOnly,undefined);
+});
+
+test('pose loss hides measured-surface objects even after scene sync, then reveals them on recovery',()=>{
+  const world=new MatrixWorld();world.enterAR();
+  const anchor={anchorId:'table-plane',displayName:'TABLE',semanticLabels:['TABLE'],
+    roomPose:{position:{x:0,y:1,z:-2},rotation:{x:0,y:0,z:0}},
+    surface:{kind:'support',boundary:[{x:-1,y:0,z:-1},{x:1,y:0,z:-1},{x:1,y:0,z:1},{x:-1,y:0,z:1}]}};
+  world.setSpatialAnchors([anchor]);
+  world.scene.objects.push({objectId:'measured-object',assetId:'orb',anchorId:'table-plane',transform});
+  const view=Object.create(MatrixView.prototype);
+  view.world=world;view.isAR=true;view.scene=new THREE.Scene();view.virtualFloorRoot=new THREE.Group();
+  view.scene.add(view.virtualFloorRoot);view.anchorRoots=new Map();view.objectRoots=new Map();
+  const outline=new THREE.Group();view.scene.add(outline);view.planeOutlines=new Map([['table-plane',outline]]);
+  view.highlight=()=>{};view.onRuntimeChange=()=>view.sync();view.onAssetError=()=>{};
+  view.roomAnchor={anchorSpace:{}};view.roomAnchorLocated=true;view.roomPoseMissingSince=0;
+  view.roomAnchorRestoreFailed=false;
+  view.sync();
+  assert.equal(view.anchorRoots.get('table-plane').parent,view.scene);
+  assert.equal(view.objectRoots.get('measured-object').parent,view.anchorRoots.get('table-plane'));
+  MatrixView.prototype.updateRoomAnchor.call(view,{getPose:()=>null},{});
+  assert.equal(view.anchorRoots.get('table-plane').visible,false);
+  assert.equal(view.virtualFloorRoot.visible,false);
+  assert.equal(outline.visible,true,'live support outline stays visible for alignment');
+  assert.equal(world.snapshot().readOnly,true);
+  view.raycaster={intersectObjects(){throw Error('hidden objects should not be raycast');}};
+  assert.equal(view.selectFromRay(),null);
+  assert.equal(view.pointingTarget(),null);
+  MatrixView.prototype.updateRoomAnchor.call(view,{getPose:()=>({transform:{
+    position:{x:1,y:0,z:2},orientation:{x:0,y:0,z:0,w:1}}})},{});
+  assert.equal(view.anchorRoots.get('table-plane').visible,true);
+  assert.equal(view.virtualFloorRoot.visible,true);
   assert.equal(world.snapshot().readOnly,undefined);
 });

@@ -34,7 +34,8 @@ function archiveAndStartRoom(world,storage,keepWorld){
   const archives=roomArchives(storage);
   if(archives.length>=MAX_ARCHIVES)throw Error('Three room recovery archives already exist; export them before resetting again');
   const archive={version:1,archiveId:crypto.randomUUID(),archivedAtUtc:new Date().toISOString(),
-    anchorHandle:storage.getItem(ROOM_ANCHOR_KEY)||null,world:storedWorld(world)};
+    anchorHandle:(world.originBinding==='ar'&&world.originAnchorHandle)||
+      storage.getItem(ROOM_ANCHOR_KEY)||null,world:storedWorld(world)};
   const serialized=JSON.stringify([...archives,archive]);
   storage.setItem(ROOM_ARCHIVES_KEY,serialized);
   if(storage.getItem(ROOM_ARCHIVES_KEY)!==serialized)throw Error('Room archive could not be verified');
@@ -44,6 +45,9 @@ function archiveAndStartRoom(world,storage,keepWorld){
     if(world.virtualScene)world.virtualScene.scene.objects=[];
     world.game=null;
   }
+  world.originBinding=keepWorld?'ar':'virtual';
+  world.originAnchorHandle=null;
+  world.resetAROriginBaseline();
   world.selection={anchorId:'web-floor',objectId:'',position:{x:0,y:0,z:-2}};
   if(world.virtualScene)world.virtualScene.selection=structuredClone(world.selection);
   world.undo=[];world.redo=[];

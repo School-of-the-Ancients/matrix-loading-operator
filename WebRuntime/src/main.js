@@ -6,7 +6,7 @@ import {VoiceRecorder} from './voice.js';
 import {CameraStream} from './camera_stream.js';
 import {AgentClient,agentActivityLabel} from './agent_client.js';
 import {captureAgentContext} from './agent_context.js';
-import {loadStoredWorld,saveStoredWorld,restoreStoredWorld,restoreBestStoredWorld,storedWorld,
+import {loadStoredWorld,saveStoredWorld,restoreStoredWorld,restoreBestStoredWorld,storedWorld,storedBrowserWorld,
   saveCheckpoint,loadCheckpoint} from './scene_store.js';
 import {applyPCWorld} from './world_checkpoint.js';
 import {loadConversation,rememberTurn,clearConversation} from './conversation.js';
@@ -110,7 +110,8 @@ function updateWorldControls(){
   $('rebase-room-origin').textContent=performance.now()<roomResetArmedUntil&&roomRecoveryChoice==='rebase'?
     'Confirm archive and place here':'Archive and place world here';
   $('room-origin-status').textContent=!view.isAR?'Room origin status appears in AR.':
-    resetAvailable?'Saved world hidden. Retry, place it here explicitly, or archive and start empty.':
+    resetAvailable?canRetryOrigin?'Saved world hidden. Retry, place it here explicitly, or archive and start empty.':
+      'Saved world hidden. Archive and place it here or start empty.':
     originUnavailable?'Waiting for a tracked room anchor; editing is paused.':
     view.roomAnchorLocated?'Room origin tracked.':'Room origin has not been tracked yet.';
   let hasArchives=false;
@@ -152,7 +153,7 @@ function renderScene(){
   updateWorldControls();
   scaleUI?.refreshTargets();
   if(!pendingWorld){
-    persistenceWarning=saveStoredWorld(storedWorld(world),sessionStorage,localStorage);
+    persistenceWarning=saveStoredWorld(storedBrowserWorld(world),sessionStorage,localStorage);
     const durableFailed=persistenceWarning.includes('Persistent browser save failed');
     view.setOperatorWarning(persistenceWarning?durableFailed?
       'PERSISTENT SAVE FAILED · closing browser may lose world':'TAB COPY FAILED · durable world saved':
@@ -481,8 +482,8 @@ async function saveWorld(){
     feedback('Recover the saved room origin before replacing a world checkpoint.',true);
     view.setOperatorWorldNotice('Save blocked: recover the room origin.','error');return;
   }
-  const value=storedWorld(world);
-  const warning=saveCheckpoint(value.scene,value.game,localStorage);
+  const value=storedBrowserWorld(world);
+  const warning=saveCheckpoint(value.scene,value.game,localStorage,value.originBinding,value.originAnchorHandle);
   if(warning){feedback(warning,true);view.setOperatorWorldNotice('Browser checkpoint failed.','error');return;}
   view.setOperatorWorldNotice('Saved in browser · saving PC scene backup…','pending');
   const name=`WebWorld_${new Date().toISOString().replace(/[-:T.Z]/g,'').slice(0,14)}`;
