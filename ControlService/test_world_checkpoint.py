@@ -381,6 +381,117 @@ class WorldCheckpointTests(unittest.TestCase):
                             "score": 42.5}]}
         return world
 
+    def citizens_v10_appointments_world(self):
+        world = self.citizens_v9_social_need_world()
+        state = world["citizens"]
+        state["schemaVersion"] = 10
+        state["requestSequence"] = 11
+        ada, bo = state["residents"]
+        ada["appointments"] = [
+            {"id": "appointment-1", "kind": "rest", "startTick": 12,
+             "deadlineTick": 15, "status": "completed", "executionId": 4,
+             "resolvedTick": 15, "requestId": "citizens-73-action-4-11", "reason": ""},
+            {"id": "appointment-2", "kind": "eat", "startTick": 16,
+             "deadlineTick": 60, "status": "pending", "executionId": None,
+             "resolvedTick": None, "requestId": None, "reason": ""}]
+        bo["appointments"] = [
+            {"id": "appointment-1", "kind": "rest", "startTick": 14,
+             "deadlineTick": 30, "status": "active", "executionId": 5,
+             "resolvedTick": None, "requestId": None, "reason": ""},
+            {"id": "appointment-2", "kind": "eat", "startTick": 11,
+             "deadlineTick": 14, "status": "missed", "executionId": None,
+             "resolvedTick": 15, "requestId": None, "reason": "deadline passed"}]
+        bo["lastDecision"] = {
+            "tick": 15, "mode": "appointment", "roll": None,
+            "selectedKind": "rest", "selectedRoutineId": None,
+            "selectedAppointmentId": "appointment-1",
+            "candidates": [{"kind": "rest", "routineId": None,
+                            "priority": "none", "deficit": 68,
+                            "preference": 1.1, "travelMeters": 1.6,
+                            "baseWeight": 0, "availabilityFactor": 1,
+                            "score": 74.8}]}
+        return world
+
+    def test_citizens_v10_appointments_roundtrip_and_v9_compatibility(self):
+        world = self.citizens_v10_appointments_world()
+        live_before = copy.deepcopy(self.state.latest)
+        self.assertTrue(self.state.save_world_checkpoint("Appointments", world)["saved"])
+        restored = self.state.load_world_checkpoint("Appointments")["world"]
+        self.assertEqual(restored["citizens"], world["citizens"])
+        self.assertEqual(restored["citizens"]["residents"][1]["appointments"][0]["status"],
+                         "active")
+        self.assertEqual(restored["citizens"]["residents"][1]["appointments"][1]["status"],
+                         "missed")
+        self.assertEqual(self.state.latest, live_before)
+
+        old = self.citizens_v9_social_need_world()
+        self.assertTrue(self.state.save_world_checkpoint("BeforeAppointments", old)["saved"])
+        self.assertEqual(self.state.load_world_checkpoint("BeforeAppointments")["world"]["citizens"],
+                         old["citizens"], "v9 remains exact for browser migration")
+
+    def test_citizens_v10_rejects_malformed_appointments_atomically(self):
+        world = self.citizens_v10_appointments_world()
+        self.assertTrue(self.state.save_world_checkpoint("Appointments", world)["saved"])
+        path = self.scenes / "world_checkpoints" / "Appointments.json"
+        original = path.read_bytes()
+        live_before = copy.deepcopy(self.state.latest)
+
+        def ada(item):
+            return item["citizens"]["residents"][0]
+
+        def bo(item):
+            return item["citizens"]["residents"][1]
+
+        cases = (
+            ("missing appointments", lambda item: ada(item).pop("appointments")),
+            ("too many appointments", lambda item: bo(item)["appointments"].extend(
+                copy.deepcopy(bo(item)["appointments"]) * 2)),
+            ("duplicate ID", lambda item: ada(item)["appointments"][1].update(id="appointment-1")),
+            ("extra appointment field", lambda item: ada(item)["appointments"][0].update(note="x")),
+            ("invalid kind", lambda item: ada(item)["appointments"][1].update(kind="explore")),
+            ("noninteger tick", lambda item: ada(item)["appointments"][1].update(startTick=True)),
+            ("zero span", lambda item: ada(item)["appointments"][1].update(deadlineTick=16)),
+            ("too long span", lambda item: ada(item)["appointments"][1].update(deadlineTick=1457)),
+            ("pending after deadline", lambda item: ada(item)["appointments"][1].update(deadlineTick=14)),
+            ("active without waiter", lambda item: bo(item)["appointments"][0].update(executionId=3)),
+            ("active wrong kind", lambda item: bo(item)["appointments"][0].update(kind="eat")),
+            ("active after deadline", lambda item: bo(item)["appointments"][0].update(deadlineTick=14)),
+            ("bad completion receipt", lambda item: ada(item)["appointments"][0].update(
+                requestId="citizens-73-action-4-10")),
+            ("completion after deadline", lambda item: ada(item)["appointments"][0].update(
+                deadlineTick=14)),
+            ("missed without reason", lambda item: bo(item)["appointments"][1].update(reason="")),
+            ("missed wrong tick", lambda item: bo(item)["appointments"][1].update(resolvedTick=14)),
+            ("wrong decision appointment", lambda item: bo(item)["lastDecision"].update(
+                selectedAppointmentId="appointment-3")),
+            ("wrong decision candidate", lambda item: bo(item)["lastDecision"]["candidates"][0].update(
+                kind="eat")),
+            ("other state fields exact", lambda item: item["citizens"].update(appointmentClock=15)),
+            ("v9 rejects appointments", lambda item: item["citizens"].update(schemaVersion=9)),
+        )
+        for label, mutate in cases:
+            with self.subTest(save=label):
+                invalid = copy.deepcopy(world)
+                mutate(invalid)
+                with self.assertRaises(APIError) as rejected:
+                    self.state.save_world_checkpoint("Appointments", invalid)
+                self.assertEqual(rejected.exception.status, 400)
+                self.assertEqual(path.read_bytes(), original)
+                self.assertEqual(self.state.latest, live_before)
+
+        for label, mutate in cases:
+            with self.subTest(load=label):
+                document = json.loads(original)
+                mutate(document["world"])
+                document["payloadSha256"] = world_checkpoint_digest(
+                    document["world"], document["dependencies"])
+                path.write_text(json.dumps(document), encoding="utf-8")
+                with self.assertRaises(APIError) as rejected:
+                    self.state.load_world_checkpoint("Appointments")
+                self.assertEqual(rejected.exception.status, 400)
+                self.assertEqual(self.state.latest, live_before)
+                path.write_bytes(original)
+
     def test_citizens_v9_social_need_roundtrip_mid_session_and_v8_compatibility(self):
         world = self.citizens_v9_social_need_world()
         live_before = copy.deepcopy(self.state.latest)
