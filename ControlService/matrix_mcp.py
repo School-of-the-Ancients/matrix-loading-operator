@@ -1,4 +1,4 @@
-"""PC-local read-only Matrix MCP server for the Codex Agent Portal."""
+"""PC-local Matrix MCP server for the Codex Agent Portal."""
 from __future__ import annotations
 
 import os
@@ -8,7 +8,8 @@ from mcp.types import ToolAnnotations
 from matrix_tool_bridge import (animation_status, bind_animation, component_action, component_status,
                                 list_assets, list_components,
                                 move_object, move_status, publish_component, read_scene, register_glb,
-                                scale_block, scale_status, spawn_asset, spawn_status)
+                                physics_action, physics_status, scale_block, scale_status,
+                                spawn_asset, spawn_status)
 
 
 server = FastMCP("matrix-webxr")
@@ -135,6 +136,42 @@ def matrix_animation_status(request_id: str) -> dict:
     """Read the runtime receipt and observed state for a GLB clip binding."""
     return animation_status(os.environ["MATRIX_CONTROL_URL"],
                             os.environ["MATRIX_CONTROL_TOKEN"], request_id)
+
+
+@server.tool(annotations=ToolAnnotations(readOnlyHint=False, destructiveHint=False,
+                                         idempotentHint=False, openWorldHint=False))
+def matrix_set_physics(room_id: str, scene_revision: int, object_id: str,
+                       expected_asset_id: str, restitution: float = 0.4) -> dict:
+    """Drop one registered GLB onto the Matrix Web White Room's virtual floor.
+
+    The bounded approximation uses gravity 9.81 m/s² and a catalog bounds box.
+    Restitution is 0–0.75. The GLB must be loaded, upright, within 5 m of the
+    floor, and have no competing transform writer. Check matrix_physics_status:
+    the command receipt confirms configuration; contact requires a matching
+    observed physics state. No real-floor or object collision is measured.
+    """
+    return physics_action(os.environ["MATRIX_CONTROL_URL"], os.environ["MATRIX_CONTROL_TOKEN"],
+                          {"action": "set", "room_id": room_id,
+                           "scene_revision": scene_revision, "object_id": object_id,
+                           "expected_asset_id": expected_asset_id, "restitution": restitution})
+
+
+@server.tool(annotations=ToolAnnotations(readOnlyHint=False, destructiveHint=False,
+                                         idempotentHint=False, openWorldHint=False))
+def matrix_remove_physics(room_id: str, scene_revision: int, object_id: str,
+                          expected_asset_id: str) -> dict:
+    """Stop the floor simulation and remove its saved configuration from one GLB."""
+    return physics_action(os.environ["MATRIX_CONTROL_URL"], os.environ["MATRIX_CONTROL_TOKEN"],
+                          {"action": "remove", "room_id": room_id,
+                           "scene_revision": scene_revision, "object_id": object_id,
+                           "expected_asset_id": expected_asset_id})
+
+
+@server.tool(annotations=ToolAnnotations(readOnlyHint=True))
+def matrix_physics_status(request_id: str) -> dict:
+    """Read the exact floor physics receipt and any matching observed contact."""
+    return physics_status(os.environ["MATRIX_CONTROL_URL"],
+                          os.environ["MATRIX_CONTROL_TOKEN"], request_id)
 
 
 @server.tool(annotations=ToolAnnotations(readOnlyHint=True))
