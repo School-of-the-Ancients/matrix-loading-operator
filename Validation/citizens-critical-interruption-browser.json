@@ -1,6 +1,7 @@
 {
   "date": "2026-09-26",
   "branch": "codex/citizens-critical-interruption",
+  "pullRequest": "https://github.com/School-of-the-Ancients/matrix-loading-operator/pull/120",
   "service": "http://127.0.0.1:19857/web/",
   "isolation": "Port 19857 uses separate scene/checkpoint state and a copy of the two reviewed GLBs in this task's citizens-critical-interruption-state and citizens-critical-interruption-catalog directories. Ports 19853–19856 were left running.",
   "fixture": "Copied dual-stations-m0 into the isolated service, restored it in the built browser, stepped once with current v11 code so both optional rest choices and the chair claim/FIFO ticket were recorded, and saved critical-generated-m1. For the controlled threshold test, changed only Bo's saved hunger from 41.55 to 15.3 in a copy named critical-optional-wait-m1, then recomputed its normal world/dependency digest with ControlService.world_checkpoint_digest. The browser restored that PC checkpoint through normal validation. No production world or prior service state was edited.",
