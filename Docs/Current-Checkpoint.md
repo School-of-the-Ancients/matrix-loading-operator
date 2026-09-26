@@ -2,7 +2,8 @@
 
 ## Registered GLB navigation readiness candidate (September 26, 2026)
 
-The `codex/citizens-glb-readiness` branch extends the open Citizens stack from
+Open [PR #106](https://github.com/School-of-the-Ancients/matrix-loading-operator/pull/106)
+on `codex/citizens-glb-readiness` extends the Citizens stack from
 [PR #105](https://github.com/School-of-the-Ancients/matrix-loading-operator/pull/105)
 for a narrow [#15](https://github.com/School-of-the-Ancients/matrix-loading-operator/issues/15)
 readiness slice. A registered GLB obstacle must load in the actual Three.js

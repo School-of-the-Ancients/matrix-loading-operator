@@ -57,7 +57,8 @@ or blocked geometry. An active game must finish or be removed first. Broader #15
 still needs versioned object affordances, route/readiness and motion-owner
 contracts, changing-path recovery, and its full acceptance fixtures. Citizens
 selects intentions; Matrix validates finite world actions and reports receipts.
-The next `codex/citizens-glb-readiness` candidate adds actual renderer
+The next [PR #106](https://github.com/School-of-the-Ancients/matrix-loading-operator/pull/106)
+candidate on `codex/citizens-glb-readiness` adds actual renderer
 verification before catalog bounds of a registered GLB can enter that bounded
 route check, and pauses Citizens if the verification becomes unavailable.
 Its [desktop browser record](Validation/citizens-glb-readiness-browser.json)
