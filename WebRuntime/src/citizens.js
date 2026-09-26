@@ -1,9 +1,11 @@
 // Bounded desktop Citizens fixture. Policy and needs live here; MatrixWorld owns
 // scene objects and validates every placement/move. No Agent Portal access.
-import {ANCHOR_ID,MAX_OBJECTS,ROOM_ID} from './protocol.js';
+import {ANCHOR_ID,INTERACTION_USE_MARGIN_METRES,MAX_OBJECTS,ROOM_ID,
+  interactionWorldPoint,validInteractionDescriptor} from './protocol.js';
 import {checkedMove,planPath,segmentClear} from './citizens_navigation.js';
 
-const VERSION=5;
+const VERSION=6;
+const ROUTE_VERSION=5;
 const COMPLETION_VERSION=4;
 const SOCIAL_VERSION=3;
 const RESERVATION_VERSION=2;
@@ -30,6 +32,9 @@ const ACTIVITIES=['rest','eat','explore'];
 const finite=value=>typeof value==='number'&&Number.isFinite(value);
 const plain=value=>value!==null&&typeof value==='object'&&!Array.isArray(value);
 const keys=(value,expected)=>plain(value)&&Object.keys(value).sort().join('|')===expected.slice().sort().join('|');
+const canonical=value=>Array.isArray(value)?value.map(canonical):plain(value)?
+  Object.fromEntries(Object.keys(value).sort().map(key=>[key,canonical(value[key])])):value;
+const sameJson=(left,right)=>JSON.stringify(canonical(left))===JSON.stringify(canonical(right));
 const integer=(value,min,max)=>Number.isSafeInteger(value)&&value>=min&&value<=max;
 const validUtf16=value=>{
   for(let index=0;index<value.length;index++){
@@ -106,7 +111,7 @@ function navigationObstacles(world,actorObjectId=''){
       throw Error(`Navigation is waiting for verified rendered GLB ${object.objectId}`);
     obstacles.push({id:object.objectId,cx:transform.position.x,
       cz:transform.position.z,halfX,halfZ,
-      yawRadians:transform.rotation.y*Math.PI/180});
+      yawRadians:-transform.rotation.y*Math.PI/180});
   }
   return obstacles;
 }
@@ -121,6 +126,18 @@ function stationApproach(world,actorObjectId,station,actorPosition=null,
   catch(error){return {ok:false,reason:error.message};}
   const footprint=obstacles.find(item=>item.id===station.objectId);
   if(!footprint)return {ok:false,reason:'Interaction target has no navigation bounds'};
+  if(station.interaction){
+    const asset=world.asset?.(object.assetId);
+    if(!asset)return {ok:false,reason:'Interaction asset is unavailable'};
+    const goal=interactionWorldPoint(object,asset,station.interaction.approachPose);
+    const use=interactionWorldPoint(object,asset,station.interaction.usePose);
+    if(distance(goal,use)>station.interaction.rangeMeters-
+       INTERACTION_USE_MARGIN_METRES+1e-9)
+      return {ok:false,reason:'Authored interaction pose is outside use range'};
+    const route=planPath({start:actor,goal,obstacles,actorRadius:ACTOR_RADIUS});
+    return route.ok?{ok:true,target:goal,route,index:0}:
+      {ok:false,reason:route.reason,code:'no_path'};
+  }
   const range=station.kind==='eat'?.9:.8;
   if(preferredGoal&&distance(preferredGoal,object.transform.position)<=range-.01){
     const route=planPath({start:actor,goal:preferredGoal,obstacles,
@@ -172,10 +189,10 @@ function validActivity(activity,version=LEGACY_VERSION){
   if(activity===null)return true;
   if(!keys(activity,['kind','stationId','phase','remainingTicks','travelTicks','target',
     ...(version>=RESERVATION_VERSION?['executionId']:[]),
-    ...(version>=VERSION?['routeRetries','routeGeometryId']:[])])||
+    ...(version>=ROUTE_VERSION?['routeRetries','routeGeometryId']:[])])||
      !ACTIVITIES.includes(activity.kind)||!['travel','use'].includes(activity.phase)||
      !integer(activity.remainingTicks,0,12)||!integer(activity.travelTicks,0,MAX_TRAVEL_TICKS))return false;
-  if(version>=VERSION&&(!integer(activity.routeRetries,0,MAX_ROUTE_RETRIES)||
+  if(version>=ROUTE_VERSION&&(!integer(activity.routeRetries,0,MAX_ROUTE_RETRIES)||
     (activity.routeGeometryId!==null&&
       (!boundedText(activity.routeGeometryId,128)||!activity.routeGeometryId))))return false;
   const targetLimit=version>=COMPLETION_VERSION?100:5;
@@ -267,7 +284,8 @@ function migrateV1(world,saved){
   return state;
 }
 
-function validStateV2(world,state,activityVersion=RESERVATION_VERSION){
+function validStateV2(world,state,activityVersion=RESERVATION_VERSION,
+  stationVersion=RESERVATION_VERSION){
   assertWorld(world);
   if(!keys(state,['schemaVersion','world','seed','rngState','requestSequence',
     'actionSequence','clockTick','paused','residents','retiredResidentIds',
@@ -314,14 +332,24 @@ function validStateV2(world,state,activityVersion=RESERVATION_VERSION){
   }
   const waitingIds=new Set();
   for(const station of state.stations){
-    if(!keys(station,['id','kind','objectId','capacity','claim','waiters'])||
+    if(!keys(station,['id','kind','objectId','capacity','claim','waiters',
+      ...(stationVersion>=VERSION?['interaction']:[])])||
       !boundedText(station.id,32)||!station.id||stationIds.has(station.id)||
       !['rest','eat'].includes(station.kind)||stationKinds.has(station.kind)||
       !boundedText(station.objectId,128)||objectIds.has(station.objectId)||
       station.capacity!==1||!Array.isArray(station.waiters)||
       station.waiters.length>4)throw Error('Invalid Citizens station');
     const object=objectById(world,station.objectId);
-    if(object?.assetId!==(station.kind==='rest'?'chair':'table')||
+    const builtIn=object?.assetId===(station.kind==='rest'?'chair':'table');
+    const authored=stationVersion>=VERSION&&station.interaction!==null&&
+      object?.assetId?.startsWith('web:')&&
+      validInteractionDescriptor(station.interaction)&&
+      sameJson(station.interaction,object?.interaction)&&
+      station.interaction.kind===station.kind&&
+      (!world.asset||world.asset(object.assetId)?.sha256===
+        station.interaction.assetSha256);
+    if((stationVersion>=VERSION&&builtIn&&station.interaction!==null)||
+      (!builtIn&&!authored)||
       object.anchorId!==ANCHOR_ID||hasActiveTransformOwner(object))
       throw Error('Citizens station object is missing or incompatible');
     stationIds.add(station.id);stationKinds.add(station.kind);
@@ -367,7 +395,7 @@ function validStateV2(world,state,activityVersion=RESERVATION_VERSION){
   }
   const events=new Set(['selected','blocked','arrived','completed','failed',
     'paused','resumed','waiting','released','retired','expired',
-    ...(activityVersion>=VERSION?['rerouted']:[])]);
+    ...(activityVersion>=ROUTE_VERSION?['rerouted']:[])]);
   for(const entry of state.log)if(!keys(entry,['tick','residentId','event','message'])||
     !integer(entry.tick,0,state.clockTick)||!boundedText(entry.residentId,32)||
     (entry.residentId!==''&&!residentIds.has(entry.residentId)&&
@@ -390,7 +418,8 @@ function migrateV2(world,saved){
   return state;
 }
 
-function validStateV3(world,state,activityVersion=SOCIAL_VERSION){
+function validStateV3(world,state,activityVersion=SOCIAL_VERSION,
+  stationVersion=SOCIAL_VERSION){
   if(!keys(state,['schemaVersion','world','seed','rngState','requestSequence',
     'actionSequence','clockTick','paused','residents','retiredResidentIds',
     'stations','log','socialSession','socialEvents','relationships','nextSocialTick'])||
@@ -410,7 +439,7 @@ function validStateV3(world,state,activityVersion=SOCIAL_VERSION){
       throw Error('Invalid Citizens social resident');
     delete resident.socialSessionId;
   }
-  validStateV2(world,v2,activityVersion);
+  validStateV2(world,v2,activityVersion,stationVersion);
   const ids=new Set([...state.residents.map(resident=>resident.id),
     ...state.retiredResidentIds]);
   const relationshipPairs=new Set();
@@ -518,14 +547,15 @@ function migrateV3(world,saved){
   return state;
 }
 
-function validStateV4(world,state,activityVersion=COMPLETION_VERSION){
+function validStateV4(world,state,activityVersion=COMPLETION_VERSION,
+  stationVersion=COMPLETION_VERSION){
   if(!state||state.schemaVersion!==COMPLETION_VERSION||!Array.isArray(state.relationships))
     throw Error('Invalid Citizens completed social state');
   const v3=clone(state);
   v3.schemaVersion=SOCIAL_VERSION;
   for(const relation of v3.relationships)if(relation&&typeof relation==='object')
     delete relation.completed;
-  validStateV3(world,v3,activityVersion);
+  validStateV3(world,v3,activityVersion,stationVersion);
   const bySession=new Map(),requestIds=new Set();
   for(const relation of state.relationships){
     if(!keys(relation,['a','b','score','completed'])||
@@ -570,7 +600,7 @@ function validStateV4(world,state,activityVersion=COMPLETION_VERSION){
 function migrateV4(world,saved){
   validStateV4(world,saved);
   const state=clone(saved);
-  state.schemaVersion=VERSION;
+  state.schemaVersion=ROUTE_VERSION;
   for(const resident of state.residents)if(resident.activity){
     resident.activity.routeRetries=0;
     resident.activity.routeGeometryId=null;
@@ -579,12 +609,29 @@ function migrateV4(world,saved){
   return state;
 }
 
-function validStateV5(world,state){
-  if(!state||state.schemaVersion!==VERSION)
+function validStateV5(world,state,stationVersion=ROUTE_VERSION){
+  if(!state||state.schemaVersion!==ROUTE_VERSION)
     throw Error('Invalid Citizens route recovery state');
   const v4=clone(state);
   v4.schemaVersion=COMPLETION_VERSION;
-  validStateV4(world,v4,VERSION);
+  validStateV4(world,v4,ROUTE_VERSION,stationVersion);
+}
+
+function migrateV5(world,saved){
+  validStateV5(world,saved);
+  const state=clone(saved);
+  state.schemaVersion=VERSION;
+  for(const station of state.stations)station.interaction=null;
+  validStateV6(world,state);
+  return state;
+}
+
+function validStateV6(world,state){
+  if(!state||state.schemaVersion!==VERSION)
+    throw Error('Invalid Citizens interaction state');
+  const v5=clone(state);
+  v5.schemaVersion=ROUTE_VERSION;
+  validStateV5(world,v5,VERSION);
 }
 
 function pose(x,z,scale=1){
@@ -617,14 +664,19 @@ function selectedFurnitureSetup(world,objectId,{checkRoutes=true}={}){
   if(!objectId)throw Error('Select an existing chair or table first');
   const object=objectById(world,objectId);
   if(!object)throw Error('The selected furniture is no longer in the world');
-  if(!['chair','table'].includes(object.assetId)||object.anchorId!==ANCHOR_ID)
-    throw Error('Select a built-in virtual-floor chair or table');
+  const asset=world.asset?.(object.assetId);
+  const builtIn=['chair','table'].includes(object.assetId);
+  const authored=object.assetId.startsWith('web:')&&
+    validInteractionDescriptor(object.interaction)&&
+    asset?.sha256===object.interaction.assetSha256;
+  if((!builtIn&&!authored)||object.anchorId!==ANCHOR_ID)
+    throw Error('Select a built-in chair/table or a registered GLB with a reviewed interaction');
   if(hasActiveTransformOwner(object))
     throw Error('Selected furniture is moving or has physics');
   navigationObstacles(world);
-  const station={id:object.assetId==='chair'?'chair':'food',
-    kind:object.assetId==='chair'?'rest':'eat',objectId,capacity:1,
-    claim:null,waiters:[]};
+  const kind=authored?object.interaction.kind:object.assetId==='chair'?'rest':'eat';
+  const station={id:kind==='rest'?'chair':'food',kind,objectId,capacity:1,
+    claim:null,waiters:[],interaction:authored?clone(object.interaction):null};
   // Panel rendering calls readiness frequently. Route searches belong to the
   // explicit start operation, which repeats every check before mutating.
   if(!checkRoutes)return {station,positions:null};
@@ -742,8 +794,8 @@ export function createCitizensDemo(world,{seed=1}={}){
     const adaId=spawn('ada','orb',pose(-2.2,-.9,.7));
     const boId=spawn('bo','orb',pose(2.3,-.85,.7));
     const state=initialState(world,seed,adaId,boId,[
-      {id:'chair',kind:'rest',objectId:chairId,capacity:1,claim:null,waiters:[]},
-      {id:'food',kind:'eat',objectId:foodId,capacity:1,claim:null,waiters:[]}
+      {id:'chair',kind:'rest',objectId:chairId,capacity:1,claim:null,waiters:[],interaction:null},
+      {id:'food',kind:'eat',objectId:foodId,capacity:1,claim:null,waiters:[],interaction:null}
     ]);
     return new CitizensSimulation(world,state);
   }catch(error){
@@ -761,7 +813,8 @@ export class CitizensSimulation {
     if(current?.schemaVersion===RESERVATION_VERSION)current=migrateV2(world,current);
     if(current?.schemaVersion===SOCIAL_VERSION)current=migrateV3(world,current);
     if(current?.schemaVersion===COMPLETION_VERSION)current=migrateV4(world,current);
-    validStateV5(world,current);
+    if(current?.schemaVersion===ROUTE_VERSION)current=migrateV5(world,current);
+    validStateV6(world,current);
     this.world=world;
     this.state=clone(current);
     // Runtime-only baseline: the serialized scene supplies it again on restore.
@@ -776,7 +829,7 @@ export class CitizensSimulation {
   exportState(){
     this.reconcileWorld();
     if(this.invalidBindings.size)throw Error('Citizens binding is missing or incompatible');
-    validStateV5(this.world,this.state);
+    validStateV6(this.world,this.state);
     return this.snapshot();
   }
   reconcileWorld(){this.reconcileBindings();return this.snapshot();}
@@ -815,7 +868,11 @@ export class CitizensSimulation {
       }
       const compatible=kind==='resident'
         ?supportedResident(object)
-        :object.assetId===(bound.kind==='rest'?'chair':'table')&&
+        :(bound.interaction?
+          object.assetId.startsWith('web:')&&
+          sameJson(object.interaction,bound.interaction)&&
+          this.world.asset?.(object.assetId)?.sha256===bound.interaction.assetSha256:
+          object.assetId===(bound.kind==='rest'?'chair':'table'))&&
           object.anchorId===ANCHOR_ID&&!hasActiveTransformOwner(object);
       if(!compatible){
         if(!this.invalidBindings.has(bound.objectId)){
@@ -1132,7 +1189,10 @@ export class CitizensSimulation {
   }
   requestInteraction(resident,station){
     const actor=positionOf(this.world,resident.objectId);
-    const target=positionOf(this.world,station.objectId);
+    const targetObject=objectById(this.world,station.objectId);
+    const target=station.interaction&&targetObject?
+      interactionWorldPoint(targetObject,this.world.asset(targetObject.assetId),
+        station.interaction.usePose):positionOf(this.world,station.objectId);
     let obstacles;
     try{obstacles=navigationObstacles(this.world,resident.objectId);}
     catch(error){return {ok:false,error:error.message};}
@@ -1145,7 +1205,9 @@ export class CitizensSimulation {
     const requestId=`citizens-${this.state.seed}-action-${resident.activity.executionId}-${++this.state.requestSequence}`;
     let receipt;
     try{receipt=this.world.execute({requestId,op:'interact',
-      actorObjectId:resident.objectId,targetObjectId:station.objectId,kind:station.kind},
+      actorObjectId:resident.objectId,targetObjectId:station.objectId,kind:station.kind,
+      ...(station.interaction?{interactionId:station.interaction.interactionId,
+        expectedInteraction:clone(station.interaction)}:{})},
     {recordHistory:false});}
     catch(error){return {ok:false,error:error.message||String(error)};}
     const outcome=receipt?.outcome;
@@ -1153,9 +1215,15 @@ export class CitizensSimulation {
        outcome?.kind!==station.kind||outcome.actorObjectId!==resident.objectId||
        outcome.targetObjectId!==station.objectId||
        !finite(outcome.observedDistanceMeters)||outcome.observedDistanceMeters<0||
-       outcome.observedDistanceMeters>(station.kind==='rest'?.8:.9))
+       outcome.observedDistanceMeters>(station.interaction?.rangeMeters??
+         (station.kind==='rest'?.8:.9))+.001||
+       (station.interaction&&(
+         outcome.interactionId!==station.interaction.interactionId||
+         !sameJson(outcome.effect,station.interaction.effect)||
+         !finite(outcome.usePoint?.x)||!finite(outcome.usePoint?.z)||
+         distance(outcome.usePoint,target)>.001)))
       return {ok:false,error:receipt?.error||'missing or mismatched interaction outcome'};
-    return {ok:true};
+    return {ok:true,effect:station.interaction?.effect??null};
   }
   requestSocialInteraction(initiator,invitee,session){
     const actor=positionOf(this.world,initiator.objectId);
@@ -1191,7 +1259,8 @@ export class CitizensSimulation {
       station.claim.executionId!==action.executionId)
       return {ok:false,reason:'Interaction target is missing or claim changed'};
     return stationApproach(this.world,resident.objectId,station,null,[],
-      this.state.stations.length===2?fixtureApproach(this.world,station):null);
+      !station.interaction&&this.state.stations.length===2?
+        fixtureApproach(this.world,station):null);
   }
   nextExecutionId(){
     if(this.state.actionSequence>=1000000000){
@@ -1231,7 +1300,8 @@ export class CitizensSimulation {
       }
     }
     resident.activity={kind,stationId:station?.id||null,phase:'travel',
-      remainingTicks:kind==='rest'?7:kind==='eat'?5:1,travelTicks:0,target,
+      remainingTicks:station?.interaction?.durationTicks??
+        (kind==='rest'?7:kind==='eat'?5:1),travelTicks:0,target,
       executionId,routeRetries:0,routeGeometryId:this.routeGeometryId()};
     this.log(resident.id,'selected',`${resident.name} chose ${kind}${station?` at ${station.id}`:''}: ${description}`);
     return true;
@@ -1283,7 +1353,8 @@ export class CitizensSimulation {
           resident.cooldowns[kind]=this.state.clockTick+4;continue;
         }
         const approach=stationApproach(this.world,resident.objectId,station,null,[],
-          this.state.stations.length===2?fixtureApproach(this.world,station):null);
+          !station.interaction&&this.state.stations.length===2?
+            fixtureApproach(this.world,station):null);
         if(!approach.ok){
           this.log(resident.id,'blocked',`${resident.name}: ${kind} unavailable; ${approach.reason}.`);
           resident.cooldowns[kind]=this.state.clockTick+4;continue;
@@ -1358,8 +1429,13 @@ export class CitizensSimulation {
     const receipt=station?this.requestInteraction(resident,station):this.requestMove(resident,target);
     if(!receipt.ok){this.fail(resident,`completion rejected: ${receipt.error}`);return;}
     const kind=action.kind;
-    if(kind==='rest')resident.needs.energy=clamp(resident.needs.energy+37);
-    if(kind==='eat')resident.needs.hunger=clamp(resident.needs.hunger+43);
+    if(station?.interaction){
+      const {need,delta}=receipt.effect;
+      resident.needs[need]=clamp(resident.needs[need]+delta);
+    }else{
+      if(kind==='rest')resident.needs.energy=clamp(resident.needs.energy+37);
+      if(kind==='eat')resident.needs.hunger=clamp(resident.needs.hunger+43);
+    }
     if(kind==='explore')resident.needs.fun=clamp(resident.needs.fun+27);
     this.release(resident);
     resident.activity=null;

@@ -8,6 +8,7 @@ import {segmentClear} from './citizens_navigation.js';
 export const ROOM_ID = 'web-virtual-room-v1';
 export const ANCHOR_ID = 'web-floor';
 export const MAX_OBJECTS = 100;
+export const INTERACTION_USE_MARGIN_METRES = .1;
 export const ASSETS = [
   {assetId:'chair', displayName:'Chair', description:'A wooden chair with a seat and back, about 0.6 by 0.9 metres.', spawnScale:1, localBounds:{center:{x:0,y:.45,z:0},size:{x:.6,y:.9,z:.6}},interactions:[{kind:'rest',rangeMeters:.8}]},
   {assetId:'table', displayName:'Table', description:'A wooden table about 1.5 metres wide and 0.75 metres high.', spawnScale:1, localBounds:{center:{x:0,y:.375,z:0},size:{x:1.5,y:.75,z:.9}},interactions:[{kind:'eat',rangeMeters:.9}]},
@@ -35,7 +36,8 @@ const validExpectedTransform=transform=>
   validTransform(transform);
 const expectedTransformOps=new Set(['set_transform','set_behavior','remove_behavior',
   'attach_component','stop_component','remove_component','bind_animation',
-  'set_physics','remove_physics','delete','duplicate','select']);
+  'set_physics','remove_physics','set_interaction','remove_interaction',
+  'delete','duplicate','select']);
 const samePhysics=(a,b)=>a&&b&&['schemaVersion','kind','collider','restitution'].every(key=>a[key]===b[key]);
 const physicsAssetSignature=asset=>JSON.stringify([asset?.sha256,asset?.url,asset?.spawnScale,
   ...['center','size'].flatMap(group=>['x','y','z'].map(axis=>asset?.localBounds?.[group]?.[axis]))]);
@@ -59,6 +61,83 @@ const renderedNavigationFootprint=(asset,measuredSize)=>
   physicsRegisteredGlb(asset)&&!!asset.localBounds&&
   validRenderedPhysicsSize(measuredSize)&&
   ['x','y','z'].every(axis=>measuredSize[axis]<=asset.localBounds.size[axis]+.005);
+const INTERACTION_CAPABILITIES=['static-virtual-floor','verified-rendered-bounds'];
+const INTERACTION_AVAILABILITY=['target-static','floor-aligned','rendered-verified'];
+const interactionPose=pose=>exactKeys(pose,['x','z'])&&
+  finite(pose.x,-20,20)&&finite(pose.z,-20,20);
+export function validInteractionDescriptor(value){
+  return exactKeys(value,['schemaVersion','interactionId','kind','assetSha256',
+    'requiredCapabilities','availability','approachPose','usePose',
+    'rangeMeters','durationTicks','capacity','effect'])&&
+    value.schemaVersion===1&&
+    typeof value.interactionId==='string'&&
+    /^[a-z0-9](?:[a-z0-9-]{0,30}[a-z0-9])?$/.test(value.interactionId)&&
+    ['rest','eat'].includes(value.kind)&&
+    typeof value.assetSha256==='string'&&/^[0-9a-f]{64}$/.test(value.assetSha256)&&
+    Array.isArray(value.requiredCapabilities)&&
+    JSON.stringify(value.requiredCapabilities)===JSON.stringify(INTERACTION_CAPABILITIES)&&
+    Array.isArray(value.availability)&&
+    JSON.stringify(value.availability)===JSON.stringify(INTERACTION_AVAILABILITY)&&
+    interactionPose(value.approachPose)&&interactionPose(value.usePose)&&
+    finite(value.rangeMeters,.1,2)&&
+    Number.isInteger(value.durationTicks)&&value.durationTicks>=1&&
+    value.durationTicks<=12&&value.capacity===1&&
+    exactKeys(value.effect,['need','delta'])&&
+    value.effect.need===(value.kind==='rest'?'energy':'hunger')&&
+    Number.isInteger(value.effect.delta)&&value.effect.delta>=1&&
+    value.effect.delta<=50;
+}
+const interactionSignature=value=>JSON.stringify([value.schemaVersion,
+  value.interactionId,value.kind,value.assetSha256,value.requiredCapabilities,
+  value.availability,value.approachPose.x,value.approachPose.z,
+  value.usePose.x,value.usePose.z,value.rangeMeters,value.durationTicks,
+  value.capacity,value.effect.need,value.effect.delta]);
+// Poses are on the GLB's horizontally recentered, floor-aligned local root.
+export function interactionWorldPoint(object,asset,pose){
+  const scale=asset.spawnScale;
+  const x=pose.x*object.transform.scale.x*scale;
+  const z=pose.z*object.transform.scale.z*scale;
+  const yaw=object.transform.rotation.y*Math.PI/180;
+  const cos=Math.cos(yaw),sin=Math.sin(yaw);
+  // Three.js positive Y rotation maps local +X toward world -Z.
+  return {x:Math.round((object.transform.position.x+x*cos+z*sin)*1e6)/1e6,
+    z:Math.round((object.transform.position.z-x*sin+z*cos)*1e6)/1e6};
+}
+function assertInteractionTarget(object,asset,descriptor){
+  if(!validInteractionDescriptor(descriptor))
+    throw Error('Invalid interaction descriptor');
+  if(object.anchorId!==ANCHOR_ID||!physicsRegisteredGlb(asset)||
+     !asset.localBounds||asset.sha256!==descriptor.assetSha256)
+    throw Error('Interaction requires its current registered virtual-floor GLB');
+  if(asset.geometry?.animationClips?.length||object.animation||object.physics||
+     object.component?.status==='running'||
+     object.behaviors?.some(behavior=>behavior.enabled&&!behavior.paused))
+    throw Error('Interaction target has another transform owner or animation');
+  const transform=object.transform,bounds=asset.localBounds;
+  if(!validTransform(transform)||Math.abs(transform.position.y)>.05||
+     Math.abs(transform.rotation.x)>.01||Math.abs(transform.rotation.z)>.01)
+    throw Error('Interaction target needs an upright floor-aligned pose');
+  const scaleX=transform.scale.x*asset.spawnScale;
+  const scaleZ=transform.scale.z*asset.spawnScale;
+  const halfX=bounds.size.x*scaleX/2,halfZ=bounds.size.z*scaleZ/2;
+  const approachX=descriptor.approachPose.x*scaleX;
+  const approachZ=descriptor.approachPose.z*scaleZ;
+  const useX=descriptor.usePose.x*scaleX;
+  const useZ=descriptor.usePose.z*scaleZ;
+  if(!Number.isFinite(halfX)||!Number.isFinite(halfZ)||halfX<=0||halfZ<=0||
+     halfX>20||halfZ>20||
+     !(Math.abs(approachX)>halfX+.24||Math.abs(approachZ)>halfZ+.24)||
+     Math.abs(useX)>halfX||Math.abs(useZ)>halfZ)
+    throw Error('Interaction poses do not match the measured GLB footprint');
+  const approach=interactionWorldPoint(object,asset,descriptor.approachPose);
+  const use=interactionWorldPoint(object,asset,descriptor.usePose);
+  if(Math.abs(approach.x)>99.8||Math.abs(approach.z)>99.8||
+     Math.abs(use.x)>99.8||Math.abs(use.z)>99.8||
+     Math.hypot(approachX-useX,approachZ-useZ)>
+       descriptor.rangeMeters-INTERACTION_USE_MARGIN_METRES+1e-9)
+    throw Error('Interaction approach and use poses are unreachable');
+  return {approach,use};
+}
 const validAnimationBinding=(binding,asset,allowEmpty=false)=>{
   if(!binding||typeof binding!=='object'||Array.isArray(binding)||
      Object.keys(binding).sort().join(',')!=='loopClip,selectClip')return false;
@@ -98,7 +177,7 @@ export class MatrixWorld {
     const anchors=this.availableAnchors();
     const context=this.spatial?{mode:'ar',state:this.spatial.originUnavailable||this.spatial.stale?'missing':'ready',message:this.spatial.originUnavailable?'Saved room origin is unavailable. The old world is hidden and editing is paused until it is restored or explicitly archived for a new room.':this.spatial.stale?'A plane holding a scene object is no longer tracked; keep the scene for recovery and recheck the room.':this.spatial.anchors.length?`${this.spatial.anchors.length} WebXR room plane(s) detected. Virtual-floor objects remain visible as unanchored previews.`:'Waiting for Quest room planes. Virtual-floor objects remain visible as unanchored previews.',alignmentVerified:this.spatial.alignmentVerified&&!this.spatial.originUnavailable}
       :{mode:'white-room',state:'ready',message:'Browser virtual floor; physical room alignment is not verified.',alignmentVerified:false};
-    const snapshot={scene:clone(this.scene),assets:clone([...ASSETS,...this.externalAssets].map(({assetId,displayName,description,spawnScale,localBounds,geometry,interactions})=>({assetId,displayName,description,spawnScale,...(localBounds?{localBounds}:{}),...(interactions?{interactions}:{}),...(geometry?.animationClips?{animationClips:geometry.animationClips.map(clip=>clip.name)}:{})}))),anchors:clone(anchors),selection:clone(this.selection),behaviorKinds:['rotate','bob'],componentSchemaVersion:1,animationSchemaVersion:1,physicsSchemaVersion:1,physicsStates:this.physicsStates(),roomContext:context};
+    const snapshot={scene:clone(this.scene),assets:clone([...ASSETS,...this.externalAssets].map(({assetId,displayName,description,spawnScale,localBounds,geometry,interactions,sha256})=>({assetId,displayName,description,spawnScale,...(localBounds?{localBounds}:{}),...(interactions?{interactions}:{}),...(sha256?{sha256}:{}),...(geometry?.animationClips?{animationClips:geometry.animationClips.map(clip=>clip.name)}:{})}))),anchors:clone(anchors),selection:clone(this.selection),behaviorKinds:['rotate','bob'],componentSchemaVersion:1,animationSchemaVersion:1,physicsSchemaVersion:1,interactionSchemaVersion:1,physicsStates:this.physicsStates(),roomContext:context};
     if(!this.spatial&&this.scene.roomId===ROOM_ID&&Array.isArray(this.citizens?.residents)){
       const residentObjectIds=[...new Set(this.citizens.residents.map(resident=>resident.objectId))]
         .filter(id=>this.scene.objects.some(object=>object.objectId===id&&
@@ -401,7 +480,7 @@ export class MatrixWorld {
     const zs=[-bounds.size.z/2,bounds.size.z/2].map(z=>z*transform.scale.z*spawnScale);
     const radians=transform.rotation.y*Math.PI/180,cos=Math.cos(radians),sin=Math.sin(radians);
     const corners=[[xs[0],zs[0]],[xs[1],zs[0]],[xs[1],zs[1]],[xs[0],zs[1]]]
-      .map(([x,z])=>({x:transform.position.x+x*cos-z*sin,z:transform.position.z+x*sin+z*cos}));
+      .map(([x,z])=>({x:transform.position.x+x*cos+z*sin,z:transform.position.z-x*sin+z*cos}));
     if(!footprintInsideBoundary(corners,anchor.surface.boundary))
       throw Error('Object footprint extends beyond measured surface');
   }
@@ -433,7 +512,7 @@ export class MatrixWorld {
       const op=command.op;
       if(this.spatial?.originUnavailable&&!['get_scene','list_assets','list_targets'].includes(op))
         throw Error('Saved room origin is unavailable; restore it or archive the old world before editing');
-      if(this.spatial?.stale&&['spawn','duplicate','set_transform','set_behavior','remove_behavior','attach_component','stop_component','remove_component','bind_animation','set_physics','remove_physics','delete','load','undo','redo','select'].includes(op))
+      if(this.spatial?.stale&&['spawn','duplicate','set_transform','set_behavior','remove_behavior','attach_component','stop_component','remove_component','bind_animation','set_physics','remove_physics','set_interaction','remove_interaction','delete','load','undo','redo','select'].includes(op))
         throw Error('Room tracking is stale; editing is paused until the room is recovered');
       if(Object.hasOwn(command,'expectedTransform')){
         if(!expectedTransformOps.has(op)||!validExpectedTransform(command.expectedTransform))
@@ -447,7 +526,7 @@ export class MatrixWorld {
         if(!sameTransform(this.requireObject(command.targetObjectId).transform,command.expectedTargetTransform))
           throw Error('Component target transform changed since command was queued');
       }
-      const mutation=['spawn','duplicate','set_transform','set_behavior','remove_behavior','attach_component','stop_component','remove_component','bind_animation','set_physics','remove_physics','delete','clear','load'].includes(op);
+      const mutation=['spawn','duplicate','set_transform','set_behavior','remove_behavior','attach_component','stop_component','remove_component','bind_animation','set_physics','remove_physics','set_interaction','remove_interaction','delete','clear','load'].includes(op);
       // Local finite simulation steps use the same validation and receipt path
       // without filling the user's scene Undo history with each movement tick.
       const before=mutation&&recordHistory?clone(this.scene):null;
@@ -468,16 +547,59 @@ export class MatrixWorld {
         case 'select':
           object=this.requireObject(command.objectId); result.objectId=object.objectId;
           this.setSelection(object.objectId,object.transform.position,object.anchorId); break;
+        case 'set_interaction':
+          if(this.spatial||this.scene.roomId!==ROOM_ID)
+            throw Error('Interaction authoring requires the desktop virtual room');
+          object=this.requireObject(command.objectId);
+          if(!Object.hasOwn(command,'expectedInteraction')||
+             command.expectedInteraction!==null&&
+               !validInteractionDescriptor(command.expectedInteraction)||
+             Object.hasOwn(object,'interaction')!==
+               (command.expectedInteraction!==null)||
+             command.expectedInteraction!==null&&
+               interactionSignature(command.expectedInteraction)!==
+                 interactionSignature(object.interaction))
+            throw Error('Interaction definition changed since it was reviewed');
+          assertInteractionTarget(object,this.asset(object.assetId),command.interaction);
+          if(!this.renderedAssetVerified(object))
+            throw Error('Interaction authoring waits for the verified rendered GLB');
+          object.interaction=clone(command.interaction);
+          result.objectId=object.objectId;break;
+        case 'remove_interaction':
+          object=this.requireObject(command.objectId);
+          if(!Object.hasOwn(object,'interaction'))
+            throw Error('Object has no authored interaction');
+          if(!validInteractionDescriptor(command.expectedInteraction)||
+             interactionSignature(command.expectedInteraction)!==
+               interactionSignature(object.interaction))
+            throw Error('Interaction definition changed since it was reviewed');
+          delete object.interaction;result.objectId=object.objectId;break;
         case 'interact':
           // A finite local outcome: check the advertised action and the current
           // observed actor pose. Citizens owns intent and resource reservations.
           if(this.spatial||this.scene.roomId!==ROOM_ID)throw Error('Interaction requires the virtual room');
           {const actor=this.requireObject(command.actorObjectId);
             const target=this.requireObject(command.targetObjectId);
-            const advertised=ASSETS.find(asset=>asset.assetId===target.assetId)?.interactions
-              ?.find(item=>item.kind===command.kind);
+            const authored=Object.hasOwn(target,'interaction');
+            const authoredPose=authored?assertInteractionTarget(target,
+              this.asset(target.assetId),target.interaction):null;
+            if(authored){
+              if(!this.renderedAssetVerified(target))
+                throw Error('Interaction target awaits its verified rendered GLB');
+              if(command.interactionId!==target.interaction.interactionId||
+                 !validInteractionDescriptor(command.expectedInteraction)||
+                 interactionSignature(command.expectedInteraction)!==
+                   interactionSignature(target.interaction))
+                throw Error('Interaction definition changed since it was selected');
+            }else if(Object.hasOwn(command,'interactionId')||
+                     Object.hasOwn(command,'expectedInteraction'))
+              throw Error('Interaction definition is not advertised by this target');
+            const advertised=authored?target.interaction:
+              ASSETS.find(asset=>asset.assetId===target.assetId)?.interactions
+                ?.find(item=>item.kind===command.kind);
             if(actor.objectId===target.objectId||actor.anchorId!==ANCHOR_ID||
-               target.anchorId!==ANCHOR_ID||!advertised)
+               target.anchorId!==ANCHOR_ID||!advertised||
+               advertised.kind!==command.kind)
               throw Error('Interaction is not advertised by this virtual-floor target');
             const animatedGlb=item=>{
               const asset=this.asset(item.assetId);
@@ -487,10 +609,15 @@ export class MatrixWorld {
               item.behaviors?.some(behavior=>behavior.enabled&&!behavior.paused));
             if(moving(actor)||moving(target)||animatedGlb(actor)||animatedGlb(target))
               throw Error('Interaction actor or target has another transform owner');
-            const a=actor.transform.position,b=target.transform.position;
+            const a=actor.transform.position;
+            const b=authored?{...authoredPose.use,y:target.transform.position.y}:
+              target.transform.position;
             const distance=Math.hypot(a.x-b.x,a.z-b.z);
             if(Math.abs(a.y-b.y)>.3||distance>advertised.rangeMeters)
               throw Error('Actor is out of interaction range');
+            if(authored&&Math.hypot(a.x-authoredPose.approach.x,
+              a.z-authoredPose.approach.z)>.3)
+              throw Error('Actor is not at the advertised approach pose');
             // The finite outcome must use current measured geometry, not just
             // proximity. An authored obstacle can appear after an actor arrives.
             const distanceToUseLine=point=>{
@@ -541,7 +668,7 @@ export class MatrixWorld {
                  !bounds||Math.abs(transform.position.y)>.05||
                  !Number.isFinite(radius)||!verifiedGlb)
                 throw Error('Interaction clearance is unavailable for moving or unmeasured geometry');
-              const yaw=transform.rotation.y*Math.PI/180;
+              const yaw=-transform.rotation.y*Math.PI/180;
               blockers.push({id:item.objectId,
                 cx:transform.position.x,cz:transform.position.z,
                 halfX:bounds.size.x*transform.scale.x*scale/2,
@@ -555,6 +682,8 @@ export class MatrixWorld {
             result.objectId=actor.objectId;
             result.outcome={kind:command.kind,actorObjectId:actor.objectId,
               targetObjectId:target.objectId,observedDistanceMeters:Math.round(distance*1000)/1000,
+              ...(authored?{interactionId:advertised.interactionId,
+                effect:clone(advertised.effect),usePoint:clone(authoredPose.use)}:{}),
               ...(command.kind==='converse'?{sessionId:command.sessionId}:{})};}
           break;
         case 'duplicate':
@@ -567,6 +696,8 @@ export class MatrixWorld {
             const anchor=this.spatial?.anchors.find(item=>item.anchorId===duplicate.anchorId);
             if(anchor?.surface.kind==='support')this.assertSupportedFootprint(duplicate.transform,duplicate.assetId,anchor);
             if(duplicate.physics)this.assertPhysicsEligible(duplicate);
+            if(Object.hasOwn(duplicate,'interaction'))assertInteractionTarget(duplicate,
+              this.asset(duplicate.assetId),duplicate.interaction);
             this.scene.objects.push(duplicate);result.objectId=duplicate.objectId; }
           break;
         case 'set_transform':
@@ -575,6 +706,8 @@ export class MatrixWorld {
           if (command.anchorId && command.anchorId!==object.anchorId) throw Error('Changing an object anchor is not supported');
           {const resolved=this.resolvedTransform(command,object.assetId,object.anchorId);
             if(object.physics)this.assertPhysicsEligible(object,resolved,{verified:!this.spatial});
+            if(Object.hasOwn(object,'interaction'))assertInteractionTarget({...object,transform:resolved},
+              this.asset(object.assetId),object.interaction);
             object.transform=resolved;
             if(object.physics){
               if(this.spatial)this.physicsBodies.delete(object.objectId);
@@ -586,6 +719,8 @@ export class MatrixWorld {
           if (!validBehavior(command.behavior)) throw Error('Invalid behavior');
           if(object.physics&&command.behavior.enabled)
             throw Error('Remove physics before enabling a transform behavior');
+          if(object.interaction&&command.behavior.enabled&&!command.behavior.paused)
+            throw Error('Remove the authored interaction before enabling a transform behavior');
           object.behaviors=(object.behaviors||[]).filter(b=>b.kind!==command.behavior.kind);
           object.behaviors.push(clone(command.behavior)); result.objectId=object.objectId; break;
         case 'remove_behavior':
@@ -598,6 +733,7 @@ export class MatrixWorld {
           object=this.requireObject(command.objectId);
           if(object.anchorId!==ANCHOR_ID)throw Error('Components currently require virtual-floor objects');
           if(object.physics)throw Error('Remove physics before attaching a component');
+          if(object.interaction)throw Error('Remove the authored interaction before attaching a component');
           if(object.component)throw Error('Remove the existing component first');
           if(!validId(command.componentId)||!validId(command.targetObjectId)||
              !/^webcomp:[a-z0-9][a-z0-9-]{0,39}:[0-9a-f]{12}$/.test(command.componentId))
@@ -626,6 +762,8 @@ export class MatrixWorld {
           {const binding={loopClip:command.loopClip,selectClip:command.selectClip};
             if(!validAnimationBinding(binding,this.asset(object.assetId),true))
               throw Error('Invalid GLB animation binding');
+            if(object.interaction&&(binding.loopClip||binding.selectClip))
+              throw Error('Remove the authored interaction before binding animation');
             if(binding.loopClip||binding.selectClip)object.animation=clone(binding);
             else delete object.animation;}
           result.objectId=object.objectId;break;
@@ -634,6 +772,7 @@ export class MatrixWorld {
             throw Error('Physics currently runs in the white room only');
           object=this.requireObject(command.objectId);
           if(!validPhysicsConfig(command.physics))throw Error('Invalid physics configuration');
+          if(object.interaction)throw Error('Remove the authored interaction before enabling physics');
           if(!object.physics&&this.scene.objects.filter(item=>item.physics).length>=16)
             throw Error('Physics object limit reached');
           {const configured={...object,physics:command.physics};
@@ -690,6 +829,8 @@ export class MatrixWorld {
       ids.add(o.objectId);
       if(o.behaviors && (!Array.isArray(o.behaviors)||o.behaviors.length>2||new Set(o.behaviors.map(b=>b.kind)).size!==o.behaviors.length||!o.behaviors.every(validBehavior))) throw Error('Invalid scene behavior');
       if(o.component){validateAttachment(o.component);if(o.anchorId!==ANCHOR_ID)throw Error('Component requires virtual-floor object');}
+      if(Object.hasOwn(o,'interaction'))
+        assertInteractionTarget(o,this.asset(o.assetId),o.interaction);
       if(o.animation&&(o.anchorId!==ANCHOR_ID||!validAnimationBinding(o.animation,this.asset(o.assetId))))
         throw Error('Invalid GLB animation binding');
       if(o.physics)this.assertPhysicsEligible(o);

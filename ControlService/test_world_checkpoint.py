@@ -10,7 +10,7 @@ import urllib.error
 import urllib.request
 
 from server import APIError, Server, State, world_checkpoint_digest
-from test_web_assets import animated_glb
+from test_web_assets import animated_glb, glb
 
 
 POSE = {"position": {"x": 0, "y": 0, "z": -2}, "rotation": {"x": 0, "y": 0, "z": 0},
@@ -180,6 +180,73 @@ class WorldCheckpointTests(unittest.TestCase):
         state["log"].append({"tick": 15, "residentId": "ada", "event": "rerouted",
                              "message": "Ada found a new route to the chair."})
         return world
+
+    def citizens_v6_glb_interaction_world(self):
+        world = self.citizens_v5_rerouting_world()
+        source = self.root / "rest-seat.glb"
+        source.write_bytes(glb())
+        bounds = {"center": {"x": 0, "y": .4, "z": 0},
+                  "size": {"x": .6, "y": .8, "z": .6}}
+        asset = self.state.web_assets.register(source, "Rest seat", local_bounds=bounds)
+        descriptor = {"schemaVersion": 1, "interactionId": "rest-seat",
+                      "kind": "rest", "assetSha256": asset["sha256"],
+                      "requiredCapabilities": ["static-virtual-floor", "verified-rendered-bounds"],
+                      "availability": ["target-static", "floor-aligned", "rendered-verified"],
+                      "approachPose": {"x": 0, "z": .65},
+                      "usePose": {"x": 0, "z": .2}, "rangeMeters": .8,
+                      "durationTicks": 7, "capacity": 1,
+                      "effect": {"need": "energy", "delta": 37}}
+        authored = {"objectId": "registered-seat", "assetId": asset["assetId"],
+                    "anchorId": "web-floor", "transform": copy.deepcopy(POSE),
+                    "interaction": copy.deepcopy(descriptor)}
+        world["scene"]["objects"].append(authored)
+        state = world["citizens"]
+        state["schemaVersion"] = 6
+        for station in state["stations"]:
+            station["interaction"] = copy.deepcopy(descriptor) if station["kind"] == "rest" else None
+            if station["kind"] == "rest":
+                station["objectId"] = authored["objectId"]
+        active = copy.deepcopy(self.snapshot)
+        active["scene"] = copy.deepcopy(world["scene"])
+        active["assets"].extend({"assetId": name, "displayName": name.title()}
+                                for name in ("orb", "chair", "table"))
+        active["assets"].append({"assetId": asset["assetId"], "displayName": "Rest seat",
+                                 "sha256": asset["sha256"], "spawnScale": 1,
+                                 "localBounds": bounds, "animationClips": []})
+        active["interactionSchemaVersion"] = 1
+        self.state.exchange({"clientId": "browser", "snapshot": active, "results": []})
+        return world, active, asset
+
+    def test_citizens_v6_glb_interaction_restore_checks_binding_and_bytes(self):
+        world, active, asset = self.citizens_v6_glb_interaction_world()
+        before = copy.deepcopy(self.state.latest)
+        self.assertTrue(self.state.save_world_checkpoint("RegisteredSeat", world)["saved"])
+        restored = self.state.load_world_checkpoint("RegisteredSeat")["world"]
+        expected = copy.deepcopy(world)
+        expected["scene"]["objects"][2]["component"]["startedAtMs"] = (
+            restored["scene"]["objects"][2]["component"]["startedAtMs"])
+        self.assertEqual(restored, expected)
+        self.assertEqual(self.state.latest, before)
+        path = self.scenes / "world_checkpoints" / "RegisteredSeat.json"
+        original_bytes = path.read_bytes()
+        for mutate in (
+                lambda item: item["citizens"]["stations"][0].update(interaction=None),
+                lambda item: item["citizens"]["stations"][0]["interaction"]["effect"].update(delta=49),
+                lambda item: item["scene"]["objects"][-1]["interaction"].update(assetSha256="0" * 64),
+        ):
+            with self.subTest(mutate=mutate):
+                invalid = copy.deepcopy(world)
+                mutate(invalid)
+                with self.assertRaises(APIError):
+                    self.state.save_world_checkpoint("RegisteredSeat", invalid)
+                self.assertEqual(path.read_bytes(), original_bytes)
+                self.assertEqual(self.state.latest, before)
+        missing = self.assets / (asset["sha256"] + ".glb")
+        missing.write_bytes(b"corrupt")
+        with self.assertRaisesRegex(APIError, "missing or corrupt"):
+            self.state.load_world_checkpoint("RegisteredSeat")
+        self.assertEqual(path.read_bytes(), original_bytes)
+        self.assertEqual(self.state.latest, before)
 
     def citizens_v4_authored_furniture_world(self, kind):
         world = self.citizens_v4_completed_world()

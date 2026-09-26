@@ -6,6 +6,7 @@ import os
 from mcp.server.fastmcp import FastMCP
 from mcp.types import ToolAnnotations
 from matrix_tool_bridge import (animation_status, bind_animation, component_action, component_status,
+                                interaction_action, interaction_status,
                                 list_assets, list_components,
                                 move_object, move_status, publish_component, read_scene, register_glb,
                                 physics_action, physics_status, scale_block, scale_status,
@@ -179,6 +180,45 @@ def matrix_physics_status(request_id: str) -> dict:
     """Read the exact floor physics receipt and any matching observed contact."""
     return physics_status(os.environ["MATRIX_CONTROL_URL"],
                           os.environ["MATRIX_CONTROL_TOKEN"], request_id)
+
+
+@server.tool(annotations=ToolAnnotations(readOnlyHint=False, destructiveHint=False,
+                                         idempotentHint=False, openWorldHint=False))
+def matrix_set_interaction(room_id: str, scene_revision: int, object_id: str,
+                           expected_asset_id: str, interaction: dict) -> dict:
+    """Author a rest or eat affordance on one registered static Matrix Web GLB.
+
+    Read matrix_scene_summary and matrix_list_assets first. The descriptor must
+    name the exact installed asset SHA and use local floor X/Z poses. The PC
+    checks geometry and asset bytes; the browser checks rendered bounds. Native
+    approval reviews the bounded effect. Check matrix_interaction_status:
+    queued or unconfirmed does not mean the world changed.
+    """
+    return interaction_action(os.environ["MATRIX_CONTROL_URL"],
+                              os.environ["MATRIX_CONTROL_TOKEN"],
+                              {"action": "set", "room_id": room_id,
+                               "scene_revision": scene_revision, "object_id": object_id,
+                               "expected_asset_id": expected_asset_id,
+                               "interaction": interaction})
+
+
+@server.tool(annotations=ToolAnnotations(readOnlyHint=False, destructiveHint=False,
+                                         idempotentHint=False, openWorldHint=False))
+def matrix_remove_interaction(room_id: str, scene_revision: int, object_id: str,
+                              expected_asset_id: str) -> dict:
+    """Remove one saved GLB affordance, including when its catalog is stale."""
+    return interaction_action(os.environ["MATRIX_CONTROL_URL"],
+                              os.environ["MATRIX_CONTROL_TOKEN"],
+                              {"action": "remove", "room_id": room_id,
+                               "scene_revision": scene_revision, "object_id": object_id,
+                               "expected_asset_id": expected_asset_id})
+
+
+@server.tool(annotations=ToolAnnotations(readOnlyHint=True))
+def matrix_interaction_status(request_id: str) -> dict:
+    """Read the runtime receipt and observed descriptor for an affordance edit."""
+    return interaction_status(os.environ["MATRIX_CONTROL_URL"],
+                              os.environ["MATRIX_CONTROL_TOKEN"], request_id)
 
 
 @server.tool(annotations=ToolAnnotations(readOnlyHint=True))
