@@ -114,7 +114,7 @@ state, chair claim and relationship 55 after the catalog returned; a further
 browser reload kept them. Focused scene-store tests passed **34/34**, the full
 WebRuntime suite **288/288**, ControlService **682/682**, and Vite built.
 Neither browser nor PC checkpoints contain GLB bytes. The next
-`codex/citizens-virtual-day` candidate implements a bounded first
+[`codex/citizens-virtual-day` PR #112](https://github.com/School-of-the-Ancients/matrix-loading-operator/pull/112) implements a bounded first
 [#17](https://github.com/School-of-the-Ancients/matrix-loading-operator/issues/17)
 schedule layer on that world. Citizens v7 saves 1×/4×/16× clock speed,
 recurring daily rest/eat/explore windows and the latest score trace per
