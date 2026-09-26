@@ -50,7 +50,7 @@ The GLB validator records up to eight named animation clips with bounded channel
 
 The [Ice Dragon example](art/README.md) includes editable Blender source, a preview, and a validated two-clip GLB. It demonstrates the existing catalog and selection-binding path without requiring a new runtime mechanic.
 
-[Blender authoring tiers](BLENDER_AUTHORING_TIERS.md) records the richer Agent Portal direction. The current blueprint builder remains a bounded fallback; full Blender MCP authoring through the portal is not yet a runtime capability.
+[Blender authoring tiers](BLENDER_AUTHORING_TIERS.md) separates the bounded blueprint endpoint from PC-local Agent Portal authoring. The blueprint builder remains a bounded fallback. A [desktop Agent Portal trace](../Validation/WebRuntime-Blender-MCP-M1-2026-09-25.md) completed a static asset through configured Blender MCP, follow-up revision, GLB validation, catalog registration, receipt-acknowledged placement, and browser rendering; it requires a connected scratch Blender GUI and does not make Blender a headset runtime capability.
 
 ### Agent Portal Matrix tool
 

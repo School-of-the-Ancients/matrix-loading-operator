@@ -49,6 +49,8 @@ Make approval handling usable on the PC with the smallest change: exact review f
 
 **Exit:** one real end-to-end desktop trace, revision, registered asset, acknowledged placement, and final browser visual check. A generated file or an interrupted authoring turn alone is not done. See [authoring tiers](WebRuntime/BLENDER_AUTHORING_TIERS.md); its old “portal not implemented” wording must be reconciled with the newer merged PRs when editing that guide.
 
+The [Copper Astrolabe desktop trace](Validation/WebRuntime-Blender-MCP-M1-2026-09-25.md) meets this one-asset M1 exit on the current stacked head: a connected scratch Blender MCP scene, creation and follow-up revision in one Agent Portal conversation, validated registration, receipt-acknowledged placement, browser rendering and reload. It does not close Quest authoring or replacement-identity acceptance.
+
 ## M2 — Save and restore the whole supported experience
 
 **Owners:** #44 and #24. Reuse existing state and files; no new database. Desktop browser and PC-service restart are the acceptance target.
