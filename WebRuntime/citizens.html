@@ -25,7 +25,9 @@
           <div class="section-heading"><div><span class="eyebrow">SCENARIO</span><h1>Residents choose what to do</h1></div><span id="tick-count" class="tick-count">Tick 0</span></div>
           <p class="intro">Needs change over simulated time. Residents choose activities and can invite each other to converse. Successful actions improve needs; completed observed conversations raise relationships.</p>
           <div class="seed-row"><label for="seed">Seed</label><input id="seed" inputmode="numeric" type="number" min="1" max="4294967295" step="1" value="29" /><button id="reset" type="button">Reset seed</button></div>
+          <div class="seed-row"><label for="speed">Clock speed</label><select id="speed"><option value="1">1× · 1 minute per half-second</option><option value="4">4× · 4 minutes per half-second</option><option value="16">16× · 16 minutes per half-second</option></select></div>
           <div class="controls"><button id="toggle-run" class="primary" type="button">Pause</button><button id="step" type="button">Step one minute</button><button id="save" type="button">Save</button><button id="load" type="button">Load saved</button></div>
+          <p class="intro">The clock pauses while this tab is hidden. Reloading does not catch up missed time.</p>
           <p id="feedback" role="status" aria-live="polite">Loading the isolated demo…</p>
           <p id="latest-event" class="latest-event" aria-live="polite"></p>
         </section>

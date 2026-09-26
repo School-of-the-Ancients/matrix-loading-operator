@@ -10,6 +10,9 @@ const needLabels={hunger:'Fullness',energy:'Energy',fun:'Fun'};
 const stationLabels={rest:'Chair · Rest',eat:'Table · Eat'};
 const tickIntervalMs=500;
 let world,simulation,view,autosave=true;
+const activeRoutine=(routine,minute)=>routine.startMinute<routine.endMinute?
+  minute>=routine.startMinute&&minute<routine.endMinute:
+  minute>=routine.startMinute||minute<routine.endMinute;
 
 function setFeedback(message,error=false){
   $('feedback').textContent=message;
@@ -144,6 +147,21 @@ function renderResidents(state){
     const needs=document.createElement('div');needs.className='needs';
     for(const key of ['hunger','energy','fun'])needs.append(needItem(key,resident.needs[key]));
     card.append(top,meta,needs);
+    const current=(resident.routines||[]).filter(routine=>
+      activeRoutine(routine,state.clockTick%1440));
+    const routine=document.createElement('p');routine.className='resident-routine';
+    routine.textContent=`Active windows: ${current.map(entry=>entry.id).join(', ')||'none'}.`;
+    card.append(routine);
+    if(resident.lastDecision){
+      const decision=resident.lastDecision;
+      const detail=document.createElement('details');detail.className='resident-decision';
+      const summary=document.createElement('summary');
+      summary.textContent=`Latest decision · m ${decision.tick} · ${decision.selectedKind||'wait'}${decision.selectedRoutineId?` / ${decision.selectedRoutineId}`:''}`;
+      const scores=document.createElement('p');
+      scores.textContent=`${decision.mode} · roll ${decision.roll===null?'none':decision.roll.toFixed(3)} · ${decision.candidates.map(candidate=>
+        `${candidate.kind}${candidate.routineId?`/${candidate.routineId}`:''}: ${candidate.score.toFixed(1)} (need ${candidate.deficit.toFixed(0)}, preference ${candidate.preference.toFixed(2)}, travel ${candidate.travelMeters.toFixed(1)} m, window ${candidate.baseWeight.toFixed(0)}, available ${candidate.availabilityFactor.toFixed(2)})`).join('; ')||'no eligible candidate'}`;
+      detail.append(summary,scores);card.append(detail);
+    }
     if(resident.lastOutcome){const outcome=document.createElement('p');outcome.className='resident-outcome';outcome.textContent=resident.lastOutcome;card.append(outcome);}
     return card;
   });
@@ -221,6 +239,7 @@ function render(state=simulation.snapshot()){
   $('tick-count').textContent=`Tick ${state.clockTick}`;
   $('run-state').textContent=state.paused?'Paused':'Running';
   $('run-state').parentElement.classList.toggle('paused',state.paused);
+  $('speed').value=String(state.clockSpeed||1);
   $('toggle-run').textContent=state.paused?'Run':'Pause';
   $('step').disabled=!state.paused;
   renderResidents(state);renderStations(state);renderSocial(state);renderLog(state);
@@ -276,6 +295,14 @@ $('toggle-run').addEventListener('click',()=>{
   render();if(autosave)save(true);
   setFeedback(simulation.snapshot().paused?'Simulation paused.':'Simulation running.');
 });
+$('speed').addEventListener('change',()=>{
+  try{
+    const speed=Number($('speed').value);
+    simulation.setClockSpeed(speed);
+    render();if(autosave)save(true);
+    setFeedback(`Clock speed set to ${speed} simulated minutes per half-second.`);
+  }catch(error){setFeedback(`Clock speed was rejected: ${error.message}`,true);render();}
+});
 $('step').addEventListener('click',()=>{
   simulation.step();render();if(autosave)save(true);
   setFeedback(`Advanced to minute ${simulation.snapshot().clockTick}.`);
@@ -292,7 +319,10 @@ $('load').addEventListener('click',()=>{
 
 setInterval(()=>{
   if(document.hidden||simulation.snapshot().paused)return;
-  simulation.advance();render();
+  const speed=simulation.snapshot().clockSpeed||1;
+  for(let minute=0;minute<speed;minute++)
+    if(simulation.advance().paused)break;
+  render();
   if(autosave)save(true);
 },tickIntervalMs);
 addEventListener('beforeunload',()=>{if(autosave)save(true);});

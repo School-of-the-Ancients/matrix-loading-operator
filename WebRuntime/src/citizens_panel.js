@@ -5,6 +5,18 @@ import {CitizensSimulation,createCitizensDemo,
 
 const byId=id=>document.getElementById(id);
 const intervalMs=500;
+const activeRoutine=(routine,minute)=>routine.startMinute<routine.endMinute?
+  minute>=routine.startMinute&&minute<routine.endMinute:
+  minute>=routine.startMinute||minute<routine.endMinute;
+const decisionSummary=decision=>{
+  if(!decision)return 'No decision sampled yet.';
+  const selected=decision.selectedKind?
+    `${decision.selectedKind}${decision.selectedRoutineId?` in ${decision.selectedRoutineId}`:''}`:
+    'wait';
+  const candidates=decision.candidates.map(candidate=>
+    `${candidate.kind}${candidate.routineId?`/${candidate.routineId}`:''} ${candidate.score.toFixed(1)} (need ${candidate.deficit.toFixed(0)}, preference ${candidate.preference.toFixed(2)}, travel ${candidate.travelMeters.toFixed(1)} m, window ${candidate.baseWeight.toFixed(0)}, available ${candidate.availabilityFactor.toFixed(2)})`).join('; ');
+  return `m ${decision.tick} · ${decision.mode} selected ${selected}${decision.roll===null?'':` · roll ${decision.roll.toFixed(3)}`} · ${candidates||'no eligible candidate'}`;
+};
 
 export class CitizensPanel {
   constructor(world,{onChange,canStart,onFeedback,canMutate=()=>'',getRecovery=()=>null,
@@ -32,6 +44,7 @@ export class CitizensPanel {
     byId('citizens-add-selected').addEventListener('click',()=>this.addStation());
     byId('citizens-toggle').addEventListener('click',()=>this.toggle());
     byId('citizens-step').addEventListener('click',()=>this.step());
+    byId('citizens-speed').addEventListener('change',()=>this.setSpeed());
     byId('citizens-stop').addEventListener('click',()=>this.stop());
     byId('citizens-recover').addEventListener('click',()=>this.recover());
     this.timer=setInterval(()=>this.tick(),intervalMs);
@@ -209,6 +222,17 @@ export class CitizensPanel {
     this.simulation.step();this.commit();
   }
 
+  setSpeed(){
+    if(this.canMutate())return;
+    const speed=Number(byId('citizens-speed').value);
+    this.syncFromWorld();
+    if(!this.simulation||this.error||this.world.spatial)return;
+    try{
+      this.simulation.setClockSpeed(speed);
+      this.commit();
+    }catch(error){this.onFeedback(`Citizens clock speed was rejected: ${error.message}`,true);this.render();}
+  }
+
   tick(){
     if(this.recoverArmedUntil&&performance.now()>this.recoverArmedUntil){
       this.recoverArmedUntil=0;this.recoverArmedCopy='';this.render();
@@ -216,7 +240,10 @@ export class CitizensPanel {
     if(document.hidden||!this.simulation||this.world.spatial||this.canMutate())return;
     this.syncFromWorld();
     if(!this.simulation||this.error||this.simulation.snapshot().paused)return;
-    this.simulation.advance();this.commit();
+    const speed=this.simulation.snapshot().clockSpeed||1;
+    for(let minute=0;minute<speed;minute++)
+      if(this.simulation.advance().paused)break;
+    this.commit();
   }
 
   pauseForCheckpoint(){
@@ -361,6 +388,9 @@ export class CitizensPanel {
     byId('citizens-step').disabled=!state||state.residents.length===0||
       !!this.error||!state.paused||!!this.world.spatial||!!mutationBlocked||
       !!navigationIssue;
+    byId('citizens-speed').disabled=!state||!!this.error||
+      !!this.world.spatial||!!mutationBlocked;
+    byId('citizens-speed').value=String(state?.clockSpeed||1);
     byId('citizens-stop').disabled=!this.world.citizens||!!mutationBlocked;
     byId('citizens-recover').disabled=!recovery||!!recoveryBlocked||!!this.world.spatial;
     byId('citizens-recover').textContent=performance.now()<this.recoverArmedUntil&&recovery?
@@ -372,8 +402,11 @@ export class CitizensPanel {
         `A pre-deletion browser copy from ${recoveryTick||'an earlier tick'} is available. Restoring replaces the current scene, game, and Citizens. The manual Save world checkpoint is untouched.`:
         'No pre-deletion browser copy is available. The manual Save world checkpoint is separate.';
     if(performance.now()>this.stopArmedUntil)byId('citizens-stop').textContent='Stop Citizens';
+    const minute=state?.clockTick%1440;
+    const day=state?Math.floor(state.clockTick/1440)+1:1;
+    const time=state?`${String(Math.floor(minute/60)).padStart(2,'0')}:${String(minute%60).padStart(2,'0')}`:'00:00';
     byId('citizens-status').textContent=this.error||(
-      state?`${state.paused?'Paused':'Running'} · minute ${state.clockTick} · seed ${state.seed}${navigationIssue?` · navigation unavailable: ${navigationIssue}`:''}`:
+      state?`${state.paused?'Paused':'Running'} · day ${day} ${time} · minute ${state.clockTick} · ${state.clockSpeed||1}× · seed ${state.seed}${navigationIssue?` · navigation unavailable: ${navigationIssue}`:''}`:
         this.world.citizens?'Citizens state needs recovery. Undo the edit, restore a valid PC world, or stop Citizens.':
           (blocked&&selectedBlocked?blocked:
             'No Citizens in this world. Start an empty fixture or use a selected station.'));
@@ -400,6 +433,15 @@ export class CitizensPanel {
       cards.push(item);
     }
     byId('citizens-residents').replaceChildren(...cards);
+    const dayMinute=state?.clockTick%1440;
+    const routines=(state?.residents||[]).map(resident=>{
+      const item=document.createElement('li');
+      const current=(resident.routines||[]).filter(routine=>
+        activeRoutine(routine,dayMinute)).map(routine=>routine.id);
+      item.textContent=`${resident.name}: active ${current.join(', ')||'none'} · ${decisionSummary(resident.lastDecision)}`;
+      return item;
+    });
+    byId('citizens-routines').replaceChildren(...routines);
     const stations=(state?.stations||[]).map(station=>{
       const item=document.createElement('li');
       const claim=station.claim;
