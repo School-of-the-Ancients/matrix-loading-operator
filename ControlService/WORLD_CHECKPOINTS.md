@@ -19,12 +19,18 @@ without Citizens. Version 3 requires exactly those fields plus a non-null
 `citizens` section. That section holds resident and station IDs, needs, current
 finite activities, reservations, clock, seed/random state, and bounded event
 history. The service validates residents and stations against stable object IDs
-and built-in orb/chair/table assets in the same scene. Nested Citizens v4 also
+and built-in orb/chair/table assets in the same scene. Nested Citizens v4
 requires a bounded per-pair completed-session receipt record; its relationship
 score must match that record, and retained `ended` events must name a recorded
-completion. Older nested v1/v2 shapes remain accepted. A v3 social file is
-accepted only while its retained completed events account for its relationship
-score; the browser then migrates it to v4. A
+completion. Nested v5 adds `routeRetries` (an integer from 0 through 3) and a
+bounded `routeGeometryId` or `null` to each active activity, plus a `rerouted`
+log event. This preserves a blocked execution and its claim across browser
+reload and named PC restore. Older nested v1/v2 shapes remain accepted. A v3
+social file is accepted only while its retained completed events account for
+its relationship score. Browser restore migrates valid v1–v4 Citizens states
+through the intermediate schemas to v5; a v4 active activity starts with zero
+route retries and a null geometry identity. The PC validates and returns older
+checkpoint files in their original shape without rewriting the raw file. A
 historical browser receipt reference is checkpoint consistency evidence; the PC
 service does not re-execute that conversation or authenticate the browser's old
 events. Malformed state, missing bindings, and stale reservations are rejected
