@@ -6,9 +6,15 @@ Planning snapshot: September 25, 2026. Proposed scope, not a claim of new implem
 
 ## Product
 
-Open Matrix in a browser or Quest, talk to the real Codex running on the PC, and create, change, interact with, and save a small world. Keep the same conversation while working. Blender can make richer assets; ordinary HTML and Three.js code can make richer experiences. School of the Ancients is a separate learning application that can use these capabilities.
+Open Matrix in the desktop browser, talk to the real Codex running on the PC, and create, change, interact with, and save a small world. Keep the same conversation while working. Blender can make richer assets; ordinary HTML and Three.js code can make richer experiences. School of the Ancients is a separate learning application that can use these capabilities. The same Matrix experience will receive an improved VR/AR presentation after the desktop loop works reliably.
 
 The long-term vision remains a persistent world with content libraries, AI residents, lessons, and real-world overlays. The next release proves one useful creation loop, not that entire vision.
+
+## Delivery decision: desktop first
+
+The current AR/VR UI is a user-reported weakness, but redesigning it is not the next step. Finish the existing `/web/` application in ordinary desktop mode with mouse/keyboard and usable HTML controls. M0–M3 do not require immersive session entry or a headset. Voice is optional.
+
+Then M4 adapts the same working flow for VR controls/layout and separately validates AR room placement/recovery. Keep existing XR paths intact without polishing or replacing them now. This is one Three.js/WebXR application with different input/presentation modes, not a second desktop engine. Do not wait for all future Matrix features before returning to headset work.
 
 ## Keep the architecture we already have
 
@@ -25,9 +31,9 @@ These are responsibilities, not four new services. Preserve the existing state o
 
 ## First complete user journey
 
-1. Open `/web/`, connect to the configured PC agent, and select or point at a place/object.
+1. Open `/web/` in desktop mode, connect to the configured PC agent, and select or point at a place/object with the mouse.
 2. Ask for an object or experience. Reuse a suitable asset first; create one when needed.
-3. Review consequential operations. Broad Blender/code operations may require a clear PC review handoff rather than a misleading headset approval.
+3. Review consequential operations on the PC. Broad Blender/code operations may require a clear detailed review handoff; do not weaken approval to simplify the UI.
 4. See the result only after the runtime confirms it. Ask for a follow-up change in the same conversation.
 5. Interact, stop, undo where supported, save, close, and return to the same supported world state.
 
@@ -42,10 +48,10 @@ Use the existing dragon/skiff or a simpler object for acceptance. A new spectacu
 | R3 | Real creation and revision | One scratch Blender job creates an asset, revises it in the same agent conversation, exports, registers, and places it. Preserve editable source and report whether MCP or local scripting actually performed authoring. |
 | R4 | Reusable interaction | Demonstrate existing clip selection and numeric components. Add a small ordinary code module only when a concrete experience needs more; do not add one endpoint for every imagined object. |
 | R5 | Honest saving | Browser reopen retains the supported scene/game/configuration. Provide a whole-experience PC checkpoint in the next persistence slice; until then, label the existing PC backup as scene-only. Missing assets or room tracking must not silently replace/recenter the world. |
-| R6 | One shared experiment | HTML controls, a Three.js view, and an agent operation use one tested scale-experiment state/measurement implementation. XR presents that experiment when supported; simultaneous multi-device synchronization is not required. |
+| R6 | One shared experiment | Desktop HTML controls, a Three.js view, and an agent operation use one tested scale-experiment state/measurement implementation. Immersive presentation is deferred to M4; simultaneous multi-device synchronization is not required. |
 | R7 | Independent School | A text-only lesson works without Matrix. Its optional connector uses reviewed, scoped world actions and observed results, not Codex shell credentials. |
 
-The Matrix creation release is R1–R5. R6–R7 are the next paired integration, not a requirement to finish every School or NPC issue first. Desktop evidence and actual Quest wearer evidence are recorded separately.
+The Matrix creation release is R1–R5 accepted on desktop. R6–R7 are the next desktop paired integration, not a requirement to finish every School or NPC issue first. M4 subsequently validates the same supported flow on VR/AR hardware. Desktop evidence and actual Quest wearer evidence remain separate; desktop completion does not close headset acceptance criteria.
 
 ## Two creation paths, not a new mini-engine
 
@@ -63,6 +69,6 @@ Blender, the existing GLB catalog, and local speech are sufficient to test the f
 
 ## Explicitly not in this release
 
-No new microservices, orchestration framework, database migration, distributed queue, event-sourcing system, broad provider abstraction, or mass repository move. No mandatory physics/navmesh engine, autonomous society, Boulder port, global mapping, multiplayer, hosted-to-local relay, WebMCP dependency, or new headset purchase.
+No new microservices, orchestration framework, database migration, distributed queue, event-sourcing system, broad provider abstraction, or mass repository move. No mandatory physics/navmesh engine, autonomous society, Boulder port, global mapping, multiplayer, hosted-to-local relay, WebMCP dependency, or new headset purchase. Immersive UI redesign, new controller/hand interaction work and new AR camera/alignment features wait for M4; preserve existing support and guards meanwhile.
 
 Preserve these future directions in their existing issues. Add a dependency only when the next demonstrated user task requires it.
