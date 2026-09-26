@@ -152,3 +152,12 @@ in a follow-up. The exact dragon request then reached a native MCP approval
 that was not reviewable in XR; Deny and Stop worked. A Blender MCP creation,
 dragon import through the Matrix runtime, and Quest wearer acceptance remain
 unverified.
+
+A later [desktop M1 trace](../Validation/WebRuntime-Blender-MCP-M1-2026-09-25.md)
+used an empty Blender 5.2.2 GUI scratch instance and PC-owned automatic Agent
+approvals. In one restored Agent Portal conversation, Blender MCP created and
+revised a Copper Astrolabe, exported its GLB, and Matrix MCP registered and
+placed the validated asset with an observed runtime receipt. The browser
+rendered it and retained it after reload. This supersedes the older desktop
+Blender-MCP-unverified statement above, but does not claim the same workflow
+was operated from Quest or that every external MCP action is XR-reviewable.
