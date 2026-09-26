@@ -1,6 +1,6 @@
 # Matrix implementation plan
 
-Updated September 26, 2026. **Continue the small, persistent AI Citizens simulation in the existing Three.js/MatrixWorld world.** The isolated desktop fixture is followed by an opt-in `/web/` shared-world checkpoint candidate. This supersedes the earlier M4-first work queue. Keep every unfinished mode-specific M4 headset check open; wearer-dependent acceptance does not block independent simulation work. Complete a tested slice before expanding scope.
+Updated September 26, 2026. **Continue the small, persistent AI Citizens simulation in the existing Three.js/MatrixWorld world.** The isolated desktop fixture, opt-in `/web/` shared world and bounded route recovery are the current stacked candidates. This supersedes the earlier M4-first work queue. Keep every unfinished mode-specific M4 headset check open; wearer-dependent acceptance does not block independent simulation work. Complete a tested slice before expanding scope.
 
 [PRD](PRD.md) · [Project map](PROJECTS.md) · [School build plan](https://github.com/School-of-the-Ancients/school-of-the-ancients-roadmap/blob/main/BUILD_PLAN.md)
 
@@ -53,18 +53,27 @@ adds a bounded two-resident invitation, seeded accept/decline/timeout
 outcomes, and a relationship change only after a checked MatrixWorld receipt.
 The selected-furniture candidate binds one existing chair or table as a
 capacity-one station, checks bounded virtual-floor paths and refuses unsupported
-or blocked geometry. An active game must finish or be removed first. Broader #15
-still needs versioned object affordances, route/readiness and motion-owner
-contracts, changing-path recovery, and its full acceptance fixtures. Citizens
+or blocked geometry. An active game must finish or be removed first. Citizens
 selects intentions; Matrix validates finite world actions and reports receipts.
-The next [PR #106](https://github.com/School-of-the-Ancients/matrix-loading-operator/pull/106)
+The stacked [PR #106](https://github.com/School-of-the-Ancients/matrix-loading-operator/pull/106)
 candidate on `codex/citizens-glb-readiness` adds actual renderer
 verification before catalog bounds of a registered GLB can enter that bounded
 route check, and pauses Citizens if the verification becomes unavailable.
 Its [desktop browser record](Validation/citizens-glb-readiness-browser.json)
 includes a mismatched catalog refusal and a saved two-resident chair queue
-that replays after reload and PC restore. Geometry versions and route repair,
-general affordances, moving targets, and Quest wearer checks remain open.
+that replays after reload and PC restore. The current
+`codex/citizens-route-recovery` branch then tracks changed navigation geometry,
+replans active individual travel from the observed pose, and permits three blocked-route
+retry ticks before failing the execution and releasing its claim. A cleared
+route can finish the same execution. Its [isolated `/web/` browser record](Validation/citizens-route-recovery-browser.json)
+shows Ada's detour around a moved wall, Bo's temporary blocked route and
+completion after the wall moved away, and a restored checkpoint that fails
+without a rest benefit when the wall stays. Nested Citizens v5 saves the retry
+count and geometry identity; valid v4 browser states migrate, while older PC
+checkpoint files are read without rewriting. WebRuntime passed **257/257**
+tests, ControlService **674/674**, and Vite built. General affordance versions,
+moving targets and geometry, social-session route recovery, full #15 acceptance, and Quest wearer checks remain
+open.
 No simulated resident gets the Operator's shell credentials
 or permission to run fleet jobs. Richer rigs, ComfyUI/Blender authoring, GOAP,
 general behavior programs, and an LLM call per frame are not prerequisites.
@@ -156,7 +165,7 @@ Use [the existing Quest checklist](WebRuntime/QUEST3_ACCEPTANCE.md) and record o
 
 | Lane | Existing owners | Small next outcome, when selected |
 | --- | --- | --- |
-| AI Citizens — current priority | #29 with the needed slices of #13–#20 | The two-resident, seeded contention fixture has an opt-in path in the main `/web/` world, versioned browser/PC checkpoints, reservation recovery, and a finite social session candidate. The current #15 candidate binds one selected existing built-in chair/table and adds bounded virtual-floor movement without replacing the scene. General multi-resource ordering and the rest of #15 remain open. Do not claim headset budgets from desktop checks. |
+| AI Citizens — current priority | #29 with the needed slices of #13–#20 | The two-resident, seeded contention fixture has an opt-in path in the main `/web/` world, versioned browser/PC checkpoints, reservation recovery, and a finite social session candidate. The #15 candidates bind one selected existing built-in chair/table, check rendered static GLB obstacles, and recover a changed static route for at most three retry ticks without replacing the scene. General affordances, moving targets, multi-resource ordering, and the rest of #15 remain open. Do not claim headset budgets from desktop checks. |
 | Current Matrix | #44, #59, #28, #24 | Keep remaining M4 mode-specific checks and concrete M3 bridge gaps tracked independently; no second implementation stack. |
 | Shared lesson | #31, #32, #23 | Desktop M3 plus the School build plan; headset presentation follows in M4. No Citizens/Boulder prerequisite. |
 | Reusable runtime | #13, #25 | Extend only for a demonstrated missing interaction; reuse numeric components and existing receipts. |
@@ -193,4 +202,4 @@ One active Matrix implementation slice at a time. One independent School slice m
 
 Each PR states: user-visible result, reused files/contracts, excluded scope, tests actually run, device checks still pending, and the next step. Update this plan only when evidence changes the queue. Leave PRs open unless the user authorizes merging; do not close umbrella issues from a partial milestone.
 
-**Start prompt:** “Read AGENTS.md, PROJECTS.md, PRD.md, IMPLEMENTATION_PLAN.md and AI Citizens issues #29, #15, #19 and #20. Check current `main`, open PRs, the shared-world Citizens runbook, existing simulation code, and the Quest acceptance matrix. Validate the selected built-in chair/table `/web/` candidate against existing-scene preservation, bounded navigation refusals, observed receipts, and browser/PC save and restore before extending #15's general interaction contract. Preserve scene/Citizens checkpoint migration, seeded replay, and the isolated fixture. Exercise the actual browser and run relevant tests/builds. Preserve live scenes, PC credentials, the Unity client and release checkpoints. Keep unfinished M4 wearer checks open and independent; do not expand into School, Matrix World, a new engine, or a full city/economy.”
+**Start prompt:** “Read AGENTS.md, PROJECTS.md, PRD.md, IMPLEMENTATION_PLAN.md and AI Citizens issues #29, #15, #19 and #20. Check current `main`, open stacked PRs, the shared-world Citizens runbook, the `codex/citizens-route-recovery` branch and its browser evidence, existing simulation code, and the Quest acceptance matrix. Select the next smallest open #15 interaction or navigation contract after the bounded static-route recovery candidate; verify which prerequisites already exist before coding. Preserve the selected built-in furniture path, observed MatrixWorld receipts, scene/Citizens checkpoint migration, seeded replay, and the isolated fixture. Exercise the actual browser and run relevant tests/builds. Preserve live scenes, PC credentials, the Unity client and release checkpoints. Keep unfinished M4 wearer checks open and independent; do not expand into School, Matrix World, a new engine, or a full city/economy.”

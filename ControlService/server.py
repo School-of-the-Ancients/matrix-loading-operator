@@ -562,7 +562,7 @@ def validate_citizens_checkpoint(value, checked_scene):
         return type(item) in (int, float) and minimum <= item <= maximum and math.isfinite(item)
 
     require(type(value) is dict and type(value.get("schemaVersion")) is int and
-            value["schemaVersion"] in (1, 2, 3, 4), "Unsupported Citizens schemaVersion")
+            value["schemaVersion"] in (1, 2, 3, 4, 5), "Unsupported Citizens schemaVersion")
     version = value["schemaVersion"]
     state_fields = ("schemaVersion", "world", "seed", "rngState", "requestSequence",
                     "clockTick", "paused", "residents", "stations", "log")
@@ -641,11 +641,17 @@ def validate_citizens_checkpoint(value, checked_scene):
         activity = resident["activity"]
         if activity is not None:
             activity_fields = ("kind", "stationId", "phase", "remainingTicks", "travelTicks", "target")
-            shape(activity, activity_fields + (("executionId",) if version >= 2 else ()), "activity")
+            shape(activity, activity_fields + (("executionId",) if version >= 2 else ()) +
+                  (("routeRetries", "routeGeometryId") if version >= 5 else ()), "activity")
             require(activity["kind"] in ("rest", "eat", "explore") and
                     activity["phase"] in ("travel", "use") and
                     integer(activity["remainingTicks"], 0, 12) and
                     integer(activity["travelTicks"], 0, 60), "Invalid Citizens activity")
+            if version >= 5:
+                require(integer(activity["routeRetries"], 0, 3),
+                        "Invalid Citizens route retry count")
+                if activity["routeGeometryId"] is not None:
+                    citizens_text(activity["routeGeometryId"], "Citizens route geometry ID")
             if version >= 2:
                 execution_id = activity["executionId"]
                 require(integer(execution_id, 1, action_sequence) and
@@ -868,7 +874,7 @@ def validate_citizens_checkpoint(value, checked_scene):
         completed_request_ids = set()
         for relationship in relationships:
             shape(relationship, ("a", "b", "score") +
-                  (("completed",) if version == 4 else ()), "relationship")
+                  (("completed",) if version >= 4 else ()), "relationship")
             a = citizens_text(relationship["a"], "Citizens relationship resident ID", limit=32)
             b = citizens_text(relationship["b"], "Citizens relationship resident ID", limit=32)
             # JavaScript compares identifiers by UTF-16 code units.
@@ -880,7 +886,7 @@ def validate_citizens_checkpoint(value, checked_scene):
             # V3 has no durable receipt ledger. Accept it only while its
             # bounded event ring still proves the entire relationship score;
             # the browser migrates those ended events to v4 records.
-            completed = (relationship["completed"] if version == 4 else [
+            completed = (relationship["completed"] if version >= 4 else [
                 {"sessionId": session_id, "requestId": request_id, "tick": tick}
                 for session_id, request_id, tick, participants in ended_events
                 if participants == frozenset((a, b))])
@@ -932,6 +938,8 @@ def validate_citizens_checkpoint(value, checked_scene):
     log_events = {"selected", "blocked", "arrived", "completed", "failed", "paused", "resumed"}
     if version >= 2:
         log_events.update(("waiting", "released", "retired", "expired"))
+    if version >= 5:
+        log_events.add("rerouted")
     for event in events:
         shape(event, ("tick", "residentId", "event", "message"), "log entry")
         resident_id = citizens_text(event["residentId"], "Citizens log resident ID", empty=True, limit=32)

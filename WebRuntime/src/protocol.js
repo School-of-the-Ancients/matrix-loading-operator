@@ -40,6 +40,19 @@ const samePhysics=(a,b)=>a&&b&&['schemaVersion','kind','collider','restitution']
 const physicsAssetSignature=asset=>JSON.stringify([asset?.sha256,asset?.url,asset?.spawnScale,
   ...['center','size'].flatMap(group=>['x','y','z'].map(axis=>asset?.localBounds?.[group]?.[axis]))]);
 const renderedAssetSignature=asset=>JSON.stringify([physicsAssetSignature(asset),asset?.geometry?.animationClips]);
+// A compact content identity for route invalidation, not an authorization
+// token. Movement and interaction still check current clearance and receipts.
+const navigationIdentity=value=>{
+  const source=JSON.stringify(value);
+  const hashes=[0x811c9dc5,0x9e3779b9,0x85ebca6b,0xc2b2ae35];
+  const primes=[0x01000193,0x27d4eb2d,0x165667b1,0x9e3779b1];
+  for(let index=0;index<source.length;index++){
+    const unit=source.charCodeAt(index);
+    for(let lane=0;lane<hashes.length;lane++)
+      hashes[lane]=Math.imul(hashes[lane]^unit,primes[lane]);
+  }
+  return `nav1-${hashes.map(hash=>(hash>>>0).toString(16).padStart(8,'0')).join('')}`;
+};
 const physicsRegisteredGlb=asset=>!!asset?.url&&asset.assetId?.startsWith('web:')&&
   /^[0-9a-f]{64}$/.test(asset.sha256||'')&&finite(asset.spawnScale,.01,20);
 const renderedNavigationFootprint=(asset,measuredSize)=>
@@ -194,6 +207,31 @@ export class MatrixWorld {
     return !!verification&&verification.object===object&&
       verification.signature===renderedAssetSignature(asset)&&
       renderedNavigationFootprint(asset,verification.measuredSize);
+  }
+  navigationGeometryIdentity({excludeObjectIds=[]}={}){
+    this.ensurePhysicsScene();
+    if(this.spatial||this.scene.roomId!==ROOM_ID)
+      throw Error('Navigation geometry requires the desktop virtual room');
+    if(!Array.isArray(excludeObjectIds)||excludeObjectIds.length>4||
+      new Set(excludeObjectIds).size!==excludeObjectIds.length||
+      excludeObjectIds.some(id=>!validId(id)||!this.scene.objects.some(object=>
+        object.objectId===id&&object.assetId==='orb'&&object.anchorId===ANCHOR_ID)))
+      throw Error('Navigation exclusions must be live resident orbs');
+    const excluded=new Set(excludeObjectIds);
+    const objects=this.scene.objects.filter(object=>!excluded.has(object.objectId))
+      .sort((left,right)=>left.objectId<right.objectId?-1:left.objectId>right.objectId?1:0)
+      .map(object=>{
+        const asset=this.asset(object.assetId),transform=object.transform;
+        const pose=['position','rotation','scale'].map(part=>
+          ['x','y','z'].map(axis=>transform?.[part]?.[axis]??null));
+        return [object.objectId,object.assetId,object.anchorId,pose,
+          renderedAssetSignature(asset),asset?.url?this.renderedAssetVerified(object):true,
+          !!object.physics,object.component?.status==='running',
+          !!object.behaviors?.some(behavior=>behavior.enabled&&!behavior.paused),
+          !!object.animation?.loopClip];
+      });
+    return navigationIdentity([this.scene.schemaVersion,this.scene.roomId,
+      this.game!==null&&this.game!==undefined,objects]);
   }
   physicsAssetVerified(object){
     this.ensurePhysicsScene();

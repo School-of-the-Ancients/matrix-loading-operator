@@ -110,7 +110,7 @@ test('Citizens and scene restore together from a v3 browser world and manual che
   assert.deepEqual(storedWorld(manuallyRestored),snapshot);
 });
 
-test('v1 Citizens browser checkpoints migrate an in-flight reservation to v4',()=>{
+test('v1 Citizens browser checkpoints migrate an in-flight reservation to v5',()=>{
   const original=new MatrixWorld(()=>crypto.randomUUID().replaceAll('-',''));
   const simulation=createCitizensDemo(original,{seed:17});
   simulation.step();original.citizens=simulation.snapshot();
@@ -120,8 +120,11 @@ test('v1 Citizens browser checkpoints migrate an in-flight reservation to v4',()
   delete state.socialSession;delete state.socialEvents;
   delete state.relationships;delete state.nextSocialTick;
   for(const resident of state.residents)delete resident.socialSessionId;
-  for(const resident of state.residents)if(resident.activity)
+  for(const resident of state.residents)if(resident.activity){
     delete resident.activity.executionId;
+    delete resident.activity.routeRetries;
+    delete resident.activity.routeGeometryId;
+  }
   state.stations=state.stations.map(station=>({id:station.id,kind:station.kind,
     objectId:station.objectId,capacity:station.capacity,
     holder:station.claim?.residentId??null}));
@@ -129,7 +132,7 @@ test('v1 Citizens browser checkpoints migrate an in-flight reservation to v4',()
     'failed','paused','resumed'].includes(entry.event));
   const reopened=new MatrixWorld();
   restoreStoredWorld(reopened,legacy);
-  assert.equal(reopened.citizens.schemaVersion,4);
+  assert.equal(reopened.citizens.schemaVersion,5);
   assert.equal(reopened.citizens.residents.find(resident=>resident.id==='ada')
     .activity.executionId,reopened.citizens.stations.find(station=>station.kind==='rest')
     .claim.executionId);
@@ -149,9 +152,13 @@ test('v2 Citizens browser checkpoints migrate without changing in-flight claims'
   delete state.socialSession;delete state.socialEvents;
   delete state.relationships;delete state.nextSocialTick;
   for(const resident of state.residents)delete resident.socialSessionId;
+  for(const resident of state.residents)if(resident.activity){
+    delete resident.activity.routeRetries;
+    delete resident.activity.routeGeometryId;
+  }
   const reopened=new MatrixWorld();
   restoreStoredWorld(reopened,previous);
-  assert.equal(reopened.citizens.schemaVersion,4);
+  assert.equal(reopened.citizens.schemaVersion,5);
   assert.deepEqual(reopened.citizens.stations,state.stations);
   assert.equal(reopened.citizens.residents[0].activity.executionId,
     state.residents[0].activity.executionId);

@@ -13,7 +13,7 @@ There are four important tracks:
 3. **Matrix World** — persistent/georeferenced world work such as Matrix Boulder, Earth registration and future AR overlays.
 4. **AI Citizens** — characters, animation/embodiment, needs, schedules, GOAP, memory and social simulation.
 
-Matrix Web and Matrix Unity currently use the PC-side **ControlService / Matrix Core** layer. Matrix World and AI Citizens have separate prototype paths and may adopt that shared layer later. These tracks are not interchangeable implementations.
+Matrix Web and Matrix Unity currently use the PC-side **ControlService / Matrix Core** layer. Matrix World remains a separate prototype track. AI Citizens has both an isolated desktop fixture at `/web/citizens.html` and an opt-in panel inside the ordinary `/web/` desktop virtual world; the latter uses that page's `MatrixWorld`, renderer, browser saves and PC world checkpoints. Resident decisions have no Agent Portal or PC credential access. These tracks are not interchangeable implementations.
 
 ---
 
@@ -202,7 +202,7 @@ Historical Unity/Cesium prototypes are references and evidence, not necessarily 
 
 # 4. AI Citizens / Character Body
 
-**Status: separate simulation/application modules built on Matrix capabilities.**
+**Status: bounded desktop simulation in an isolated fixture and an opt-in Matrix Web world panel; broader character and navigation contracts remain open.**
 
 Primary issues:
 
