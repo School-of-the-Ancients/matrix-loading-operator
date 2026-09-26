@@ -1,7 +1,6 @@
 import * as THREE from 'three';
-import {ARButton} from 'three/addons/webxr/ARButton.js';
-import {VRButton} from 'three/addons/webxr/VRButton.js';
 import {GLTFLoader} from 'three/addons/loaders/GLTFLoader.js';
+import {XRSessionController} from './xr_session.js';
 import {beginGrab,moveGrab,finishGrab,beginPointerGrab,movePointerGrab,movePointerGrabVertical,finishPointerGrab,moveDesktopCamera} from './grab.js';
 import {viewerPose,planeData,insideBoundary,matchPlaneAnchor,samePlaneShape,measuredFloorHeight} from './spatial.js';
 import {ROOM_ANCHOR_KEY,hasWorldToProtect} from './room_origin.js';
@@ -262,12 +261,34 @@ export class MatrixView {
     if(!navigator.xr){buttons.textContent='WebXR unavailable in this browser';return;}
     const [ar,vr]=await Promise.all(['immersive-ar','immersive-vr'].map(mode=>navigator.xr.isSessionSupported(mode).catch(()=>false)));
     const overlay=document.getElementById('xr-overlay');
-    if(ar){const button=ARButton.createButton(this.renderer,{requiredFeatures:['plane-detection'],optionalFeatures:['hit-test','anchors','local-floor','dom-overlay'],domOverlay:{root:overlay}});button.textContent='Enter AR';buttons.append(button);}
-    if(vr){const button=VRButton.createButton(this.renderer,{optionalFeatures:['anchors','dom-overlay'],domOverlay:{root:overlay}});button.textContent='Enter VR';buttons.append(button);}
+    const entryStatus=document.getElementById('xr-entry-status');
+    const entries=[];
+    const refresh=()=>{
+      for(const {button,mode,label} of entries){
+        button.textContent=this.xrControls.currentMode===mode?`Exit ${label}`:`Enter ${label}`;
+        button.disabled=this.xrControls.busy||!!this.renderer.xr.getSession()&&this.xrControls.currentMode!==mode;
+      }
+    };
+    this.xrControls=new XRSessionController(navigator.xr,this.renderer.xr,refresh,message=>{
+      entryStatus.textContent=message;this.onAssetError(message);
+    });
+    const add=(mode,label,options)=>{
+      const button=document.createElement('button');entries.push({button,mode,label});
+      button.addEventListener('click',()=>{
+        entryStatus.textContent='';
+        return this.xrControls.currentMode===mode?this.xrControls.exit():this.xrControls.enter(mode,options);
+      });
+      buttons.append(button);
+    };
+    if(ar)add('immersive-ar','AR',{requiredFeatures:['plane-detection'],optionalFeatures:['hit-test','anchors','local-floor','dom-overlay'],domOverlay:{root:overlay}});
+    if(vr)add('immersive-vr','VR',{requiredFeatures:['local-floor'],optionalFeatures:['anchors','dom-overlay'],domOverlay:{root:overlay}});
+    refresh();
     if(!ar&&!vr)buttons.textContent='XR requires a compatible headset browser';
   }
+  exitXR(){return this.xrControls?.exit();}
   async onSessionStart(){
     const session=this.renderer.xr.getSession();this.isAR=session.environmentBlendMode!=='opaque';
+    document.getElementById('xr-exit').textContent=this.isAR?'Exit AR':'Exit VR';
     if(session.domOverlayState)document.getElementById('xr-overlay').style.display='';
     this.operatorPanel.group.visible=true;
     this.operatorMount={kind:'head'};this.operatorPanel.setPinLabel(this.isAR?'PIN TO WALL':'PIN HERE');
@@ -278,7 +299,16 @@ export class MatrixView {
     for(const ray of this.controllerRays)ray.visible=true;
     this.floor.visible=!this.isAR;this.grid.visible=!this.isAR;this.scene.background=this.isAR?null:new THREE.Color(0x0a1b29);
     document.getElementById('view-label').textContent=this.isAR?'WEBXR AR · SCANNING ROOM PLANES':'WEBXR VR · VIRTUAL ROOM';
-    if(this.isAR){try{const viewer=await session.requestReferenceSpace('viewer');this.hitSource=await session.requestHitTestSource({space:viewer});}catch{this.hitSource=null;}}
+    if(this.isAR)await this.acquireARHitSource(session);
+  }
+  async acquireARHitSource(session){
+    try{
+      const viewer=await session.requestReferenceSpace('viewer');
+      if(this.renderer.xr.getSession()!==session)return;
+      const source=await session.requestHitTestSource({space:viewer});
+      if(this.renderer.xr.getSession()===session)this.hitSource=source;
+      else source.cancel();
+    }catch{if(this.renderer.xr.getSession()===session)this.hitSource=null;}
   }
   restoreRoomAnchor(session){
     this.roomAnchor=null;this.roomAnchorPending=false;this.roomAnchorPersistent=false;this.roomAnchorHandleAvailable=false;this.roomPoseMissingSince=0;
@@ -398,7 +428,7 @@ export class MatrixView {
     this.roomAnchor=null;this.roomAnchorPending=false;this.roomAnchorPersistent=false;this.roomAnchorRestoreFailed=false;this.roomAnchorLocated=false;this.roomAnchorHandleAvailable=false;this.roomPoseMissingSince=0;
     this.virtualFloorRoot.visible=true;this.virtualFloorRoot.position.set(0,0,0);this.virtualFloorRoot.quaternion.identity();this.virtualFloorCalibrated=false;
     this.world.leaveAR();this.sync();this.onRuntimeChange();
-    document.getElementById('xr-overlay').style.display='none';this.floor.visible=true;this.grid.visible=true;
+    document.getElementById('xr-overlay').style.display='none';document.getElementById('xr-exit').textContent='Exit AR';this.floor.visible=true;this.grid.visible=true;
     this.scene.background=new THREE.Color(0x0a1b29);document.getElementById('view-label').textContent='DESKTOP · VIRTUAL ROOM';
   }
   setOperatorStatus(message,tone='idle'){this.operatorPanel.setMessage(message,tone);}
