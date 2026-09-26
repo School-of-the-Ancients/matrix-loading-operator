@@ -73,7 +73,7 @@
   "boLastOutcome": "Completed rest at minute 31",
   "savedAndLiveEqual": true,
   "browserConsoleErrors": [],
-  "webTests": "442/442",
+  "webTests": "444/444",
   "pcTests": "737/737",
   "build": "passed"
 }
