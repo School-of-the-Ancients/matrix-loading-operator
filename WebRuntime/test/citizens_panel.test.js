@@ -111,7 +111,7 @@ async function selectedChairGlbLoad(shouldFail){
     assert.equal(refreshes,1,'the current GLB completion refreshes the panel once');
     assert.equal(button.disabled,shouldFail);
     assert.match(dom.elements.get('citizens-selection-status').textContent,
-      shouldFail?/verified rendered GLB/:/Selected furniture is ready/);
+      shouldFail?/verified rendered GLB/:/Selected station is ready/);
     assert.equal(errors.length,shouldFail?1:0);
   }finally{
     if(panel)clearInterval(panel.timer);

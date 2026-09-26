@@ -105,8 +105,9 @@ class AgentSessionTests(unittest.TestCase):
                               "matrix_register_glb", "matrix_spawn_asset",
                               "matrix_bind_animation", "matrix_publish_component", "matrix_attach_component",
                               "matrix_stop_component", "matrix_remove_component",
-                              "matrix_set_physics", "matrix_remove_physics"}
-            for policy, expected_count in (("on-request", 12), ("never", 0)):
+                              "matrix_set_physics", "matrix_remove_physics",
+                              "matrix_set_interaction", "matrix_remove_interaction"}
+            for policy, expected_count in (("on-request", 14), ("never", 0)):
                 with self.subTest(policy=policy), patch("agent_session.AppServerTransport") as transport:
                     config = CodexConfig(str(executable), agent_sandbox="danger-full-access",
                                          agent_approval_policy=policy)

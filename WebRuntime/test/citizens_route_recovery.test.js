@@ -136,18 +136,19 @@ test('a persistently blocked route fails after three retries and releases the se
     entry.event==='completed'&&entry.message.includes('rest')),false);
 });
 
-test('v4 active checkpoints migrate and v5 retry state rejects forged values',()=>{
+test('v4 active checkpoints migrate and v6 retry state rejects forged values',()=>{
   const {matrix,sim}=selected();
   const state=sim.exportState();
-  assert.equal(state.schemaVersion,5);
+  assert.equal(state.schemaVersion,6);
   const v4=structuredClone(state);
   v4.schemaVersion=4;
   for(const resident of v4.residents)if(resident.activity){
     delete resident.activity.routeRetries;
     delete resident.activity.routeGeometryId;
   }
+  for(const station of v4.stations)delete station.interaction;
   const migrated=CitizensSimulation.restore(matrix,v4).exportState();
-  assert.equal(migrated.schemaVersion,5);
+  assert.equal(migrated.schemaVersion,6);
   assert.equal(migrated.residents.find(resident=>resident.id==='ada').activity.routeRetries,0);
   assert.equal(migrated.residents.find(resident=>resident.id==='ada').activity.routeGeometryId,null);
   for(const value of [4,-1,1.5,true]){

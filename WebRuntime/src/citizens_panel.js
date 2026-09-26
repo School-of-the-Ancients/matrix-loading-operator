@@ -169,7 +169,7 @@ export class CitizensPanel {
         createCitizensDemo(this.world,{seed});
       this.error='';this.commit();
       this.onFeedback(mode==='selected'?
-        'Two residents were added to the existing Matrix world and bound to the selected furniture. Press Run to begin.':
+        'Two residents were added to the existing Matrix world and bound to the selected station. Press Run to begin.':
         'Two residents were added to this Matrix world. Press Run to begin.');
     }catch(error){this.onFeedback(`Citizens could not start: ${error.message}`,true);}
   }
@@ -326,8 +326,8 @@ export class CitizensPanel {
     byId('citizens-bind-selected').disabled=!!state||!!this.world.citizens||
       !!selectedBlocked||!!mutationBlocked;
     byId('citizens-selection-status').textContent=state?
-      `Citizens uses ${state.stations.map(station=>station.id).join(' and ')||'no remaining furniture'} in this world.`:
-      selectedBlocked||'Selected furniture is ready. Use it to add two residents without replacing the scene.';
+      `Citizens uses ${state.stations.map(station=>station.id).join(' and ')||'no remaining station'} in this world.`:
+      selectedBlocked||'Selected station is ready. Use it to add two residents without replacing the scene.';
     byId('citizens-toggle').disabled=!state||state.residents.length===0||
       !!this.error||!!this.world.spatial||!!mutationBlocked||
       !!(state?.paused&&navigationIssue);
@@ -349,7 +349,7 @@ export class CitizensPanel {
       state?`${state.paused?'Paused':'Running'} · minute ${state.clockTick} · seed ${state.seed}${navigationIssue?` · navigation unavailable: ${navigationIssue}`:''}`:
         this.world.citizens?'Citizens state needs recovery. Undo the edit, restore a valid PC world, or stop Citizens.':
           (blocked&&selectedBlocked?blocked:
-            'No Citizens in this world. Start an empty fixture or use selected furniture.'));
+            'No Citizens in this world. Start an empty fixture or use a selected station.'));
     byId('citizens-toggle').textContent=state?.paused?'Run':'Pause';
     const cards=[];
     const social=state?.socialSession;
