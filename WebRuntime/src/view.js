@@ -40,6 +40,24 @@ export function animationSelectionState(object,root){
   if(typeof root?.userData?.selectAnimation==='function')return 'ready';
   return root?.userData?.assetLoading?'loading':'unavailable';
 }
+export function updateControllerRayForPanel(ray,controller,panel){
+  let hit=null;
+  if(panel.group.visible){
+    const probe=ray.userData.panelProbe ||= {raycaster:new THREE.Raycaster(),
+      origin:new THREE.Vector3(),direction:new THREE.Vector3(),rotation:new THREE.Quaternion()};
+    controller.updateWorldMatrix(true,false);
+    panel.mesh.updateWorldMatrix(true,false);
+    probe.origin.setFromMatrixPosition(controller.matrixWorld);
+    probe.direction.set(0,0,-1).applyQuaternion(controller.getWorldQuaternion(probe.rotation));
+    probe.raycaster.set(probe.origin,probe.direction);probe.raycaster.far=4;
+    hit=probe.raycaster.intersectObject(panel.mesh)[0]||null;
+  }
+  // The panel renders without depth testing, so a ray drawn behind it would
+  // vanish. End the ray at the panel and draw that segment above the panel.
+  ray.scale.z=hit?Math.max(.001,Math.min(1,hit.distance/4)):1;
+  ray.renderOrder=hit?panel.mesh.renderOrder+1:0;
+  ray.material.depthTest=!hit;
+}
 function disposeGroup(root){root.traverse(node=>{if(node.geometry&&!node.userData.cachedGeometry)node.geometry.dispose();if(node.material){const materials=Array.isArray(node.material)?node.material:[node.material];for(const material of materials){if(node.userData.ownedTexture)material.map?.dispose();material.dispose();}}});}
 function planeLabel(label){
   const canvas=document.createElement('canvas');canvas.width=512;canvas.height=96;
@@ -564,7 +582,6 @@ export class MatrixView {
     this.rayFromPointer(event);
     const id=this.selectFromRay();
     if(id){const animation=animationSelectionState(this.world.requireObject(id),this.objectRoots.get(id));
-      if(animation==='ready')return;
       if(animation==='loading'){this.onAssetError('Animation is still loading; select again when the GLB appears.');return;}}
     if(id&&this.world.requireObject(id).component?.status==='running'){
       this.onAssetError('Stop this component before moving the object.');return;}
@@ -622,7 +639,6 @@ export class MatrixView {
     }
     const id=this.selectFromRay();
     if(id){const animation=animationSelectionState(this.world.requireObject(id),this.objectRoots.get(id));
-      if(animation==='ready')return;
       if(animation==='loading'){this.onAssetError('Animation is still loading; select again when the GLB appears.');return;}}
     if(id&&(this.world.spatial?.stale||this.world.spatial?.originUnavailable)){
       this.onAssetError('Room origin or tracking is unavailable; object grabs are paused.');return;
@@ -838,6 +854,8 @@ export class MatrixView {
           const local=root.worldToLocal(this.reticle.position.clone());if(Math.abs(local.y)<.12&&insideBoundary(local,anchor.surface.boundary)){this.reticleAnchorId=anchor.anchorId;break;}}
       }}
     if(this.grab)moveGrab(this.grab);
+    if(this.renderer.xr.isPresenting)for(let index=0;index<this.controllers.length;index++)
+      updateControllerRayForPanel(this.controllerRays[index],this.controllers[index],this.operatorPanel);
     for(const root of this.objectRoots.values()){
       root.userData.mixer?.update(delta);
       const object=this.world.scene.objects.find(item=>item.objectId===root.userData.objectId);
