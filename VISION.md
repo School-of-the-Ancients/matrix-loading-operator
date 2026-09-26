@@ -2,45 +2,52 @@
 
 Owner's vision consolidated September 26, 2026. This is the central product idea, not a claim that the entire vision is implemented or a new work queue.
 
-> **Matrix is a persistent digital world inhabited by humans and AI citizens. Inside it are White Rooms / holodecks where you say “Operator, load XYZ” and create, enter, interact with, revise and save experiences. Desktop, VR and AR are ways to access it.**
+> **Matrix is a Matrix-inspired Three.js/WebXR sandbox. Start in the White Room or load a pre-existing world—including a persistent Matrix world where AI citizens live—then say “Operator, load XYZ” to create, explore, interact with, revise and save the experience.**
+
+The inspiration is **Ready Player One + The Matrix**: worlds to enter and inhabit, with an Operator that helps turn requests into usable things around you. The White Room is the blank-start inspiration, not a mandatory room nested inside another world or the only place creation is allowed.
 
 The enduring user promise is **“Operator, load XYZ” → a usable result appears in the world**. The methods have evolved from Unity prefabs to Web assets, Blender and procedural code; discovering another method does not change that promise.
 
 [Project and issue map](PROJECTS.md) · [Requirements](PRD.md) · [Active implementation plan](IMPLEMENTATION_PLAN.md) · [Creation references](RESOURCES.md) · [Agent instructions](AGENTS.md)
 
-## Matrix World and the White Room belong together
+## Two ways to begin, the same sandbox
 
-**Matrix World** is the persistent inhabited setting: places, projects, citizens, relationships and shared activities. Offices, schools, workshops, neighborhoods and fantasy environments can all be places within it. Georeferenced Boulder and real-world overlays are particular extensions, not the entire definition of Matrix World.
+| Starting point | Intended experience |
+| --- | --- |
+| **Start blank: White Room** | Begin with an empty environment and ask Operator to load objects, create a scene or build an experience. The room can become the world; it need not stay white or remain a separate editor. |
+| **Load an existing world: Matrix World** | Enter a prepared or saved environment, including one inhabited by AI citizens, and explore, interact, continue projects or make authorized changes there. No visit to a separate creation room is required. |
 
-**A White Room / holodeck** is a creation space inside that setting. Empty white space is its starting state; Operator can load an existing experience or help build a new one. An experience can be temporary, saved, revisited or deliberately incorporated into the surrounding world. Resetting an experiment must not silently reset its visitors' identities or unrelated world state.
+**Matrix World** names the persistent inhabited-world direction: places, projects, citizens, relationships and shared activities. Offices, schools, workshops, neighborhoods and fantasy environments can all be such worlds or places within them. Georeferenced Boulder and real-world overlays are particular extensions, not the entire definition of Matrix World.
 
-For example, a human could meet a teacher in Matrix, enter a holodeck together, load a solar-system demonstration, manipulate it, save their activity and return to the surrounding world. This is a target experience, not evidence of completed world transitions or autonomous teaching.
+Creation is a capability of the sandbox, not a location. Operator can be available in either starting path; edits follow the world's permissions and preserve unrelated entities, manual work and supported resident/game state. A special holodeck could be something a user creates, but it is not required architecture. Resetting or replacing a world is an explicit operation, not a side effect of asking for another object.
 
-AR is a way to view and interact with digital content alongside the physical world; VR and desktop allow other forms of entry. Their eventual shared identity/presence does not imply that camera images already supply measured room geometry or that independently hosted worlds are automatically interoperable. Everyday AR glasses remain a longer-term delivery aspiration, not a new-device requirement.
+For example, start blank and ask for a forest, then add inhabitants; or load yesterday's town, meet its existing residents and ask Operator to add a workshop. These are target journeys, not claims of completed general world loading, resident creation or transition support.
+
+Desktop, VR and AR are ways to access the sandbox. AR brings digital content alongside the physical world; it does not by itself establish measured room geometry or shared identity across independently hosted worlds. Everyday AR glasses remain a longer-term delivery aspiration, not a new-device requirement.
 
 ## The defining experience
 
 ```text
-Enter a White Room / AR space, directly or from Matrix World
-    → “Operator, load / create XYZ”
+Start in the White Room OR load a pre-existing Matrix world
+    → “Operator, load / create / change XYZ”
     → load, compose or build the environment and its usable capabilities
     → inspect, play, experiment, learn and observe consequences
-    → revise conversationally without losing unrelated work
+    → revise conversationally in that world without losing unrelated work
     → save, leave and return
 ```
 
-Creator Mode describes authorized editing; Play/Test describes using the experience. Neither is a synonym for VR, AR, desktop or a separate engine. The same person can move between creating and playing in one world.
+Creator Mode describes authorized editing; Play/Test describes using the experience. Neither is a synonym for VR, AR, desktop or a separate physical place. The same person can move between creating and playing in one world. A disruptive revision may need a pause, preview or explicit reset; availability of Operator does not imply unannounced changes to active gameplay.
 
 “Load XYZ” may involve objects, layouts, materials, sound, characters, physics, controls, displays or gameplay rules. A visible mesh is not automatically usable; a display must reflect actual state; an objective must run from real events. The agent should discover and operate meaningful entities through current capabilities, not reconstruct the world only from its chat history.
 
-Classrooms, spaceships, workshops, station towns and games are examples, not a fixed template menu. Education is an important near-term proving ground for the broader sandbox, not a restriction on what Matrix is.
+“Anything is possible” expresses the **open-ended creative ambition**, not a promise of infinite resources, instant arbitrary generation or mechanics that have not been implemented. Configure existing capabilities live; build and test genuinely missing reusable capabilities through the normal development path. Classrooms, spaceships, workshops, station towns and games are examples, not a fixed template menu. Education is an important near-term proving ground for the broader sandbox, not a restriction on what Matrix is.
 
 ## Creation methods are not competing products
 
 | Question | Stable distinction |
 | --- | --- |
 | What does the user ask? | “Operator, load/create/change XYZ.” |
-| Where does it happen? | A White Room, an AR space or another authorized region of the inhabited world. |
+| Where does it happen? | In the current authorized world, whether it began blank or was loaded; desktop, VR and AR provide access. |
 | How is content prepared? | Reuse a compatible asset; compose a procedural generator; author/refine in Blender; or combine them. |
 | What is an image for? | An optional concept/reference that guides composition and style. It does not itself establish geometry, interaction, physics or truth. |
 | What makes it work? | Tested runtime capabilities: rendering, input, physics, interactions, state, observations and persistence. |
@@ -58,11 +65,11 @@ These are dates of the owner's concept notes, restated here—not implementation
 - **May 15, 2024 — prompt-created games, environments and characters:** an AI connects reusable environments, objects, games, characters, voices, animations and sounds, retrieving or generating content for the user's virtual experience.
 - **October 16, 2024 — digital and real worlds / simulated societies:** AI researchers, workers, organizations and worlds form the broader inhabited-world and simulation vision.
 
-Unity prefab loading, the move to Three.js/WebXR, Blender authoring, Citizens and procedural generation support different parts of that idea. The White Room is the experience metaphor, not an instruction to return generalized development to Unity.
+Unity prefab loading, the move to Three.js/WebXR, Blender authoring, Citizens and procedural generation support different parts of that idea. The White Room is the starting inspiration, not an instruction to return generalized development to Unity.
 
 ## Now: one small complete experience
 
-The selected feature remains **[#122 — Immersive Creator Mode](https://github.com/School-of-the-Ancients/matrix-loading-operator/issues/122)**. [IMPLEMENTATION_PLAN.md](IMPLEMENTATION_PLAN.md) selects its next bounded slice; the issue retains its physics, objective, display, agent-access, persistence, extensibility and mode-specific acceptance. This consolidation neither widens nor weakens those requirements.
+The selected feature remains **[#122 — Immersive Creator Mode](https://github.com/School-of-the-Ancients/matrix-loading-operator/issues/122)**. [IMPLEMENTATION_PLAN.md](IMPLEMENTATION_PLAN.md) selects its next bounded slice; the issue retains its physics, objective, display, agent-access, persistence, extensibility and mode-specific acceptance. This clarification neither widens nor weakens those requirements and does not add a separate holodeck, launcher or portal implementation task.
 
 Desktop is an access/development/regression surface for the same application. VR and AR remain first-class targets with separate actual-device evidence. Hardware gaps must stay explicit without stopping independent implementation or postponing headset integration indefinitely.
 
@@ -98,7 +105,7 @@ One durable idea should not require one ever-growing instruction prompt. Use the
 
 | Home | Purpose |
 | --- | --- |
-| `VISION.md` | The enduring product idea and how the world, holodecks and creation methods fit. |
+| `VISION.md` | The enduring sandbox idea, blank/existing-world entry and how creation methods fit. |
 | `PROJECTS.md` + linked organization `MODULES.md` | Code/issue navigation and module ownership. |
 | `PRD.md` + controlling feature issue | Product requirements and detailed acceptance. |
 | `IMPLEMENTATION_PLAN.md` | The single Matrix work-selection queue and the selected bounded slice. |
