@@ -16,6 +16,8 @@ from typing import Protocol
 
 from codex_app_server import AppServerTransport
 from codex_provider import CodexConfig
+from ai_adapter import PlannerError
+import scale_experiment
 from web_component_catalog import _identity
 from web_components import ComponentError, validate_package
 
@@ -106,6 +108,36 @@ def _mcp_approval_description(params: dict) -> tuple[str, bool]:
     if (arguments == {} and params.get("message") ==
             'Allow the matrix_webxr MCP server to run tool "matrix_scene_summary"?'):
         return "Read the current Matrix room summary. This does not change the world.", True
+    scale_tool = params.get("message")
+    if scale_tool in (
+            'Allow the matrix_webxr MCP server to run tool "matrix_scale_block"?',
+            'Allow the matrix_webxr MCP server to run tool "matrix_reset_block_scale"?') and isinstance(arguments, dict):
+        configure = '"matrix_scale_block"' in scale_tool
+        required = {"room_id", "scene_revision", "object_id", "factors"} if configure else \
+                   {"room_id", "scene_revision", "object_id", "baseline_request_id"}
+        allowed = required | ({"baseline_request_id"} if configure else set())
+        if (required <= set(arguments) <= allowed and
+                isinstance(arguments["room_id"], str) and
+                re.fullmatch(r"[A-Za-z0-9._:-]{1,128}", arguments["room_id"]) and
+                type(arguments["scene_revision"]) is int and arguments["scene_revision"] >= 0):
+            intent = {"kind": "block-scale", "version": 1,
+                      "action": "configure" if configure else "reset",
+                      "objectId": arguments["object_id"]}
+            if configure:
+                intent["factors"] = arguments["factors"]
+            if "baseline_request_id" in arguments:
+                intent["baselineRequestId"] = arguments["baseline_request_id"]
+            try:
+                scale_experiment.validate_intent(intent)
+                detail = (", ".join(f"{axis.upper()}={intent['factors'][axis]}" for axis in ("x", "y", "z"))
+                          if configure else "the confirmed baseline")
+                summary = (f"Propose {detail} for block {intent['objectId']} in "
+                           f"{arguments['room_id']} at revision {arguments['scene_revision']}. "
+                           "The owner must still review and Apply on /clients.")
+                if len(summary) <= 230:
+                    return summary, True
+            except PlannerError:
+                pass
     if (params.get("message") == 'Allow the matrix_webxr MCP server to run tool "matrix_move_object"?' and
             isinstance(arguments, dict) and set(arguments) ==
             {"room_id", "scene_revision", "object_id", "expected_asset_id", "position"} and
@@ -284,6 +316,7 @@ class LocalCodexAgentBackend:
             settings = {"command": sys.executable, "args": [str(script)],
                         "env_vars": ["MATRIX_CONTROL_URL", "MATRIX_CONTROL_TOKEN"],
                         "enabled_tools": ["matrix_scene_summary", "matrix_move_object", "matrix_move_status",
+                                          "matrix_scale_block", "matrix_reset_block_scale", "matrix_scale_status",
                                           "matrix_list_assets", "matrix_register_glb",
                                           "matrix_spawn_asset", "matrix_spawn_status",
                                           "matrix_bind_animation", "matrix_animation_status",
@@ -295,7 +328,8 @@ class LocalCodexAgentBackend:
             for key, value in settings.items():
                 command += ["-c", f"mcp_servers.matrix_webxr.{key}={json.dumps(value)}"]
             if config.agent_approval_policy == "on-request":
-                for name in ("matrix_move_object", "matrix_register_glb", "matrix_spawn_asset",
+                for name in ("matrix_move_object", "matrix_scale_block", "matrix_reset_block_scale",
+                             "matrix_register_glb", "matrix_spawn_asset",
                              "matrix_bind_animation", "matrix_publish_component", "matrix_attach_component",
                              "matrix_stop_component", "matrix_remove_component"):
                     command += ["-c", f'mcp_servers.matrix_webxr.tools.{name}.approval_mode="prompt"']

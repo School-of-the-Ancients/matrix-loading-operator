@@ -12,10 +12,12 @@ import {loadConversation,rememberTurn,clearConversation} from './conversation.js
 import {startGame,deliverMovedObject,gameStatus,validSavedGame} from './game.js';
 import {archiveAndClearRoom,archiveAndRebaseRoom,roomArchives,
   clearRoomArchives as clearStoredRoomArchives,ROOM_ARCHIVES_KEY} from './room_origin.js';
+import {BlockScaleUI} from './block_scale_ui.js';
 
 const $=id=>document.getElementById(id);
 const world=new MatrixWorld();
 const cameraStream=new CameraStream();
+let scaleUI=null;
 let pendingWorld=loadStoredWorld(sessionStorage,localStorage);
 let xrInitialized=false;
 
@@ -42,7 +44,7 @@ const feedback=(message,isError=false)=>{
   $('feedback').textContent=[message,warning].filter(Boolean).join('\n');
   $('feedback').classList.toggle('error',isError||!!warning);
 };
-const view=new MatrixView($('view'),world,()=>{discardProposal();feedback(`Selected ${world.selection.objectId||'placement point'} at ${Object.values(world.selection.position).join(', ')} m.`);},()=>$('token').value.trim(),message=>feedback(message,true),(id,position)=>{discardProposal();const delivered=deliverMovedObject(world,id);if(delivered)speakReply(delivered);renderScene();feedback(delivered||`Moved ${id.slice(0,8)} to ${Object.values(position).join(', ')} m. Undo and Save are available.`);},()=>{if(!view.isAR)cameraStream.stop();if(!view.isAR||!world.spatial?.originUnavailable){roomResetArmedUntil=0;roomRecoveryChoice='';}updateCameraControls();discardProposal();renderScene();},beginVoice,endVoice,()=>{$('speak-replies').checked=!$('speak-replies').checked;view.setVoiceOutputEnabled($('speak-replies').checked);unlockReplyAudio();},reviewView,newChat);
+const view=new MatrixView($('view'),world,()=>{discardProposal();scaleUI?.refreshTargets();feedback(`Selected ${world.selection.objectId||'placement point'} at ${Object.values(world.selection.position).join(', ')} m.`);},()=>$('token').value.trim(),message=>feedback(message,true),(id,position)=>{discardProposal();const delivered=deliverMovedObject(world,id);if(delivered)speakReply(delivered);renderScene();feedback(delivered||`Moved ${id.slice(0,8)} to ${Object.values(position).join(', ')} m. Undo and Save are available.`);},()=>{if(!view.isAR)cameraStream.stop();if(!view.isAR||!world.spatial?.originUnavailable){roomResetArmedUntil=0;roomRecoveryChoice='';}updateCameraControls();discardProposal();renderScene();},beginVoice,endVoice,()=>{$('speak-replies').checked=!$('speak-replies').checked;view.setVoiceOutputEnabled($('speak-replies').checked);unlockReplyAudio();},reviewView,newChat);
 view.onPanelAction=panelAction;
 view.sync();
 view.setVoiceOutputEnabled($('speak-replies').checked);
@@ -142,6 +144,7 @@ async function toggleCamera(){
 function renderScene(){
   view.sync();$('object-count').textContent=`${world.scene.objects.length} object${world.scene.objects.length===1?'':'s'}`;
   updateWorldControls();
+  scaleUI?.refreshTargets();
   if(!pendingWorld){
     persistenceWarning=saveStoredWorld(storedWorld(world),sessionStorage,localStorage);
     const durableFailed=persistenceWarning.includes('Persistent browser save failed');
@@ -169,6 +172,19 @@ const bridge=new MatrixBridge(world,()=>$('token').value.trim(),event=>{
   if(event.type==='receipt'){
     const message=event.result.ok?`Applied ${event.result.requestId.slice(0,8)}${event.result.objectId?` · ${event.result.objectId.slice(0,8)}`:''}`:`Command failed: ${event.result.error}`;
     feedback(message,!event.result.ok);lastOperatorReply=lastOperatorReply?`${lastOperatorReply}\n\n${message}`:message;operatorMessageUntil=Infinity;view.setOperatorStatus(lastOperatorReply,event.result.ok?'idle':'error');
+  }
+});
+scaleUI=new BlockScaleUI(world,id=>{
+  const object=world.requireObject(id);
+  world.setSelection(id,object.transform.position,object.anchorId);
+  discardProposal();renderScene();void bridge.tick(true);
+});
+view.renderer.domElement.addEventListener('keydown',event=>{
+  if(view.renderer.xr.isPresenting||event.repeat||event.ctrlKey||event.altKey||event.metaKey)return;
+  if(['Digit1','Digit2','Digit3','Digit4'].includes(event.code)){
+    event.preventDefault();void scaleUI.viewportPreset(Number(event.code.at(-1)));
+  }else if(event.code==='KeyR'){
+    event.preventDefault();void scaleUI.viewportReset();
   }
 });
 bridge.getCaptureCapabilities=()=>cameraStream.capabilities();

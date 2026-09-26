@@ -217,6 +217,7 @@ export class MatrixView {
     this.camera=new THREE.PerspectiveCamera(65,1,.02,300);this.camera.position.set(0,1.7,3.7);this.camera.lookAt(0,.8,-1.3);
     this.camera.rotation.reorder('YXZ');this.keys=new Set();this.lastFrameTime=null;
     this.renderer=new THREE.WebGLRenderer({antialias:true,alpha:true});this.renderer.setPixelRatio(Math.min(devicePixelRatio,2));this.renderer.xr.enabled=true;
+    this.renderer.domElement.tabIndex=0;
     this.renderer.shadowMap.enabled=true;this.renderer.outputColorSpace=THREE.SRGBColorSpace;container.append(this.renderer.domElement);
     this.scene.add(new THREE.HemisphereLight(0xb8e7ff,0x2b3c43,2.1));
     const sun=new THREE.DirectionalLight(0xffe9cc,2.4);sun.position.set(-2,6,4);sun.castShadow=true;sun.shadow.mapSize.set(1024,1024);this.scene.add(sun);
@@ -577,6 +578,7 @@ export class MatrixView {
   }
   pointerDown(event){
     if(this.renderer.xr.isPresenting||![0,2].includes(event.button))return;
+    this.renderer.domElement.focus?.({preventScroll:true});
     this.renderer.domElement.setPointerCapture(event.pointerId);
     if(event.button===2){this.pointerLook={pointerId:event.pointerId,x:event.clientX,y:event.clientY};return;}
     this.rayFromPointer(event);

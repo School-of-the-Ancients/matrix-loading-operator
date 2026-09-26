@@ -546,6 +546,8 @@ class State:
         self.agent_spawn_ids = collections.OrderedDict()
         self.agent_animation_ids = collections.OrderedDict()
         self.agent_component_ids = collections.OrderedDict()
+        self.agent_scale_session_id = None
+        self.client_pairing_enabled = False
         self.revision = 0
         self.proposals = collections.OrderedDict()
         self.learning = learning
@@ -559,6 +561,75 @@ class State:
         self.voice_capture_id = None
         self.content = ContentBridge(self)
         self.clients = ClientAPI(self, plan, lambda: client_planner_modes(self))
+
+    @staticmethod
+    def _agent_scale_public(value):
+        """Keep the MCP result small; /clients retains the full review/evidence."""
+        result = {key: copy.deepcopy(value.get(key)) for key in
+                  ("requestId", "sessionId", "status", "requiresApply", "error", "experimentEvent")
+                  if key in value}
+        result["reviewUrl"] = "/clients"
+        result["observationState"] = (value.get("experiment") or {}).get("observationState")
+        if value.get("proposal"):
+            result["proposal"] = {key: copy.deepcopy(value["proposal"].get(key)) for key in
+                                  ("summary", "commands", "assumptions")}
+        return result
+
+    def agent_scale(self, value):
+        """Agent tool adapter to the same reviewed v1 experiment request."""
+        require(self.client_pairing_enabled,
+                "Configure SANDBOX_TOKEN before using the reviewed Matrix scale tool", 503)
+        require(isinstance(value, dict) and set(value) in (
+            {"room_id", "scene_revision", "object_id", "factors"},
+            {"room_id", "scene_revision", "object_id", "factors", "baseline_request_id"},
+            {"room_id", "scene_revision", "object_id", "action", "baseline_request_id"}),
+            "Invalid Matrix scale tool request")
+        action = value.get("action", "configure")
+        require(action in ("configure", "reset"), "Invalid Matrix scale action")
+        room_id = text(value["room_id"], "room_id")
+        revision = value["scene_revision"]
+        require(type(revision) is int and revision >= 0, "Invalid Matrix scene revision")
+        intent = {"kind": "block-scale", "version": 1, "action": action,
+                  "objectId": value["object_id"]}
+        if action == "configure":
+            intent["factors"] = value["factors"]
+        if "baseline_request_id" in value:
+            intent["baselineRequestId"] = value["baseline_request_id"]
+        try:
+            scale_experiment.validate_intent(intent)
+        except PlannerError as error:
+            raise APIError(error.status, str(error)) from None
+        with self.lock:
+            self.expire()
+            self.clients.refresh()
+            require(self.online() and self.latest is not None, self.room_unavailable_message(), 409)
+            require(self.latest["scene"]["roomId"] == room_id and self.revision == revision,
+                    "Matrix scene changed; inspect the current room and retry", 409)
+            require(self.latest["scene"]["roomId"] == "web-virtual-room-v1" and
+                    web_virtual_floor_ready(self.latest) and
+                    self.latest.get("roomContext", {}).get("mode") == "white-room",
+                    "This scale tool requires a ready Matrix Web virtual room", 409)
+            session = self.clients.sessions.get(self.agent_scale_session_id)
+            if session is None or session["status"] != "active" or session["runtimeSessionId"] != self.clients.runtime_id():
+                paired = self.clients.pair({"clientName": "Matrix Agent scale tool"})
+                claimed = self.clients.claim({"pairingCode": paired["pairingCode"]})
+                self.agent_scale_session_id = claimed["sessionId"]
+                session = self.clients.sessions[self.agent_scale_session_id]
+            request_id = uuid.uuid4().hex
+            result = self.clients.propose(session, {"requestId": request_id,
+                "expected": {"runtimeSessionId": self.clients.runtime_id(), "revision": revision},
+                "intent": intent})
+            return self._agent_scale_public(result)
+
+    def agent_scale_status(self, request_id):
+        require(isinstance(request_id, str) and re.fullmatch(r"[0-9a-f]{32}", request_id),
+                "Invalid Matrix scale receipt ID")
+        with self.lock:
+            self.expire()
+            for session in self.clients.sessions.values():
+                if session["clientName"] == "Matrix Agent scale tool" and request_id in session["requests"]:
+                    return self._agent_scale_public(self.clients.get_request(session, request_id))
+            raise APIError(404, "Matrix scale request is unavailable")
 
     def online(self):
         return self.client_id is not None and self.clock() - self.last_seen < LEASE_SECONDS
@@ -1678,6 +1749,7 @@ class Server(ThreadingHTTPServer):
         self.scheme = "http"
         require(self.is_loopback or len(token) >= 24, "Non-loopback binding requires SANDBOX_TOKEN of at least 24 characters")
         self.state, self.token = state, token
+        self.state.client_pairing_enabled = len(token) >= 24
         self.quest_connection = QuestConnection()
         super().__init__(address, Handler)
 

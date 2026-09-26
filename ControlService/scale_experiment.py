@@ -6,6 +6,7 @@ import math
 import re
 
 from ai_adapter import PlannerError, validate_commands
+import block_scale_math
 
 CAPABILITY = "experiment.block-scale.v1"
 AXES = ("x", "y", "z")
@@ -116,7 +117,49 @@ def observation(request):
         return None
     if item.get("assetId") != "block" or item.get("anchorId") != baseline["anchorId"] or not same_transform(item.get("transform"), experiment["expectedTransform"]):
         return None
-    ratios = {axis: item["transform"]["scale"][axis] / baseline["transform"]["scale"][axis] for axis in AXES}
+    try:
+        measured = block_scale_math.geometry(baseline["transform"]["scale"],
+                                             item["transform"]["scale"])
+    except ValueError:
+        return None
     return {"source": "acknowledged-runtime-transform", "revision": request["observed"]["revision"],
-            "relativeFactors": ratios, "mathematicalVolumeRatio": math.prod(ratios.values()),
+            "relativeFactors": measured["relativeFactors"],
+            "mathematicalVolumeRatio": measured["mathematicalVolumeRatio"],
             "units": "dimensionless ratio", "physicalMeasurement": False}
+
+
+def observed_event(request, observed=None, session_id=""):
+    """A stable, renderer-neutral event only after exact runtime evidence.
+
+    This is additive to the strict v1 ``experiment.observation`` consumed by
+    existing clients. It is historical request evidence, not current scene
+    state, lesson progress, or a physical measurement.
+    """
+    if observed is None:
+        observed = observation(request)
+    if observed is None:
+        return None
+    snapshot = request["observed"]["snapshot"]
+    experiment = request["experiment"]
+    baseline = experiment["baseline"]
+    item = object_in(snapshot, baseline["objectId"])
+    assets = [asset for asset in snapshot.get("assets", [])
+              if asset.get("assetId") == "block" and not asset.get("source")]
+    bounds = assets[0].get("localBounds") if len(assets) == 1 else None
+    measured = block_scale_math.geometry(baseline["transform"]["scale"],
+                                         item["transform"]["scale"], bounds)
+    return {"schemaVersion": 1, "type": "experiment.block-scale.observed",
+            "eventId": session_id + ":" + request["requestId"] + ":observed",
+            "requestId": request["requestId"],
+            "roomId": baseline["roomId"], "objectId": baseline["objectId"],
+            "assetId": "block", "anchorId": baseline["anchorId"],
+            "action": experiment["action"],
+            "revision": observed["revision"], "source": observed["source"],
+            "relativeFactors": measured["relativeFactors"],
+            "mathematicalVolumeRatio": measured["mathematicalVolumeRatio"],
+            "baselineLocalDimensionsMeters": measured["baselineLocalDimensionsMeters"],
+            "localDimensionsMeters": measured["localDimensionsMeters"],
+            "baselineBoundingVolumeCubicMeters": measured["baselineBoundingVolumeCubicMeters"],
+            "boundingVolumeCubicMeters": measured["boundingVolumeCubicMeters"],
+            "dimensionSource": "catalog-local-bounds" if measured["localDimensionsMeters"] else "unavailable",
+            "physicalMeasurement": False}
