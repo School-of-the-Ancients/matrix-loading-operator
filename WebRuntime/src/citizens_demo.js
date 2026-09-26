@@ -111,6 +111,10 @@ function needItem(name,value){
 }
 
 function renderResidents(state){
+  const waiting=new Map();
+  for(const station of state.stations)
+    station.waiters.forEach((waiter,index)=>waiting.set(waiter.residentId,
+      {station,position:index+1}));
   const cards=state.residents.map((resident,index)=>{
     const card=document.createElement('article');card.className='resident-card';
     card.style.setProperty('--resident-color',palette[index%palette.length]);
@@ -122,9 +126,12 @@ function renderResidents(state){
     top.append(name,identity);
     const meta=document.createElement('div');meta.className='resident-meta';
     const activity=document.createElement('span');activity.className='resident-activity';
-    activity.textContent=resident.activity?`${resident.activity.phase==='travel'?'Going to':'Using'} ${resident.activity.kind}`:'Choosing next activity';
+    const queue=waiting.get(resident.id);
+    activity.textContent=queue?`Waiting for ${queue.station.kind} · queue #${queue.position}`:
+      resident.activity?`${resident.activity.phase==='travel'?'Going to':'Using'} ${resident.activity.kind}`:
+        'Choosing next activity';
     const destination=document.createElement('span');
-    destination.textContent=resident.activity?.stationId||'';
+    destination.textContent=queue?.station.id||resident.activity?.stationId||'';
     meta.append(activity,destination);
     const needs=document.createElement('div');needs.className='needs';
     for(const key of ['hunger','energy','fun'])needs.append(needItem(key,resident.needs[key]));
@@ -143,9 +150,11 @@ function renderStations(state){
     const caption=document.createElement('small');caption.textContent=`Capacity ${station.capacity}`;
     title.append(heading,caption);
     const status=document.createElement('span');status.className='station-status';
-    const holder=state.residents.find(resident=>resident.id===station.holder);
-    status.textContent=holder?`Reserved by ${holder.name}`:'Available';
-    status.classList.toggle('busy',!!holder);
+    const holder=state.residents.find(resident=>resident.id===station.claim?.residentId);
+    const waitCount=station.waiters.length;
+    status.textContent=`${holder?`Reserved by ${holder.name}`:'Available'}${waitCount?
+      ` · ${waitCount} waiting`:''}`;
+    status.classList.toggle('busy',!!holder||waitCount>0);
     item.append(title,status);return item;
   });
   $('stations').replaceChildren(...nodes);

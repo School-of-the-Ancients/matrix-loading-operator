@@ -7,6 +7,7 @@ const world=()=>{
   let sequence=0;
   return new MatrixWorld(()=>`citizen-object-${++sequence}`);
 };
+const holder=station=>station.claim?.residentId??null;
 
 test('demo creates two resident markers and shared stations from Matrix receipts',()=>{
   const matrix=world();
@@ -21,9 +22,10 @@ test('demo creates two resident markers and shared stations from Matrix receipts
   assert.deepEqual(sim.advance(),initial,'a paused timer must not advance state');
   const first=sim.step();
   assert.equal(first.clockTick,1,'manual stepping works while paused');
-  assert.equal(first.stations.find(station=>station.id==='chair').holder,'ada');
+  assert.equal(holder(first.stations.find(station=>station.id==='chair')),'ada');
   assert.equal(first.residents[0].activity.kind,'rest');
-  assert.equal(first.residents[1].activity.kind,'eat');
+  assert.equal(first.residents[1].activity,null,'a waiter stays idle until its FIFO turn');
+  assert.equal(first.stations.find(station=>station.id==='chair').waiters[0].residentId,'bo');
   assert.ok(first.log.some(entry=>entry.event==='blocked'&&entry.message.includes('chair occupied')));
   assert.equal(matrix.scene.objects.length,4);
 });
@@ -42,14 +44,17 @@ test('movement, finite use and observed completion produce visible changing need
   const startPositions=matrix.scene.objects.filter(object=>object.assetId==='orb')
     .map(object=>structuredClone(object.transform.position));
   let state;
-  for(let i=0;i<40;i++){
+  for(let i=0;i<60;i++){
     state=sim.step();
     for(const station of state.stations){
-      assert.ok(station.holder===null||state.residents.some(resident=>
-        resident.id===station.holder&&resident.activity?.stationId===station.id));
+      assert.ok(holder(station)===null||state.residents.some(resident=>
+        resident.id===holder(station)&&resident.activity?.stationId===station.id&&
+        resident.activity.executionId===station.claim.executionId));
     }
-    if(state.log.some(entry=>entry.event==='completed'&&entry.residentId==='ada')&&
-       state.log.some(entry=>entry.event==='completed'&&entry.residentId==='bo'))break;
+    if(state.log.some(entry=>entry.event==='completed'&&entry.residentId==='ada'&&
+         entry.message.includes('rest'))&&
+       state.log.some(entry=>entry.event==='completed'&&entry.residentId==='bo'&&
+         entry.message.includes('eat')))break;
   }
   const endPositions=matrix.scene.objects.filter(object=>object.assetId==='orb')
     .map(object=>object.transform.position);
@@ -80,7 +85,99 @@ test('the shared chair is released and a waiting resident eventually uses it',()
     entry.message.includes('rest')));
   assert.ok(state.log.some(entry=>entry.event==='completed'&&entry.residentId==='bo'&&
     entry.message.includes('rest')));
-  assert.equal(state.stations.find(station=>station.id==='chair').holder,null);
+  assert.equal(holder(state.stations.find(station=>station.id==='chair')),null);
+});
+
+test('a deleted claimant retires, and its FIFO waiter proceeds without pausing',()=>{
+  const matrix=world(),sim=createCitizensDemo(matrix,{seed:31});
+  sim.resume();
+  const first=sim.advance();
+  const chair=first.stations.find(station=>station.kind==='rest');
+  const waiter=chair.waiters[0];
+  const ada=first.residents.find(resident=>resident.id==='ada');
+  assert.equal(chair.claim.residentId,'ada');
+  assert.equal(waiter.residentId,'bo');
+  assert.equal(matrix.execute({requestId:'delete-ada',op:'delete',
+    objectId:ada.objectId}).ok,true);
+  const after=sim.advance();
+  assert.equal(after.paused,false);
+  assert.equal(after.clockTick,first.clockTick+1);
+  assert.deepEqual(after.retiredResidentIds,['ada']);
+  assert.deepEqual(after.residents.map(resident=>resident.id),['bo']);
+  assert.equal(after.stations.find(station=>station.kind==='rest').claim.residentId,'bo');
+  assert.equal(after.stations.find(station=>station.kind==='rest').claim.executionId,
+    waiter.executionId,"the waiter's execution ID must survive handoff");
+  assert.equal(after.stations.find(station=>station.kind==='rest').waiters.length,0);
+  assert.ok(after.log.some(entry=>entry.event==='retired'&&entry.residentId==='ada'));
+  assert.deepEqual(sim.exportState(),after);
+  let completed=false;
+  for(let i=0;i<40;i++){
+    const state=sim.advance();
+    if(state.log.some(entry=>entry.event==='completed'&&entry.residentId==='bo'&&
+      entry.message.includes('rest'))){completed=true;break;}
+  }
+  assert.equal(completed,true,'the surviving waiter must finish using the chair');
+});
+
+test('a cancelled holder releases its claim and the waiting execution proceeds',()=>{
+  const matrix=world(),sim=createCitizensDemo(matrix,{seed:31});
+  const first=sim.step(),chair=first.stations.find(station=>station.kind==='rest');
+  const ada=first.residents.find(resident=>resident.id==='ada');
+  const waitingExecution=chair.waiters[0].executionId;
+  const original=matrix.execute.bind(matrix);
+  matrix.execute=(command,options)=>command.op==='set_transform'&&
+    command.objectId===ada.objectId?{
+      requestId:command.requestId,ok:false,error:'cancelled movement',objectId:''
+    }:original(command,options);
+  const after=sim.step();
+  assert.equal(after.paused,true,'manual stepping retains the initial paused setting');
+  assert.equal(after.residents.find(resident=>resident.id==='ada').activity,null);
+  assert.equal(after.stations.find(station=>station.kind==='rest').claim.residentId,'bo');
+  assert.equal(after.stations.find(station=>station.kind==='rest').claim.executionId,
+    waitingExecution);
+  assert.equal(after.stations.find(station=>station.kind==='rest').waiters.length,0);
+  assert.ok(after.log.some(entry=>entry.event==='failed'&&entry.residentId==='ada'&&
+    entry.message.includes('cancelled movement')));
+  assert.deepEqual(sim.exportState(),after);
+});
+
+test('an expired claim releases its execution and hands the chair to the waiter',()=>{
+  const matrix=world(),sim=createCitizensDemo(matrix,{seed:31});
+  sim.step();
+  const saved=sim.exportState(),chair=saved.stations.find(station=>station.kind==='rest');
+  const waitingExecution=chair.waiters[0].executionId;
+  const adaEnergy=saved.residents.find(resident=>resident.id==='ada').needs.energy;
+  chair.claim.expiresTick=saved.clockTick+1;
+  const restored=CitizensSimulation.restore(matrix,saved);
+  const after=restored.step();
+  assert.equal(holder(after.stations.find(station=>station.kind==='rest')),'bo');
+  assert.equal(after.stations.find(station=>station.kind==='rest').claim.executionId,
+    waitingExecution);
+  assert.notEqual(after.residents.find(resident=>resident.id==='ada').activity?.kind,'rest');
+  assert.ok(after.residents.find(resident=>resident.id==='ada').needs.energy<adaEnergy);
+  assert.ok(after.log.some(entry=>entry.event==='expired'&&
+    entry.message.includes('lease')));
+  assert.deepEqual(restored.exportState(),after);
+});
+
+test('a bounded FIFO wait expires without granting an unobserved benefit',()=>{
+  const matrix=world(),sim=createCitizensDemo(matrix,{seed:31});
+  sim.step();
+  const saved=sim.exportState(),chair=saved.stations.find(station=>station.kind==='rest');
+  saved.clockTick=96;
+  chair.claim.expiresTick=150;
+  chair.waiters[0].enqueuedTick=1;
+  const boEnergy=saved.residents.find(resident=>resident.id==='bo').needs.energy;
+  const restored=CitizensSimulation.restore(matrix,saved);
+  const after=restored.step();
+  assert.equal(after.clockTick,97);
+  assert.equal(chair.claim.residentId,'ada');
+  assert.equal(after.stations.find(station=>station.kind==='rest').waiters.length,0);
+  assert.equal(after.residents.find(resident=>resident.id==='bo').activity,null);
+  assert.ok(after.residents.find(resident=>resident.id==='bo').needs.energy<boEnergy);
+  assert.ok(after.log.some(entry=>entry.event==='expired'&&
+    entry.message.includes('wait')));
+  assert.deepEqual(restored.exportState(),after);
 });
 
 test('fixed seed and serialized mid-action state resume without duplicate spawn',()=>{
@@ -94,7 +191,7 @@ test('fixed seed and serialized mid-action state resume without duplicate spawn'
   }
   first.pause();
   const saved=first.exportState();
-  assert.equal(saved.stations.find(station=>station.id==='chair').holder,'ada');
+  assert.equal(holder(saved.stations.find(station=>station.id==='chair')),'ada');
   assert.equal(saved.residents[0].activity.phase,'use');
   const savedScene=structuredClone(a.scene);
   const restoredWorld=world();
@@ -113,6 +210,51 @@ test('fixed seed and serialized mid-action state resume without duplicate spawn'
   'a restored in-progress rest must grant its outcome once');
 });
 
+test('v1 mid-action state migrates atomically and replays deletion and FIFO handoff',()=>{
+  const source=world(),sim=createCitizensDemo(source,{seed:31});
+  sim.step();
+  const legacy=sim.exportState();
+  legacy.schemaVersion=1;
+  delete legacy.actionSequence;
+  delete legacy.retiredResidentIds;
+  for(const resident of legacy.residents)if(resident.activity)
+    delete resident.activity.executionId;
+  legacy.stations=legacy.stations.map(station=>({id:station.id,kind:station.kind,
+    objectId:station.objectId,capacity:station.capacity,
+    holder:station.claim?.residentId??null}));
+  legacy.log=legacy.log.filter(entry=>
+    !['waiting','released','retired','expired'].includes(entry.event));
+  const savedScene=structuredClone(source.scene);
+  const restore=()=>{
+    const matrix=world();
+    assert.equal(matrix.execute({requestId:'load-fixture',op:'load',
+      scene:savedScene}).ok,true);
+    return {matrix,sim:CitizensSimulation.restore(matrix,legacy)};
+  };
+  const a=restore(),b=restore();
+  for(const copy of [a,b]){
+    const migrated=copy.sim.exportState();
+    assert.equal(migrated.schemaVersion,2);
+    assert.equal(migrated.actionSequence,1);
+    assert.equal(migrated.stations.find(station=>station.kind==='rest').claim.executionId,
+      migrated.residents.find(resident=>resident.id==='ada').activity.executionId);
+    copy.sim.resume();
+  }
+  assert.deepEqual(a.sim.advance(),b.sim.advance());
+  assert.equal(a.sim.snapshot().stations.find(station=>station.kind==='rest').waiters[0].residentId,
+    'bo');
+  const adaId=a.sim.snapshot().residents.find(resident=>resident.id==='ada').objectId;
+  for(const copy of [a,b])assert.equal(copy.matrix.execute({requestId:'delete-ada',
+    op:'delete',objectId:adaId}).ok,true);
+  for(let i=0;i<30;i++){
+    assert.deepEqual(a.sim.advance(),b.sim.advance());
+    assert.deepEqual(a.matrix.scene,b.matrix.scene);
+  }
+  assert.deepEqual(a.sim.exportState().retiredResidentIds,['ada']);
+  assert.ok(a.sim.snapshot().log.some(entry=>entry.event==='completed'&&
+    entry.residentId==='bo'&&entry.message.includes('rest')));
+});
+
 test('rejected movement releases its claim without granting benefit',()=>{
   const matrix=world();
   const sim=createCitizensDemo(matrix,{seed:31});
@@ -122,7 +264,7 @@ test('rejected movement releases its claim without granting benefit',()=>{
   }:original(command,options);
   const failed=sim.step();
   assert.equal(failed.residents[0].activity,null);
-  assert.equal(failed.stations.find(station=>station.id==='chair').holder,null);
+  assert.equal(holder(failed.stations.find(station=>station.id==='chair')),null);
   assert.equal(failed.residents[0].needs.energy,19.45);
   assert.ok(failed.log.some(entry=>entry.event==='failed'&&entry.message.includes('movement rejected')));
 });
@@ -141,29 +283,64 @@ test('rejected observed interaction cannot grant a need benefit',()=>{
   assert.ok(!state.log.some(entry=>entry.event==='completed'&&entry.residentId==='ada'&&
     entry.message.includes('rest')));
   assert.ok(state.residents[0].needs.energy<20);
-  assert.notEqual(state.stations.find(station=>station.id==='chair').holder,'ada');
+  assert.notEqual(holder(state.stations.find(station=>station.id==='chair')),'ada');
 });
 
-test('removing a reserved station cancels the activity and invalidates restore',()=>{
+test('removing a reserved station cancels claims and lets survivors continue',()=>{
   const matrix=world();
   const sim=createCitizensDemo(matrix,{seed:31});
-  sim.step();
+  sim.resume();
+  sim.advance();
   const before=sim.snapshot();
-  assert.equal(before.stations.find(station=>station.id==='chair').holder,'ada');
+  assert.equal(holder(before.stations.find(station=>station.id==='chair')),'ada');
   const beforeEnergy=before.residents[0].needs.energy;
   const chairId=before.stations.find(station=>station.id==='chair').objectId;
   assert.equal(matrix.execute({requestId:'remove-chair',op:'delete',objectId:chairId}).ok,true);
-  const after=sim.step();
-  assert.equal(after.stations.find(station=>station.id==='chair').holder,null);
-  assert.equal(after.residents[0].activity,null);
-  assert.equal(after.residents[0].needs.energy,beforeEnergy);
-  assert.equal(after.clockTick,before.clockTick,'an invalid binding stops the next tick');
-  assert.equal(after.paused,true);
-  assert.ok(after.log.some(entry=>entry.event==='failed'&&entry.message.includes('missing')));
-  assert.throws(()=>sim.exportState(),/binding is missing or incompatible/);
+  const after=sim.advance();
+  assert.equal(after.stations.some(station=>station.id==='chair'),false);
+  assert.equal(after.clockTick,before.clockTick+1);
+  assert.equal(after.paused,false);
+  assert.ok(after.residents[0].needs.energy<=beforeEnergy,
+    'a deleted chair cannot grant an unobserved rest benefit');
+  assert.ok(after.log.some(entry=>entry.event==='retired'&&entry.message.includes('chair')));
+  assert.deepEqual(sim.exportState(),after);
+  let continued=false;
+  for(let i=0;i<30;i++){
+    const state=sim.advance();
+    assert.equal(state.paused,false);
+    assert.ok(state.residents.every(resident=>resident.activity?.kind!=='rest'),
+      'a retired rest station cannot be selected as an exploration target');
+    if(state.log.some(entry=>entry.event==='completed'&&
+      (entry.message.includes('eat')||entry.message.includes('explore'))))
+      continued=true;
+    sim.exportState();
+  }
+  assert.equal(continued,true,'survivors continue with remaining activities');
   const scene=structuredClone(matrix.scene);
   assert.throws(()=>CitizensSimulation.restore(matrix,before),/missing or incompatible/);
   assert.deepEqual(matrix.scene,scene,'rejected restore must not change the world');
+});
+
+test('loading an identical scene cancels stale execution claims and wait tickets',()=>{
+  const matrix=world(),sim=createCitizensDemo(matrix,{seed:31});
+  sim.resume();
+  const before=sim.advance();
+  const adaEnergy=before.residents.find(resident=>resident.id==='ada').needs.energy;
+  const chair=before.stations.find(station=>station.kind==='rest');
+  assert.equal(chair.claim.residentId,'ada');
+  assert.equal(chair.waiters[0].residentId,'bo');
+  const sameScene=structuredClone(matrix.scene);
+  assert.equal(matrix.execute({requestId:'reload-same-scene',op:'load',
+    scene:sameScene}).ok,true);
+  const after=sim.advance();
+  assert.equal(after.paused,true);
+  assert.equal(after.clockTick,before.clockTick);
+  assert.equal(after.stations.find(station=>station.kind==='rest').claim,null);
+  assert.equal(after.stations.find(station=>station.kind==='rest').waiters.length,0);
+  assert.equal(after.residents.find(resident=>resident.id==='ada').needs.energy,adaEnergy);
+  assert.ok(after.log.some(entry=>entry.event==='paused'&&
+    entry.message.includes('Scene replacement')));
+  assert.deepEqual(sim.exportState(),after);
 });
 
 test('own movement is observed without falsely interrupting a running simulation',()=>{
@@ -191,8 +368,9 @@ test('an authored resident move cancels its activity and releases its station',(
   assert.equal(after.clockTick,before.clockTick);
   assert.equal(after.residents.find(resident=>resident.id==='ada').activity,null);
   assert.equal(after.residents.find(resident=>resident.id==='ada').needs.energy,ada.needs.energy);
-  assert.equal(after.stations.find(station=>station.kind==='rest').holder,null);
-  assert.equal(after.residents.find(resident=>resident.id==='bo').activity.kind,'eat');
+  assert.equal(holder(after.stations.find(station=>station.kind==='rest')),null);
+  assert.equal(after.residents.find(resident=>resident.id==='bo').activity,null);
+  assert.equal(after.stations.find(station=>station.kind==='rest').waiters[0].residentId,'bo');
   assert.ok(after.log.some(entry=>entry.event==='failed'&&entry.residentId==='ada'&&
     entry.message.includes('moved externally')));
   assert.deepEqual(sim.advance(),after,'the paused timer must not resume on its own');
@@ -210,7 +388,7 @@ test('an authored station move cancels the holder before an interaction complete
   const after=sim.reconcileWorld();
   assert.equal(after.paused,true);
   assert.equal(after.clockTick,before.clockTick);
-  assert.equal(after.stations.find(station=>station.kind==='rest').holder,null);
+  assert.equal(holder(after.stations.find(station=>station.kind==='rest')),null);
   assert.equal(after.residents.find(resident=>resident.id==='ada').activity,null);
   assert.ok(after.log.some(entry=>entry.event==='failed'&&entry.residentId==='ada'&&
     entry.message.includes('chair was moved externally')));
@@ -230,7 +408,7 @@ test('a running station component cancels its reservation and cannot be checkpoi
   const after=sim.reconcileWorld();
   assert.equal(after.paused,true);
   assert.equal(after.clockTick,before.clockTick);
-  assert.equal(after.stations.find(station=>station.kind==='rest').holder,null);
+  assert.equal(holder(after.stations.find(station=>station.kind==='rest')),null);
   assert.equal(after.residents.find(resident=>resident.id==='ada').activity,null);
   assert.equal(after.residents.find(resident=>resident.id==='ada').needs.energy,energy);
   assert.throws(()=>sim.exportState(),/binding is missing or incompatible/);
@@ -238,7 +416,7 @@ test('a running station component cancels its reservation and cannot be checkpoi
   assert.equal(matrix.execute({requestId:'stop-chair-component',op:'stop_component',
     objectId:chair.objectId}).ok,true);
   sim.reconcileWorld();
-  assert.equal(sim.exportState().stations.find(station=>station.kind==='rest').holder,null,
+  assert.equal(holder(sim.exportState().stations.find(station=>station.kind==='rest')),null,
     'a stopped component is no longer moving the visible station');
 });
 
@@ -252,13 +430,13 @@ test('an active station behavior interrupts its holder while a paused behavior d
   const paused=sim.snapshot();
   assert.deepEqual(sim.reconcileWorld(),paused);
   const before=sim.step();
-  assert.equal(before.stations.find(station=>station.kind==='rest').holder,'ada');
+  assert.equal(holder(before.stations.find(station=>station.kind==='rest')),'ada');
   assert.equal(matrix.execute({requestId:'run-chair-bob',op:'set_behavior',
     objectId:chair.objectId,behavior:{...bob,paused:false}}).ok,true);
   const after=sim.reconcileWorld();
   assert.equal(after.paused,true);
   assert.equal(after.clockTick,before.clockTick);
-  assert.equal(after.stations.find(station=>station.kind==='rest').holder,null);
+  assert.equal(holder(after.stations.find(station=>station.kind==='rest')),null);
   assert.equal(after.residents.find(resident=>resident.id==='ada').activity,null);
   assert.throws(()=>sim.exportState(),/binding is missing or incompatible/);
 });
@@ -274,7 +452,7 @@ test('an active resident behavior releases its station before further movement',
   assert.equal(after.paused,true);
   assert.equal(after.clockTick,before.clockTick);
   assert.equal(after.residents.find(resident=>resident.id==='ada').activity,null);
-  assert.equal(after.stations.find(station=>station.kind==='rest').holder,null);
+  assert.equal(holder(after.stations.find(station=>station.kind==='rest')),null);
   assert.equal(after.residents.find(resident=>resident.id==='ada').needs.energy,ada.needs.energy);
 });
 
@@ -284,7 +462,7 @@ test('restore rejects corrupt reservation and wrong room without changing Matrix
   sim.step();
   const before=structuredClone(matrix.scene);
   const broken=sim.exportState();
-  broken.stations.find(station=>station.id==='chair').holder='bo';
+  broken.stations.find(station=>station.id==='chair').claim.residentId='bo';
   assert.throws(()=>CitizensSimulation.restore(matrix,broken),/reservation/);
   const wrongRoom=sim.exportState();
   wrongRoom.world.roomId='elsewhere';
@@ -293,12 +471,53 @@ test('restore rejects corrupt reservation and wrong room without changing Matrix
   assert.equal(matrix.scene.objects.length,4);
 });
 
-test('restore rejects a checkpoint missing a required activity station',()=>{
+test('restore rejects a checkpoint missing an active activity station',()=>{
   const matrix=world();
   const sim=createCitizensDemo(matrix,{seed:29});
+  sim.step();
   const saved=sim.exportState();
   saved.stations=saved.stations.filter(station=>station.kind!=='rest');
   const before=structuredClone(matrix.scene);
-  assert.throws(()=>CitizensSimulation.restore(matrix,saved),/Invalid Citizens state/);
+  assert.throws(()=>CitizensSimulation.restore(matrix,saved),/Invalid Citizens reservation/);
   assert.deepEqual(matrix.scene,before);
+});
+
+test('v2 restore rejects forged claims, wait tickets, bounds and unknown fields',()=>{
+  const matrix=world(),sim=createCitizensDemo(matrix,{seed:31});
+  sim.step();
+  const valid=sim.exportState(),scene=structuredClone(matrix.scene);
+  const variants=[
+    state=>{state.stations[0].claim.executionId=state.stations[0].waiters[0].executionId;},
+    state=>{state.stations[0].claim.expiresTick=state.clockTick+73;},
+    state=>{state.stations[0].waiters[0].executionId=state.stations[0].claim.executionId;},
+    state=>{state.stations[0].waiters[0].enqueuedTick=state.clockTick+1;},
+    state=>{state.stations[0].waiters.push(structuredClone(state.stations[0].waiters[0]));},
+    state=>{state.stations[0].extra=true;},
+    state=>{state.retiredResidentIds.push('bo');},
+    state=>{state.residents=[];state.paused=false;}
+  ];
+  for(const change of variants){
+    const broken=structuredClone(valid);
+    change(broken);
+    assert.throws(()=>CitizensSimulation.restore(matrix,broken),/Invalid Citizens/);
+    assert.deepEqual(matrix.scene,scene,'bad Citizens state must not mutate Matrix');
+  }
+});
+
+test('deleting the last resident yields a valid paused zero-resident state',()=>{
+  const matrix=world(),sim=createCitizensDemo(matrix,{seed:31});
+  sim.resume();
+  sim.advance();
+  for(const resident of sim.snapshot().residents)
+    assert.equal(matrix.execute({requestId:`delete-${resident.id}`,op:'delete',
+      objectId:resident.objectId}).ok,true);
+  const after=sim.advance();
+  assert.equal(after.paused,true);
+  assert.equal(after.clockTick,1);
+  assert.equal(after.residents.length,0);
+  assert.deepEqual(after.retiredResidentIds,['ada','bo']);
+  assert.ok(after.stations.every(station=>station.claim===null&&station.waiters.length===0));
+  assert.deepEqual(sim.exportState(),after);
+  assert.deepEqual(sim.step(),after,'empty simulation must not advance');
+  assert.deepEqual(sim.resume(),after,'empty simulation cannot run');
 });
