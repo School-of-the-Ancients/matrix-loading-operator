@@ -14,7 +14,7 @@ import time
 import uuid
 from typing import Callable
 
-from agent_session import AgentSessionBackend
+from agent_session import AgentSessionBackend, MAX_XR_APPROVAL_SUMMARY
 
 
 SESSION_ID = re.compile(r"[0-9a-f]{32}\Z")
@@ -22,6 +22,14 @@ MAX_TRANSCRIPT = 20
 MAX_TRANSCRIPT_TEXT = 24000
 MAX_STORE = 128 * 1024
 MAX_LARGE_FIELD_BYTES = 8 * 1024
+
+
+def _xr_approval_summary(item: dict) -> tuple[str, bool]:
+    summary = item.get("summary")
+    safe = (isinstance(summary, str) and 1 <= len(summary) <= MAX_XR_APPROVAL_SUMMARY
+            and not any(ord(char) < 32 for char in summary))
+    return (summary if safe else "Codex action needs PC review.",
+            bool(safe and item.get("reviewable") is True))
 
 
 def _fit_utf8(value: str, limit: int, *, tail: bool) -> str:
@@ -428,14 +436,11 @@ class AgentPortal:
                 if (item.get("conversationId") != self._conversation_id
                         or item.get("turnId") != self._active_turn):
                     continue
-                summary = item.get("summary")
-                safe_summary = (isinstance(summary, str) and 1 <= len(summary) <= 200
-                                and not any(ord(char) < 32 for char in summary))
+                summary, reviewable = _xr_approval_summary(item)
                 pending.append({"approvalId": item["approvalId"], "turnId": item["turnId"],
                                 "action": item.get("action") if item.get("action") in
                                 ("running_command", "editing_files") else "using_tool",
-                                "summary": summary if safe_summary else "Codex action needs PC review.",
-                                "reviewable": bool(safe_summary and item.get("reviewable") is True)})
+                                "summary": summary, "reviewable": reviewable})
         access_mode = getattr(self._backend, "access_mode", None)
         if access_mode not in ("read-only", "workspace-write", "danger-full-access"):
             access_mode = None
@@ -466,7 +471,7 @@ class AgentPortal:
                             and item.get("turnId") == turn_id), None)
             if pending is None:
                 raise AgentPortalError(409, "Approval is no longer pending")
-            if approve and pending.get("reviewable") is not True:
+            if approve and not _xr_approval_summary(pending)[1]:
                 raise AgentPortalError(409, "This action cannot be reviewed in XR; deny or stop it")
             try:
                 self._backend.decide(approval_id, self._conversation_id, turn_id, approve)

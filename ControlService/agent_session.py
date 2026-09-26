@@ -22,6 +22,9 @@ from web_component_catalog import _identity
 from web_components import ComponentError, validate_package
 
 
+MAX_XR_APPROVAL_SUMMARY = 240
+
+
 class AgentSessionBackend(Protocol):
     """The gateway-facing surface; future hosted backends can implement it."""
 
@@ -163,7 +166,7 @@ def _mcp_approval_description(params: dict) -> tuple[str, bool]:
         summary = (f"Move {arguments['expected_asset_id']} ({arguments['object_id']}) in "
                    f"{arguments['room_id']} to ({point['x']}, {point['y']}, {point['z']}){angle} "
                    f"at scene revision {arguments['scene_revision']}.")
-        if len(summary) <= 240:
+        if len(summary) <= MAX_XR_APPROVAL_SUMMARY:
             return summary, True
     if (params.get("message") == 'Allow the matrix_webxr MCP server to run tool "matrix_register_glb"?' and
             isinstance(arguments, dict) and

@@ -9,6 +9,7 @@ import urllib.request
 from unittest.mock import patch
 
 from agent_portal import AgentPortal
+from agent_session import _mcp_approval_description
 from server import Server, State, agent_turn_context, snapshot
 from test_agent_portal import FakeBackend
 
@@ -100,6 +101,37 @@ class AgentPortalHTTPTests(unittest.TestCase):
         self.assertEqual(self.post("/api/agent/approval", {"sessionId": session_id,
                          "turnId": pending["turnId"], "approvalId": pending["approvalId"],
                          "approve": True})[0], 200)
+
+    def test_rotation_summary_is_visible_and_only_visible_summary_can_be_approved(self):
+        session_id = self.post("/api/agent/session", {})[1]["sessionId"]
+        self.post("/api/agent/turn", {"sessionId": session_id, "text": "Turn the object"})
+        backend = self.state.agent_portal._backend
+        arguments = {"room_id": "web-virtual-room-v1", "scene_revision": 20,
+                     "object_id": "a" * 32, "expected_asset_id": "web:" + "d" * 65,
+                     "position": {"x": 0, "y": 0, "z": -2},
+                     "rotation": {"x": 0, "y": 180, "z": 0}}
+        summary, reviewable = _mcp_approval_description({
+            "serverName": "matrix_webxr",
+            "message": 'Allow the matrix_webxr MCP server to run tool "matrix_move_object"?',
+            "_meta": {"codex_approval_kind": "mcp_tool_call", "tool_params": arguments}})
+        self.assertTrue(reviewable)
+        self.assertTrue(200 < len(summary) <= 240)
+        backend.approval.update(action="using_tool", summary=summary, reviewable=reviewable)
+        pending = self.post("/api/agent/status", {"sessionId": session_id})[1]["pendingApprovals"][0]
+        self.assertEqual(pending["summary"], summary)
+        self.assertTrue(pending["reviewable"])
+        self.assertEqual(self.post("/api/agent/approval", {"sessionId": session_id,
+                         "turnId": pending["turnId"], "approvalId": pending["approvalId"],
+                         "approve": True})[0], 200)
+
+        self.post("/api/agent/turn", {"sessionId": session_id, "text": "Another action"})
+        backend.approval.update(action="using_tool", summary="X" * 241, reviewable=True)
+        pending = self.post("/api/agent/status", {"sessionId": session_id})[1]["pendingApprovals"][0]
+        self.assertEqual(pending["summary"], "Codex action needs PC review.")
+        self.assertFalse(pending["reviewable"])
+        self.assertEqual(self.post("/api/agent/approval", {"sessionId": session_id,
+                         "turnId": pending["turnId"], "approvalId": pending["approvalId"],
+                         "approve": True})[0], 409)
 
     def test_generic_command_stays_unreviewable_and_raw_fields_stay_on_pc(self):
         session_id = self.post("/api/agent/session", {})[1]["sessionId"]
