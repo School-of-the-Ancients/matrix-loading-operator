@@ -22,6 +22,9 @@ from web_component_catalog import _identity
 from web_components import ComponentError, validate_package
 
 
+MAX_XR_APPROVAL_SUMMARY = 240
+
+
 class AgentSessionBackend(Protocol):
     """The gateway-facing surface; future hosted backends can implement it."""
 
@@ -139,8 +142,10 @@ def _mcp_approval_description(params: dict) -> tuple[str, bool]:
             except PlannerError:
                 pass
     if (params.get("message") == 'Allow the matrix_webxr MCP server to run tool "matrix_move_object"?' and
-            isinstance(arguments, dict) and set(arguments) ==
-            {"room_id", "scene_revision", "object_id", "expected_asset_id", "position"} and
+            isinstance(arguments, dict) and
+            {"room_id", "scene_revision", "object_id", "expected_asset_id", "position"} <=
+            set(arguments) <=
+            {"room_id", "scene_revision", "object_id", "expected_asset_id", "position", "rotation"} and
             type(arguments["scene_revision"]) is int and arguments["scene_revision"] >= 0 and
             all(isinstance(arguments[key], str) and
                 re.fullmatch(r"[A-Za-z0-9._:-]{1,128}", arguments[key])
@@ -148,12 +153,20 @@ def _mcp_approval_description(params: dict) -> tuple[str, bool]:
             isinstance(arguments["position"], dict) and set(arguments["position"]) == {"x", "y", "z"} and
             all(type(arguments["position"][axis]) in (int, float) and
                 math.isfinite(arguments["position"][axis]) and
-                -100 <= arguments["position"][axis] <= 100 for axis in ("x", "y", "z"))):
+                -100 <= arguments["position"][axis] <= 100 for axis in ("x", "y", "z")) and
+            ("rotation" not in arguments or
+             isinstance(arguments["rotation"], dict) and set(arguments["rotation"]) == {"x", "y", "z"} and
+             all(type(arguments["rotation"][axis]) in (int, float) and
+                 math.isfinite(arguments["rotation"][axis]) and
+                 -36000 <= arguments["rotation"][axis] <= 36000 for axis in ("x", "y", "z")))):
         point = arguments["position"]
+        rotation = arguments.get("rotation")
+        angle = (f" with rotation ({rotation['x']}, {rotation['y']}, {rotation['z']}) degrees"
+                 if rotation is not None else "")
         summary = (f"Move {arguments['expected_asset_id']} ({arguments['object_id']}) in "
-                   f"{arguments['room_id']} to ({point['x']}, {point['y']}, {point['z']}) "
+                   f"{arguments['room_id']} to ({point['x']}, {point['y']}, {point['z']}){angle} "
                    f"at scene revision {arguments['scene_revision']}.")
-        if len(summary) <= 200:
+        if len(summary) <= MAX_XR_APPROVAL_SUMMARY:
             return summary, True
     if (params.get("message") == 'Allow the matrix_webxr MCP server to run tool "matrix_register_glb"?' and
             isinstance(arguments, dict) and
