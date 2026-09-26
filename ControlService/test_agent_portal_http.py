@@ -101,6 +101,27 @@ class AgentPortalHTTPTests(unittest.TestCase):
                          "turnId": pending["turnId"], "approvalId": pending["approvalId"],
                          "approve": True})[0], 200)
 
+    def test_generic_command_stays_unreviewable_and_raw_fields_stay_on_pc(self):
+        session_id = self.post("/api/agent/session", {})[1]["sessionId"]
+        self.post("/api/agent/turn", {"sessionId": session_id, "text": "Build an asset"})
+        backend = self.state.agent_portal._backend
+        backend.approval.update(summary="Codex requests a command. Its effect cannot be reviewed in XR.",
+                                reviewable=False, command="SECRET_NATIVE_COMMAND",
+                                cwd="C:/private/workspace", reason="SECRET_REASON",
+                                networkApprovalContext={"host": "secret.example.invalid"})
+        code, status = self.post("/api/agent/status", {"sessionId": session_id})
+        self.assertEqual(code, 200)
+        self.assertFalse(status["pendingApprovals"][0]["reviewable"])
+        for secret in ("SECRET_NATIVE_COMMAND", "C:/private/workspace", "SECRET_REASON",
+                       "secret.example.invalid"):
+            self.assertNotIn(secret, json.dumps(status))
+        pending = status["pendingApprovals"][0]
+        code, response = self.post("/api/agent/approval", {"sessionId": session_id,
+                                    "turnId": pending["turnId"],
+                                    "approvalId": pending["approvalId"], "approve": True})
+        self.assertEqual(code, 409)
+        self.assertNotIn("SECRET_NATIVE_COMMAND", json.dumps(response))
+
     def test_spatial_turn_is_bounded_validated_and_keeps_user_transcript_clean(self):
         room = {"scene": {"schemaVersion": 1, "roomId": "web-virtual-room-v1",
                           "objects": [{"objectId": "chair-1", "assetId": "chair", "anchorId": "web-floor",

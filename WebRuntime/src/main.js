@@ -174,7 +174,11 @@ const bridge=new MatrixBridge(world,()=>$('token').value.trim(),event=>{
 bridge.getCaptureCapabilities=()=>cameraStream.capabilities();
 function agentApprovalText(pending){
   if(!pending)return '';
-  return `${pending.summary||'Codex action needs PC review.'}${pending.reviewable?'\nApprove only if this matches your request.':'\nApproval is unavailable here. Deny or Stop this turn.'}`;
+  const guidance=pending.reviewable?'\nApprove only if this matches your request.':
+    pending.action==='running_command'?
+      '\nReview the exact command in the PC service console if one is attached; type approve or deny there. Browser approval is disabled. You can Deny or Stop here.':
+      '\nApproval is unavailable here. Deny or Stop this turn.';
+  return `${pending.summary||'Codex action needs PC review.'}${guidance}`;
 }
 function renderAgent(){
   const status=agentClient?.status,turns=status?.transcript||[],pending=status?.pendingApprovals?.[0];
