@@ -30,6 +30,7 @@ class AgentSessionBackend(Protocol):
     def poll(self, cursor: int) -> tuple[int, list[dict]]: ...
     def events_since(self, cursor: int) -> list[dict]: ...
     def pending_approvals(self) -> list[dict]: ...
+    def pending_pc_commands(self) -> list[dict]: ...
     def decide(self, approval_id: int | str, conversation_id: str, turn_id: str, approve: bool) -> None: ...
     def cancel(self, conversation_id: str, turn_id: str) -> None: ...
     def close(self) -> None: ...
@@ -88,6 +89,9 @@ def _approval_description(method: str, params: dict, cwd: Path) -> tuple[str, bo
         except (OSError, ValueError):
             pass
     return "Codex requests a command. Its effect cannot be reviewed in XR.", False
+
+
+MAX_PC_COMMAND_REVIEW = 64 * 1024
 
 
 def _mcp_approval_description(params: dict) -> tuple[str, bool]:
@@ -346,6 +350,45 @@ class LocalCodexAgentBackend:
                                        "running_command" if "commandExecution" in method else "editing_files",
                              "summary": summary, "reviewable": reviewable})
         return safe
+
+    def pending_pc_commands(self) -> list[dict]:
+        """Complete native generic commands for an attached PC console only.
+
+        This return value must never be included in an HTTP response or browser
+        event. Incomplete and oversized requests cannot receive PC approval.
+        """
+        commands = []
+        for approval in self.transport.pending_approvals():
+            if approval.get("method") != "item/commandExecution/requestApproval":
+                continue
+            params = approval.get("params")
+            request_id = approval.get("requestId")
+            if (not isinstance(params, dict) or params.get("truncated") is True or
+                    type(request_id) not in (int, str) or
+                    type(request_id) is str and not _identifier(request_id)):
+                continue
+            thread_id = _identifier(params.get("threadId"))
+            turn_id = _identifier(params.get("turnId"))
+            item_id = _identifier(params.get("itemId"))
+            command = params.get("command")
+            cwd = params.get("cwd")
+            if (not all((thread_id, turn_id, item_id)) or
+                    not isinstance(command, str) or not command or
+                    not isinstance(cwd, str) or not cwd or
+                    _approval_description("item/commandExecution/requestApproval", params,
+                                          self.transport.cwd)[1]):
+                continue
+            try:
+                native = json.dumps(params, ensure_ascii=True, sort_keys=True,
+                                    allow_nan=False, separators=(",", ":"))
+                if len(native.encode("utf-8")) > MAX_PC_COMMAND_REVIEW:
+                    continue
+            except (TypeError, ValueError, RecursionError):
+                continue
+            commands.append({"approvalId": request_id, "conversationId": thread_id,
+                             "turnId": turn_id, "itemId": item_id,
+                             "nativeParams": native})
+        return commands
 
     def decide(self, approval_id: int | str, conversation_id: str, turn_id: str, approve: bool) -> None:
         if type(approve) is not bool:

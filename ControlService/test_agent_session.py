@@ -5,7 +5,8 @@ from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import patch
 
-from agent_session import LocalCodexAgentBackend, normalize_event, _approval_description, _mcp_approval_description
+from agent_session import (LocalCodexAgentBackend, normalize_event, _approval_description,
+                           _mcp_approval_description)
 from codex_provider import CodexConfig
 
 
@@ -53,6 +54,35 @@ class FakeTransport:
 
 
 class AgentSessionTests(unittest.TestCase):
+    def test_pc_command_review_requires_complete_untruncated_native_request(self):
+        backend = LocalCodexAgentBackend.__new__(LocalCodexAgentBackend)
+        backend.transport = FakeTransport()
+        params = {"threadId": "thread-1", "turnId": "turn-1", "itemId": "item-1",
+                  "command": "blender --background --python create.py SECRET_COMMAND",
+                  "cwd": str(Path.cwd()), "reason": "Build a new asset",
+                  "networkApprovalContext": {"host": "example.invalid"}}
+        approval = {"requestId": 42, "method": "item/commandExecution/requestApproval",
+                    "params": params}
+        backend.transport.pending_approvals = lambda: [approval]
+        pc = backend.pending_pc_commands()
+        self.assertEqual(len(pc), 1)
+        self.assertEqual(pc[0]["itemId"], "item-1")
+        self.assertIn("SECRET_COMMAND", pc[0]["nativeParams"])
+        self.assertIn("networkApprovalContext", pc[0]["nativeParams"])
+        self.assertFalse(backend.pending_approvals()[0]["reviewable"])
+        self.assertNotIn("SECRET_COMMAND", str(backend.pending_approvals()))
+        for missing in ("threadId", "turnId", "itemId", "command", "cwd"):
+            with self.subTest(missing=missing):
+                approval["params"] = {key: value for key, value in params.items() if key != missing}
+                self.assertEqual(backend.pending_pc_commands(), [])
+        approval["params"] = {**params, "truncated": True}
+        self.assertEqual(backend.pending_pc_commands(), [])
+        approval["params"] = {**params, "command": "x" * (64 * 1024)}
+        self.assertEqual(backend.pending_pc_commands(), [])
+        approval["params"] = params
+        approval["method"] = "item/fileChange/requestApproval"
+        self.assertEqual(backend.pending_pc_commands(), [])
+
     def test_windows_fallback_is_a_pc_only_codex_process_setting(self):
         with tempfile.TemporaryDirectory() as folder:
             executable = Path(folder) / "codex.exe"

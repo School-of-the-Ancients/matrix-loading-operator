@@ -1,6 +1,9 @@
 """Durable Matrix-to-agent session mapping, without starting real Codex."""
+import io
 import json
+import queue
 import tempfile
+import threading
 import time
 import unittest
 from pathlib import Path
@@ -57,6 +60,9 @@ class FakeBackend:
 
     def pending_approvals(self):
         return [self.approval] if self.approval else []
+
+    def pending_pc_commands(self):
+        return []
 
     def decide(self, approval_id, conversation_id, turn_id, approve):
         assert self.approval["approvalId"] == approval_id
@@ -238,6 +244,170 @@ class AgentPortalTests(unittest.TestCase):
         portal.decide(session_id, backend.approval["approvalId"], turn_id, True)
         self.wait_for(portal, session_id, lambda value: value["activity"] == "completed")
         self.assertEqual(portal.send_text(session_id, "Another turn")["activity"], "working")
+
+
+class PCInput:
+    def __init__(self, interactive=True):
+        self.interactive = interactive
+        self.lines = queue.Queue()
+
+    def isatty(self):
+        return self.interactive
+
+    def readline(self):
+        return self.lines.get()
+
+
+class PCOutput(io.StringIO):
+    def __init__(self, interactive=True):
+        super().__init__()
+        self.interactive = interactive
+        self.prompted = threading.Event()
+
+    def isatty(self):
+        return self.interactive
+
+    def write(self, value):
+        result = super().write(value)
+        if "Enter defaults to deny" in value:
+            self.prompted.set()
+        return result
+
+
+class PCBackend(FakeBackend):
+    def __init__(self, persisted):
+        super().__init__(persisted)
+        self.decisions = []
+        self.native_params = None
+        self.pc_checks = 0
+        self.command = "blender --background --python create.py SECRET_COMMAND"
+
+    def send_text(self, identifier, text):
+        turn_id = super().send_text(identifier, text)
+        self.approval.update(summary="Codex requests a command. Its effect cannot be reviewed in XR.",
+                             reviewable=False)
+        self.native_params = {"threadId": identifier, "turnId": turn_id, "itemId": "command-item-1",
+                              "command": self.command,
+                              "cwd": "C:/Matrix workspace", "reason": "Create an animated asset",
+                              "networkApprovalContext": {"host": "assets.example.invalid"}}
+        return turn_id
+
+    def pending_pc_commands(self):
+        self.pc_checks += 1
+        if not self.approval or not self.native_params:
+            return []
+        return [{"approvalId": self.approval["approvalId"],
+                 "conversationId": self.native_params["threadId"],
+                 "turnId": self.native_params["turnId"],
+                 "itemId": self.native_params["itemId"],
+                 "nativeParams": json.dumps(self.native_params, sort_keys=True,
+                                            ensure_ascii=True, separators=(",", ":"))}]
+
+    def decide(self, approval_id, conversation_id, turn_id, approve):
+        self.decisions.append((approval_id, conversation_id, turn_id, approve))
+        super().decide(approval_id, conversation_id, turn_id, approve)
+
+
+class PCReviewTests(unittest.TestCase):
+    def setUp(self):
+        self.temp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.temp.cleanup)
+        self.pc_input = PCInput()
+        self.pc_output = PCOutput()
+        self.backend = PCBackend([False])
+        self.portal = AgentPortal(self.temp.name, lambda: self.backend,
+                                  pc_input=self.pc_input, pc_output=self.pc_output)
+        self.addCleanup(self.portal.close)
+        self.addCleanup(lambda: self.pc_input.lines.put("\n"))
+
+    def wait_for(self, predicate):
+        deadline = time.monotonic() + 2
+        while time.monotonic() < deadline:
+            if predicate():
+                return
+            time.sleep(0.01)
+        self.fail("PC review did not reach expected state")
+
+    def start_review(self):
+        session_id = self.portal.open()["sessionId"]
+        turn_id = self.portal.send_text(session_id, "Create the asset")["turnId"]
+        self.assertTrue(self.pc_output.prompted.wait(2))
+        return session_id, turn_id
+
+    def test_pc_approve_once_while_browser_remains_redacted(self):
+        session_id, turn_id = self.start_review()
+        shown = self.pc_output.getvalue()
+        for expected in ("Approval ID: 101", "SECRET_COMMAND", "C:/Matrix workspace",
+                         "Create an animated asset", "assets.example.invalid", "command-item-1"):
+            self.assertIn(expected, shown)
+        started = time.monotonic()
+        status = self.portal.status(session_id)
+        self.assertLess(time.monotonic() - started, 1)
+        self.assertFalse(status["pendingApprovals"][0]["reviewable"])
+        for secret in ("SECRET_COMMAND", "C:/Matrix workspace", "assets.example.invalid"):
+            self.assertNotIn(secret, json.dumps(status))
+        with self.assertRaisesRegex(AgentPortalError, "cannot be reviewed in XR"):
+            self.portal.decide(session_id, 101, turn_id, True)
+        self.pc_input.lines.put("approve\n")
+        self.wait_for(lambda: len(self.backend.decisions) == 1)
+        self.assertEqual(self.backend.decisions, [(101, "native-thread-id", turn_id, True)])
+
+    def test_empty_input_defaults_to_deny_once(self):
+        _, turn_id = self.start_review()
+        self.pc_input.lines.put("\n")
+        self.wait_for(lambda: len(self.backend.decisions) == 1)
+        self.assertEqual(self.backend.decisions, [(101, "native-thread-id", turn_id, False)])
+
+    def test_stop_or_changed_native_request_cannot_be_approved_late(self):
+        session_id, turn_id = self.start_review()
+        started = time.monotonic()
+        self.portal.cancel(session_id, turn_id)
+        self.assertLess(time.monotonic() - started, 1)
+        self.pc_input.lines.put("approve\n")
+        self.wait_for(lambda: not self.backend.approval)
+        self.assertEqual(self.backend.decisions, [])
+
+    def test_old_prompt_cannot_approve_next_turn(self):
+        session_id, first_turn = self.start_review()
+        self.portal.cancel(session_id, first_turn)
+        self.portal.status(session_id)
+        second_turn = self.portal.send_text(session_id, "Try again")["turnId"]
+        self.pc_input.lines.put("approve\n")
+        self.wait_for(lambda: self.pc_output.getvalue().count("Matrix PC command approval") == 2)
+        self.assertEqual(self.backend.decisions, [])
+        self.pc_input.lines.put("deny\n")
+        self.wait_for(lambda: len(self.backend.decisions) == 1)
+        self.assertEqual(self.backend.decisions, [(102, "native-thread-id", second_turn, False)])
+
+    def test_changed_native_command_invalidates_displayed_approval(self):
+        self.start_review()
+        self.backend.native_params["command"] = "different command"
+        self.pc_input.lines.put("approve\n")
+        self.wait_for(lambda: self.backend.pc_checks >= 2)
+        self.assertEqual(self.backend.decisions, [])
+        self.assertIsNotNone(self.backend.approval)
+
+    def test_no_interactive_console_leaves_command_for_stop(self):
+        self.pc_input.interactive = False
+        portal = AgentPortal(self.temp.name, lambda: self.backend,
+                             pc_input=self.pc_input, pc_output=self.pc_output)
+        self.addCleanup(portal.close)
+        session_id = portal.open()["sessionId"]
+        turn_id = portal.send_text(session_id, "Create the asset")["turnId"]
+        self.assertIsNone(portal._pc_reviewer)
+        self.assertFalse(portal.status(session_id)["pendingApprovals"][0]["reviewable"])
+        self.assertEqual(self.pc_output.getvalue(), "")
+        self.assertEqual(self.backend.decisions, [])
+        portal.cancel(session_id, turn_id)
+
+    def test_terminal_control_characters_are_escaped(self):
+        self.backend.command = "echo \x1b[31msecret\x7f"
+        self.start_review()
+        shown = self.pc_output.getvalue()
+        self.assertNotIn("\x1b", shown)
+        self.assertNotIn("\x7f", shown)
+        self.assertIn("\\u001b", shown)
+        self.assertIn("\\u007f", shown)
 
 
 if __name__ == "__main__":

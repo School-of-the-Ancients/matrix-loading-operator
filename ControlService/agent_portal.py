@@ -7,6 +7,7 @@ import json
 import os
 from pathlib import Path
 import re
+import sys
 import tempfile
 import threading
 import time
@@ -30,6 +31,11 @@ def _fit_utf8(value: str, limit: int, *, tail: bool) -> str:
     return (encoded[-limit:] if tail else encoded[:limit]).decode("utf-8", "ignore")
 
 
+def _pc_json(value) -> str:
+    """Render native values without terminal control characters."""
+    return json.dumps(value, ensure_ascii=True, allow_nan=False).replace("\x7f", "\\u007f")
+
+
 class AgentPortalError(Exception):
     def __init__(self, status: int, message: str):
         self.status = status
@@ -39,7 +45,8 @@ class AgentPortalError(Exception):
 class AgentPortal:
     """PC-owned session broker. Browser clients receive only the Matrix ID."""
 
-    def __init__(self, directory: str | Path, backend_factory: Callable[[], AgentSessionBackend]):
+    def __init__(self, directory: str | Path, backend_factory: Callable[[], AgentSessionBackend],
+                 *, pc_input=None, pc_output=None):
         self.directory = Path(directory)
         self.path = self.directory / "agent_portal.json"
         self.backend_factory = backend_factory
@@ -55,6 +62,15 @@ class AgentPortal:
         self._active_turn: str | None = None
         self._activity = "idle"
         self._watcher: threading.Thread | None = None
+        self._pc_input = pc_input if pc_input is not None else sys.stdin
+        self._pc_output = pc_output if pc_output is not None else sys.stdout
+        try:
+            self._pc_console_available = bool(self._pc_input.isatty() and self._pc_output.isatty())
+        except (AttributeError, OSError, ValueError):
+            self._pc_console_available = False
+        self._pc_reviewer: threading.Thread | None = None
+        self._reviewed_commands: set[tuple] = set()
+        self._stopping_turn: str | None = None
         self._stop = threading.Event()
         self.last_error: str | None = None  # PC diagnostics only.
 
@@ -229,6 +245,8 @@ class AgentPortal:
                 raise AgentPortalError(502, "Agent message could not be sent") from None
             self._conversation_id = conversation_id
             self._active_turn = turn_id
+            self._stopping_turn = None
+            self._reviewed_commands.clear()
             self._activity = "working"
             self._transcript.append({"user": value, "userTruncated": False,
                                      "assistant": "", "assistantTruncated": False,
@@ -253,7 +271,79 @@ class AgentPortal:
             self._watcher = threading.Thread(target=self._watch, args=(turn_id,),
                                              name="matrix-agent-portal", daemon=True)
             self._watcher.start()
+            if (self._pc_console_available and
+                    (self._pc_reviewer is None or not self._pc_reviewer.is_alive())):
+                self._pc_reviewer = threading.Thread(target=self._review_pc_commands,
+                                                     name="matrix-agent-pc-review", daemon=True)
+                self._pc_reviewer.start()
             return {"sessionId": self._session_id, "turnId": turn_id, "activity": "working"}
+
+    def _review_pc_commands(self) -> None:
+        """Wait for explicit terminal input without holding the browser's lock."""
+        while not self._stop.wait(0.1):
+            with self.lock:
+                backend = self._backend
+                if (backend is None or self._active_turn is None or
+                        self._active_turn == self._stopping_turn):
+                    continue
+                try:
+                    commands = backend.pending_pc_commands()
+                except Exception as error:
+                    self.last_error = str(error)
+                    return
+                pending = next((item for item in commands
+                                if item["conversationId"] == self._conversation_id
+                                and item["turnId"] == self._active_turn
+                                and (item["approvalId"], item["conversationId"],
+                                     item["turnId"], item["itemId"]) not in self._reviewed_commands), None)
+                if pending is None:
+                    continue
+                identity = (pending["approvalId"], pending["conversationId"],
+                            pending["turnId"], pending["itemId"])
+                self._reviewed_commands.add(identity)
+            try:
+                params = json.loads(pending["nativeParams"])
+                safe_native = pending["nativeParams"].replace("\x7f", "\\u007f")
+                prompt = ("\nMatrix PC command approval\n"
+                          f"Approval ID: {_pc_json(pending['approvalId'])}\n"
+                          f"Command (exact native value, JSON escaped): {_pc_json(params['command'])}\n"
+                          f"Working directory (native cwd): {_pc_json(params['cwd'])}\n"
+                          f"Reason: {_pc_json(params.get('reason'))}\n"
+                          f"Network context: {_pc_json(params.get('networkApprovalContext'))}\n"
+                          f"Full native request parameters: {safe_native}\n"
+                          "Type approve to run once or deny. Enter defaults to deny.\n> ")
+                self._pc_output.write(prompt)
+                self._pc_output.flush()
+                answer = self._pc_input.readline()
+            except Exception as error:
+                self.last_error = str(error)
+                self._pc_console_available = False
+                return
+            if not answer:
+                self._pc_console_available = False
+                return
+            approve = answer.strip() == "approve"
+            with self.lock:
+                if (self._stop.is_set() or self._backend is not backend or
+                        self._active_turn != pending["turnId"] or
+                        self._stopping_turn == pending["turnId"] or
+                        self._conversation_id != pending["conversationId"]):
+                    continue
+                try:
+                    self._refresh()
+                    if self._active_turn != pending["turnId"]:
+                        continue
+                    current = next((item for item in backend.pending_pc_commands()
+                                    if (item["approvalId"], item["conversationId"],
+                                        item["turnId"], item["itemId"]) == identity
+                                    and item["nativeParams"] == pending["nativeParams"]), None)
+                    if current is None:
+                        continue
+                    backend.decide(pending["approvalId"], pending["conversationId"],
+                                   pending["turnId"], approve)
+                    self._activity = "working"
+                except Exception as error:
+                    self.last_error = str(error)
 
     def _watch(self, turn_id: str) -> None:
         while not self._stop.wait(0.1):
@@ -383,6 +473,7 @@ class AgentPortal:
                     return {"sessionId": self._session_id, "turnId": turn_id,
                             "activity": self._transcript[-1]["status"]}
                 raise AgentPortalError(409, "Turn is no longer active")
+            self._stopping_turn = turn_id
             try:
                 self._backend.cancel(self._conversation_id, turn_id)
             except Exception as error:
