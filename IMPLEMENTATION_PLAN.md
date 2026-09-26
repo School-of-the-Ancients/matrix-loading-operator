@@ -9,9 +9,12 @@ This is the current work-selection guide, not a replacement for detailed issue a
 ## Progress at the merged Web stack
 
 The original baseline below describes `main` at `509a72a` before these slices.
-The source through [PR #95](https://github.com/School-of-the-Ancients/matrix-loading-operator/pull/95)
-is now merged. Use the [project map](PROJECTS.md) to choose the current Web
-track versus the original Unity, Matrix World, or AI Citizens work.
+The source through [PR #98](https://github.com/School-of-the-Ancients/matrix-loading-operator/pull/98)
+is now merged at `2f6554c`. Use the [project map](PROJECTS.md) to choose the
+current Web track versus the original Unity, Matrix World, or AI Citizens
+work. Post-merge validation passed 643 ControlService Python tests, 141
+WebRuntime Node tests, and the Vite build. At this snapshot,
+`v0.7.0-preview.1` was planned as the next release checkpoint.
 
 | Step | Merged evidence | Remaining distinction |
 | --- | --- | --- |
@@ -19,14 +22,16 @@ track versus the original Unity, Matrix World, or AI Citizens work.
 | M1 Blender | [Copper Astrolabe desktop MCP trace](Validation/WebRuntime-Blender-MCP-M1-2026-09-25.md) with revision, GLB registration, placement receipt and browser rendering (#87). | Quest authoring and placed-asset replacement identity were not established by that trace. |
 | M2 world | [PC whole-world checkpoint](ControlService/WORLD_CHECKPOINTS.md) (#88) and [physics/checkpoint integration](Validation/WebRuntime-Physics-Checkpoint-Integration-2026-09-25.md) (#94). | Browser room-origin recovery and physical-plane state need separate Quest checks. |
 | M3 shared experiment | [Reviewed Block Scale Lab](Docs/Scale-Experiment.md) (#92) and desktop equivalence tests. | School bridge consumption and complete multi-surface acceptance remain separate. |
-| M4 immersive | Quest VR Agent voice, spawn, animation, revision, save/reopen, same-thread continuation, CODEX paging and WORLD save feedback have wearer evidence; XR transition and floor height were checked separately (#86/#89/#90/#94). | Complete VR approval/Stop/panel placement checks and the same workflow in AR remain open in the [Quest acceptance matrix](WebRuntime/QUEST3_ACCEPTANCE.md). |
+| M4 immersive | Quest VR Agent voice, spawn, animation, revision, save/reopen, same-thread continuation, CODEX paging and WORLD save feedback have wearer evidence. The [AR Agent journey](Validation/WebRuntime-AR-World-Transition-2026-09-26.md) exercised voice creation/revision, grab and save/reopen on merged main. [Panel recall](Validation/WebRuntime-M4-Panel-Recall-2026-09-26.md) (#97) worked for the wearer in VR and AR; the initial [VR-to-AR preview fix](Validation/WebRuntime-AR-World-Transition-2026-09-26.md#candidate-fix-vr-world-previews-in-ar) (#98) showed the same animated Dragon in both modes. | Reviewed approval/denial, Stop, panel text readability and active-turn/page survival, saved-origin recovery and physical-surface checks remain open in the [Quest acceptance matrix](WebRuntime/QUEST3_ACCEPTANCE.md). The final #98 provenance refinements have automated coverage but no wearer retest. |
 | Follow-up capabilities | [Virtual-floor GLB drop](Docs/Web-Floor-Physics.md) (#93) and [typed existing-object rotation](Validation/WebRuntime-Typed-Rotation-2026-09-26.md) (#95), including a Quest VR Agent voice/rotation receipt. | These are bounded mechanics, not general rigid-body physics; AR rotation and broader interaction remain separate checks. |
 
-The next acceptance slice is to use an isolated Quest service/scene and record
-the remaining VR panel/approval/Stop observations, then run the same supported
-Agent and save/reopen flow in AR, including room-origin behavior. Keep desktop
-and Quest evidence distinct. Do not move into School, Citizens or geography to
-stand in for these runtime checks.
+The next acceptance slice is to use an isolated Quest service/scene for one
+remaining M4 gate: reviewed approval/denial or Stop, then room-origin loss and
+recovery on a disposable AR world. The AR Agent creation loop and panel recall
+have wearer evidence already; do not repeat them to substitute for untested
+recovery, readability or physical-surface checks. Keep desktop and Quest
+evidence distinct. Do not move into School, Citizens or geography to stand in
+for these runtime checks.
 
 ## Delivery decision — desktop first, immersive UI later
 

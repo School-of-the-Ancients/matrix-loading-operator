@@ -5,23 +5,25 @@
 The current generalized Matrix runtime is the [Three.js/WebXR client](../WebRuntime/README.md)
 at `/web/`, backed by the PC-local ControlService and Codex Agent Portal. The
 [project map](../PROJECTS.md) separates it from the supported original Unity
-apps, Matrix World, and AI Citizens. At this snapshot, `main` contained the
-merged Web stack through [PR #95](https://github.com/School-of-the-Ancients/matrix-loading-operator/pull/95)
-at commit `d367f767`. The earlier
+apps, Matrix World, and AI Citizens. At this snapshot, `main` contains the
+merged Web stack through [PR #98](https://github.com/School-of-the-Ancients/matrix-loading-operator/pull/98)
+at commit `2f6554c`. The earlier
 [v0.6.0-preview.1 release](https://github.com/School-of-the-Ancients/matrix-loading-operator/releases/tag/v0.6.0-preview.1)
-freezes commit `add6e299`; it predates the final merges and is a preserved
-working checkpoint, not this complete source snapshot.
+freezes commit `add6e299`; it predates these merges and remains a preserved
+working checkpoint. At this snapshot, `v0.7.0-preview.1` was planned as the
+next release checkpoint.
 
 The merged Web stack includes Blender/GLB registration and animation, a
 persistent Codex conversation in the Operator panel, bounded numeric
 components, browser world checkpoints, PC whole-world checkpoints, the
 reviewed Block Scale Lab, bounded vertical drops for eligible imported GLBs,
-typed position/rotation edits to an existing virtual-floor object. [The
-implementation plan](../IMPLEMENTATION_PLAN.md) and [Quest acceptance
+typed position/rotation edits to an existing virtual-floor object, Operator
+panel hide/recall (#97), and browser-local AR origin provenance and recovery
+guards (#98). The [implementation plan](../IMPLEMENTATION_PLAN.md) and [Quest acceptance
 matrix](../WebRuntime/QUEST3_ACCEPTANCE.md) track remaining gates. This is not
 a general rigid-body system or a validated physical-floor collider.
 
-On the merged tree, **643 ControlService Python tests**, **126 WebRuntime Node
+On the merged tree, **643 ControlService Python tests**, **141 WebRuntime Node
 tests**, and the Vite build passed. [The #95 desktop runtime
 check](../Validation/WebRuntime-Typed-Rotation-2026-09-26.md) obtained
 successful spawn, Flight binding, and rotation receipts for the same Ice
@@ -34,9 +36,18 @@ confirmed page two of a Completed reply stayed visible. On the merged tree, a
 separate [Quest VR rotation follow-up](../Validation/WebRuntime-Typed-Rotation-2026-09-26.md#quest-vr-agent-follow-up)
 returned a successful typed move receipt and the wearer saw the Dragon turn
 while Flight continued. The wearer also saw the WORLD save notice on that
-merged Quest VR build; the PC scene-only backup appeared. Complete AR
-mode-specific acceptance remains a separate wearer check. No CI checks are
-configured for this repository's PR stack.
+merged Quest VR build; the PC scene-only backup appeared. In a separate
+[AR Agent journey](../Validation/WebRuntime-AR-World-Transition-2026-09-26.md#fresh-ar-creation-loop-on-merged-main)
+on the then-merged main build, the wearer created and animated a Dragon by
+voice, moved and grabbed it, and recovered the same ID, Flight binding and
+conversation after browser reopen. On the #97 candidate, the wearer confirmed
+[panel hide and thumbstick recall](../Validation/WebRuntime-M4-Panel-Recall-2026-09-26.md)
+in VR and AR with the blue ray visible. On the initial #98 candidate, the
+wearer saw the same animated Dragon after VR → AR; later origin-identity fixes
+have automated coverage but no Quest retest. Reviewed approval/Stop, text
+readability, physical-surface behavior and saved-origin loss/recovery remain
+open in the [Quest matrix](../WebRuntime/QUEST3_ACCEPTANCE.md). No CI checks
+are configured for this repository's PR stack.
 
 ## Historical Unity checkpoints
 
