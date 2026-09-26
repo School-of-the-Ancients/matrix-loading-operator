@@ -34,12 +34,12 @@ class FakeTransport:
         return [{"requestId": 42, "method": "item/commandExecution/requestApproval",
                  "params": {"threadId": "thread-1", "turnId": "turn-1", "command": "echo secret"}}]
 
-    def thread_start(self, *, model=None, sandbox="workspace-write"):
-        self.calls.append(("start", model, sandbox))
+    def thread_start(self, *, model=None, sandbox="workspace-write", approval_policy="on-request"):
+        self.calls.append(("start", model, sandbox, approval_policy))
         return "thread-1"
 
-    def thread_resume(self, identifier, *, sandbox="workspace-write"):
-        self.calls.append(("resume", identifier, sandbox))
+    def thread_resume(self, identifier, *, sandbox="workspace-write", approval_policy="on-request"):
+        self.calls.append(("resume", identifier, sandbox, approval_policy))
         return identifier
 
     def turn_start(self, identifier, text, *, effort=None):
@@ -96,14 +96,44 @@ class AgentSessionTests(unittest.TestCase):
             self.assertEqual(command[-2:], ["app-server", "--stdio"])
             self.assertEqual(backend.access_mode, "danger-full-access")
 
+    def test_automatic_agent_mode_applies_only_from_pc_config(self):
+        with tempfile.TemporaryDirectory() as folder:
+            executable = Path(folder) / "codex.exe"
+            executable.write_bytes(b"MZ test")
+            bridge = SimpleNamespace(url="http://127.0.0.1:1234/scene", token="PC-only")
+            prompted_tools = {"matrix_move_object", "matrix_register_glb", "matrix_spawn_asset",
+                              "matrix_bind_animation", "matrix_publish_component", "matrix_attach_component",
+                              "matrix_stop_component", "matrix_remove_component"}
+            for policy, expected_count in (("on-request", 8), ("never", 0)):
+                with self.subTest(policy=policy), patch("agent_session.AppServerTransport") as transport:
+                    config = CodexConfig(str(executable), agent_sandbox="danger-full-access",
+                                         agent_approval_policy=policy)
+                    backend = LocalCodexAgentBackend(config, folder, bridge)
+                    command = transport.call_args.args[0]
+                    prompt = [part for part in command if '.approval_mode="prompt"' in part]
+                    self.assertEqual(len(prompt), expected_count)
+                    names = {part.split(".tools.", 1)[1].split(".approval_mode", 1)[0]
+                             for part in prompt}
+                    self.assertEqual(names, prompted_tools if policy == "on-request" else set())
+                    self.assertIn('mcp_servers.matrix_webxr.default_tools_approval_mode="auto"', command)
+                    self.assertEqual(backend.approval_mode,
+                                     "automatic" if policy == "never" else "reviewed")
+                    backend.start_conversation()
+                    backend.resume_conversation("thread-1")
+                    self.assertEqual(transport.return_value.thread_start.call_args.kwargs["approval_policy"],
+                                     policy)
+                    self.assertEqual(transport.return_value.thread_resume.call_args.kwargs["approval_policy"],
+                                     policy)
+
     def test_normalizer_drops_tool_arguments_and_credentials(self):
         backend = LocalCodexAgentBackend.__new__(LocalCodexAgentBackend)
-        backend.config = SimpleNamespace(model="model-test", reasoning_effort="medium", agent_sandbox="workspace-write")
+        backend.config = SimpleNamespace(model="model-test", reasoning_effort="medium",
+                                         agent_sandbox="workspace-write", agent_approval_policy="on-request")
         backend.transport = FakeTransport()
         self.assertEqual(backend.start_conversation(), "thread-1")
         self.assertEqual(backend.resume_conversation("thread-1"), "thread-1")
-        self.assertIn(("start", "model-test", "workspace-write"), backend.transport.calls)
-        self.assertIn(("resume", "thread-1", "workspace-write"), backend.transport.calls)
+        self.assertIn(("start", "model-test", "workspace-write", "on-request"), backend.transport.calls)
+        self.assertIn(("resume", "thread-1", "workspace-write", "on-request"), backend.transport.calls)
         self.assertEqual(backend.send_text("thread-1", "Hello"), "turn-1")
         events = backend.events_since(0)
         self.assertEqual([event["type"] for event in events],

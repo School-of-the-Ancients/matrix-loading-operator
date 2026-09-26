@@ -38,3 +38,9 @@ The same AR session then approved an Ice Dragon preview. Its first request confl
 - M1 still needs a reviewed creation and follow-up revision inside one Agent Portal conversation, with source/export/catalog/placement trace. The local script path is a valid fallback; Blender MCP itself remains unproven.
 - Quest visual rendering is now wearer-confirmed for the Firefly and Ice Dragon. Physical-surface placement and room-origin recovery still need their own checks.
 - PC `Save`/`Restore` remain scene-only; whole experience checkpoint and restore are M2.
+
+## Later PC-owned automatic-mode and speech check
+
+After the wearer explicitly requested the same full-access, no-repeat-approval behavior as their normal Codex use, the isolated Quest service on port 18767 was restarted with `SANDBOX_CODEX_AGENT_SANDBOX=danger-full-access` and `SANDBOX_CODEX_AGENT_APPROVAL_POLICY=never`. It reused the same scratch scene/catalog directories and the already installed PC-local Whisper environment/model through `SANDBOX_SPEECH_PYTHON` and `SANDBOX_SPEECH_MODEL`. `/api/agent/status` reported `accessMode=danger-full-access`, `approvalMode=automatic`, and no pending approvals. `/api/planner` reported local English speech configured. The Quest browser reconnected in ready AR with the same Firefly and Ice Dragon object IDs and both animation bindings.
+
+In the resumed Agent Portal conversation, `Get-Location` completed with exit code 0. A fresh Matrix MCP call rebound the Dragon to its existing `Flight` / `Frost Burst` clips and received succeeded runtime receipt `a5a79291de5048ef8484467feb82d953` at scene revision 2. The portal exposed no pending approval during that turn. This checks a PC command and one Matrix write under the new mode; it does not establish that every configured external MCP server will avoid its own elicitation. Quest microphone transcription and the updated controller ray/grab still need wearer confirmation after a page reload.

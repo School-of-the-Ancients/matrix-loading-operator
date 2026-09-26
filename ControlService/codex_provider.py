@@ -52,6 +52,7 @@ class CodexConfig:
     provider: str = "Codex CLI (ChatGPT login)"
     reasoning_effort: str | None = None
     agent_sandbox: str = "workspace-write"
+    agent_approval_policy: str = "on-request"
     windows_sandbox: str | None = None
 
     @classmethod
@@ -65,6 +66,7 @@ class CodexConfig:
         return cls(executable, env.get("SANDBOX_CODEX_MODEL", "").strip() or None,
                    reasoning_effort=env.get("SANDBOX_CODEX_REASONING", "").strip() or None,
                    agent_sandbox=env.get("SANDBOX_CODEX_AGENT_SANDBOX", "").strip() or "workspace-write",
+                   agent_approval_policy=env.get("SANDBOX_CODEX_AGENT_APPROVAL_POLICY", "").strip() or "on-request",
                    windows_sandbox=env.get("SANDBOX_CODEX_WINDOWS_SANDBOX", "").strip() or None)
 
     def validate(self):
@@ -82,6 +84,9 @@ class CodexConfig:
             if self.reasoning_effort is not None and self.reasoning_effort not in REASONING_EFFORTS:
                 raise ValueError()
             if self.agent_sandbox not in ("read-only", "workspace-write", "danger-full-access"):
+                raise ValueError()
+            if (self.agent_approval_policy not in ("on-request", "never") or
+                    (self.agent_approval_policy == "never" and self.agent_sandbox != "danger-full-access")):
                 raise ValueError()
             if self.windows_sandbox not in (None, "unelevated"):
                 raise ValueError()

@@ -28,15 +28,15 @@ for line in sys.stdin:
     elif method == "initialized":
         pass
     elif method == "thread/start":
-        assert message["params"]["approvalPolicy"] == "on-request"
+        assert message["params"]["approvalPolicy"] in ("on-request", "never")
         assert message["params"]["approvalsReviewer"] == "user"
-        assert message["params"]["sandbox"] == "workspace-write"
+        assert message["params"]["sandbox"] == ("danger-full-access" if message["params"]["approvalPolicy"] == "never" else "workspace-write")
         send({"id": message["id"], "result": {"thread": {"id": "thread-test"}}})
     elif method == "thread/resume":
         assert message["params"]["threadId"] == "thread-test"
-        assert message["params"]["approvalPolicy"] == "on-request"
+        assert message["params"]["approvalPolicy"] in ("on-request", "never")
         assert message["params"]["approvalsReviewer"] == "user"
-        assert message["params"]["sandbox"] == "workspace-write"
+        assert message["params"]["sandbox"] == ("danger-full-access" if message["params"]["approvalPolicy"] == "never" else "workspace-write")
         send({"id": message["id"], "result": {"thread": {"id": "thread-test"}}})
     elif method == "thread/read":
         assert message["params"]["includeTurns"] is False
@@ -138,6 +138,17 @@ class AppServerTransportTests(unittest.TestCase):
             self.transport.thread_start(sandbox="no-sandbox")
         with self.assertRaises(ValueError):
             self.transport.thread_resume("thread-test", sandbox="no-sandbox")
+        for policy in ("never", "unknown"):
+            with self.subTest(policy=policy), self.assertRaises(ValueError):
+                self.transport.thread_start(approval_policy=policy)
+            with self.subTest(policy=policy), self.assertRaises(ValueError):
+                self.transport.thread_resume("thread-test", approval_policy=policy)
+
+    def test_automatic_policy_is_sent_on_new_and_resumed_thread(self):
+        thread_id = self.transport.thread_start(sandbox="danger-full-access", approval_policy="never")
+        self.assertEqual(thread_id, "thread-test")
+        self.assertEqual(self.transport.thread_resume(thread_id, sandbox="danger-full-access",
+                                                      approval_policy="never"), thread_id)
 
     def test_native_mcp_tool_approval_accept_and_decline(self):
         params = {"threadId": "thread-test", "turnId": "turn-mcp", "serverName": "matrix_webxr",

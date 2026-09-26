@@ -430,8 +430,11 @@ class AgentPortal:
         access_mode = getattr(self._backend, "access_mode", None)
         if access_mode not in ("read-only", "workspace-write", "danger-full-access"):
             access_mode = None
+        approval_mode = getattr(self._backend, "approval_mode", None)
+        if approval_mode not in ("reviewed", "automatic"):
+            approval_mode = None
         return {"sessionId": self._session_id, "activity": self._activity,
-                "accessMode": access_mode,
+                "accessMode": access_mode, "approvalMode": approval_mode,
                 "activeTurnId": self._active_turn, "transcript": deepcopy(self._transcript),
                 "pendingApprovals": pending, "cursor": self._sequence,
                 "events": deepcopy([event for event in self._events if event["sequence"] > cursor][-16:])}
