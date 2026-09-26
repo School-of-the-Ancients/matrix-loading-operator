@@ -4,7 +4,7 @@ Read [VISION.md](VISION.md), [PROJECTS.md](PROJECTS.md), [PRD.md](PRD.md), and [
 
 ## Product direction — September 26, 2026
 
-**The stable idea is an inhabited Matrix containing White Rooms/holodecks, where “Operator, load XYZ” creates a usable experience.** WebXR is the current generalized runtime direction. Playable experiences and fun interactive student demos are the near-term proving ground; everyday AR glasses are a long-term delivery aspiration, not a new-device dependency.
+**Matrix is a Matrix-inspired Three.js/WebXR sandbox: start in a blank White Room or load a pre-existing world, including a persistent Matrix world where AI citizens live, then use “Operator, load XYZ” to create or revise the experience.** The White Room is the starting inspiration, not a required nested holodeck or the only editing location. Playable experiences and fun interactive student demos are the near-term proving ground; everyday AR glasses are a long-term delivery aspiration, not a new-device dependency.
 
 The selected feature remains [#122 — Immersive Creator Mode](https://github.com/School-of-the-Ancients/matrix-loading-operator/issues/122), supported by #44/#59, #116, and the relevant runtime/experiment contracts. Use `IMPLEMENTATION_PLAN.md` for its active slice. Do not revert to an older Citizens-first or indefinitely desktop-only queue because a dated checkpoint or earlier prompt says “next.” Preserve that work and its acceptance; do not erase it or claim it is merged.
 
@@ -26,20 +26,20 @@ Unless the task or issue explicitly says otherwise, **new generalized Matrix run
 ```text
 Web / Quest WebXR
       |
-Three.js Matrix — White Room / AR experience
+Three.js Matrix — blank or loaded world / AR view
       |
 ControlService / Agent Portal
       |
 PC-local Codex + tools/MCPs
 ```
 
-The White Room is the UX starting point, not a direction to rebuild in Unity. Codex remains on the PC. Browser/headset code is a bounded client and must not receive Codex, GitHub, Blender, MCP or other privileged credentials.
+The White Room is an optional blank starting environment, not a direction to rebuild in Unity or a required editor location. Authorized Operator edits apply in the current world; creating does not require entering another room. Codex remains on the PC. Browser/headset code is a bounded client and must not receive Codex, GitHub, Blender, MCP or other privileged credentials.
 
 ## Do not confuse these tracks
 
 - **Current Web Matrix:** `WebRuntime/`, Agent Portal, Matrix tools, procedural creation, Blender/GLB, reusable behaviors, HTML/Three.js/WebXR experiences and demonstrations.
 - **Unity/original Matrix:** `Assets/`, `Packages/`, `ProjectSettings/`, Unity build scripts, original White Room, Room AR and content packs. Preserve the supported native/legacy client.
-- **Matrix World:** the persistent inhabited setting and world compositions; Boulder/Earth registration is a specialization. Holodecks belong within that wider vision, but a city is not needed for a local classroom or game. #125 portals are speculative.
+- **Matrix World:** persistent inhabited worlds the user can load and enter directly; Boulder/Earth registration is a specialization. A city or special holodeck is not needed for a local classroom or game. #125 portals are speculative.
 - **AI Citizens:** embodiment, navigation, needs, schedules, GOAP, memory and social simulation; preserve the open stack, but do not require a society to create a world or teach a concept. Real tool-using workers and animated/simulated citizens are not interchangeable evidence.
 - **School of the Ancients:** independent education product. Matrix may host a reusable demonstration/adapter; School owns curriculum, mentor pedagogy, learner records and assessment.
 - **Dynamic upgrader:** later use of shared world/asset tools, not a new default service or replacement runtime.
