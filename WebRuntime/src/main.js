@@ -209,7 +209,8 @@ function renderAgent(){
   view.setOperatorAgentStatus({activity,content:[accessLabel,agentVoiceStatus,agentApprovalText(pending),
     agentClient?.error?`Connection: ${agentClient.error}`:'',inWorld].filter(Boolean).join('\n\n'),
     pending:!!pending,approvalReviewable:pending?.reviewable===true,
-    active:!!status?.activeTurnId,connected:!!status&&!agentClient.error});
+    active:!!status?.activeTurnId,connected:!!status&&!agentClient.error,
+    voiceStatus:agentVoiceStatus,latestTurnId:latest?.turnId||''});
 }
 agentClient=new AgentClient((path,body)=>bridge.request(path,body),localStorage,renderAgent);
 renderAgent();
@@ -550,21 +551,26 @@ $('speak-replies').addEventListener('change',()=>{view.setVoiceOutputEnabled($('
 $('prompt').addEventListener('keydown',event=>{if(event.key==='Enter'&&(event.ctrlKey||event.metaKey))propose();});
 $('discard').addEventListener('click',()=>{discardProposal();feedback('Proposal discarded.');});
 $('apply').addEventListener('click',applyProposal);
-function voiceStatus(message,isError=false){
+function voiceStatus(message,isError=false,showInAgent=voiceDestination==='agent'){
   $('voice-status').textContent=message;$('xr-voice-status').textContent=message;
   feedback(message,isError);operatorMessageUntil=performance.now()+8000;
   view.setOperatorStatus(message,isError?'error':voiceRecording?'recording':'idle');
-  if(voiceDestination==='agent'){agentVoiceStatus=message;renderAgent();}
+  if(showInAgent){agentVoiceStatus=message;renderAgent();}
 }
-function voiceButtons(){for(const id of ['voice-button','xr-voice']){$(id).textContent=voiceStarting||voiceRecording?'Tap to send':'Tap to speak';$(id).disabled=!!voiceJob;}}
+function voiceButtons(){
+  for(const id of ['voice-button','xr-voice']){$(id).textContent=voiceStarting||voiceRecording?'Tap to send':'Tap to speak';$(id).disabled=!!voiceJob;}
+  view.setOperatorVoiceInputLabel(voiceStarting?'REQUESTING MIC':voiceRecording?'RELEASE TO SEND':voiceJob?'VOICE BUSY':'HOLD TO SPEAK');
+}
 async function beginVoice(){
-  if(voiceStarting||voiceRecording||voiceJob)return;
+  if(voiceStarting||voiceRecording)return;
+  if(voiceJob){voiceStatus('Finish the current voice request before speaking again.',true,false);return;}
   voiceDestination=view.isOperatorAgentMode()?'agent':'planner';
   if(voiceDestination==='agent'&&(!agentClient?.status||agentClient.error)){
     voiceStatus('Reconnect to Codex first.',true);return;
   }
   if(voiceDestination==='agent'&&agentClient.status.activeTurnId){voiceStatus('Wait for Codex or stop the current turn.',true);return;}
-  voiceAgentContext=voiceDestination==='agent'?captureAgentContext(world,view,bridge.clientId,'voice_transcript'):null;
+  try{voiceAgentContext=voiceDestination==='agent'?captureAgentContext(world,view,bridge.clientId,'voice_transcript'):null;}
+  catch(error){voiceStatus(`Could not capture Matrix context: ${error.message}`,true);return;}
   unlockReplyAudio();
   voiceStarting=true;voiceStopRequested=false;voiceButtons();voiceStatus('Requesting microphone…');
   try{await recorder.start();voiceRecording=true;voiceSnapshot=world.snapshot(view.viewer());voiceStatus('Recording… release the controller or tap Send.');}
@@ -574,8 +580,9 @@ async function beginVoice(){
 async function endVoice(){
   if(voiceStarting){voiceStopRequested=true;return;}
   if(!voiceRecording)return;
-  voiceRecording=false;voiceButtons();voiceStatus('Transcribing on PC…');
+  voiceRecording=false;voiceJob='finalizing';voiceButtons();voiceStatus('Finishing recording…');
   try{const audioBase64=await recorder.stop();
+    voiceStatus('Transcribing on PC…');
     if(voiceDestination==='agent'){
       voiceJob='agent-transcribe';voiceButtons();
       const transcript=await agentClient.transcribe(audioBase64);
@@ -583,6 +590,7 @@ async function endVoice(){
       await agentClient.send(transcript,voiceAgentContext);
       voiceStatus('Sent to Codex with Matrix spatial context.');
     }else{
+      voiceJob='planner-submit';voiceButtons();
       const job=await bridge.request('/api/voice',{clientId:bridge.clientId,snapshot:voiceSnapshot,audioBase64,conversation,webRuntime:true});
       voiceJob=job.jobId;voiceButtons();await pollVoice(voiceJob);
     }
