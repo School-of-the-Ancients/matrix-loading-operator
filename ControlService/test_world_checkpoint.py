@@ -89,6 +89,39 @@ class WorldCheckpointTests(unittest.TestCase):
         self.assertEqual(restored["world"]["scene"]["objects"][0]["animation"]["loopClip"], "Flight")
         self.assertEqual(fresh.latest, before, "load returns data for browser validation; it does not queue or replace")
 
+    def test_registered_glb_physics_config_survives_world_checkpoint_without_solver_state(self):
+        physics = {"schemaVersion": 1, "kind": "gravity-floor",
+                   "collider": "rendered-bounds-box", "restitution": 0.25}
+        world = copy.deepcopy(self.world)
+        world["scene"]["objects"][0]["physics"] = physics
+        observed = copy.deepcopy(self.snapshot)
+        observed["scene"] = copy.deepcopy(world["scene"])
+        observed["physicsSchemaVersion"] = 1
+        observed["physicsStates"] = [{
+            "objectId": "pickup-1", "executionId": "drop-1", "status": "settled",
+            "position": {"x": 0, "y": 0, "z": -2}, "verticalVelocityMps": 0,
+            "contactCount": 1, "lastContact": {"index": 1, "surface": "web-floor",
+                                               "impactSpeedMps": 1.2, "approximate": True}}]
+        self.state.exchange({"clientId": "browser", "snapshot": observed, "results": []})
+        self.assertEqual(self.state.latest["physicsStates"][0]["status"], "settled")
+
+        self.state.save_world_checkpoint("Physics", world)
+        path = self.scenes / "world_checkpoints" / "Physics.json"
+        stored = json.loads(path.read_text(encoding="utf-8"))
+        self.assertEqual(stored["world"]["scene"]["objects"][0]["physics"], physics)
+        self.assertNotIn("physicsStates", stored["world"])
+        self.assertNotIn("physicsStates", stored)
+
+        reopened = State(self.scenes, web_assets_directory=self.assets)
+        reconnect = copy.deepcopy(observed)
+        reconnect["scene"]["objects"] = []
+        reconnect.pop("physicsStates")
+        reopened.exchange({"clientId": "reopened-browser", "snapshot": reconnect, "results": []})
+        restored = reopened.load_world_checkpoint("Physics")
+        self.assertEqual(restored["world"]["scene"]["objects"][0]["physics"], physics)
+        self.assertEqual(restored["world"]["game"], world["game"])
+        self.assertNotIn("physicsStates", restored["world"])
+
     def test_missing_or_corrupt_glb_rejects_without_replacing_active_world(self):
         self.state.save_world_checkpoint("Demo", self.world)
         path = self.assets / (self.asset["sha256"] + ".glb")

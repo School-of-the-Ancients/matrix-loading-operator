@@ -1632,7 +1632,8 @@ class State:
         require(checked_scene == value["scene"] and checked_scene["roomId"] == "web-virtual-room-v1" and
                 all(item["anchorId"] == "web-floor" for item in checked_scene["objects"]),
                 "World checkpoint contains unsupported scene data or session-local anchors")
-        capabilities = {key: current[key] for key in ("componentSchemaVersion", "animationSchemaVersion", "behaviorKinds")
+        capabilities = {key: current[key] for key in ("componentSchemaVersion", "animationSchemaVersion",
+                                                    "physicsSchemaVersion", "behaviorKinds")
                         if key in current}
         snapshot({"scene": checked_scene, "assets": current["assets"], "anchors": current["anchors"],
                   **capabilities})
