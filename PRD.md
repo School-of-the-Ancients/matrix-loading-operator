@@ -1,9 +1,12 @@
 # Matrix: small, programmable world — PRD
 
-Requirements snapshot: September 25, 2026. The desktop foundation and selected
-Quest VR and AR checks subsequently merged through #98. The wearer confirmed
-panel recall in both modes and an AR Agent creation/revision/save journey;
-reviewed approval/Stop and room-origin recovery are still open. The
+Requirements snapshot: September 25, 2026, with a September 26 priority update.
+The desktop foundation and selected Quest VR and AR checks subsequently merged
+through #98. The wearer confirmed panel recall in both modes and an AR Agent
+creation/revision/save journey; reviewed approval/Stop and room-origin recovery
+are still open. The current next Matrix slice is a small desktop AI Citizens
+simulation under [#29](https://github.com/School-of-the-Ancients/matrix-loading-operator/issues/29);
+it does not close the independent M4 headset checks. The
 [implementation plan](IMPLEMENTATION_PLAN.md#progress-at-the-merged-web-stack)
 and [Quest acceptance matrix](WebRuntime/QUEST3_ACCEPTANCE.md) carry the dated
 implementation status. Requirements here are not claims of device acceptance.
@@ -14,13 +17,15 @@ implementation status. Requirements here are not claims of device acceptance.
 
 Open Matrix in the desktop browser, talk to the real Codex running on the PC, and create, change, interact with, and save a small world. Keep the same conversation while working. Blender can make richer assets; ordinary HTML and Three.js code can make richer experiences. School of the Ancients is a separate learning application that can use these capabilities. The same Matrix experience will receive an improved VR/AR presentation after the desktop loop works reliably.
 
-The long-term vision remains a persistent world with content libraries, AI residents, lessons, and real-world overlays. The next release proves one useful creation loop, not that entire vision.
+The long-term vision remains a persistent world with content libraries, AI residents, lessons, and real-world overlays. The merged desktop creation foundation supports the current next slice: a small, restartable resident simulation. That slice does not establish a full city, economy, or autonomous society.
 
 ## Delivery decision: desktop first
 
 The initial decision was to finish the existing `/web/` application in ordinary desktop mode with mouse/keyboard and usable HTML controls before redesigning immersive UI. M0–M3 did not require immersive session entry or a headset. Voice remained optional for desktop acceptance.
 
 M4 now adapts that same working flow for VR controls/layout and separately validates AR room placement/recovery. This is one Three.js/WebXR application with different input/presentation modes, not a second desktop engine. Do not wait for all future Matrix features before returning to headset work.
+
+The September 26 priority change starts Citizens development now at `/web/citizens.html`, an isolated page that reuses WebRuntime/MatrixWorld code but keeps its world and browser storage separate from the main `/web/` Agent Portal. Integration into that live world remains future work. Unfinished M4 wearer checks stay open and can be resumed separately; they are not prerequisites for a desktop simulation. A browser result does not count as Quest acceptance.
 
 ## Keep the architecture we already have
 
@@ -33,9 +38,11 @@ M4 now adapts that same working flow for VR controls/layout and separately valid
 
 These are responsibilities, not four new services. Preserve the existing state owners; do not move all browser/runtime state to a new server just to match an architecture diagram. The broader [module catalog](https://github.com/School-of-the-Ancients/school-of-the-ancients-roadmap/blob/main/MODULES.md) remains the ownership reference.
 
+AI Citizens owns resident needs, goals and decisions. The desktop fixture uses MatrixWorld's bounded action validation and receipts and a separate browser-local checkpoint. A later connection to the live Matrix world must preserve Core's authority over world execution and persistence. A resident cannot inherit the Operator's shell credentials or real-world fleet permissions. School retains teaching and learner records in its separate product.
+
 `/web/` is the current Matrix experience. `/` and the Unity builds remain the supported native/legacy path. Do not merge their interfaces or rewrite them for this release.
 
-## First complete user journey
+## Desktop creation journey
 
 1. Open `/web/` in desktop mode, connect to the configured PC agent, and select or point at a place/object with the mouse.
 2. Ask for an object or experience. Reuse a suitable asset first; create one when needed.
@@ -45,9 +52,18 @@ These are responsibilities, not four new services. Preserve the existing state o
 
 Use the existing dragon/skiff or a simpler object for acceptance. A new spectacular asset is not a prerequisite.
 
+## Current AI Citizens journey
+
+1. Open a small desktop Three.js world with one visible resident and simple existing props. Observe changing needs, available activities, selected goal, movement, interaction and the resulting state change.
+2. Read the resident's current activity, needs and decision/action log. Pause and resume the simulation; repeat a seeded scenario to diagnose the same decisions and outcomes.
+3. Add a second resident sharing the world and objects. Show different choices and one capacity-limited interaction, such as competing for a seat. A failed, cancelled or occupied action must not grant an unobserved benefit.
+4. Save and reopen the supported simulation. Restore resident identities, needs, relevant world objects and valid intent without replaying a stale success. Report missing or incompatible dependencies without overwriting the current world.
+
+Use [#29](https://github.com/School-of-the-Ancients/matrix-loading-operator/issues/29) and its linked issues for the detailed acceptance. Build only missing prerequisites needed by this example. Basic activity continues without an LLM request per frame. Richer character authoring and ComfyUI-to-Blender assets are optional follow-ups.
+
 ## Requirements and evidence
 
-| ID | Requirement | Done for this release when… |
+| ID | Requirement | Done when… |
 | --- | --- | --- |
 | R1 | One useful agent session | Text/follow-up, refresh/reconnect, native approval/denial, and Stop work without silently starting another conversation. Outage/quota errors preserve the existing world. |
 | R2 | Spatially grounded edits | Selection and pointing remain distinct; an edit targets the intended object. Stale state is rejected, and queued/unconfirmed is never reported as executed. |
@@ -56,8 +72,9 @@ Use the existing dragon/skiff or a simpler object for acceptance. A new spectacu
 | R5 | Honest saving | Browser reopen retains the supported scene/game/configuration. The PC whole-world checkpoint preserves the supported experience, while the in-world PC backup remains labeled scene-only. Missing assets or room tracking must not silently replace/recenter the world. |
 | R6 | One shared experiment | Desktop HTML controls, a Three.js view, and an agent operation use one tested scale-experiment state/measurement implementation. Immersive presentation is deferred to M4; simultaneous multi-device synchronization is not required. |
 | R7 | Independent School | A text-only lesson works without Matrix. Its optional connector uses reviewed, scoped world actions and observed results, not Codex shell credentials. |
+| R8 | Small autonomous Citizens simulation | At least two visible desktop residents make need-driven choices, move and interact through validated world actions, contend for one shared object, show readable activity/needs/decision logs, and pause/save/reopen from a seeded scenario. Actual browser behavior and observed outcomes are recorded; failed or uncertain actions do not silently change resident state. |
 
-The release target is R1–R5 accepted on desktop, with R6's shared experiment and R7's independent School connector tracked separately. M4 validates the same supported flow on VR/AR hardware. Desktop evidence and actual Quest wearer evidence remain separate; desktop completion does not close headset acceptance criteria. Consult the linked status records before declaring any row complete.
+R1–R7 retain the earlier creation and School requirements. R8 is the current Matrix implementation priority, not an assertion of completion. M4 validates the supported creation flow on VR/AR hardware separately. Desktop evidence and actual Quest wearer evidence remain distinct; desktop completion does not close headset acceptance criteria. Consult the linked status records before declaring any row complete.
 
 ## Two creation paths, not a new mini-engine
 
@@ -73,8 +90,8 @@ Continue local Codex sign-in and the existing `AgentSessionBackend`. The app-ser
 
 Blender, the existing GLB catalog, and local speech are sufficient to test the first loop. Scenario, image-to-3dlab, other catalogs, realtime models, and fleet workers remain optional providers. Verify their current API, access, cost, and license before choosing an integration.
 
-## Explicitly not in this release
+## Outside the current slice
 
-No new microservices, orchestration framework, database migration, distributed queue, event-sourcing system, broad provider abstraction, or mass repository move. No mandatory physics/navmesh engine, autonomous society, Boulder port, global mapping, multiplayer, hosted-to-local relay, WebMCP dependency, or new headset purchase. Immersive UI redesign, new controller/hand interaction work and new AR camera/alignment features wait for M4; preserve existing support and guards meanwhile.
+No new microservices, orchestration framework, database migration, distributed queue, event-sourcing system, broad provider abstraction, or mass repository move. No mandatory physics/navmesh engine, full city/economy simulator, Boulder port, global mapping, multiplayer, hosted-to-local relay, WebMCP dependency, or new headset purchase. Immersive UI redesign, new controller/hand interaction work and new AR camera/alignment features remain M4 work; preserve existing support and guards meanwhile.
 
 Preserve these future directions in their existing issues. Add a dependency only when the next demonstrated user task requires it.

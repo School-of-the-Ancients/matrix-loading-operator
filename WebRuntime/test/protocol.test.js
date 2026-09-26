@@ -34,6 +34,50 @@ test('spawn, transform, behavior, undo and restore preserve stable identity',()=
   assert.equal(world.scene.objects[0].objectId,'object-1');
 });
 
+test('local observed movement validates and receipts without filling authored Undo history',()=>{
+  const world=new MatrixWorld(()=> 'resident-1');
+  const spawn=world.execute(command('spawn-1','spawn',{assetId:'orb',anchorId:ANCHOR_ID,transform:pose()}));
+  assert.equal(spawn.ok,true);
+  const beforeUndo=world.undo.length;
+  const moved=world.execute(command('move-1','set_transform',
+    {objectId:spawn.objectId,transform:pose(.25,0,-2)}),{recordHistory:false});
+  assert.deepEqual({requestId:moved.requestId,ok:moved.ok,objectId:moved.objectId},
+    {requestId:'move-1',ok:true,objectId:'resident-1'});
+  assert.equal(world.requireObject(spawn.objectId).transform.position.x,.25);
+  assert.equal(world.undo.length,beforeUndo);
+  const rejected=world.execute(command('move-2','set_transform',
+    {objectId:spawn.objectId,transform:pose(101,0,-2)}),{recordHistory:false});
+  assert.equal(rejected.ok,false);
+  assert.equal(world.requireObject(spawn.objectId).transform.position.x,.25);
+  assert.equal(world.undo.length,beforeUndo);
+});
+
+test('an advertised finite interaction returns an in-range observed outcome',()=>{
+  let n=0;const world=new MatrixWorld(()=>`object-${++n}`);
+  const chair=world.execute(command('spawn-chair','spawn',
+    {assetId:'chair',anchorId:ANCHOR_ID,transform:pose(0,0,-2)}));
+  const actor=world.execute(command('spawn-actor','spawn',
+    {assetId:'orb',anchorId:ANCHOR_ID,transform:pose(0,0,-1.4)}));
+  assert.equal(chair.ok,true);assert.equal(actor.ok,true);
+  assert.deepEqual(world.snapshot().assets.find(asset=>asset.assetId==='chair').interactions,
+    [{kind:'rest',rangeMeters:.8}]);
+  const beforeUndo=world.undo.length;
+  const outcome=world.execute(command('rest-1','interact',
+    {actorObjectId:actor.objectId,targetObjectId:chair.objectId,kind:'rest'}));
+  assert.equal(outcome.ok,true);
+  assert.deepEqual(outcome.outcome,{kind:'rest',actorObjectId:actor.objectId,
+    targetObjectId:chair.objectId,observedDistanceMeters:.6});
+  assert.equal(world.undo.length,beforeUndo);
+  assert.equal(world.execute(command('eat-1','interact',
+    {actorObjectId:actor.objectId,targetObjectId:chair.objectId,kind:'eat'})).ok,false);
+  assert.equal(world.execute(command('move-away','set_transform',
+    {objectId:actor.objectId,transform:pose(3,0,-1.4)}),{recordHistory:false}).ok,true);
+  const rejected=world.execute(command('rest-2','interact',
+    {actorObjectId:actor.objectId,targetObjectId:chair.objectId,kind:'rest'}));
+  assert.match(rejected.error,/out of interaction range/);
+  assert.equal(rejected.outcome,undefined);
+});
+
 test('bad geometry bounds and incompatible saved scenes fail without mutation',()=>{
   const world=new MatrixWorld(()=> 'object-1');
   const original=structuredClone(world.scene);

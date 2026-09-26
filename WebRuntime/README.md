@@ -14,6 +14,10 @@ python ControlService/server.py
 
 Open `http://127.0.0.1:8765/web/`. The service grants one active runtime lease, so close other Matrix runtimes before testing this client. Start the configured Codex service to use **Codex AI on PC**; offline rules still handle simple scene commands. Arrow keys or WASD move the desktop camera, right-drag looks around, left-drag moves an object horizontally, and Shift + left-drag changes its height.
 
+### AI Citizens desktop fixture
+
+The separate `/web/citizens.html` page runs a small seeded two-resident simulation with changing needs, activity choices, movement, chair/table interactions, shared-resource contention, pause/step controls, an inspector/log, and its own browser-local save. It reuses `MatrixWorld` validation and local receipts but does not join the main `/web/` world or call the Agent Portal. Use the [isolated service commands, demo steps, verification and limits](../Docs/Citizens-Desktop-Demo.md). Its desktop result does not close the [Quest M4 acceptance checks](QUEST3_ACCEPTANCE.md).
+
 The desktop **Block Scale Lab** operates on a selected built-in block in the virtual room. Open `/clients` on the PC to create a one-use pairing code, then enter it in the lab. X/Y/Z factors propose a reviewed scale; clicking the Three.js canvas with a block selected and pressing **1–4** proposes equivalent uniform factors. **R** proposes a reviewed reset after a confirmed result. The owner must review and Apply every proposal on `/clients`; the lab cannot Apply, even if general safe-command auto-apply is enabled. Dimensions and volume ratio come from a confirmed runtime receipt and catalog bounds, not a physical measurement. The historical result can reappear after world reload when the saved block identity and transform still match, but making another request requires pairing again. See [the scale experiment contract](../Docs/Scale-Experiment.md).
 
 ## Operator in AR or VR
