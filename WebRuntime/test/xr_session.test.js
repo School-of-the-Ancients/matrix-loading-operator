@@ -145,6 +145,16 @@ test('native exit during session setup reports the aborted start',async()=>{
   assert.match(errors[0],/AR could not start: Session ended during setup/);
 });
 
+test('unexpected native exit just after VR entry is visible to the wearer',async()=>{
+  const xrRenderer=rendererXR(),errors=[];
+  const opened=session();
+  const controls=new XRSessionController({requestSession:async()=>opened},xrRenderer,()=>{},message=>errors.push(message));
+  assert.equal(await controls.enter('immersive-vr',{}),true);
+  opened.dispatchEvent(new Event('end'));
+  assert.equal(xrRenderer.getSession(),null);
+  assert.match(errors[0],/VR session closed immediately/);
+});
+
 test('a late AR hit test source is cancelled after the session changes',async()=>{
   let current=session(),resolveSource;
   const ar=current,source={cancelled:false,cancel(){this.cancelled=true;}};

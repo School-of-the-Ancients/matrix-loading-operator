@@ -29,14 +29,27 @@ Matrix origin on port 18767 and release `v0.6.0-preview.1` are unchanged.
 
 - One controller now owns both immersive entry modes, keeps request and exit
   transitions mutually exclusive, and reports a failed entry next to the
-  AR/VR buttons. It never calls `offerSession`.
+  AR/VR buttons, including a session that Quest closes immediately. It never
+  calls `offerSession`.
 - AR requests `local`; VR requires `local-floor`. The native reference space is
   checked before calling Three's `setSession`, so an unsupported space does not
   enter Three's partial setup path. A late AR hit-test source is cancelled.
-- WebRuntime: 86 Node tests passed; Vite production build passed. The
+- WebRuntime: 87 Node tests passed; Vite production build passed. The
   ControlService suite passed 610 Python tests on this stacked base.
 
 ## Quest retest
 
-Pending wearer observation on the rebuilt port 18772 bundle. Entry, floor
-height, voice, and the complete M4 workflow must be recorded separately.
+On the corrected port 18772 bundle, the wearer confirmed AR entry again, but
+VR still returned to the browser. A temporary Quest Browser diagnostic showed
+`requestSession('immersive-vr')` granted an opaque session and then received
+the native `end` event about 30–40 ms later, including on a fresh page before
+AR. The diagnostic did not observe Matrix calling `session.end()` for the
+tested failure. Quest displayed **“left controller not connected”** and the
+wearer reported that pressing a button did not reconnect it. The headset log
+showed the left interaction profile unavailable and the right present. This
+run cannot establish whether the remaining VR failure is the app, Quest
+Browser, or the headset input state. Retest after Quest Home recognizes the
+left controller or another supported input route.
+
+VR entry, floor height, voice, and the complete M4 workflow remain unverified
+on this branch. No room imagery or conversation content was retained.

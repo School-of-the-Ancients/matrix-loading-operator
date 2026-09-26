@@ -3,10 +3,10 @@
 export class XRSessionController {
   constructor(xr,rendererXR,onChange=()=>{},onError=()=>{}){
     this.xr=xr;this.rendererXR=rendererXR;this.onChange=onChange;this.onError=onError;
-    this.activeSession=null;this.activeMode=null;this.pending=false;this.ending=false;
+    this.activeSession=null;this.activeMode=null;this.pending=false;this.ending=false;this.presentedAt=null;
     rendererXR.addEventListener('sessionend',()=>{
       if(!rendererXR.getSession()){
-        this.activeSession=null;this.activeMode=null;this.ending=false;
+        this.activeSession=null;this.activeMode=null;this.ending=false;this.presentedAt=null;
         this.onChange();
       }
     });
@@ -26,7 +26,10 @@ export class XRSessionController {
       this.activeSession=session;this.activeMode=mode;
       session.addEventListener('end',()=>{
         if(this.activeSession===session){
+          const endedImmediately=!this.ending&&this.presentedAt!==null&&performance.now()-this.presentedAt<1500;
           this.activeSession=null;this.activeMode=null;this.ending=false;
+          this.presentedAt=null;
+          if(endedImmediately)this.onError(`${mode==='immersive-ar'?'AR':'VR'} session closed immediately. Check Quest tracking and controllers, then try again.`);
           this.onChange();
         }
       },{once:true});
@@ -41,10 +44,11 @@ export class XRSessionController {
         this.onError(`${mode==='immersive-ar'?'AR':'VR'} ended before it became ready. Please try again.`);
         return false;
       }
+      this.presentedAt=performance.now();
       return true;
     }catch(error){
       if(session){try{await session.end();}catch{/* The session may already have ended. */}}
-      if(this.activeSession===session){this.activeSession=null;this.activeMode=null;this.ending=false;}
+      if(this.activeSession===session){this.activeSession=null;this.activeMode=null;this.ending=false;this.presentedAt=null;}
       this.onError(`${mode==='immersive-ar'?'AR':'VR'} could not start: ${error?.message||error}`);
       return false;
     }finally{
