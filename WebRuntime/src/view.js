@@ -339,6 +339,12 @@ export class MatrixView {
   restoreRoomAnchor(session){
     if(!this.isAR)return;
     this.roomAnchor=null;this.roomAnchorPending=false;this.roomAnchorPersistent=false;this.roomAnchorRestoredHandle=null;this.roomAnchorHandleAvailable=false;this.roomPoseMissingSince=0;
+    // A world explicitly saved as virtual has no proven relationship to the
+    // browser's last AR anchor. Keep its virtual-floor preview visible even if
+    // that unrelated handle is stale, inaccessible, or restores successfully.
+    // Measured-surface content still requires the guarded recovery path.
+    if(this.world.originBinding==='virtual'&&
+       !this.world.scene.objects.some(object=>object.anchorId!=='web-floor'))return;
     let handle;
     try{handle=localStorage.getItem(ROOM_ANCHOR_KEY);}
     catch(error){
@@ -588,7 +594,8 @@ export class MatrixView {
     }
     const floor=anchors.find(anchor=>anchor.semanticLabels.includes('FLOOR'))?.anchorId;
     for(const [id,group] of this.planeOutlines)group.userData.label.visible=id===floor||id===this.world.selection.anchorId;
-    const origin=this.roomAnchorRestoreFailed?'ROOM RELOCALIZATION FAILED':this.roomAnchor&&this.roomAnchorLocated?(this.roomAnchorPersistent?'ROOM ANCHORED':'SESSION ANCHORED'):this.roomAnchorPending||this.roomAnchor?'ALIGNING ROOM':'ROOM ORIGIN UNAVAILABLE';
+    const origin=this.roomAnchorRestoreFailed?'ROOM RELOCALIZATION FAILED':this.roomAnchor&&this.roomAnchorLocated?(this.roomAnchorPersistent?'ROOM ANCHORED':'SESSION ANCHORED'):this.roomAnchorPending||this.roomAnchor?'ALIGNING ROOM':
+      this.world.originBinding==='virtual'&&hasWorldToProtect(this.world)?'UNANCHORED PREVIEW':'ROOM ORIGIN UNAVAILABLE';
     this.operatorPanel.setOriginLabel(origin);
     document.getElementById('view-label').textContent=anchors.length?`WEBXR AR · ${anchors.length} ROOM PLANES · ${origin}`:'WEBXR AR · NO ROOM PLANES';
     if(!anchors.length&&!this.roomCaptureRequested&&time-this.sessionStartedAt>3000&&typeof frame.session?.initiateRoomCapture==='function'){
