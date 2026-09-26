@@ -128,6 +128,63 @@ def validate_game_plan(value, snapshot):
     return value
 
 
+def validate_saved_game(value, scene, snapshot):
+    """Validate the browser's declarative bindings and earned progress before a PC checkpoint."""
+    if value is None:
+        return None
+    if type(value) is not dict or set(value) != {"spec", "bindings", "state"}:
+        raise ValueError("Invalid saved game")
+    spec = validate_game_plan(value["spec"], snapshot)
+    if spec["kind"] != "game":
+        raise ValueError("Unsupported game cannot be saved as active progress")
+    bindings = value["bindings"]
+    if type(bindings) is not dict or set(bindings) != {role["roleId"] for role in spec["roles"]}:
+        raise ValueError("Invalid saved game bindings")
+    objects = {item["objectId"]: item for item in scene["objects"]}
+    bound = set()
+    for role in spec["roles"]:
+        ids = bindings[role["roleId"]]
+        if type(ids) is not list or len(ids) != role["count"]:
+            raise ValueError("Invalid saved game bindings")
+        for object_id in ids:
+            obj = objects.get(object_id) if type(object_id) is str else None
+            if obj is None or object_id in bound or obj["assetId"] != role["assetId"] or obj["anchorId"] != "web-floor":
+                raise ValueError("Invalid saved game bindings")
+            bound.add(object_id)
+    state = value["state"]
+    if type(state) is not dict or set(state) != {"phase", "score", "deliveries", "objectiveProgress"} or \
+            state["phase"] not in ("playing", "won") or type(state["score"]) is not int or \
+            not 0 <= state["score"] <= 9007199254740991 or type(state["deliveries"]) is not list or \
+            type(state["objectiveProgress"]) is not dict:
+        raise ValueError("Invalid saved game progress")
+    pickup_roles = [role for role in spec["roles"] if role["kind"] == "pickup"]
+    role_by_object = {object_id: role for role in pickup_roles for object_id in bindings[role["roleId"]]}
+    deliveries = state["deliveries"]
+    if any(type(object_id) is not str or object_id not in role_by_object for object_id in deliveries) or \
+            len(set(deliveries)) != len(deliveries):
+        raise ValueError("Invalid saved game deliveries")
+    count_objectives = [item for item in spec["objectives"] if item["kind"] == "delivered-count"]
+    progress = {item["roleId"]: sum(object_id in deliveries for object_id in bindings[item["roleId"]])
+                for item in count_objectives}
+    if state["objectiveProgress"] != progress or any(type(number) is not int for number in state["objectiveProgress"].values()):
+        raise ValueError("Invalid saved game objective progress")
+    minimum = maximum = 0
+    for object_id in deliveries:
+        role_id = role_by_object[object_id]["roleId"]
+        points = [rule["scorePoints"] for rule in spec["rules"] if rule["actorRoleId"] == role_id]
+        if not points:
+            raise ValueError("Invalid saved game score")
+        minimum += min(points)
+        maximum += max(points)
+    if not minimum <= state["score"] <= maximum:
+        raise ValueError("Invalid saved game score")
+    won = all(state["score"] >= item["targetPoints"] if item["kind"] == "score-at-least"
+              else progress[item["roleId"]] >= item["targetCount"] for item in spec["objectives"])
+    if (state["phase"] == "won") != won:
+        raise ValueError("Invalid saved game phase")
+    return value
+
+
 def design_game(prompt, snapshot, preferences=None):
     try:
         config = CodexConfig.from_environment()
