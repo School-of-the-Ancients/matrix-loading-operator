@@ -14,6 +14,7 @@ from agent_portal import AgentPortal, AgentPortalError, MAX_STORE
 
 class FakeBackend:
     access_mode = "workspace-write"
+    approval_mode = "reviewed"
 
     def __init__(self, persisted):
         self.persisted = persisted
@@ -118,6 +119,7 @@ class AgentPortalTests(unittest.TestCase):
         portal = self.portal()
         opened = portal.open()
         self.assertEqual(opened["accessMode"], "workspace-write")
+        self.assertEqual(opened["approvalMode"], "reviewed")
         session_id = opened["sessionId"]
         self.assertEqual(len(session_id), 32)
         self.assertNotEqual(session_id, "native-thread-id")
@@ -172,6 +174,28 @@ class AgentPortalTests(unittest.TestCase):
         self.assertEqual(json.loads((Path(self.temp.name) / "agent_portal.json").read_text())["sessionId"], session_id)
         self.assertEqual(json.loads((Path(self.temp.name) / "agent_portal.json").read_text())["conversationId"],
                          "native-thread-id")
+
+    def test_restarted_portal_reports_new_pc_approval_mode_on_same_conversation(self):
+        portal = self.portal()
+        session_id = portal.open()["sessionId"]
+        turn_id = portal.send_text(session_id, "First turn")["turnId"]
+        portal.decide(session_id, self.backends[-1].approval["approvalId"], turn_id, True)
+        self.wait_for(portal, session_id, lambda value: value["activity"] == "completed")
+        portal.close()
+
+        class AutomaticBackend(FakeBackend):
+            approval_mode = "automatic"
+            access_mode = "danger-full-access"
+
+        backend = AutomaticBackend(self.persisted)
+        restarted = AgentPortal(self.temp.name, lambda: backend)
+        self.addCleanup(restarted.close)
+        resumed = restarted.open()
+        self.assertEqual(resumed["sessionId"], session_id)
+        self.assertNotIn("conversationId", resumed)
+        self.assertEqual(resumed["approvalMode"], "automatic")
+        self.assertEqual(resumed["accessMode"], "danger-full-access")
+        self.assertEqual(backend.resume_calls, ["native-thread-id"])
 
     def test_old_empty_native_thread_migrates_without_resuming_it(self):
         session_id = "a" * 32

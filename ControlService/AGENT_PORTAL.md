@@ -45,6 +45,41 @@ requires restarting the PC service. Full PC access is available with
 `-AgentSandbox danger-full-access`; it does not wait for sandbox escalation
 approval before ordinary shell or file operations.
 
+## PC-owned automatic Agent mode
+
+The default `-AgentApprovals reviewed` keeps native `on-request` approvals and
+the Matrix MCP write-tool prompts. To run the Agent with full PC access and no
+repeated native approvals, start the PC service explicitly with both options:
+
+```powershell
+.\Start-CodexControlService.ps1 -AgentSandbox danger-full-access -AgentApprovals automatic
+```
+
+The launcher sets `SANDBOX_CODEX_AGENT_SANDBOX=danger-full-access` and
+`SANDBOX_CODEX_AGENT_APPROVAL_POLICY=never` for that service process. Direct
+`server.py` launches can set those two PC environment variables instead.
+Automatic approval policy is rejected unless the Agent sandbox is
+`danger-full-access`. The launcher defaults to `reviewed` on every start; keep
+the explicit options in the PC launch command if this mode should be used on
+future restarts. This is a PC setting. `/web/` and Quest display the effective
+access and approval modes but cannot change either one.
+
+In automatic mode, the Agent's native command and file approval policy is
+`never`, and the Matrix MCP server uses `auto` for its enabled tools instead
+of the reviewed mode's per-tool `prompt` overrides. Runtime argument
+validation, scene revisions, and receipts still apply. Other configured MCP
+servers may have their own tool and elicitation behavior. In an isolated probe
+with Codex CLI 0.158.0-alpha.2, a Matrix MCP tool configured `prompt` emitted
+an approval under `on-request` and completed without one under `never`; that
+single probe does not establish behavior for every external MCP server.
+
+Changing modes requires restarting the PC service and therefore creating a
+new app-server process. The saved Agent Portal session ID and completed
+conversation can resume on the new process with the selected policy. A turn
+that was working during restart is marked `unknown` and is not continued;
+send a new turn after reconnecting. The bounded proposal planner remains on
+its separate read-only path.
+
 `agent_session.py` defines the provider-neutral Matrix backend interface and
 the first local Codex adapter. It maps native text, activity, tool, and approval
 events to a small allowlist without copying tool arguments or outputs. Native

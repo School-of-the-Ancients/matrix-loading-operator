@@ -240,10 +240,14 @@ class AppServerTransport:
             self._write({"id": request_id, "result": result})
             self._approvals.pop(request_id, None)
 
-    def thread_start(self, *, model: str | None = None, sandbox: str = "workspace-write") -> str:
+    def thread_start(self, *, model: str | None = None, sandbox: str = "workspace-write",
+                     approval_policy: str = "on-request") -> str:
         if sandbox not in ("read-only", "workspace-write", "danger-full-access"):
             raise ValueError("Unsupported Agent Portal sandbox")
-        params = {"cwd": str(self.cwd), "approvalPolicy": "on-request", "approvalsReviewer": "user",
+        if (approval_policy not in ("on-request", "never") or
+                (approval_policy == "never" and sandbox != "danger-full-access")):
+            raise ValueError("Unsupported Agent Portal approval policy")
+        params = {"cwd": str(self.cwd), "approvalPolicy": approval_policy, "approvalsReviewer": "user",
                   "sandbox": sandbox,
                   "serviceName": "matrix_agent_portal"}
         if model:
@@ -251,11 +255,15 @@ class AppServerTransport:
         result = self.request("thread/start", params)
         return self._id_from(result, "thread")
 
-    def thread_resume(self, thread_id: str, *, sandbox: str = "workspace-write") -> str:
+    def thread_resume(self, thread_id: str, *, sandbox: str = "workspace-write",
+                      approval_policy: str = "on-request") -> str:
         if sandbox not in ("read-only", "workspace-write", "danger-full-access"):
             raise ValueError("Unsupported Agent Portal sandbox")
+        if (approval_policy not in ("on-request", "never") or
+                (approval_policy == "never" and sandbox != "danger-full-access")):
+            raise ValueError("Unsupported Agent Portal approval policy")
         result = self.request("thread/resume", {"threadId": thread_id, "cwd": str(self.cwd),
-                                                 "approvalPolicy": "on-request", "approvalsReviewer": "user",
+                                                 "approvalPolicy": approval_policy, "approvalsReviewer": "user",
                                                  "sandbox": sandbox})
         return self._id_from(result, "thread")
 

@@ -36,6 +36,8 @@ class AgentSessionBackend(Protocol):
     def close(self) -> None: ...
     @property
     def access_mode(self) -> str: ...
+    @property
+    def approval_mode(self) -> str: ...
 
 
 def _identifier(value):
@@ -292,13 +294,11 @@ class LocalCodexAgentBackend:
                         "startup_timeout_sec": 10}
             for key, value in settings.items():
                 command += ["-c", f"mcp_servers.matrix_webxr.{key}={json.dumps(value)}"]
-            command += ["-c", 'mcp_servers.matrix_webxr.tools.matrix_move_object.approval_mode="prompt"']
-            command += ["-c", 'mcp_servers.matrix_webxr.tools.matrix_register_glb.approval_mode="prompt"']
-            command += ["-c", 'mcp_servers.matrix_webxr.tools.matrix_spawn_asset.approval_mode="prompt"']
-            command += ["-c", 'mcp_servers.matrix_webxr.tools.matrix_bind_animation.approval_mode="prompt"']
-            for name in ("matrix_publish_component", "matrix_attach_component",
-                         "matrix_stop_component", "matrix_remove_component"):
-                command += ["-c", f'mcp_servers.matrix_webxr.tools.{name}.approval_mode="prompt"']
+            if config.agent_approval_policy == "on-request":
+                for name in ("matrix_move_object", "matrix_register_glb", "matrix_spawn_asset",
+                             "matrix_bind_animation", "matrix_publish_component", "matrix_attach_component",
+                             "matrix_stop_component", "matrix_remove_component"):
+                    command += ["-c", f'mcp_servers.matrix_webxr.tools.{name}.approval_mode="prompt"']
             environment = {"MATRIX_CONTROL_URL": matrix_bridge.url,
                            "MATRIX_CONTROL_TOKEN": matrix_bridge.token}
         command += ["app-server", "--stdio"]
@@ -311,11 +311,17 @@ class LocalCodexAgentBackend:
     def access_mode(self) -> str:
         return self.config.agent_sandbox
 
+    @property
+    def approval_mode(self) -> str:
+        return "automatic" if self.config.agent_approval_policy == "never" else "reviewed"
+
     def start_conversation(self) -> str:
-        return self.transport.thread_start(model=self.config.model, sandbox=self.config.agent_sandbox)
+        return self.transport.thread_start(model=self.config.model, sandbox=self.config.agent_sandbox,
+                                           approval_policy=self.config.agent_approval_policy)
 
     def resume_conversation(self, conversation_id: str) -> str:
-        return self.transport.thread_resume(conversation_id, sandbox=self.config.agent_sandbox)
+        return self.transport.thread_resume(conversation_id, sandbox=self.config.agent_sandbox,
+                                            approval_policy=self.config.agent_approval_policy)
 
     def send_text(self, conversation_id: str, text: str) -> str:
         return self.transport.turn_start(conversation_id, text, effort=self.config.reasoning_effort)

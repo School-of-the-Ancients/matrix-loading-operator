@@ -85,6 +85,25 @@ class ConfigurationTests(NativeConfigTestCase):
             with self.subTest(windows_sandbox=sandbox), self.assertRaises(CodexProviderError):
                 CodexConfig(self.executable, windows_sandbox=sandbox).validate()
 
+    def test_automatic_agent_approval_requires_full_pc_access(self):
+        default = CodexConfig.from_environment({"SANDBOX_AI_MODE": "codex-cli",
+                                                "SANDBOX_CODEX_EXE": self.executable})
+        self.assertEqual(default.agent_approval_policy, "on-request")
+        automatic = CodexConfig.from_environment({"SANDBOX_AI_MODE": "codex-cli",
+                                                  "SANDBOX_CODEX_EXE": self.executable,
+                                                  "SANDBOX_CODEX_AGENT_SANDBOX": "danger-full-access",
+                                                  "SANDBOX_CODEX_AGENT_APPROVAL_POLICY": "never"})
+        automatic.validate()
+        self.assertEqual(automatic.agent_approval_policy, "never")
+        for sandbox in ("read-only", "workspace-write"):
+            with self.subTest(sandbox=sandbox), self.assertRaises(CodexProviderError):
+                CodexConfig(self.executable, agent_sandbox=sandbox,
+                            agent_approval_policy="never").validate()
+        for policy in ("always", "acceptForSession", "NEVER", "never;bad"):
+            with self.subTest(policy=policy), self.assertRaises(CodexProviderError):
+                CodexConfig(self.executable, agent_sandbox="danger-full-access",
+                            agent_approval_policy=policy).validate()
+
     def test_rejects_shell_wrappers_relative_paths_nonexecutables_and_bad_models(self):
         with tempfile.TemporaryDirectory() as folder:
             disguised = Path(folder) / "fake.exe"
