@@ -33,6 +33,7 @@ const stripV9Fields=state=>{
     delete resident.needs.social;
     delete resident.preferences.converse;
     delete resident.appointments;
+    delete resident.appointmentSequence;
   }
 };
 const registeredObstacle=(hash='a'.repeat(64))=>({
@@ -109,7 +110,7 @@ test('v6 worlds gain bounded daily routines without changing saved claims or sce
     delete resident.lastDecision;
   }
   const restored=CitizensSimulation.restore(matrix,old).exportState();
-  assert.equal(restored.schemaVersion,10);
+  assert.equal(restored.schemaVersion,11);
   assert.equal(restored.clockSpeed,1);
   assert.deepEqual(restored.residents[0].routines.map(item=>item.id),
     ['morning-meal','morning-walk','daytime-walk','evening-rest']);
@@ -121,14 +122,14 @@ test('v6 worlds gain bounded daily routines without changing saved claims or sce
   assert.deepEqual(matrix.scene,scene);
 });
 
-test('v7 virtual-day checkpoint migrates to v10 without changing its execution',()=>{
+test('v7 virtual-day checkpoint migrates to v11 without changing its execution',()=>{
   const matrix=world(),simulation=createCitizensDemo(matrix,{seed:17});
   simulation.step();
   const old=simulation.exportState(),scene=structuredClone(matrix.scene);
   old.schemaVersion=7;
   stripV9Fields(old);
   const migrated=CitizensSimulation.restore(matrix,old).exportState();
-  assert.equal(migrated.schemaVersion,10);
+  assert.equal(migrated.schemaVersion,11);
   const comparable=structuredClone(migrated);
   comparable.schemaVersion=7;
   stripV9Fields(comparable);
@@ -137,14 +138,14 @@ test('v7 virtual-day checkpoint migrates to v10 without changing its execution',
   assert.deepEqual(matrix.scene,scene);
 });
 
-test('v8 egress checkpoint migrates to v10 without changing claims or scene',()=>{
+test('v8 egress checkpoint migrates to v11 without changing claims or scene',()=>{
   const matrix=world(),simulation=createCitizensDemo(matrix,{seed:17});
   simulation.step();
   const old=simulation.exportState(),scene=structuredClone(matrix.scene);
   old.schemaVersion=8;
   stripV9Fields(old);
   const migrated=CitizensSimulation.restore(matrix,old).exportState();
-  assert.equal(migrated.schemaVersion,10);
+  assert.equal(migrated.schemaVersion,11);
   const comparable=structuredClone(migrated);
   comparable.schemaVersion=8;
   stripV9Fields(comparable);
@@ -155,21 +156,52 @@ test('v8 egress checkpoint migrates to v10 without changing claims or scene',()=
   assert.deepEqual(matrix.scene,scene);
 });
 
-test('v9 social-needs state gains empty v10 appointments without changing execution',()=>{
+test('v9 social-needs state gains empty v11 appointments without changing execution',()=>{
   const matrix=world(),sim=createCitizensDemo(matrix,{seed:29});
   sim.step();
   const old=sim.exportState(),scene=structuredClone(matrix.scene);
   old.schemaVersion=9;
-  for(const resident of old.residents)delete resident.appointments;
+  for(const resident of old.residents){
+    delete resident.appointments;
+    delete resident.appointmentSequence;
+  }
   const migrated=CitizensSimulation.restore(matrix,old).exportState();
-  assert.equal(migrated.schemaVersion,10);
+  assert.equal(migrated.schemaVersion,11);
   assert.ok(migrated.residents.every(item=>
-    Array.isArray(item.appointments)&&item.appointments.length===0));
+    Array.isArray(item.appointments)&&item.appointments.length===0&&
+    item.appointmentSequence===0));
   const comparable=structuredClone(migrated);
   comparable.schemaVersion=9;
-  for(const resident of comparable.residents)delete resident.appointments;
+  for(const resident of comparable.residents){
+    delete resident.appointments;
+    delete resident.appointmentSequence;
+  }
   assert.deepEqual(comparable,old);
   assert.deepEqual(matrix.scene,scene);
+});
+
+test('v10 terminal appointments migrate with a monotonic sequence and permit day-later booking',()=>{
+  const matrix=world(),state=createCitizensDemo(matrix,{seed:29}).exportState();
+  state.schemaVersion=10;
+  state.clockTick=1447;
+  for(const resident of state.residents)delete resident.appointmentSequence;
+  state.residents[0].appointments=[2,3,4].map((deadline,index)=>({
+    id:`appointment-${index+1}`,kind:'eat',startTick:1,deadlineTick:deadline,
+    status:'missed',executionId:null,resolvedTick:deadline+1,
+    requestId:null,reason:'deadline passed'}));
+  const before=structuredClone(state),scene=structuredClone(matrix.scene);
+  const sim=CitizensSimulation.restore(matrix,state);
+  const migrated=sim.exportState();
+  assert.equal(migrated.schemaVersion,11);
+  assert.equal(migrated.residents[0].appointmentSequence,3);
+  assert.equal(migrated.residents[0].appointments.length,3);
+  assert.deepEqual(state,before);
+  assert.deepEqual(matrix.scene,scene);
+  const scheduled=sim.scheduleAppointment('ada',{
+    kind:'rest',startTick:1448,deadlineTick:1480});
+  assert.equal(appointmentOf(scheduled,'ada','appointment-4').status,'pending');
+  assert.equal(scheduled.residents[0].appointmentSequence,4);
+  assert.equal(scheduled.residents[0].appointments.length,4);
 });
 
 test('a due appointment selects a hard goal and completes only with its Matrix receipt',()=>{
@@ -182,7 +214,7 @@ test('a due appointment selects a hard goal and completes only with its Matrix r
   };
   const scheduled=sim.scheduleAppointment('ada',{
     kind:'eat',startTick:1,deadlineTick:60});
-  assert.equal(scheduled.schemaVersion,10);
+  assert.equal(scheduled.schemaVersion,11);
   assert.deepEqual(appointmentOf(scheduled),{
     id:'appointment-1',kind:'eat',startTick:1,deadlineTick:60,
     status:'pending',executionId:null,resolvedTick:null,requestId:null,reason:''});
@@ -449,6 +481,179 @@ test('appointment authoring is paused, bounded, and atomic against stale binding
   assert.deepEqual(chairOnly.snapshot(),selectedBefore);
 });
 
+test('pending revision changes deadline precedence and stale edits leave the world intact',()=>{
+  const matrix=world(),sim=createCitizensDemo(matrix,{seed:29});
+  const original={kind:'rest',startTick:1,deadlineTick:40};
+  sim.scheduleAppointment('ada',original);
+  sim.scheduleAppointment('ada',{kind:'eat',startTick:1,deadlineTick:20});
+  const scene=structuredClone(matrix.scene),before=sim.snapshot();
+  for(const [expected,changes] of [
+    [{...original,deadlineTick:41},original],
+    [original,{...original,deadlineTick:1}],
+    [original,{...original,startTick:1441,deadlineTick:1450}],
+    [original,{...original,kind:'explore'}],
+    [original,{...original,extra:'unexpected'}]
+  ]){
+    assert.throws(()=>sim.reviseAppointment('ada','appointment-1',
+      expected,changes));
+    assert.deepEqual(sim.snapshot(),before);
+    assert.deepEqual(matrix.scene,scene);
+  }
+  const revised=sim.reviseAppointment('ada','appointment-1',original,
+    {...original,deadlineTick:10});
+  assert.equal(appointmentOf(revised).deadlineTick,10);
+  const selected=sim.step();
+  assert.equal(selected.residents[0].lastDecision.selectedAppointmentId,
+    'appointment-1');
+  assert.equal(appointmentOf(selected).status,'active');
+  assert.equal(appointmentOf(selected,'ada','appointment-2').status,'pending');
+  assert.deepEqual(matrix.scene.objects.map(item=>item.objectId),
+    scene.objects.map(item=>item.objectId));
+});
+
+test('cancelled pending appointment keeps an outcome without claiming or granting a benefit',()=>{
+  const matrix=world(),sim=createCitizensDemo(matrix,{seed:29});
+  const expected={kind:'eat',startTick:1,deadlineTick:40};
+  sim.scheduleAppointment('ada',expected);
+  const before=sim.snapshot(),scene=structuredClone(matrix.scene);
+  assert.throws(()=>sim.cancelAppointment('ada','appointment-1',
+    {...expected,deadlineTick:41}),/changed/);
+  assert.deepEqual(sim.snapshot(),before);
+  const cancelled=sim.cancelAppointment('ada','appointment-1',expected);
+  assert.deepEqual(appointmentOf(cancelled),{
+    id:'appointment-1',...expected,status:'cancelled',executionId:null,
+    resolvedTick:0,requestId:null,reason:'cancelled by operator'});
+  assert.deepEqual(cancelled.residents[0].needs,before.residents[0].needs);
+  assert.equal(cancelled.actionSequence,before.actionSequence);
+  assert.equal(cancelled.requestSequence,before.requestSequence);
+  assert.deepEqual(matrix.scene,scene);
+  assert.deepEqual(CitizensSimulation.restore(matrix,cancelled).exportState(),
+    cancelled);
+});
+
+test('five sequential missed appointments retain three outcomes and replay after restore',()=>{
+  const matrix=world(),sim=createCitizensDemo(matrix,{seed:29});
+  sim.step();
+  const initialWaiter=structuredClone(sim.snapshot().stations.find(item=>
+    item.kind==='rest').waiters[0]);
+  for(let number=1;number<=5;number++){
+    const now=sim.snapshot().clockTick;
+    const scheduled=sim.scheduleAppointment('bo',{
+      kind:'eat',startTick:now+1,deadlineTick:now+2});
+    assert.equal(appointmentOf(scheduled,'bo',`appointment-${number}`).status,
+      'pending');
+    for(let step=0;step<3;step++)sim.step();
+    const missed=sim.snapshot();
+    assert.equal(missed.clockTick,now+3);
+    assert.equal(appointmentOf(missed,'bo',`appointment-${number}`).status,
+      'missed');
+    assert.deepEqual(missed.stations.find(item=>
+      item.kind==='rest').waiters[0],initialWaiter);
+  }
+  const retained=sim.exportState();
+  const bo=retained.residents.find(item=>item.id==='bo');
+  assert.equal(retained.clockTick,16);
+  assert.equal(bo.appointmentSequence,5);
+  assert.deepEqual(bo.appointments.map(item=>item.id),
+    ['appointment-3','appointment-4','appointment-5']);
+  assert.ok(bo.appointments.every(item=>item.status==='missed'&&
+    item.reason==='deadline passed'));
+  const cloneWorld=world();
+  assert.equal(cloneWorld.execute({requestId:'load-repeated-appointments',
+    op:'load',scene:structuredClone(matrix.scene)}).ok,true);
+  const cloneSim=CitizensSimulation.restore(cloneWorld,retained);
+  for(let index=0;index<5;index++){
+    assert.deepEqual(sim.step(),cloneSim.step());
+    assert.deepEqual(matrix.scene,cloneWorld.scene);
+  }
+});
+
+test('active FIFO appointment cannot be revised or cancelled',()=>{
+  const matrix=world(),sim=createCitizensDemo(matrix,{seed:29});
+  const expected={kind:'rest',startTick:1,deadlineTick:60};
+  sim.scheduleAppointment('bo',expected);
+  const queued=sim.step();
+  assert.equal(appointmentOf(queued,'bo').status,'active');
+  assert.equal(appointmentOf(queued,'bo').executionId,
+    queued.stations.find(item=>item.kind==='rest').waiters[0].executionId);
+  const scene=structuredClone(matrix.scene);
+  assert.throws(()=>sim.reviseAppointment('bo','appointment-1',expected,
+    {...expected,startTick:2}),/Only a pending appointment/);
+  assert.throws(()=>sim.cancelAppointment('bo','appointment-1',expected),
+    /Only a pending appointment/);
+  assert.deepEqual(sim.snapshot(),queued);
+  assert.deepEqual(matrix.scene,scene);
+});
+
+test('terminal pruning retains recent cancellations and clears a removed decision',()=>{
+  const matrix=world(),sim=createCitizensDemo(matrix,{seed:29});
+  sim.scheduleAppointment('ada',{kind:'eat',startTick:1,deadlineTick:60});
+  const completed=stepUntil(sim,state=>appointmentOf(state)?.status==='completed',60);
+  assert.equal(completed.residents[0].lastDecision.selectedAppointmentId,
+    'appointment-1');
+  assert.match(appointmentOf(completed).requestId,
+    /^citizens-29-action-[0-9]+-[0-9]+$/);
+  const now=completed.clockTick;
+  for(let number=2;number<=4;number++){
+    const details={kind:'eat',startTick:now+1,deadlineTick:now+20};
+    sim.scheduleAppointment('ada',details);
+    sim.cancelAppointment('ada',`appointment-${number}`,details);
+  }
+  const after=sim.exportState(),ada=after.residents[0];
+  assert.equal(ada.appointmentSequence,4);
+  assert.deepEqual(ada.appointments.map(item=>item.id),
+    ['appointment-2','appointment-3','appointment-4']);
+  assert.ok(ada.appointments.every(item=>item.status==='cancelled'&&
+    item.resolvedTick===now));
+  assert.equal(ada.lastDecision,null);
+  assert.equal(after.actionSequence,completed.actionSequence);
+  assert.equal(after.requestSequence,completed.requestSequence);
+});
+
+test('numeric appointment ID order resolves same-window conflicts after ID ten',()=>{
+  const matrix=world(),state=createCitizensDemo(matrix,{seed:29}).exportState();
+  const ada=state.residents[0];
+  ada.appointmentSequence=10;
+  ada.appointments=[9,10].map(number=>({
+    id:`appointment-${number}`,kind:'eat',startTick:1,deadlineTick:40,
+    status:'pending',executionId:null,resolvedTick:null,requestId:null,reason:''}));
+  const sim=CitizensSimulation.restore(matrix,state);
+  const selected=sim.step();
+  assert.equal(selected.residents[0].lastDecision.selectedAppointmentId,
+    'appointment-9');
+  assert.equal(appointmentOf(selected,'ada','appointment-9').status,'active');
+  assert.equal(appointmentOf(selected,'ada','appointment-10').status,'pending');
+});
+
+test('v11 restore rejects forged sequence, cancelled state and capacity',()=>{
+  const matrix=world(),sim=createCitizensDemo(matrix,{seed:29});
+  for(let number=1;number<=3;number++){
+    const details={kind:'eat',startTick:number,deadlineTick:40};
+    sim.scheduleAppointment('ada',details);
+    sim.cancelAppointment('ada',`appointment-${number}`,details);
+  }
+  const saved=sim.exportState(),scene=structuredClone(matrix.scene);
+  const variants=[
+    state=>{state.residents[0].appointmentSequence=2;},
+    state=>{state.residents[0].appointments[0].id='appointment-01';},
+    state=>{state.residents[0].appointments[0].requestId='forged';},
+    state=>{state.residents[0].appointments[0].executionId=1;},
+    state=>{state.residents[0].appointments[0].reason='changed';},
+    state=>{state.residents[0].appointments[0].resolvedTick=41;},
+    state=>{
+      state.residents[0].appointmentSequence=4;
+      state.residents[0].appointments.push({
+        ...state.residents[0].appointments[2],id:'appointment-4'});
+    }
+  ];
+  for(const change of variants){
+    const broken=structuredClone(saved);change(broken);
+    assert.throws(()=>CitizensSimulation.restore(matrix,broken),/Invalid .*Citizens/);
+    assert.deepEqual(matrix.scene,scene);
+    assert.deepEqual(sim.exportState(),saved);
+  }
+});
+
 test('a due appointment defers a new social offer and mid-action restore replays its receipt',()=>{
   const socialWorld=world(),base=createCitizensDemo(socialWorld,{seed:29});
   const state=base.exportState();
@@ -481,7 +686,7 @@ test('a due appointment defers a new social offer and mid-action restore replays
     appointmentOf(restored.exportState()).requestId);
 });
 
-test('v10 restore rejects forged appointment lifecycles and reused executions atomically',()=>{
+test('v11 restore rejects forged appointment lifecycles and reused executions atomically',()=>{
   const matrix=world(),sim=createCitizensDemo(matrix,{seed:29});
   sim.scheduleAppointment('ada',{kind:'eat',startTick:1,deadlineTick:60});
   sim.scheduleAppointment('ada',{kind:'rest',startTick:2,deadlineTick:3});
@@ -1336,7 +1541,7 @@ test('v1 mid-action state migrates atomically and replays deletion and FIFO hand
   const a=restore(),b=restore();
   for(const copy of [a,b]){
     const migrated=copy.sim.exportState();
-    assert.equal(migrated.schemaVersion,10);
+    assert.equal(migrated.schemaVersion,11);
     assert.equal(migrated.actionSequence,1);
     assert.equal(migrated.stations.find(station=>station.kind==='rest').claim.executionId,
       migrated.residents.find(resident=>resident.id==='ada').activity.executionId);
@@ -1624,7 +1829,7 @@ test('deleting the last resident yields a valid paused zero-resident state',()=>
   assert.deepEqual(sim.resume(),after,'empty simulation cannot run');
 });
 
-test('v2 checkpoints migrate to v10 without changing active claims or Matrix objects',()=>{
+test('v2 checkpoints migrate to v11 without changing active claims or Matrix objects',()=>{
   const matrix=world(),sim=createCitizensDemo(matrix,{seed:31});
   sim.step();
   const saved=sim.exportState();
@@ -1645,7 +1850,7 @@ test('v2 checkpoints migrate to v10 without changing active claims or Matrix obj
   for(const station of saved.stations)delete station.interaction;
   const scene=structuredClone(matrix.scene);
   const migrated=CitizensSimulation.restore(matrix,saved).exportState();
-  assert.equal(migrated.schemaVersion,10);
+  assert.equal(migrated.schemaVersion,11);
   assert.deepEqual(migrated.stations,saved.stations.map(station=>
     ({...station,interaction:null})));
   assert.deepEqual(migrated.relationships,[{a:'ada',b:'bo',score:50,completed:[]}]);
@@ -1851,7 +2056,7 @@ const socialHistoryThrough=count=>{
   return {matrix,sim,completed};
 };
 
-test('v10 rejects an appointment receipt that reuses an ended social request sequence',()=>{
+test('v11 rejects an appointment receipt that reuses an ended social request sequence',()=>{
   const {matrix,sim,completed}=socialHistoryThrough(1);
   const clock=sim.snapshot().clockTick;
   sim.scheduleAppointment('ada',{

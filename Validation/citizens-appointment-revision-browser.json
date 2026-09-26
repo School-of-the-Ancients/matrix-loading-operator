@@ -1,0 +1,66 @@
+{
+  "date": "2026-09-26",
+  "branch": "codex/citizens-appointment-revision",
+  "service": "http://127.0.0.1:19856/web/",
+  "isolation": "Port 19856 uses a copy of the prior two-GLB catalog and PC checkpoints in this task's citizens-appointment-revision-state and citizens-appointment-revision-catalog directories. Existing services on ports 19853, 19854 and 19855 were left running.",
+  "startingCheckpoint": "appointments-m1 (nested Citizens v10)",
+  "seed": 29,
+  "worldVersion": 3,
+  "citizensVersionAfterRestore": 11,
+  "worldObjectIds": [
+    "821fc875805840c5b4d3dfa9e4b21d8b",
+    "7448c0018a8a45e1acf5d0a55aa7e561",
+    "48c153fafbb3405590749fabbd0630d8",
+    "3fc1c2b72653498a94baf423dc760e71"
+  ],
+  "assetDependencies": [
+    "web:citizens-demo-chair:fb5408949487",
+    "web:citizens-demo-food-table:53b79a6a6f7f"
+  ],
+  "browserObservations": [
+    {
+      "minute": 1,
+      "action": "Selected Ada's pending appointment-1 and revised eat m 2–40 to m 2–38.",
+      "observed": "The panel prefilled the old values, warned that Bo's overlapping eat appointment may queue at the shared station, and preserved Ada's chair execution 1 and Bo's FIFO execution 2."
+    },
+    {
+      "minute": 1,
+      "action": "Previewed and scheduled Ada's appointment-2 eat m 2–10.",
+      "observed": "The form warned about Ada's own appointment-1 and Bo's appointment-1 at the same food station. Scheduling remained available; Ada showed 2/3 open appointments."
+    },
+    {
+      "minute": 11,
+      "observed": "Ada's overlapping appointment-2 missed at deadline+1, as did Bo's earlier m 2–5 meal at minute 6. Ada was still using the chair under execution 1 and Bo kept his original FIFO ticket 2."
+    },
+    {
+      "minute": 36,
+      "observed": "Ada completed appointment-1 with Matrix receipt citizens-29-action-3-38 and fullness 88; appointment-2 remained missed. The inspector named appointment-1 in the decision trace."
+    },
+    {
+      "minute": 36,
+      "action": "Scheduled then cancelled pending appointment-3; scheduled and cancelled appointment-4 after three terminal outcomes.",
+      "observed": "New scheduling remained available. Ada's sequence reached 4. Her oldest terminal appointment-2 was pruned; the retained three were completed appointment-1 with its receipt and cancelled appointments-3 and -4. Bo's missed appointment-1 remained separate. No cancellation granted a need benefit."
+    }
+  ],
+  "checkpoints": [
+    {"name": "revision-m1", "minute": 1, "payloadSha256": "fcde67bb9733df2ad4fb9316094ba4b117f213261ad2982c7d9f8b41b9483d1b"},
+    {"name": "revision-m36-outcomes", "minute": 36, "payloadSha256": "1d8e15d381929e0619972a3bc455d3fba4a172998f1a602ef83c73de07ae649e"},
+    {"name": "revision-m36-outcomes-replay", "minute": 36, "payloadSha256": "1d8e15d381929e0619972a3bc455d3fba4a172998f1a602ef83c73de07ae649e"},
+    {"name": "revision-m36-final", "minute": 36, "payloadSha256": "71c2405bd9eea56a78069c9eb9f2594db172dad3157a0d4dfdabfe816466c6d2"},
+    {"name": "revision-m36-final-replay", "minute": 36, "payloadSha256": "71c2405bd9eea56a78069c9eb9f2594db172dad3157a0d4dfdabfe816466c6d2"}
+  ],
+  "replay": "Browser reload retained the final minute-36 world. Restoring revision-m1 and clicking Step one minute 35 times reproduced the exact revision-m36-outcomes whole-world/dependency payload. Repeating the same two schedule/cancel pairs reproduced the exact revision-m36-final payload. A final named PC restore left revision-m36-final open. The final build also disabled Schedule for an expired draft.",
+  "browserConsoleErrors": 0,
+  "checks": {
+    "webRuntimeTests": "347/347",
+    "controlServiceTests": "693/693",
+    "viteBuild": "passed",
+    "pythonCompilation": "passed",
+    "diffCheck": "passed"
+  },
+  "screenshots": [
+    "citizens-appointment-revision-conflict.png",
+    "citizens-appointment-revision-outcomes.png"
+  ],
+  "limits": "This is the existing two-resident desktop virtual-floor simulation with static reviewed chair and food GLBs. Conflict warnings are advisory. Pending edits do not preempt travel/use/egress, FIFO waits or conversations. Critical-need interruption, general moving or animated affordances, and independent Quest wearer acceptance remain open."
+}

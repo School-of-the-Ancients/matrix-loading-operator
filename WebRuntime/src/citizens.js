@@ -4,7 +4,8 @@ import {ANCHOR_ID,INTERACTION_USE_MARGIN_METRES,MAX_OBJECTS,ROOM_ID,
   interactionWorldPoint,validInteractionDescriptor} from './protocol.js';
 import {checkedMove,planPath,segmentClear} from './citizens_navigation.js';
 
-const VERSION=10;
+const VERSION=11;
+const APPOINTMENT_VERSION=10;
 const SOCIAL_NEEDS_VERSION=9;
 const EGRESS_VERSION=8;
 const VIRTUAL_DAY_VERSION=7;
@@ -41,9 +42,17 @@ const PRIORITIES=['high','default','low'];
 const CLOCK_SPEEDS=[1,4,16];
 const MAX_ROUTINES=6;
 const MAX_APPOINTMENTS=3;
+const MAX_APPOINTMENT_SEQUENCE=1000000000;
 const APPOINTMENT_HORIZON=1440;
 const APPOINTMENT_LAST_DEADLINE=999999999;
 const APPOINTMENT_MISS_REASON='deadline passed';
+const APPOINTMENT_CANCEL_REASON='cancelled by operator';
+const appointmentNumber=id=>{
+  const match=typeof id==='string'?id.match(/^appointment-([1-9][0-9]*)$/):null;
+  const number=Number(match?.[1]);
+  return match&&integer(number,1,MAX_APPOINTMENT_SEQUENCE)&&
+    id===`appointment-${number}`?number:null;
+};
 const finite=value=>typeof value==='number'&&Number.isFinite(value);
 const plain=value=>value!==null&&typeof value==='object'&&!Array.isArray(value);
 const keys=(value,expected)=>plain(value)&&Object.keys(value).sort().join('|')===expected.slice().sort().join('|');
@@ -896,13 +905,31 @@ function validStateV9(world,state){
 function migrateV9(world,saved){
   validStateV9(world,saved);
   const state=clone(saved);
-  state.schemaVersion=VERSION;
+  state.schemaVersion=APPOINTMENT_VERSION;
   for(const resident of state.residents)resident.appointments=[];
   return state;
 }
 
+function migrateV10(world,saved){
+  validStateV10(world,saved);
+  const state=clone(saved);
+  state.schemaVersion=VERSION;
+  for(const resident of state.residents)
+    resident.appointmentSequence=Math.max(0,...resident.appointments.map(item=>
+      appointmentNumber(item.id)));
+  return state;
+}
+
 function validStateV10(world,state){
-  if(!state||state.schemaVersion!==VERSION||!Array.isArray(state.residents))
+  return validAppointmentState(world,state,APPOINTMENT_VERSION);
+}
+
+function validStateV11(world,state){
+  return validAppointmentState(world,state,VERSION);
+}
+
+function validAppointmentState(world,state,version){
+  if(!state||state.schemaVersion!==version||!Array.isArray(state.residents))
     throw Error('Invalid Citizens appointment state');
   const v9=clone(state);
   v9.schemaVersion=SOCIAL_NEEDS_VERSION;
@@ -919,24 +946,34 @@ function validStateV10(world,state){
     const old=v9.residents[index];
     if(!keys(resident,['id','name','objectId','needs','preferences','activity',
       'cooldowns','lastOutcome','socialSessionId','routines','lastDecision',
-      'appointments'])||!Array.isArray(resident.appointments)||
-      resident.appointments.length>MAX_APPOINTMENTS)
+      'appointments',...(version===VERSION?['appointmentSequence']:[])])||
+      !Array.isArray(resident.appointments)||
+      resident.appointments.length>(version===VERSION?2*MAX_APPOINTMENTS:
+        MAX_APPOINTMENTS)||
+      (version===VERSION&&!integer(resident.appointmentSequence,0,
+        MAX_APPOINTMENT_SEQUENCE)))
       throw Error('Invalid Citizens appointment resident');
     const ids=new Set();
-    let active=0;
+    let active=0,open=0,terminal=0;
+    const idLimit=version===VERSION?resident.appointmentSequence:MAX_APPOINTMENTS;
     for(const appointment of resident.appointments){
+      const idNumber=appointmentNumber(appointment?.id);
       if(!keys(appointment,['id','kind','startTick','deadlineTick','status',
         'executionId','resolvedTick','requestId','reason'])||
-        !/^appointment-[1-3]$/.test(appointment.id)||ids.has(appointment.id)||
+        idNumber===null||idNumber>idLimit||
+        ids.has(appointment.id)||
         !['rest','eat'].includes(appointment.kind)||
         !integer(appointment.startTick,1,APPOINTMENT_LAST_DEADLINE-1)||
         !integer(appointment.deadlineTick,appointment.startTick+1,
           Math.min(appointment.startTick+APPOINTMENT_HORIZON,
             APPOINTMENT_LAST_DEADLINE))||
-        !['pending','active','completed','missed'].includes(appointment.status))
+        !['pending','active','completed','missed',
+          ...(version===VERSION?['cancelled']:[])].includes(appointment.status))
         throw Error('Invalid Citizens appointment');
       ids.add(appointment.id);
       const {status,executionId,resolvedTick,requestId,reason}=appointment;
+      if(status==='pending'||status==='active')open++;
+      else terminal++;
       if(executionId!==null){
         if(!integer(executionId,1,state.actionSequence)||
           appointmentExecutions.has(executionId))
@@ -974,6 +1011,12 @@ function validStateV10(world,state){
           completedSequences.has(sequence)||reason!=='')
           throw Error('Invalid completed Citizens appointment');
         completedSequences.add(sequence);
+      }else if(status==='cancelled'){
+        if(version!==VERSION||executionId!==null||requestId!==null||
+          reason!==APPOINTMENT_CANCEL_REASON||
+          !integer(resolvedTick,0,Math.min(appointment.deadlineTick,
+            state.clockTick)))
+          throw Error('Invalid cancelled Citizens appointment');
       }else if((executionId!==null&&
           !integer(executionId,1,state.actionSequence))||
         resolvedTick!==appointment.deadlineTick+1||
@@ -981,8 +1024,11 @@ function validStateV10(world,state){
         reason!==APPOINTMENT_MISS_REASON)
         throw Error('Invalid missed Citizens appointment');
     }
-    if(active>1)throw Error('Only one Citizens appointment can be active');
+    if(active>1||version===VERSION&&
+      (open>MAX_APPOINTMENTS||terminal>MAX_APPOINTMENTS))
+      throw Error('Invalid Citizens appointment capacity');
     delete old.appointments;
+    if(version===VERSION)delete old.appointmentSequence;
     const decision=resident.lastDecision;
     if(decision?.mode==='appointment'){
       const appointment=resident.appointments.find(item=>
@@ -1025,11 +1071,13 @@ function initialState(world,seed,adaId,boId,stations){
       {id:'ada',name:'Ada',objectId:adaId,needs:{hunger:72,energy:20,fun:62,social:30},
         preferences:{rest:1.2,eat:.85,explore:.75,converse:1.2},activity:null,
         cooldowns:{rest:0,eat:0,explore:0},lastOutcome:'',socialSessionId:null,
-        routines:defaultRoutines('ada'),lastDecision:null,appointments:[]},
+        routines:defaultRoutines('ada'),lastDecision:null,appointments:[],
+        appointmentSequence:0},
       {id:'bo',name:'Bo',objectId:boId,needs:{hunger:42,energy:29,fun:54,social:38},
         preferences:{rest:1.1,eat:1,explore:.75,converse:1.1},activity:null,
         cooldowns:{rest:0,eat:0,explore:0},lastOutcome:'',socialSessionId:null,
-        routines:defaultRoutines('bo'),lastDecision:null,appointments:[]}
+        routines:defaultRoutines('bo'),lastDecision:null,appointments:[],
+        appointmentSequence:0}
     ],stations,log:[]};
 }
 
@@ -1204,7 +1252,8 @@ export class CitizensSimulation {
     if(current?.schemaVersion===VIRTUAL_DAY_VERSION)current=migrateV7(world,current);
     if(current?.schemaVersion===EGRESS_VERSION)current=migrateV8(world,current);
     if(current?.schemaVersion===SOCIAL_NEEDS_VERSION)current=migrateV9(world,current);
-    validStateV10(world,current);
+    if(current?.schemaVersion===APPOINTMENT_VERSION)current=migrateV10(world,current);
+    validStateV11(world,current);
     this.world=world;
     this.state=clone(current);
     // Runtime-only baseline: the serialized scene supplies it again on restore.
@@ -1252,24 +1301,26 @@ export class CitizensSimulation {
       `${changes.startMinute}–${changes.endMinute} (${changes.priority}).`,160);
     next.log.push({tick:next.clockTick,residentId,event:'selected',message});
     if(next.log.length>MAX_LOG)next.log.shift();
-    validStateV10(this.world,next);
+    validStateV11(this.world,next);
     this.state=next;
     return this.snapshot();
   }
-  scheduleAppointment(residentId,details){
+  assertAppointmentAuthoring(verb){
     assertWorld(this.world);
-    if(!this.state.paused)throw Error('Pause Citizens before scheduling an appointment');
+    if(!this.state.paused)throw Error(`Pause Citizens before ${verb}`);
     if(this.invalidBindings.size)
-      throw Error('Recover Citizens bindings before scheduling an appointment');
+      throw Error(`Recover Citizens bindings before ${verb}`);
     if(this.world.scene!==this.observedScene)
-      throw Error('The scene changed; review Citizens bindings before scheduling an appointment');
+      throw Error(`The scene changed; review Citizens bindings before ${verb}`);
     for(const bound of [...this.state.residents,...this.state.stations]){
       const object=objectById(this.world,bound.objectId);
       if(!object||!sameTransform(object.transform,
         this.observedTransforms.get(bound.objectId)))
         throw Error('A Citizens object moved or disappeared; review bindings first');
     }
-    validStateV10(this.world,this.state);
+    validStateV11(this.world,this.state);
+  }
+  validateAppointmentWindow(details){
     if(!keys(details,['kind','startTick','deadlineTick'])||
       !['rest','eat'].includes(details.kind)||
       !integer(details.startTick,this.state.clockTick+1,
@@ -1279,17 +1330,36 @@ export class CitizensSimulation {
         Math.min(details.startTick+APPOINTMENT_HORIZON,
           APPOINTMENT_LAST_DEADLINE)))
       throw Error('Appointment needs a future start and a deadline within one day');
-    const resident=this.state.residents.find(item=>item.id===residentId);
-    if(!resident)throw Error('Choose an existing Citizens resident');
     if(!this.state.stations.some(station=>station.kind===details.kind))
       throw Error(`No Citizens ${details.kind} station is bound in this world`);
-    if(resident.appointments.length>=MAX_APPOINTMENTS)
-      throw Error(`A resident can retain at most ${MAX_APPOINTMENTS} appointments`);
+  }
+  editableAppointment(residentId,id,expected){
+    if(!keys(expected,['kind','startTick','deadlineTick']))
+      throw Error('Expected appointment fields are required');
+    const resident=this.state.residents.find(item=>item.id===residentId);
+    if(!resident)throw Error('Choose an existing Citizens resident');
+    const appointment=resident.appointments.find(item=>item.id===id);
+    if(!appointment)throw Error('Choose an existing Citizens appointment');
+    if(appointment.status!=='pending')
+      throw Error('Only a pending appointment can be changed');
+    if(!sameJson(expected,{kind:appointment.kind,startTick:appointment.startTick,
+      deadlineTick:appointment.deadlineTick}))
+      throw Error('Appointment changed; reload its current values before editing');
+    return {resident,appointment};
+  }
+  scheduleAppointment(residentId,details){
+    this.assertAppointmentAuthoring('scheduling an appointment');
+    this.validateAppointmentWindow(details);
+    const resident=this.state.residents.find(item=>item.id===residentId);
+    if(!resident)throw Error('Choose an existing Citizens resident');
+    if(resident.appointments.filter(item=>
+      item.status==='pending'||item.status==='active').length>=MAX_APPOINTMENTS)
+      throw Error(`A resident can have at most ${MAX_APPOINTMENTS} open appointments`);
+    if(resident.appointmentSequence>=MAX_APPOINTMENT_SEQUENCE)
+      throw Error('The Citizens appointment ID limit was reached');
     const next=this.snapshot();
     const scheduled=next.residents.find(item=>item.id===residentId);
-    const id=Array.from({length:MAX_APPOINTMENTS},(_,index)=>
-      `appointment-${index+1}`).find(candidate=>
-        !scheduled.appointments.some(item=>item.id===candidate));
+    const id=`appointment-${++scheduled.appointmentSequence}`;
     scheduled.appointments.push({id,kind:details.kind,
       startTick:details.startTick,deadlineTick:details.deadlineTick,
       status:'pending',executionId:null,resolvedTick:null,requestId:null,reason:''});
@@ -1297,7 +1367,42 @@ export class CitizensSimulation {
       `${details.startTick} through ${details.deadlineTick}.`,160);
     next.log.push({tick:next.clockTick,residentId,event:'selected',message});
     if(next.log.length>MAX_LOG)next.log.shift();
-    validStateV10(this.world,next);
+    validStateV11(this.world,next);
+    this.state=next;
+    return this.snapshot();
+  }
+  reviseAppointment(residentId,id,expected,changes){
+    this.assertAppointmentAuthoring('revising an appointment');
+    const {resident}=this.editableAppointment(residentId,id,expected);
+    this.validateAppointmentWindow(changes);
+    const next=this.snapshot();
+    const edited=next.residents.find(item=>item.id===residentId);
+    Object.assign(edited.appointments.find(item=>item.id===id),changes);
+    if(edited.lastDecision?.mode==='appointment'&&
+      edited.lastDecision.selectedAppointmentId===id)edited.lastDecision=null;
+    next.log.push({tick:next.clockTick,residentId,event:'selected',
+      message:boundedPrefix(`${resident.name} revised ${id} to ${changes.kind} from minute `+
+        `${changes.startTick} through ${changes.deadlineTick}.`,160)});
+    if(next.log.length>MAX_LOG)next.log.shift();
+    validStateV11(this.world,next);
+    this.state=next;
+    return this.snapshot();
+  }
+  cancelAppointment(residentId,id,expected){
+    this.assertAppointmentAuthoring('cancelling an appointment');
+    const {resident}=this.editableAppointment(residentId,id,expected);
+    const next=this.snapshot();
+    const edited=next.residents.find(item=>item.id===residentId);
+    const appointment=edited.appointments.find(item=>item.id===id);
+    appointment.status='cancelled';
+    appointment.resolvedTick=next.clockTick;
+    appointment.reason=APPOINTMENT_CANCEL_REASON;
+    this.retainAppointmentHistory(edited);
+    next.log.push({tick:next.clockTick,residentId,event:'released',
+      message:boundedPrefix(`${resident.name} cancelled ${id} ${appointment.kind} from minute `+
+        `${appointment.startTick} through ${appointment.deadlineTick}.`,160)});
+    if(next.log.length>MAX_LOG)next.log.shift();
+    validStateV11(this.world,next);
     this.state=next;
     return this.snapshot();
   }
@@ -1316,7 +1421,7 @@ export class CitizensSimulation {
     if(checkRoutes){
       if(this.world.scene!==this.observedScene)
         throw Error('The scene changed; review Citizens bindings before adding a station');
-      validStateV10(this.world,this.state);
+      validStateV11(this.world,this.state);
       for(const bound of [...this.state.residents,...this.state.stations]){
         const object=objectById(this.world,bound.objectId);
         if(!object||!sameTransform(object.transform,
@@ -1347,7 +1452,7 @@ export class CitizensSimulation {
       this.observedTransforms.set(station.objectId,
         clone(objectById(this.world,station.objectId).transform));
       this.log('','selected',`Reviewed ${station.id} station added to the shared world.`);
-      validStateV10(this.world,this.state);
+      validStateV11(this.world,this.state);
       return this.snapshot();
     }catch(error){
       this.state=previous;
@@ -1358,7 +1463,7 @@ export class CitizensSimulation {
   exportState(){
     this.reconcileWorld();
     if(this.invalidBindings.size)throw Error('Citizens binding is missing or incompatible');
-    validStateV10(this.world,this.state);
+    validStateV11(this.world,this.state);
     return this.snapshot();
   }
   reconcileWorld(){this.reconcileBindings();return this.snapshot();}
@@ -1581,16 +1686,31 @@ export class CitizensSimulation {
     this.finishSocial('interrupted',reason);
     return this.snapshot();
   }
+  retainAppointmentHistory(resident){
+    const terminal=resident.appointments.filter(item=>
+      ['completed','missed','cancelled'].includes(item.status));
+    if(terminal.length<=MAX_APPOINTMENTS)return;
+    terminal.sort((a,b)=>b.resolvedTick-a.resolvedTick||
+      appointmentNumber(b.id)-appointmentNumber(a.id));
+    const retained=new Set(terminal.slice(0,MAX_APPOINTMENTS).map(item=>item.id));
+    resident.appointments=resident.appointments.filter(item=>
+      !['completed','missed','cancelled'].includes(item.status)||
+      retained.has(item.id));
+    if(resident.lastDecision?.mode==='appointment'&&
+      !resident.appointments.some(item=>
+        item.id===resident.lastDecision.selectedAppointmentId))
+      resident.lastDecision=null;
+  }
   dueAppointments(resident){
     return resident.appointments.filter(appointment=>
       appointment.status==='pending'&&
       appointment.startTick<=this.state.clockTick&&
       this.state.clockTick<=appointment.deadlineTick)
       .sort((a,b)=>a.deadlineTick-b.deadlineTick||
-        a.startTick-b.startTick||a.id.localeCompare(b.id));
+        a.startTick-b.startTick||appointmentNumber(a.id)-appointmentNumber(b.id));
   }
   expireAppointments(){
-    for(const resident of this.state.residents)
+    for(const resident of this.state.residents){
       for(const appointment of resident.appointments){
         if(!['pending','active'].includes(appointment.status)||
           this.state.clockTick<=appointment.deadlineTick)continue;
@@ -1601,6 +1721,8 @@ export class CitizensSimulation {
         this.log(resident.id,'failed',
           `${resident.name} missed ${appointment.id} ${appointment.kind} at minute ${appointment.deadlineTick}.`);
       }
+      this.retainAppointmentHistory(resident);
+    }
   }
   socialParticipants(session){
     const initiator=this.state.residents.find(item=>item.id===session.initiatorId);
@@ -2381,6 +2503,7 @@ export class CitizensSimulation {
       appointment.requestId=receipt.requestId;
       this.log(resident.id,'completed',
         `${resident.name} completed ${appointment.id} by its deadline; Matrix receipt ${receipt.requestId}.`);
+      this.retainAppointmentHistory(resident);
     }
     if(station?.interaction){
       const {need,delta}=receipt.effect;

@@ -257,10 +257,15 @@ test('appointment inspector separates queued, started, completed receipt, and mi
       startTick,deadlineTick)=>({id,kind,status,executionId,resolvedTick,requestId,
         reason,startTick,deadlineTick});
     const needs={hunger:50,energy:40,fun:60,social:32};
-    const state={schemaVersion:10,paused:true,clockTick:15,seed:17,
+    const state={schemaVersion:11,paused:true,clockTick:15,seed:17,
       residents:[
         {id:'ada',name:'Ada',needs,activity:null,socialSessionId:null,
-          routines:[],lastDecision:null,lastOutcome:'',appointments:[
+          routines:[],lastDecision:{tick:15,mode:'appointment',roll:null,
+            selectedKind:'rest',selectedRoutineId:null,
+            selectedAppointmentId:'appointment-1',candidates:[{
+              kind:'rest',routineId:null,score:8,deficit:30,preference:1,
+              travelMeters:2,baseWeight:10,availabilityFactor:1}]},
+          lastOutcome:'',appointments:[
             appointment('appointment-1','rest','active',11,null,null,'',2,30),
             appointment('appointment-2','eat','completed',9,12,
               'citizens-17-action-9-14','',2,20),
@@ -276,20 +281,199 @@ test('appointment inspector separates queued, started, completed receipt, and mi
         {id:'food',kind:'eat',claim:null,waiters:[]}],
       log:[],socialSession:null,socialEvents:[],relationships:[]};
     world.citizens=state;panel.simulation={snapshot:()=>state};panel.render();
-    const rows=dom.elements.get('citizens-appointments').children
+    const openRows=dom.elements.get('citizens-appointments').children
       .map(item=>item.textContent);
-    assert.equal(rows.length,4);
+    const historyRows=dom.elements.get('citizens-appointment-history').children
+      .map(item=>item.textContent);
+    const rows=[...openRows,...historyRows];
+    assert.equal(openRows.length,2);
+    assert.equal(historyRows.length,2);
     assert.ok(rows.some(row=>/Ada: appointment-1.*queued for chair · ticket #1 · execution 11/.test(row)));
     assert.ok(rows.some(row=>/Bo: appointment-1.*started · travel · execution 12/.test(row)));
     assert.ok(rows.some(row=>/completed · execution 9 at m 12 · receipt citizens-17-action-9-14/.test(row)));
     assert.ok(rows.some(row=>/missed at m 10 · deadline passed/.test(row)));
     assert.ok(rows.every(row=>!row.includes('undefined')&&!row.includes('null')));
-    assert.equal(dom.elements.get('citizens-appointment-apply').disabled,true,
-      'Ada has reached the three-appointment cap');
+    assert.match(dom.elements.get('citizens-routines').children[0].textContent,
+      /appointment selected rest for appointment-1/);
+    assert.equal(dom.elements.get('citizens-appointment-apply').disabled,false,
+      'terminal history does not consume an open appointment slot');
+    assert.match(dom.elements.get('citizens-appointment-capacity').textContent,
+      /Ada: 1\/3 open appointments · 2 recent outcomes/);
     const residentSelect=dom.elements.get('citizens-appointment-resident');
     assert.equal(residentSelect.disabled,false,'the user can still choose Bo');
     residentSelect.value='bo';panel.selectAppointmentResident();
     assert.equal(dom.elements.get('citizens-appointment-apply').disabled,false);
+  }finally{
+    if(panel)clearInterval(panel.timer);
+    dom.restore();
+  }
+});
+
+test('paused appointment editor revises a pending ID and previews inclusive resident and shared-station overlaps',()=>{
+  const dom=stubDocument();
+  let panel;
+  try{
+    let sequence=0,commits=0;
+    const world=new MatrixWorld(()=>`appointment-revision-panel-${++sequence}`);
+    panel=new CitizensPanel(world,{onChange(){commits++;return '';},
+      canStart:()=>'',onFeedback(){}});
+    panel.start();clearInterval(panel.timer);
+    const scene=structuredClone(world.scene);
+    const resident=dom.elements.get('citizens-appointment-resident');
+    const target=dom.elements.get('citizens-appointment-target');
+    const kind=dom.elements.get('citizens-appointment-kind');
+    const start=dom.elements.get('citizens-appointment-start');
+    const deadline=dom.elements.get('citizens-appointment-deadline');
+    const book=(activity,first,last)=>{
+      kind.value=activity;panel.selectAppointmentKind();
+      start.value=String(first);deadline.value=String(last);
+      panel.applyAppointment();
+    };
+    book('rest',2,10);
+    book('eat',10,20);
+    resident.value='bo';panel.selectAppointmentResident();
+    book('rest',5,12);
+    resident.value='ada';panel.selectAppointmentResident();
+    target.value='appointment-1';panel.selectAppointmentTarget();
+    assert.equal(target.value,'appointment-1');
+    assert.equal(kind.value,'rest');
+    assert.equal(start.value,'2');assert.equal(deadline.value,'10');
+    assert.match(dom.elements.get('citizens-appointment-conflicts').textContent,
+      /Overlaps Ada's appointment-2 \(eat m 10–20\)/,
+      'a deadline and another start at the same minute overlap inclusively');
+    assert.equal(dom.elements.get('citizens-appointment-apply').textContent,
+      'Apply appointment');
+    assert.equal(dom.elements.get('citizens-appointment-cancel').disabled,false);
+    start.value='9';deadline.value='15';
+    panel.render();panel.tick();
+    assert.equal(start.value,'9');assert.equal(deadline.value,'15');
+    const conflicts=dom.elements.get('citizens-appointment-conflicts').textContent;
+    assert.match(conflicts,/Overlaps Ada's appointment-2 \(eat m 10–20\)/);
+    assert.match(conflicts,/Shared rest station may queue with Bo's appointment-1 \(m 5–12\)/);
+    assert.equal(dom.elements.get('citizens-appointment-apply').disabled,false,
+      'overlaps warn but do not reject');
+    panel.applyAppointment();
+    assert.equal(commits,5,'start, three bookings, and revision save once each');
+    assert.deepEqual(world.scene,scene);
+    const ada=world.citizens.residents.find(item=>item.id==='ada');
+    assert.deepEqual(ada.appointments.map(item=>item.id),
+      ['appointment-1','appointment-2']);
+    assert.deepEqual({kind:ada.appointments[0].kind,
+      startTick:ada.appointments[0].startTick,
+      deadlineTick:ada.appointments[0].deadlineTick},
+    {kind:'rest',startTick:9,deadlineTick:15});
+    assert.match(dom.elements.get('citizens-appointment-status').textContent,
+      /Revised appointment-1 for Ada/);
+  }finally{
+    if(panel)clearInterval(panel.timer);
+    dom.restore();
+  }
+});
+
+test('three open appointments block New while pending edit and cancellation remain available',()=>{
+  const dom=stubDocument();
+  let panel;
+  try{
+    let sequence=0,commits=0,busy=false;
+    const world=new MatrixWorld(()=>`appointment-capacity-panel-${++sequence}`);
+    panel=new CitizensPanel(world,{onChange(){commits++;return '';},
+      canStart:()=>'',canMutate:()=>busy?'PC world exchange is pending.':'',
+      onFeedback(){}});
+    panel.start();clearInterval(panel.timer);
+    const target=dom.elements.get('citizens-appointment-target');
+    const start=dom.elements.get('citizens-appointment-start');
+    const deadline=dom.elements.get('citizens-appointment-deadline');
+    for(const [first,last] of [[2,10],[20,30],[40,50]]){
+      start.value=String(first);deadline.value=String(last);
+      panel.applyAppointment();
+    }
+    assert.match(dom.elements.get('citizens-appointment-capacity').textContent,
+      /Ada: 3\/3 open appointments · 0 recent outcomes/);
+    assert.equal(dom.elements.get('citizens-appointment-apply').disabled,true);
+    assert.equal(target.disabled,false,'a full resident can still choose an open entry');
+    target.value='appointment-2';panel.selectAppointmentTarget();
+    assert.equal(start.value,'20');assert.equal(deadline.value,'30');
+    assert.equal(dom.elements.get('citizens-appointment-apply').disabled,false);
+    assert.equal(dom.elements.get('citizens-appointment-cancel').disabled,false);
+    const before=structuredClone(world.citizens),beforeCommits=commits;
+    busy=true;panel.render();
+    assert.equal(dom.elements.get('citizens-appointment-apply').disabled,true);
+    assert.equal(dom.elements.get('citizens-appointment-cancel').disabled,true);
+    panel.cancelAppointment();
+    assert.deepEqual(world.citizens,before);
+    assert.equal(commits,beforeCommits);
+    busy=false;panel.render();
+    panel.toggle();
+    assert.equal(dom.elements.get('citizens-appointment-apply').disabled,true);
+    assert.equal(dom.elements.get('citizens-appointment-cancel').disabled,true);
+    panel.toggle();
+    world.spatial={};panel.render();
+    assert.equal(dom.elements.get('citizens-appointment-apply').disabled,true);
+    assert.equal(dom.elements.get('citizens-appointment-cancel').disabled,true);
+    world.spatial=null;panel.render();
+    panel.cancelAppointment();
+    const ada=world.citizens.residents.find(item=>item.id==='ada');
+    assert.equal(ada.appointments.find(item=>item.id==='appointment-2').status,
+      'cancelled');
+    assert.match(dom.elements.get('citizens-appointment-history').children[0].textContent,
+      /appointment-2.*cancelled.*cancelled by operator/);
+    assert.match(dom.elements.get('citizens-appointment-capacity').textContent,
+      /Ada: 2\/3 open appointments · 1 recent outcome retained/);
+    assert.equal(target.value,'appointment-2','terminal selection stays visible');
+    assert.equal(dom.elements.get('citizens-appointment-apply').disabled,true);
+    assert.equal(dom.elements.get('citizens-appointment-cancel').disabled,true);
+    const afterCancel=structuredClone(world.citizens),cancelCommits=commits;
+    panel.applyAppointment();panel.cancelAppointment();
+    assert.deepEqual(world.citizens,afterCancel);
+    assert.equal(commits,cancelCommits);
+    target.value='';panel.selectAppointmentTarget();
+    assert.equal(dom.elements.get('citizens-appointment-apply').disabled,false);
+    start.value='60';deadline.value='80';panel.applyAppointment();
+    assert.equal(world.citizens.residents[0].appointmentSequence,4);
+    assert.deepEqual(world.citizens.residents[0].appointments.map(item=>item.id),
+      ['appointment-1','appointment-2','appointment-3','appointment-4']);
+    assert.equal(world.citizens.residents[0].appointments.filter(item=>
+      item.status==='pending').length,3);
+  }finally{
+    if(panel)clearInterval(panel.timer);
+    dom.restore();
+  }
+});
+
+test('a selected appointment with changed saved fields stays visible and blocks stale edits',()=>{
+  const dom=stubDocument();
+  let panel;
+  try{
+    let sequence=0,commits=0;
+    const world=new MatrixWorld(()=>`appointment-stale-panel-${++sequence}`);
+    panel=new CitizensPanel(world,{onChange(){commits++;return '';},
+      canStart:()=>'',onFeedback(){}});
+    panel.start();clearInterval(panel.timer);
+    const target=dom.elements.get('citizens-appointment-target');
+    const start=dom.elements.get('citizens-appointment-start');
+    const deadline=dom.elements.get('citizens-appointment-deadline');
+    start.value='2';deadline.value='10';panel.applyAppointment();
+    target.value='appointment-1';panel.selectAppointmentTarget();
+    const expected={kind:'rest',startTick:2,deadlineTick:10};
+    panel.simulation.reviseAppointment('ada','appointment-1',expected,
+      {kind:'rest',startTick:4,deadlineTick:14});
+    panel.commit();
+    assert.equal(target.value,'appointment-1');
+    assert.equal(start.value,'2');assert.equal(deadline.value,'10',
+      'a stale draft is not silently overwritten');
+    assert.equal(dom.elements.get('citizens-appointment-apply').disabled,true);
+    assert.equal(dom.elements.get('citizens-appointment-cancel').disabled,true);
+    assert.match(dom.elements.get('citizens-appointment-status').textContent,
+      /changed since it was selected/);
+    const before=structuredClone(world.citizens),beforeCommits=commits;
+    panel.applyAppointment();panel.cancelAppointment();
+    assert.deepEqual(world.citizens,before);
+    assert.equal(commits,beforeCommits);
+    target.value='';panel.selectAppointmentTarget();
+    target.value='appointment-1';panel.selectAppointmentTarget();
+    assert.equal(start.value,'4');assert.equal(deadline.value,'14');
+    assert.equal(dom.elements.get('citizens-appointment-apply').disabled,false);
+    assert.equal(dom.elements.get('citizens-appointment-cancel').disabled,false);
   }finally{
     if(panel)clearInterval(panel.timer);
     dom.restore();

@@ -54,12 +54,17 @@
           <p id="citizens-routine-status" class="hint" role="status" aria-live="polite">Start Citizens and pause to edit a routine.</p>
         </div>
         <h3>One-time appointments</h3>
-        <ul id="citizens-appointments" class="citizens-list" aria-label="Resident appointment outcomes"></ul>
-        <h3 id="citizens-appointment-editor-heading">Schedule an appointment</h3>
-        <p class="hint">Pause Citizens to book one rest or eat activity at an existing station. An ongoing activity, conversation, or FIFO wait continues; an appointment can miss its deadline while the resident is busy. Missing the deadline grants no appointment result. A later verified action can still update the resident's need; only a verified interaction by the deadline completes the appointment.</p>
+        <p id="citizens-appointment-capacity" class="hint">Start Citizens to see open appointments and recent outcomes.</p>
+        <ul id="citizens-appointments" class="citizens-list" aria-label="Open resident appointments"></ul>
+        <h3>Recent appointment outcomes</h3>
+        <ul id="citizens-appointment-history" class="citizens-list" aria-label="Recent completed, missed, and cancelled appointments"></ul>
+        <h3 id="citizens-appointment-editor-heading">Schedule or revise an appointment</h3>
+        <p class="hint">Pause Citizens to book or revise a pending rest or eat appointment at an existing station. Overlapping appointments are allowed; the earliest deadline is considered at the next idle choice. An ongoing activity, conversation, or FIFO wait continues, so a deadline can be missed. Only a verified interaction by the inclusive deadline completes an appointment. A later verified action can still update a need after a miss.</p>
         <div role="group" aria-labelledby="citizens-appointment-editor-heading">
           <label for="citizens-appointment-resident">Resident</label>
           <select id="citizens-appointment-resident" disabled></select>
+          <label for="citizens-appointment-target">New or existing appointment</label>
+          <select id="citizens-appointment-target" disabled></select>
           <label for="citizens-appointment-kind">Activity and station</label>
           <select id="citizens-appointment-kind" disabled></select>
           <label for="citizens-appointment-start">Start simulated minute</label>
@@ -67,7 +72,8 @@
           <label for="citizens-appointment-deadline">Complete by simulated minute (inclusive)</label>
           <input id="citizens-appointment-deadline" type="number" min="1" max="999999999" step="1" inputmode="numeric" aria-describedby="citizens-appointment-hint" disabled />
           <p id="citizens-appointment-hint" class="hint">Start and deadline use the Citizens clock, not local wall time.</p>
-          <div class="row"><button id="citizens-appointment-apply" type="button" aria-describedby="citizens-appointment-status" disabled>Schedule appointment</button></div>
+          <p id="citizens-appointment-conflicts" class="hint" role="status" aria-live="polite">Choose an appointment to review overlaps.</p>
+          <div class="row citizens-appointment-actions"><button id="citizens-appointment-apply" type="button" aria-describedby="citizens-appointment-status citizens-appointment-conflicts" disabled>Schedule appointment</button><button id="citizens-appointment-cancel" type="button" aria-describedby="citizens-appointment-status" disabled>Cancel pending appointment</button></div>
           <p id="citizens-appointment-status" class="hint" role="status" aria-live="polite">Start Citizens and pause to schedule an appointment.</p>
         </div>
         <h3>Shared objects</h3><ul id="citizens-stations" class="citizens-list"></ul>
