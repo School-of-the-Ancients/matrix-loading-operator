@@ -6,13 +6,13 @@ Start with [VISION.md](VISION.md) for the central product idea, [PRD.md](PRD.md)
 
 ## TL;DR
 
-**One vision: an inhabited Matrix containing White Rooms/holodecks. One defining command: “Operator, load XYZ.” Several creation methods can fulfill it.** The current deliverable remains the voice-created interactive experience under #122, with playable and educational demonstrations.
+**One vision: a Matrix-inspired Three.js/WebXR sandbox. Start in the White Room or load a pre-existing world where AI citizens live; use “Operator, load XYZ” to create and revise in either.** Several creation methods can fulfill the same request. The current deliverable remains the voice-created interactive experience under #122, with playable and educational demonstrations.
 
 | Track | Role | Priority boundary |
 | --- | --- | --- |
 | Matrix Web / Current | Three.js, WebXR, PC-local Operator, procedural/reused/Blender content, interactions and displays | Current create → play/learn → revise → save loop under #122 |
 | Matrix Unity / Original | Native Quest/desktop, original White Room, MRUK room AR and AssetBundles | Preserve supported builds and course evidence; not the new generalized runtime |
-| Matrix World | Persistent inhabited places, offices and holodecks; optional georeferenced/Earth-aligned views | Broader world composition, not a prerequisite for a local experience; #125 portals are speculative |
+| Matrix World | Persistent inhabited worlds, towns and offices; optional georeferenced/Earth-aligned views | Broader world composition, not a prerequisite for a local experience; #125 portals are speculative |
 | AI Citizens | Embodiment, needs, schedules, decisions, memory and social simulation | Preserve the existing open stack; richer autonomy is not the default demo queue |
 | School of the Ancients | Independent education product consuming reusable experiences | Important learning use case; separate curriculum/learner-state ownership |
 | Dynamic world upgrader | Later inspection and improvement of worlds/assets/interactions | Deferred; no automatic overnight worker in the current slice |
@@ -30,7 +30,7 @@ Feature owners: [#122 Creator Mode](https://github.com/School-of-the-Ancients/ma
 ```text
 Desktop browser / Quest WebXR
               |
-Three.js Matrix — White Room or AR presentation
+Three.js Matrix — blank or loaded world / AR view
               |
 ControlService / persistent Agent Portal
               |
@@ -55,7 +55,7 @@ Create complete usable experiences, not just meshes. A world may combine procedu
 
 Procedural creation can provide a first version where suitable. Catalog reuse avoids unnecessary authoring. Blender remains an optional rich asset/rig/animation factory. All paths use the same identity, validation, interaction and persistence contracts. Do not require GLB export or a Blender round trip for direct procedural geometry. [Sakuragaoka Station](RESOURCES.md#sakuragaoka-station--procedural-world-construction) is a reference for this path, not a replacement engine or required port.
 
-The White Room is the creation space/metaphor. Desktop, VR and AR are presentation/input modes; Creator and Play/Test are interaction/authority modes. Neither distinction requires a second engine or a separate headset editor.
+The White Room is an optional blank starting environment and the original loading inspiration, not a mandatory nested creation space. A user can load an existing world directly and use Operator there with appropriate permission. Desktop, VR and AR are presentation/input modes; Creator and Play/Test are interaction/authority modes. Neither distinction requires a second engine or a separate headset editor.
 
 ```text
 one authoritative experience state
@@ -87,11 +87,11 @@ Preserve matching build/runbook/release paths. Unity-specific restoration, APK o
 
 **Status: persistent inhabited-world application direction, not a replacement renderer or a new immediate task.**
 
-The wider Matrix contains places where humans and AI citizens live, work and meet, with White Rooms/holodecks inside it. An agent office is one type of place, not the entire product. A local holodeck remains independently useful before a city or society is implemented.
+Matrix World is where AI citizens live and where humans can load an existing environment to explore, interact and continue creating. Towns, offices and other persistent settings use the same sandbox capabilities as a world created from the blank White Room. An agent office is one type of place, not the entire product. A separate holodeck is optional authored content, not a required container or a gate to editing.
 
 Existing specific owners: [#38 Matrix Boulder](https://github.com/School-of-the-Ancients/matrix-loading-operator/issues/38) for georeferenced worlds/Earth registration, [#41 Astral Travel](https://github.com/School-of-the-Ancients/matrix-loading-operator/issues/41) for later detached presence, and [#125](https://github.com/School-of-the-Ancients/matrix-loading-operator/issues/125) for speculative portal-linked public offices. Preserve `Build-MatrixBoulder.ps1` prototypes/history. Geography is one specialization, not a requirement for every inhabited world.
 
-World composition consumes shared runtime, content, spatial and Citizens capabilities. Do not create another authoritative scene system. Keep world-instance ownership explicit: a holodeck reset must not erase the surrounding world, a visitor's identity or unrelated progress. Public URLs do not establish common identity, trust or seamless cross-site XR. #125 remains theory/backlog only.
+World composition consumes shared runtime, content, spatial and Citizens capabilities. Do not create another authoritative scene system. Keep world-instance ownership explicit: reset/load/replacement must not silently erase unrelated worlds, a visitor's identity or compatible resident/game progress. Public URLs do not establish common identity, trust or seamless cross-site XR. #125 remains theory/backlog only.
 
 # 4. AI Citizens / Character Body
 
