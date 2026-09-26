@@ -178,13 +178,24 @@ export function operatorPanel(){
     }
     texture.needsUpdate=true;
   };
-  const setMessage=(next,nextTone='idle')=>{message=String(next);tone=nextTone;page=0;paint();};
+  const setMessage=(next,nextTone='idle')=>{
+    const updated=String(next);
+    if(message===updated&&tone===nextTone)return;
+    message=updated;tone=nextTone;
+    if(mode==='chat')page=0;
+    paint();
+  };
   const setPinLabel=next=>{pinLabel=next;paint();};
   const setVoiceLabel=next=>{voiceLabel=next;paint();};
   const setVoiceInputLabel=next=>{if(voiceInputLabel!==next){voiceInputLabel=next;paint();}};
   const setOriginLabel=next=>{if(originLabel!==next){originLabel=next;paint();}};
   const setConversationCount=next=>{conversationCount=next;paint();};
-  const setProposal=next=>{proposal=next;if(next)mode='proposal';else if(mode==='proposal')mode='chat';page=0;paint();};
+  const setProposal=next=>{
+    const wasProposal=mode==='proposal';
+    proposal=next;if(next)mode='proposal';else if(wasProposal)mode='chat';
+    if(next||wasProposal)page=0;
+    paint();
+  };
   const setWorldInfo=next=>{if(JSON.stringify(worldInfo)!==JSON.stringify(next)){worldInfo=next;paint();}};
   const setWorldNotice=(text,tone='idle')=>{worldNotice={text:String(text),tone};paint();};
   const setGameStatus=next=>{if(gameStatus!==next){gameStatus=next;paint();}};
