@@ -27,7 +27,7 @@ M4 now adapts that same working flow for VR controls/layout and separately valid
 
 The September 26 priority change started Citizens development at `/web/citizens.html`, an isolated page that reuses WebRuntime/MatrixWorld code but keeps its world and browser storage separate from the main `/web/` Agent Portal. Unfinished M4 wearer checks stay open and can be resumed separately; they are not prerequisites for a desktop simulation. A browser result does not count as Quest acceptance.
 
-The next candidate adds an opt-in Citizens panel to the ordinary `/web/` desktop virtual room. It starts only on an empty floor, reuses the same Matrix world execution and view, and saves versioned simulation state with the existing browser/manual/PC world checkpoints. Version 2 scene/game worlds still load. This is the first shared-world persistence slice; using selected existing furniture, social actions, generalized finite execution, and Quest budgets remain open. See the [shared-world runbook](Docs/Citizens-Shared-World.md).
+Stacked PR #101 adds an opt-in Citizens panel to the ordinary `/web/` desktop virtual room. It starts only on an empty floor, reuses the same Matrix world execution and view, and saves versioned simulation state with the existing browser/manual/PC world checkpoints. Version 2 scene/game worlds still load. The current #19 candidate strengthens fair shared-object reservations and cleanup after cancelled or deleted actors; a bilateral social action remains next. Using selected existing furniture, generalized finite execution, and Quest budgets remain open. See the [shared-world runbook](Docs/Citizens-Shared-World.md).
 
 ## Keep the architecture we already have
 
@@ -40,7 +40,7 @@ The next candidate adds an opt-in Citizens panel to the ordinary `/web/` desktop
 
 These are responsibilities, not four new services. Preserve the existing state owners; do not move all browser/runtime state to a new server just to match an architecture diagram. The broader [module catalog](https://github.com/School-of-the-Ancients/school-of-the-ancients-roadmap/blob/main/MODULES.md) remains the ownership reference.
 
-AI Citizens owns resident needs, goals and decisions. The desktop fixture uses MatrixWorld's bounded action validation and receipts and a separate browser-local checkpoint. A later connection to the live Matrix world must preserve Core's authority over world execution and persistence. A resident cannot inherit the Operator's shell credentials or real-world fleet permissions. School retains teaching and learner records in its separate product.
+AI Citizens owns resident needs, goals and decisions. The isolated desktop fixture uses MatrixWorld's bounded action validation and receipts and a separate browser-local checkpoint. The opt-in main `/web/` panel shares that page's MatrixWorld and browser/PC checkpoints while preserving Core's authority over world execution. A resident cannot inherit the Operator's shell credentials or real-world fleet permissions. School retains teaching and learner records in its separate product.
 
 `/web/` is the current Matrix experience. `/` and the Unity builds remain the supported native/legacy path. Do not merge their interfaces or rewrite them for this release.
 

@@ -27,27 +27,31 @@ tags that `0cb8c23` checkpoint; it predates the Citizens candidate.
 | M4 immersive | Quest VR Agent voice, spawn, animation, revision, save/reopen, same-thread continuation, CODEX paging and WORLD save feedback have wearer evidence. The [AR Agent journey](Validation/WebRuntime-AR-World-Transition-2026-09-26.md) exercised voice creation/revision, grab and save/reopen on merged main. [Panel recall](Validation/WebRuntime-M4-Panel-Recall-2026-09-26.md) (#97) worked for the wearer in VR and AR; the initial [VR-to-AR preview fix](Validation/WebRuntime-AR-World-Transition-2026-09-26.md#candidate-fix-vr-world-previews-in-ar) (#98) showed the same animated Dragon in both modes. | Reviewed approval/denial, Stop, panel text readability and active-turn/page survival, saved-origin recovery and physical-surface checks remain open in the [Quest acceptance matrix](WebRuntime/QUEST3_ACCEPTANCE.md). The final #98 provenance refinements have automated coverage but no wearer retest. |
 | Follow-up capabilities | [Virtual-floor GLB drop](Docs/Web-Floor-Physics.md) (#93) and [typed existing-object rotation](Validation/WebRuntime-Typed-Rotation-2026-09-26.md) (#95), including a Quest VR Agent voice/rotation receipt. | These are bounded mechanics, not general rigid-body physics; AR rotation and broader interaction remain separate checks. |
 
-The current implementation priority is the [AI Citizens roadmap #29](https://github.com/School-of-the-Ancients/matrix-loading-operator/issues/29),
-starting at `/web/citizens.html` with its own browser-local world and storage.
-The next candidate adds an explicit **Start here** control to the ordinary
-`/web/` desktop virtual room and persists its resident state with the same
-browser and PC world checkpoints as the scene. See the
-[shared-world runbook](Docs/Citizens-Shared-World.md). This is still a bounded
-two-resident fixture; it starts only on an empty virtual floor, and the
-isolated page remains useful for reproducible debugging.
-Reuse WebRuntime/MatrixWorld code without claiming integration into the live
-`/web/` Agent Portal world. Prove one visible resident whose
-needs change, who chooses an available activity, moves, interacts, and updates
-its state from an observed outcome. Show its activity, needs, and decision/action
-log. Extend that working loop to at least two residents sharing one world and a
-capacity-limited object, with different choices and a reproducible contention
-trace. Make the simulation inspectable, pausable, seeded, and saveable/resumable.
-Use simple existing characters and props. Add only runtime prerequisites that
-this example demonstrates it needs; richer rigs, ComfyUI/Blender authoring,
-general behavior programs, social dialogue, and an LLM call per frame are not
-starting requirements. Citizens selects intentions; Matrix validates and
-executes finite world actions and reports receipts. No simulated resident gets
-the Operator's shell credentials or permission to run fleet jobs.
+The current implementation priority is the [AI Citizens roadmap #29](https://github.com/School-of-the-Ancients/matrix-loading-operator/issues/29).
+[PR #100](https://github.com/School-of-the-Ancients/matrix-loading-operator/pull/100)
+adds a seeded two-resident fixture at `/web/citizens.html`.
+Stacked [PR #101](https://github.com/School-of-the-Ancients/matrix-loading-operator/pull/101)
+adds the explicit **Start here** control to the ordinary `/web/` desktop virtual
+room and persists Citizens with its existing browser and PC world checkpoints.
+Both PRs remain open. The [shared-world runbook](Docs/Citizens-Shared-World.md)
+records real browser evidence for need changes, observed rest/eat outcomes,
+chair contention, pause/step, save/reopen, PC restore, and service restart.
+This remains a fixed two-resident scenario that starts only on an empty virtual
+floor; the isolated page remains useful for reproducible debugging.
+
+The current [#19](https://github.com/School-of-the-Ancients/matrix-loading-operator/issues/19)
+candidate strengthens capacity-one reservation lifecycles with execution identities,
+bounded leases, deterministic fair waiting, and cleanup after actor or resource
+removal. Surviving residents continue in Chrome after live deletion, and
+versioned browser/PC saves restore the same event order. The next slice is one
+bilateral social action with explicit
+session outcomes and relationship changes only after an observed interaction.
+Binding to selected existing furniture and obstacle-aware navigation remain
+separate [#15](https://github.com/School-of-the-Ancients/matrix-loading-operator/issues/15)
+work. Citizens selects intentions; Matrix validates finite world actions and
+reports receipts. No simulated resident gets the Operator's shell credentials
+or permission to run fleet jobs. Richer rigs, ComfyUI/Blender authoring, GOAP,
+general behavior programs, and an LLM call per frame are not prerequisites.
 
 M4 remains an independent acceptance track. Its next device slice still uses
 an isolated Quest service/scene for reviewed approval/denial or Stop, followed
@@ -63,7 +67,7 @@ The user reports that Matrix partly works but its current AR/VR UI is poor. The 
 
 M0–M3 use the existing `/web/` Three.js application with mouse/keyboard and normal HTML controls, without entering an immersive session. Keep the same world, agent, assets, validation and persistence; do not build a separate desktop engine. Fix desktop usability where it blocks the workflow. Voice is optional for desktop acceptance.
 
-The earlier “get everything working” target meant a reliable create → revise → interact → save/reopen loop and one reusable experiment, rather than every catalog, citizen, city or future feature. The new Citizens fixture reuses that desktop runtime code on a separate page; integration with the main `/web/` world remains future work. Existing XR paths and safety checks stay intact; immersive UI and wearer acceptance remain tracked in M4. Desktop passes do not close outstanding headset criteria in the parent issues.
+The earlier “get everything working” target meant a reliable create → revise → interact → save/reopen loop and one reusable experiment, rather than every catalog, citizen, city or future feature. The Citizens fixture reuses desktop runtime code on a separate page, and PR #101 also integrates its bounded simulation into the main `/web/` desktop world. Existing XR paths and safety checks stay intact; immersive UI and wearer acceptance remain tracked in M4. Desktop passes do not close outstanding headset criteria in the parent issues.
 
 ## Reviewed baseline — do not rebuild it
 
