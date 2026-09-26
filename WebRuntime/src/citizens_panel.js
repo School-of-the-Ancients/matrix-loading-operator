@@ -1,6 +1,7 @@
 // Opt-in Citizens controls for the ordinary Matrix Web world. The simulation
 // chooses intentions; MatrixWorld remains the executor and scene owner.
-import {CitizensSimulation,createCitizensDemo} from './citizens.js';
+import {CitizensSimulation,createCitizensDemo,
+  createCitizensWithSelectedFurniture} from './citizens.js';
 
 const byId=id=>document.getElementById(id);
 const intervalMs=500;
@@ -27,6 +28,7 @@ export class CitizensPanel {
     this.recoverArmedUntil=0;
     this.recoverArmedCopy='';
     byId('citizens-start').addEventListener('click',()=>this.start());
+    byId('citizens-bind-selected').addEventListener('click',()=>this.start('selected'));
     byId('citizens-toggle').addEventListener('click',()=>this.toggle());
     byId('citizens-step').addEventListener('click',()=>this.step());
     byId('citizens-stop').addEventListener('click',()=>this.stop());
@@ -151,19 +153,24 @@ export class CitizensPanel {
     this.render();
   }
 
-  start(){
+  start(mode='fixture'){
     const mutationBlocked=this.canMutate();
     if(mutationBlocked){this.onFeedback(mutationBlocked,true);this.render();return;}
-    const blocked=this.canStart();
+    const blocked=this.canStart(mode);
     if(blocked){this.onFeedback(blocked,true);this.render();return;}
     const seed=Number(byId('citizens-seed').value);
     if(!Number.isSafeInteger(seed)||seed<1||seed>0xffffffff){
       this.onFeedback('Enter a whole-number Citizens seed from 1 to 4294967295.',true);return;
     }
     try{
-      this.simulation=createCitizensDemo(this.world,{seed});
+      this.simulation=mode==='selected'?
+        createCitizensWithSelectedFurniture(this.world,{
+          seed,objectId:this.world.selection.objectId}):
+        createCitizensDemo(this.world,{seed});
       this.error='';this.commit();
-      this.onFeedback('Two residents were added to this Matrix world. Press Run to begin.');
+      this.onFeedback(mode==='selected'?
+        'Two residents were added to the existing Matrix world and bound to the selected furniture. Press Run to begin.':
+        'Two residents were added to this Matrix world. Press Run to begin.');
     }catch(error){this.onFeedback(`Citizens could not start: ${error.message}`,true);}
   }
 
@@ -301,7 +308,8 @@ export class CitizensPanel {
     for(const station of state?.stations||[])
       (station.waiters||[]).forEach((waiter,index)=>waiting.set(waiter.residentId,
         {stationId:station.id,executionId:waiter.executionId,position:index+1}));
-    const blocked=this.canStart();
+    const blocked=this.canStart('fixture');
+    const selectedBlocked=this.canStart('selected');
     const mutationBlocked=this.canMutate();
     let recovery=null,recoveryError='';
     try{recovery=this.getRecovery();}
@@ -313,6 +321,11 @@ export class CitizensPanel {
       this.recoverArmedUntil=0;this.recoverArmedCopy='';
     }
     byId('citizens-start').disabled=!!state||!!this.world.citizens||!!blocked||!!mutationBlocked;
+    byId('citizens-bind-selected').disabled=!!state||!!this.world.citizens||
+      !!selectedBlocked||!!mutationBlocked;
+    byId('citizens-selection-status').textContent=state?
+      `Citizens uses ${state.stations.map(station=>station.id).join(' and ')||'no remaining furniture'} in this world.`:
+      selectedBlocked||'Selected furniture is ready. Use it to add two residents without replacing the scene.';
     byId('citizens-toggle').disabled=!state||state.residents.length===0||
       !!this.error||!!this.world.spatial||!!mutationBlocked;
     byId('citizens-step').disabled=!state||state.residents.length===0||
@@ -331,7 +344,8 @@ export class CitizensPanel {
     byId('citizens-status').textContent=this.error||(
       state?`${state.paused?'Paused':'Running'} · minute ${state.clockTick} · seed ${state.seed}`:
         this.world.citizens?'Citizens state needs recovery. Undo the edit, restore a valid PC world, or stop Citizens.':
-          blocked||'No Citizens in this world. Start a seeded scenario on this empty virtual floor.');
+          (blocked&&selectedBlocked?blocked:
+            'No Citizens in this world. Start an empty fixture or use selected furniture.'));
     byId('citizens-toggle').textContent=state?.paused?'Run':'Pause';
     const cards=[];
     const social=state?.socialSession;

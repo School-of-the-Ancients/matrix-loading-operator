@@ -16,6 +16,7 @@ import {archiveAndClearRoom,archiveAndRebaseRoom,roomArchives,
   clearRoomArchives as clearStoredRoomArchives,ROOM_ARCHIVES_KEY} from './room_origin.js';
 import {BlockScaleUI} from './block_scale_ui.js';
 import {CitizensPanel} from './citizens_panel.js';
+import {citizensFurnitureReadiness} from './citizens.js';
 
 const $=id=>document.getElementById(id);
 const world=new MatrixWorld();
@@ -50,7 +51,7 @@ const feedback=(message,isError=false)=>{
   $('feedback').textContent=[message,warning].filter(Boolean).join('\n');
   $('feedback').classList.toggle('error',isError||!!warning);
 };
-const view=new MatrixView($('view'),world,()=>{discardProposal();scaleUI?.refreshTargets();feedback(`Selected ${world.selection.objectId||'placement point'} at ${Object.values(world.selection.position).join(', ')} m.`);},()=>$('token').value.trim(),message=>feedback(message,true),(id,position)=>{discardProposal();const delivered=deliverMovedObject(world,id);if(delivered)speakReply(delivered);renderScene();feedback(delivered||`Moved ${id.slice(0,8)} to ${Object.values(position).join(', ')} m. Undo and Save are available.`);},()=>{if(!view.isAR)cameraStream.stop();if(!view.isAR||!world.spatial?.originUnavailable){roomResetArmedUntil=0;roomRecoveryChoice='';}updateCameraControls();discardProposal();renderScene();},beginVoice,endVoice,()=>{$('speak-replies').checked=!$('speak-replies').checked;view.setVoiceOutputEnabled($('speak-replies').checked);unlockReplyAudio();},reviewView,newChat);
+const view=new MatrixView($('view'),world,()=>{discardProposal();scaleUI?.refreshTargets();citizensPanel?.render();feedback(`Selected ${world.selection.objectId||'placement point'} at ${Object.values(world.selection.position).join(', ')} m.`);},()=>$('token').value.trim(),message=>feedback(message,true),(id,position)=>{discardProposal();const delivered=deliverMovedObject(world,id);if(delivered)speakReply(delivered);renderScene();feedback(delivered||`Moved ${id.slice(0,8)} to ${Object.values(position).join(', ')} m. Undo and Save are available.`);},()=>{if(!view.isAR)cameraStream.stop();if(!view.isAR||!world.spatial?.originUnavailable){roomResetArmedUntil=0;roomRecoveryChoice='';}updateCameraControls();discardProposal();renderScene();},beginVoice,endVoice,()=>{$('speak-replies').checked=!$('speak-replies').checked;view.setVoiceOutputEnabled($('speak-replies').checked);unlockReplyAudio();},reviewView,newChat);
 view.onPanelAction=panelAction;
 view.sync();
 view.setVoiceOutputEnabled($('speak-replies').checked);
@@ -209,9 +210,10 @@ const bridge=new MatrixBridge(world,()=>$('token').value.trim(),event=>{
 citizensPanel=new CitizensPanel(world,{
   onChange:()=>{const warning=renderScene();void bridge.tick(true);return warning;},
   canMutate:()=>pcWorldBusy?'Wait for the current PC world save or restore to finish.':'',
-  canStart:()=>pendingWorld?'Finish saved-world recovery before starting Citizens.':
+  canStart:(mode='fixture')=>pendingWorld?'Finish saved-world recovery before starting Citizens.':
     world.spatial?'Citizens starts only in the desktop virtual room.':
     world.citizens?'Citizens is already in this world.':
+    mode==='selected'?citizensFurnitureReadiness(world,world.selection.objectId):
     world.scene.objects.length||world.game?'Save or choose an empty world before starting this seeded scenario.':'',
   getRecovery:()=>loadCitizensDeletionRecovery(localStorage),
   canRecover:()=>pendingWorld?'Finish saved-world recovery before restoring the pre-deletion copy.':
