@@ -20,6 +20,7 @@ export class CitizensPanel {
     this.confirmDurableRecovery=confirmDurableRecovery;
     this.clearRecovery=clearRecovery;
     this.simulation=null;
+    this.arWorld=null;
     this.boundState=null;
     this.error='';
     this.stopArmedUntil=0;
@@ -47,20 +48,40 @@ export class CitizensPanel {
     if(this.canMutate()){this.render();return;}
     if(this.world.spatial){
       if(this.simulation){
-        this.simulation.pause();
-        // The AR session can move virtual-floor objects while this simulation
-        // has no live transform baseline. Cancel intentions before detaching it.
-        for(const resident of this.simulation.state.residents)
-          if(resident.activity||this.simulation.waitingFor(resident))this.simulation.fail(resident,
-            'entering AR cancelled the current activity or queued wait');
+        if(!this.arWorld){
+          this.simulation.pause();
+          // Keep a paused virtual-room view of the live floor objects. AR edits
+          // can delete those objects, so Citizens must still reconcile before
+          // the next whole-world browser save.
+          for(const resident of this.simulation.state.residents)
+            if(resident.activity||this.simulation.waitingFor(resident))this.simulation.fail(resident,
+              'entering AR cancelled the current activity or queued wait');
+          this.arWorld=Object.create(this.world);
+          this.arWorld.scene={...this.world.virtualScene.scene,
+            objects:this.world.scene.objects.filter(object=>object.anchorId==='web-floor')};
+          this.arWorld.spatial=null;
+          this.simulation.world=this.arWorld;
+          this.simulation.observedScene=this.arWorld.scene;
+        }else{
+          this.arWorld.scene.objects=this.world.scene.objects.filter(object=>
+            object.anchorId==='web-floor');
+          this.simulation.reconcileWorld();
+        }
         this.world.citizens=this.simulation.snapshot();
         this.boundState=this.world.citizens;
-        this.simulation=null;
       }
       this.error=this.world.citizens?
         'Citizens is paused in AR. Return to the desktop virtual room to resume.':'';
       this.render();
       return;
+    }
+    if(this.arWorld){
+      // leaveAR carries the live virtual-floor edits back into this scene.
+      if(this.simulation){
+        this.simulation.world=this.world;
+        this.simulation.observedScene=this.world.scene;
+      }
+      this.arWorld=null;
     }
     if(!this.world.citizens){
       this.simulation=null;this.boundState=null;this.error='';this.render();return;
@@ -176,7 +197,8 @@ export class CitizensPanel {
       return;
     }
     this.stopArmedUntil=0;
-    this.simulation=null;this.boundState=null;this.world.citizens=null;this.error='';
+    this.simulation=null;this.arWorld=null;this.boundState=null;
+    this.world.citizens=null;this.error='';
     this.render();this.onChange();
     this.onFeedback('Citizens stopped. Their objects remain as ordinary scene objects.');
   }

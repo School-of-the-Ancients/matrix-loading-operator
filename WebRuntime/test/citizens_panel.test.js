@@ -3,7 +3,8 @@ import assert from 'node:assert/strict';
 import {MatrixWorld} from '../src/protocol.js';
 import {createCitizensDemo} from '../src/citizens.js';
 import {CitizensPanel} from '../src/citizens_panel.js';
-import {restoreStoredWorld,storedBrowserWorld,storedWorld} from '../src/scene_store.js';
+import {CITIZENS_DELETION_RECOVERY_KEY,WORLD_KEY,restoreStoredWorld,
+  saveStoredWorld,storedBrowserWorld,storedWorld} from '../src/scene_store.js';
 import {applyPCWorld} from '../src/world_checkpoint.js';
 
 function stubDocument(){
@@ -262,6 +263,40 @@ test('AR entry cancels active claims before an AR object move and does not auto-
     assert.ok(returned.residents.every(resident=>resident.activity===null));
     panel.tick();
     assert.equal(panel.simulation.snapshot().clockTick,active.clockTick);
+  }finally{
+    if(panel)clearInterval(panel.timer);
+    dom.restore();
+  }
+});
+
+test('deleting a bound resident in AR retires it before save and preserves full recovery',()=>{
+  const dom=stubDocument();
+  let panel;
+  try{
+    let sequence=0;
+    const world=new MatrixWorld(()=>`citizens-${++sequence}`);
+    const simulation=createCitizensDemo(world,{seed:17});
+    world.citizens=simulation.step();
+    const values=new Map();
+    const storage={getItem:key=>values.get(key)??null,
+      setItem(key,value){values.set(key,value);}};
+    assert.equal(saveStoredWorld(storedBrowserWorld(world),storage,storage),'');
+    const before=JSON.parse(storage.getItem(WORLD_KEY));
+    panel=new CitizensPanel(world,{onChange(){},canStart:()=>'',onFeedback(){}});
+    world.enterAR();panel.syncFromWorld();
+    const ada=world.citizens.residents.find(resident=>resident.id==='ada');
+    assert.equal(world.execute({requestId:'delete-ada-in-ar',op:'delete',
+      objectId:ada.objectId}).ok,true);
+    panel.syncFromWorld();
+    assert.deepEqual(world.citizens.retiredResidentIds,['ada']);
+    assert.deepEqual(world.citizens.residents.map(resident=>resident.id),['bo']);
+    assert.equal(saveStoredWorld(storedBrowserWorld(world),storage,storage),'');
+    const recovery=JSON.parse(storage.getItem(CITIZENS_DELETION_RECOVERY_KEY));
+    assert.deepEqual(recovery.scene,before.scene);
+    assert.deepEqual(recovery.citizens,before.citizens);
+    world.leaveAR();panel.syncFromWorld();
+    assert.deepEqual(panel.simulation.snapshot().residents.map(resident=>resident.id),['bo']);
+    assert.equal(panel.simulation.snapshot().paused,true);
   }finally{
     if(panel)clearInterval(panel.timer);
     dom.restore();
