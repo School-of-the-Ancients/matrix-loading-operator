@@ -70,11 +70,34 @@ the typed, validated Matrix command API instead. This check does not establish
 that the offline parser handles that wording or that a Codex turn authored this
 particular placement.
 
-## Remaining evidence
+## Quest 3 VR check on the combined build
 
-The combined build has not yet been checked by a Quest wearer. The prior
-port-18772 #90 wearer run established VR → AR → VR entry and correct VR floor;
-its subsequent VR CODEX push-to-talk check showed changed labels and one turn.
-Those results are for the #90 branch, not this combined physics build. AR
-physical-floor contact, object-to-object collision, and general rigid-body
-physics remain outside this bounded virtual-floor capability.
+With USB ADB reverse `tcp:18777`, the wearer opened
+`http://127.0.0.1:18777/web/` and confirmed the VR White Room was visible.
+The browser connected as a ready `white-room` client with an empty Quest scene.
+The Quest 3 ran Quest Browser `152.0.0.44.30.1069357998` on Android 14. The
+combined runtime source was commit `a991f4e`; the build used the same
+WebRuntime source (the later changes to this report do not change runtime code).
+
+The first Dragon spawned with receipt `e382c60f…`, object ID
+`8ef557a9598645bc961291e99ca071e2`, and its Flight/Frost Burst binding
+received `adb793a6…`. Its pose then changed in the Quest scene to a moved and
+rotated transform. A physics request was correctly rejected with “Physics
+needs an upright start 0-5 metres above the virtual floor.” The test left that
+user-moved object in place.
+
+A second Dragon spawned at `(-1.2, 2, -2)` with receipt `335863b5…`, object ID
+`4ed1612f846c4271bb810ee5a6778009`. Flight/Frost Burst binding receipt
+`99420797…` succeeded. Physics receipt `17824934…` succeeded; the PC observed
+that execution `settled` at virtual-floor y=0 with five approximate contacts,
+while its authored transform remained y=2. The wearer confirmed that this
+second Dragon **visibly fell to the VR floor and kept its Flight animation**.
+This is direct Quest evidence for the bounded VR floor drop and animation
+combination; the runtime receipt and wearer observation agree.
+
+The prior port-18772 #90 wearer run separately established VR → AR → VR entry
+and correct VR floor; its VR CODEX push-to-talk check showed changing labels
+and one turn. The combined port-18777 run did not test AR physics, a full Agent
+conversation, or headset save/reopen. AR physical-floor contact,
+object-to-object collision, and general rigid-body physics remain outside this
+bounded virtual-floor capability.
