@@ -19,6 +19,11 @@ Matrix origin on port 18767 and release `v0.6.0-preview.1` are unchanged.
   Three cleaned up that failed setup. This was corrected before the current
   retest; the initial failure is retained here as evidence, not counted as a
   successful run.
+- The next isolated revision could not enter either mode. `initXRIfReady`
+  replaced the XR button container with a loading message, removing a status
+  element that the new button handler expected. The handler then failed before
+  requesting a session. The status element is now created by `initXR` after
+  loading completes; a test covers the loading-message path.
 
 ## Current change and PC checks
 

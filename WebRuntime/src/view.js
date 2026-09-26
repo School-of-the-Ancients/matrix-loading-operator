@@ -261,7 +261,11 @@ export class MatrixView {
     if(!navigator.xr){buttons.textContent='WebXR unavailable in this browser';return;}
     const [ar,vr]=await Promise.all(['immersive-ar','immersive-vr'].map(mode=>navigator.xr.isSessionSupported(mode).catch(()=>false)));
     const overlay=document.getElementById('xr-overlay');
-    const entryStatus=document.getElementById('xr-entry-status');
+    // initXRIfReady may have replaced this container with a loading message.
+    // Create the status alongside the buttons so it always survives that step.
+    const entryStatus=document.createElement('span');entryStatus.className='xr-entry-status';
+    entryStatus.id='xr-entry-status';entryStatus.setAttribute('role','status');
+    buttons.textContent='';buttons.append(entryStatus);
     const entries=[];
     const refresh=()=>{
       for(const {button,mode,label} of entries){

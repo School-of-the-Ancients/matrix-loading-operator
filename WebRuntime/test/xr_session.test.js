@@ -33,7 +33,10 @@ test('AR exit allows VR on the same page without competing session offers or sta
   };
   const oldNavigator=Object.getOwnPropertyDescriptor(globalThis,'navigator');
   const oldDocument=Object.getOwnPropertyDescriptor(globalThis,'document');
-  class Button extends EventTarget{click(){if(!this.disabled)this.dispatchEvent(new Event('click'));}}
+  class Button extends EventTarget{
+    setAttribute(){}
+    click(){if(!this.disabled)this.dispatchEvent(new Event('click'));}
+  }
   Object.defineProperty(globalThis,'navigator',{configurable:true,value:{xr}});
   Object.defineProperty(globalThis,'document',{configurable:true,value:{
     createElement:()=>new Button(),getElementById:()=>({})
@@ -44,10 +47,12 @@ test('AR exit allows VR on the same page without competing session offers or sta
   });
   const errors=[],view=Object.create(MatrixView.prototype);
   view.renderer={xr:xrRenderer};view.onAssetError=message=>errors.push(message);
-  const buttons={children:[],append(button){this.children.push(button);}};
+  const buttons={children:[],textContent:'Loading saved world before XR',append(button){this.children.push(button);}};
   await view.initXR(buttons);
-  assert.equal(buttons.children.length,2);
-  const [ar,vr]=buttons.children;
+  assert.equal(buttons.children.length,3);
+  assert.equal(buttons.textContent,'');
+  const [status,ar,vr]=buttons.children;
+  assert.equal(status.id,'xr-entry-status');
   ar.click();
   assert.deepEqual(requests.map(request=>request.mode),['immersive-ar']);
   await new Promise(resolve=>setImmediate(resolve));
