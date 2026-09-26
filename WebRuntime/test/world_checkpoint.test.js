@@ -37,17 +37,20 @@ test('PC restore exchanges exact IDs and game progress before replacing the disp
   });
   assert.deepEqual(storedWorld(world),checkpoint);
   assert.equal(world.game.state.phase,'won');
+  assert.equal(world.originBinding,'unknown','a PC checkpoint has no AR provenance');
 });
 
 test('failed PC exchange leaves the prior scene, game, selection and undo state intact',async()=>{
   const world=current(),before=storedWorld(world),selection=structuredClone(world.selection),
     undo=structuredClone(world.undo),redo=structuredClone(world.redo);
+  world.originBinding='ar';
   await assert.rejects(applyPCWorld(world,saved(),async()=>{throw Error('connection lost');}),
     /connection lost/);
   assert.deepEqual(storedWorld(world),before);
   assert.deepEqual(world.selection,selection);
   assert.deepEqual(world.undo,undo);
   assert.deepEqual(world.redo,redo);
+  assert.equal(world.originBinding,'ar');
 });
 
 test('invalid PC checkpoint cannot replace a browser world',async()=>{

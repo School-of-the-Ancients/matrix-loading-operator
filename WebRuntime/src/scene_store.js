@@ -20,6 +20,12 @@ export function storedWorld(world){
   return {version:2,scene:structuredClone(scene),game:structuredClone(world.game)};
 }
 
+// Keep browser-only origin provenance out of PC world checkpoints, whose
+// scene/game envelope is intentionally renderer-neutral and exact.
+export function storedBrowserWorld(world){
+  return {...storedWorld(world),originBinding:world.originBinding};
+}
+
 export function saveStoredWorld(value,tabStorage,durableStorage){
   let json;
   try{
@@ -89,6 +95,9 @@ export function restoreStoredWorld(world,value){
     throw Error('Saved room origin is unavailable; recover it before replacing the active world');
   if(!value||value.version!==2||!value.scene||typeof value.scene!=='object'||
      !Object.hasOwn(value,'game'))throw Error('Invalid world save envelope');
+  const binding=value.originBinding===undefined?
+    (value.scene.objects?.length||value.game!==null?'unknown':'virtual'):value.originBinding;
+  if(!['virtual','ar','unknown'].includes(binding))throw Error('Invalid world origin binding');
   // Validate both halves before changing the active world.
   const scene=world.spatial?{...structuredClone(value.scene),roomId:world.scene.roomId}:value.scene;
   world.validateScene(scene);
@@ -96,11 +105,13 @@ export function restoreStoredWorld(world,value){
     throw Error('Saved game bindings or progress are invalid');
   restoreStoredScene(world,value.scene);
   world.game=structuredClone(value.game);
+  world.originBinding=world.spatial&&world.originBinding==='ar'?'ar':binding;
   world.undo=[];world.redo=[];
 }
 
-export function saveCheckpoint(scene,game,storage){
-  try{storage.setItem(CHECKPOINT_KEY,JSON.stringify({version:2,scene,game}));return '';}
+export function saveCheckpoint(scene,game,storage,originBinding){
+  try{storage.setItem(CHECKPOINT_KEY,JSON.stringify({version:2,scene,game,
+    ...(originBinding?{originBinding}:{})}));return '';}
   catch(error){return `World checkpoint could not be saved: ${error.message}`;}
 }
 

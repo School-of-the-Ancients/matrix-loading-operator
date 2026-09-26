@@ -48,6 +48,8 @@ export class MatrixWorld {
     this.externalAssets=[];
     this.scene={schemaVersion:1,roomId:ROOM_ID,objects:[]};
     this.game=null;
+    // Browser world provenance is separate from the renderer-neutral scene.
+    this.originBinding='virtual';
     this.selection={anchorId:ANCHOR_ID,objectId:'',position:{x:0,y:0,z:-2}};
     this.spatial=null;this.virtualScene=null;
     this.undo=[]; this.redo=[];
@@ -226,6 +228,7 @@ export class MatrixWorld {
     const saved=this.virtualScene;
     saved.scene.objects=clone(this.scene.objects.filter(object=>object.anchorId===ANCHOR_ID));
     this.scene=saved.scene;
+    if(!this.scene.objects.length&&this.game===null)this.originBinding='virtual';
     this.physicsBodies.clear();this.physicsVerification.clear();this.physicsSceneReference=this.scene;
     this.selection=this.selection.anchorId===ANCHOR_ID?this.selection:saved.selection;
     this.undo=[];this.redo=[];this.spatial=null;this.virtualScene=null;

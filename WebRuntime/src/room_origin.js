@@ -43,6 +43,7 @@ function archiveAndStartRoom(world,storage,keepWorld){
     world.scene.objects=[];
     if(world.virtualScene)world.virtualScene.scene.objects=[];
     world.game=null;
+    world.originBinding='virtual';
   }
   world.selection={anchorId:'web-floor',objectId:'',position:{x:0,y:0,z:-2}};
   if(world.virtualScene)world.virtualScene.selection=structuredClone(world.selection);

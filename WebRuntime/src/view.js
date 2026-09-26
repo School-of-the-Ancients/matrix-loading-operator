@@ -220,6 +220,10 @@ export function operatorPanel(){
 }
 const v3=v=>new THREE.Vector3(v.x,v.y,v.z);
 const plain=v=>({x:Number(v.x.toFixed(3)),y:Number(v.y.toFixed(3)),z:Number(v.z.toFixed(3))});
+function setRoomContentVisible(view,visible){
+  view.virtualFloorRoot.visible=visible;
+  for(const root of view.anchorRoots?.values()||[])root.visible=visible;
+}
 
 export class MatrixView {
   constructor(container,world,onSelection,getToken=()=>'',onAssetError=()=>{},onSceneEdit=()=>{},onRuntimeChange=()=>{},onVoiceStart=()=>{},onVoiceEnd=()=>{},onVoiceOutputToggle=()=>{},onVisualReview=()=>{},onNewChat=()=>{}){
@@ -343,7 +347,7 @@ export class MatrixView {
     }
     this.roomAnchorHandleAvailable=!!handle;
     if(!handle){
-      if(this.isAR&&hasWorldToProtect(this.world))
+      if(this.isAR&&hasWorldToProtect(this.world)&&this.world.originBinding!=='virtual')
         this.markRoomOriginUnavailable('Saved world has no persistent room anchor. Retry or archive it before starting a new room.');
       return;
     }
@@ -351,7 +355,7 @@ export class MatrixView {
       if(this.isAR)this.markRoomOriginUnavailable('Saved room origin cannot be restored by this browser session');
       return;
     }
-    if(this.isAR){this.virtualFloorRoot.visible=false;this.world.setOriginUnavailable(true);}
+    if(this.isAR){setRoomContentVisible(this,false);this.world.setOriginUnavailable(true);}
     this.roomAnchorPending=true;
     let restored;
     try{restored=session.restorePersistentAnchor(handle);}
@@ -366,7 +370,7 @@ export class MatrixView {
     }).finally(()=>{if(this.renderer.xr.getSession()===session)this.roomAnchorPending=false;});
   }
   markRoomOriginUnavailable(message){
-    this.roomAnchorRestoreFailed=true;this.virtualFloorRoot.visible=false;
+    this.roomAnchorRestoreFailed=true;setRoomContentVisible(this,false);
     this.world.setOriginUnavailable(true);
     this.onAssetError(message);
     this.onRuntimeChange();
@@ -381,7 +385,7 @@ export class MatrixView {
     }
     if(this.roomAnchorCreationFailed){
       this.roomAnchorCreationFailed=false;this.roomAnchor=null;this.roomAnchorLocated=false;
-      this.roomPoseMissingSince=0;this.virtualFloorRoot.visible=false;
+      this.roomPoseMissingSince=0;setRoomContentVisible(this,false);
       return true;
     }
     return false;
@@ -390,7 +394,7 @@ export class MatrixView {
     if(!this.isAR||!this.world.spatial?.originUnavailable)throw Error('Room origin reset requires an unavailable AR origin');
     this.roomAnchor=null;this.roomAnchorPending=false;this.roomAnchorPersistent=false;
     this.roomAnchorRestoreFailed=false;this.roomAnchorCreationFailed=false;this.roomAnchorLocated=false;this.roomAnchorHandleAvailable=false;this.roomPoseMissingSince=0;
-    this.virtualFloorRoot.visible=false;
+    setRoomContentVisible(this,false);
   }
   createRoomAnchor(frame,ref,floorHeight){
     if(this.roomAnchor||this.roomAnchorPending||this.roomAnchorCreationFailed||this.roomAnchorRestoreFailed||typeof frame.createAnchor!=='function'||!this.xrViewer||typeof XRRigidTransform==='undefined')return;
@@ -421,7 +425,7 @@ export class MatrixView {
       if(!this.isAR)return;
       if(!this.roomPoseMissingSince)this.roomPoseMissingSince=performance.now();
       if(this.roomAnchorLocated){
-        this.roomAnchorLocated=false;this.virtualFloorRoot.visible=false;
+        this.roomAnchorLocated=false;setRoomContentVisible(this,false);
         this.world.setOriginUnavailable(true);this.onRuntimeChange();
       }
       if(!this.roomAnchorRestoreFailed&&performance.now()-this.roomPoseMissingSince>10000){
@@ -431,14 +435,17 @@ export class MatrixView {
       }
       return;
     }
+    const firstPose=!this.roomAnchorLocated,wasUnavailable=!!this.world.spatial?.originUnavailable;
     this.roomPoseMissingSince=0;this.roomAnchorRestoreFailed=false;
     this.virtualFloorRoot.position.copy(v3(pose.transform.position));
     const {x,y,z,w}=pose.transform.orientation;
     this.virtualFloorRoot.quaternion.set(x,y,z,w);
-    this.virtualFloorRoot.visible=true;
     this.roomAnchorLocated=true;
     this.virtualFloorCalibrated=true;
-    if(this.world.spatial?.originUnavailable){this.world.setOriginUnavailable(false);this.onRuntimeChange();}
+    this.world.originBinding='ar';
+    this.world.setOriginUnavailable(false);
+    setRoomContentVisible(this,true);
+    if(wasUnavailable||(firstPose&&hasWorldToProtect(this.world)))this.onRuntimeChange();
   }
   onSessionEnd(){
     if(this.operatorVoiceController)this.releaseOperatorVoice(this.operatorVoiceController);
@@ -599,6 +606,7 @@ export class MatrixView {
         root.userData.assetLoading=true;this.loadExternal(asset,root,visual,object.objectId);
       }
     }
+    setRoomContentVisible(this,!this.isAR||!this.world.spatial?.originUnavailable);
     this.highlight();
   }
   refreshAssets(changedAssetIds){
@@ -760,6 +768,7 @@ export class MatrixView {
     this.onSceneEdit(objectId,transform.position);
   }
   selectFromRay(){
+    if(this.isAR&&this.world.spatial?.originUnavailable)return null;
     const roots=[...this.objectRoots.values()];const hits=this.raycaster.intersectObjects(roots,true);
     if(hits.length){let node=hits[0].object;while(node&&!node.userData.objectId)node=node.parent;
       const id=node?.userData.objectId;if(id){const object=this.world.requireObject(id);this.world.setSelection(id,object.transform.position,object.anchorId);this.highlight();this.onSelection();
@@ -774,6 +783,7 @@ export class MatrixView {
     if(floorHit){const position=plain(floorHit.point);if(['x','y','z'].every(k=>Math.abs(position[k])<=100)){this.world.setSelection('',position);this.highlight();this.onSelection();}}
   }
   pointingTarget(){
+    if(this.isAR&&this.world.spatial?.originUnavailable)return null;
     if(this.renderer.xr.isPresenting){
       const controller=this.lastPointingController;
       if(!controller)return null;
