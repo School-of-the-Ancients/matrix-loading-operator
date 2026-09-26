@@ -181,5 +181,7 @@ The panel now resets a page only when its active content mode changes or a new
 Agent turn/approval/voice phase requires attention. Repeated background
 Operator messages and proposal cleanup leave the CODEX reading page in place.
 A regression exercises completed transcript paging across repeated status
-updates and continued transcript content. The updated behavior still needs a
-wearer check after a Quest page reload.
+updates and continued transcript content. After reloading port 18778 in Quest
+VR, the wearer opened page two of a Completed CODEX reply and confirmed that it
+stayed visible for five seconds without pressing NEXT. The WORLD save notice
+still awaits a separate wearer check.
