@@ -1,4 +1,4 @@
-# PC world checkpoints (API slice)
+# PC world checkpoints
 
 `/api/web/world/save` and `/api/web/world/load` store and retrieve one supported
 Matrix WebRuntime world: scene objects, game specification, object bindings, and
@@ -39,8 +39,14 @@ is not required to read an existing attachment. Running components restart
 their elapsed-time phase on load; object IDs, package, target and status remain.
 GLB mixer playback phase and device streams are not checkpoint data.
 
-This slice exposes the PC API. The current in-world **Save World** button still
-creates a browser checkpoint and a labeled scene-only PC backup. A later browser
-slice can call these routes and provide named PC restore/export controls. The
-checkpoint references registered GLBs; it is not a portable bundle of asset
+The desktop `/web/` sidebar has named **Save world** and **Restore world** controls
+for these routes. Restore requires a second click within ten seconds. The
+browser validates the returned world, exchanges it with the PC service, and
+then writes its local recovery copy. If the exchange fails, it keeps the
+previous browser world. The in-world **Save World** button still creates a
+browser checkpoint and a labeled scene-only PC backup.
+
+The JSON file under `--scenes/world_checkpoints/` is the PC export. Keep it
+with the matching `--web-assets` catalog to restore its registered GLBs after
+a PC move or reinstall. The checkpoint is not a portable bundle of asset
 bytes, editable Blender sources, Agent Portal chat, or School records.
