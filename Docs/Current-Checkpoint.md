@@ -2,7 +2,8 @@
 
 ## Live Citizens revisions and interaction clearance candidate (September 26, 2026)
 
-The `codex/citizens-live-revisions` branch builds on the selected-furniture
+Open [PR #105](https://github.com/School-of-the-Ancients/matrix-loading-operator/pull/105)
+on `codex/citizens-live-revisions` builds on the selected-furniture
 [PR #104](https://github.com/School-of-the-Ancients/matrix-loading-operator/pull/104)
 for a narrow [#13A](https://github.com/School-of-the-Ancients/matrix-loading-operator/issues/13)
 and [#15](https://github.com/School-of-the-Ancients/matrix-loading-operator/issues/15)
