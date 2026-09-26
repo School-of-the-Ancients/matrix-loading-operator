@@ -1,0 +1,42 @@
+{
+  "date": "2026-09-26",
+  "runtime": "isolated built desktop WebRuntime with isolated ControlService on 127.0.0.1:19860",
+  "seed": 29,
+  "initial": {
+    "minute": 1,
+    "residents": [
+      { "id": "ada", "objectId": "7dedbcc249c64a92a514612983cf6b6c", "energy": 19, "fullness": 72 },
+      { "id": "bo", "objectId": "e69c068866f2417596cfc5d76f522da1", "energy": 28, "fullness": 42 }
+    ],
+    "chairObjectId": "d2318194aae240efb9dc4faa533d7238",
+    "tableObjectId": "75ab0a7bf5094250af23f30c6c27e2f0",
+    "observation": "Ada going to rest with chair claim; Bo waiting for chair, queue #1"
+  },
+  "matrixEdits": [
+    { "op": "delete", "requestId": "68aea547368944c286bf9383ec480a9e", "objectId": "d2318194aae240efb9dc4faa533d7238", "receiptOk": true },
+    { "op": "delete", "requestId": "ae2846a9b45945f1bc54797e3343d1a4", "objectId": "75ab0a7bf5094250af23f30c6c27e2f0", "receiptOk": true },
+    { "op": "spawn", "requestId": "8ee1e3d17d0e454d9bd37a10511d4102", "assetId": "chair", "objectId": "29aeba22ec2e4159a217fa0ca8bb1107", "receiptOk": true },
+    { "op": "spawn", "requestId": "608413b522da4309bd196c16f5a828f3", "assetId": "table", "objectId": "07a15c5deb624eaa955f85642f97fa8f", "receiptOk": true }
+  ],
+  "recovery": {
+    "zeroStationObservation": "Citizens uses no remaining station in this world; two residents remained at minute 1 with unchanged needs",
+    "browserAction": "Select each new object and click Add selected station",
+    "result": "Citizens uses chair and food in this world; both replacement stations bound at minute 1; no TypeError",
+    "checkpoint": "citizens-zero-station-recovered",
+    "reload": "After browser reload, both replacement stations and minute 1 resident state were restored",
+    "pcRestore": "After advancing to minute 29, Restore world returned the same object IDs and minute 1 resident state"
+  },
+  "replayedActivity": {
+    "minute": 29,
+    "boEat": "Completed eat at minute 8; fullness rose from 42 to 81 by minute 9",
+    "boRest": "Completed rest at minute 27; energy was 50 at minute 29",
+    "sharedChair": "Ada waiting for chair, queue #1 at minute 29",
+    "replay": "A second 28-step replay after PC restore produced the same minute 29 resident outcomes",
+    "browserConsoleErrors": 0
+  },
+  "evidenceImage": "citizens-zero-station-browser.png",
+  "limitations": [
+    "No Quest headset validation was performed",
+    "This browser run verified the built-in chair and table recovery; generated procedural objects are a separate issue #122 slice"
+  ]
+}
