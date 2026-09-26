@@ -303,6 +303,35 @@ test('deleting a bound resident in AR retires it before save and preserves full 
   }
 });
 
+test('an explicit world restore in AR replaces the paused Citizens adapter',()=>{
+  const dom=stubDocument();
+  let panel;
+  try{
+    let sequence=0;
+    const world=new MatrixWorld(()=>`citizens-${++sequence}`);
+    const simulation=createCitizensDemo(world,{seed:17});
+    world.citizens=simulation.step();
+    const before=storedBrowserWorld(world);
+    panel=new CitizensPanel(world,{onChange(){},canStart:()=>'',onFeedback(){}});
+    world.enterAR();panel.syncFromWorld();
+    const chair=world.citizens.stations.find(station=>station.id==='chair');
+    assert.equal(world.execute({requestId:'delete-chair-in-ar',op:'delete',
+      objectId:chair.objectId}).ok,true);
+    panel.syncFromWorld();
+    assert.equal(world.citizens.stations.length,1);
+    restoreStoredWorld(world,before);
+    panel.syncFromWorld();
+    assert.equal(world.citizens.stations.length,2);
+    assert.ok(world.citizens.paused);
+    assert.equal(world.scene.objects.some(object=>object.objectId===chair.objectId),true);
+    world.leaveAR();panel.syncFromWorld();
+    assert.equal(panel.simulation.snapshot().stations.length,2);
+  }finally{
+    if(panel)clearInterval(panel.timer);
+    dom.restore();
+  }
+});
+
 test('pending PC restore blocks Citizens ticks and controls until a rejected exchange rolls back',async()=>{
   const dom=stubDocument();
   let panel;

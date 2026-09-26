@@ -47,6 +47,29 @@ export class CitizensPanel {
     // exchange accepts it. Do not bind to or reconcile that temporary state.
     if(this.canMutate()){this.render();return;}
     if(this.world.spatial){
+      // An explicit AR world restore can replace Citizens while this paused
+      // adapter exists. Rebind to that restored state instead of overwriting it.
+      if(this.world.citizens!==this.boundState){
+        this.simulation=null;this.arWorld=null;
+      }
+      if(!this.simulation&&this.world.citizens){
+        try{
+          const arWorld=Object.create(this.world);
+          arWorld.scene={...this.world.virtualScene.scene,
+            objects:this.world.scene.objects.filter(object=>object.anchorId==='web-floor')};
+          arWorld.spatial=null;
+          this.simulation=CitizensSimulation.restore(arWorld,this.world.citizens);
+          this.arWorld=arWorld;
+          this.simulation.pause();
+          for(const resident of this.simulation.state.residents)
+            if(resident.activity||this.simulation.waitingFor(resident))this.simulation.fail(resident,
+              'entering AR cancelled the current activity or queued wait');
+        }catch(error){
+          this.error=`Simulation bindings need recovery: ${error.message}`;
+          this.boundState=this.world.citizens;
+          this.render();return;
+        }
+      }
       if(this.simulation){
         if(!this.arWorld){
           this.simulation.pause();
@@ -62,6 +85,7 @@ export class CitizensPanel {
           this.arWorld.spatial=null;
           this.simulation.world=this.arWorld;
           this.simulation.observedScene=this.arWorld.scene;
+          this.simulation.reconcileWorld();
         }else{
           this.arWorld.scene.objects=this.world.scene.objects.filter(object=>
             object.anchorId==='web-floor');
