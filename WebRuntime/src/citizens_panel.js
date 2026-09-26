@@ -619,7 +619,7 @@ export class CitizensPanel {
       'Enter a future start and inclusive deadline to preview overlaps.';
     byId('citizens-appointment-status').textContent=block||this.appointmentStatus||
       `${appointmentId?`Revise ${resident.name}'s ${appointmentId}`:
-        `Schedule ${resident.name}`} to ${station.kind} at ${station.id}. The current activity or FIFO ticket continues.`;
+        `Schedule ${resident.name}`} to ${station.kind} at ${station.id}. A safe optional handoff is considered when the appointment is due.`;
   }
 
   applyAppointment(){
@@ -682,7 +682,7 @@ export class CitizensPanel {
       this.render();return;
     }
     this.appointmentFieldKey=null;
-    this.appointmentStatus=`${appointmentId?'Revised':'Scheduled'} ${changed||'appointment'} for ${resident.name}. It does not interrupt the current activity or FIFO ticket.`;
+    this.appointmentStatus=`${appointmentId?'Revised':'Scheduled'} ${changed||'appointment'} for ${resident.name}. A safe optional handoff is considered when it is due.`;
     try{
       const warning=this.commit();
       if(warning){

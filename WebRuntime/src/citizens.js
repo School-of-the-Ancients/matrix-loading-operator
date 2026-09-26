@@ -1944,21 +1944,16 @@ export class CitizensSimulation {
       station.waiters=station.waiters.filter(waiter=>waiter.residentId!==resident.id);
     }
   }
-  interruptOptionalForCriticalHunger(resident){
-    if(resident.needs.hunger>15||
-      resident.cooldowns.eat>this.state.clockTick||
-      this.state.actionSequence>=1000000000)return false;
+  optionalTravelOrWait(resident){
     const action=resident.activity;
     const waiting=action?null:this.waitingFor(resident);
     const kind=action?.kind??waiting?.station.kind;
     const executionId=action?.executionId??waiting?.entry.executionId;
-    if(action?(action.phase!=='travel'||!['rest','explore'].includes(kind)):
-      waiting?.station.kind!=='rest')return false;
-    // Routine edits and older checkpoints can erase an optional choice trace
-    // while leaving its execution in flight. A resident that has never booked
-    // an appointment can only have an optional execution in this position.
-    // Once booked, stay fail-closed: a missed appointment can keep executing
-    // after its deadline and its terminal history may later be pruned.
+    if(action?(action.phase!=='travel'||!ACTIVITIES.includes(kind)):
+      !waiting||!['rest','eat'].includes(kind))return null;
+    // An old checkpoint or routine edit may have no choice trace. Only a
+    // resident that has never booked an appointment is unambiguously optional
+    // in that case: missed executions can outlive their retained history.
     const decision=resident.lastDecision;
     const tracedOptional=['routine','needs'].includes(decision?.mode)&&
       decision.selectedKind===kind;
@@ -1966,22 +1961,32 @@ export class CitizensSimulation {
       resident.appointments.length===0;
     if(!tracedOptional&&!neverBooked||
       resident.appointments.some(item=>item.executionId===executionId))
+      return null;
+    return {action,waiting,kind,executionId};
+  }
+  canReleaseOptionalClaim(resident,{action,executionId}){
+    if(!action?.stationId)return true;
+    const station=this.station(action.stationId);
+    if(!station||station.claim?.residentId!==resident.id||
+      station.claim.executionId!==executionId||
+      holderBlocksStationApproach(this.world,station,resident.objectId))
       return false;
+    const head=station.waiters[0];
+    const waiter=head&&this.state.residents.find(item=>item.id===head.residentId);
+    return !waiter||stationApproach(this.world,waiter.objectId,station).ok;
+  }
+  interruptOptionalForCriticalHunger(resident){
+    if(resident.needs.hunger>15||
+      resident.cooldowns.eat>this.state.clockTick||
+      this.state.actionSequence>=1000000000)return false;
+    const optional=this.optionalTravelOrWait(resident);
+    if(!optional||!['rest','explore'].includes(optional.kind))return false;
+    const {kind,executionId}=optional;
     const actor=positionOf(this.world,resident.objectId);
     if(!actor)return false;
     const food=this.decisionCandidate(resident,actor,'eat');
     if(!food.station||food.unavailable)return false;
-    if(action?.stationId){
-      const station=this.station(action.stationId);
-      if(!station||station.claim?.residentId!==resident.id||
-        station.claim.executionId!==executionId||
-        holderBlocksStationApproach(this.world,station,resident.objectId))
-        return false;
-      const head=station.waiters[0];
-      const waiter=head&&this.state.residents.find(item=>item.id===head.residentId);
-      if(waiter&&!stationApproach(this.world,waiter.objectId,station).ok)
-        return false;
-    }
+    if(!this.canReleaseOptionalClaim(resident,optional))return false;
     this.release(resident);
     resident.activity=null;
     resident.cooldowns[kind]=Math.max(resident.cooldowns[kind],
@@ -1991,6 +1996,52 @@ export class CitizensSimulation {
     this.log(resident.id,'failed',
       `${resident.name} interrupted optional ${kind} execution ${executionId} for critical hunger; claim or FIFO ticket released.`);
     return true;
+  }
+  takeOverOptionalForDueAppointment(resident){
+    if(resident.socialSessionId)return false;
+    const optional=this.optionalTravelOrWait(resident);
+    if(!optional)return false;
+    const due=this.dueAppointments(resident);
+    if(!due.length)return false;
+    const actor=positionOf(this.world,resident.objectId);
+    if(!actor)return false;
+    // Keep the existing urgent-food precedence. A due meal can use that food
+    // trip; a due rest cannot displace it while reachable food is critical.
+    let eligible=due;
+    if(resident.needs.hunger<=15){
+      const food=this.decisionCandidate(resident,actor,'eat');
+      if(food.station&&!food.unavailable){
+        if(resident.cooldowns.eat>this.state.clockTick)return false;
+        eligible=due.filter(item=>item.kind==='eat');
+      }
+    }
+    for(const appointment of eligible){
+      if(resident.cooldowns[appointment.kind]>this.state.clockTick)continue;
+      const candidate=this.decisionCandidate(resident,actor,appointment.kind);
+      if(!candidate.station||candidate.unavailable)continue;
+      const currentStationId=optional.action?.stationId??
+        optional.waiting?.station.id;
+      if(optional.kind===appointment.kind&&
+        currentStationId===candidate.station.id){
+        // The already-held claim or FIFO ticket is the finite execution that
+        // will produce the receipt. Relabel it without moving or rewarding.
+        this.linkAppointment(resident,appointment,candidate,
+          optional.executionId,'adopted optional');
+        return true;
+      }
+      if(this.state.actionSequence>=1000000000||
+        !this.canReleaseOptionalClaim(resident,optional))continue;
+      this.release(resident);
+      resident.activity=null;
+      resident.cooldowns[optional.kind]=Math.max(resident.cooldowns[optional.kind],
+        this.state.clockTick+4);
+      resident.lastDecision=null;
+      resident.lastOutcome=`Interrupted ${optional.kind} for ${appointment.id} at minute ${this.state.clockTick}`;
+      this.log(resident.id,'failed',
+        `${resident.name} interrupted optional ${optional.kind} execution ${optional.executionId} for ${appointment.id}; claim or FIFO ticket released.`);
+      return this.attemptAppointment(resident,appointment,candidate);
+    }
+    return false;
   }
   fail(resident,reason){
     const waiting=this.waitingFor(resident);
@@ -2407,14 +2458,18 @@ export class CitizensSimulation {
   }
   attemptAppointment(resident,appointment,candidate){
     if(!this.attemptChoice(resident,candidate))return false;
+    this.linkAppointment(resident,appointment,candidate,this.state.actionSequence,
+      'started');
+    return true;
+  }
+  linkAppointment(resident,appointment,candidate,executionId,verb){
     appointment.status='active';
-    appointment.executionId=this.state.actionSequence;
+    appointment.executionId=executionId;
     resident.lastDecision={tick:this.state.clockTick,mode:'appointment',roll:null,
       selectedKind:appointment.kind,selectedRoutineId:null,
       selectedAppointmentId:appointment.id,candidates:[candidate.trace]};
     this.log(resident.id,'selected',
-      `${resident.name} started ${appointment.id} ${appointment.kind} by minute ${appointment.deadlineTick}; execution ${appointment.executionId}.`);
-    return true;
+      `${resident.name} ${verb} ${appointment.id} ${appointment.kind} by minute ${appointment.deadlineTick}; execution ${appointment.executionId}.`);
   }
   choose(resident){
     const actor=positionOf(this.world,resident.objectId);
@@ -2422,7 +2477,7 @@ export class CitizensSimulation {
     const due=this.dueAppointments(resident);
     // Critical hunger can override an optional time block at the next idle
     // decision. A due meal uses the same urgent execution, while a rest
-    // appointment waits. Finite in-flight actions and social sessions finish.
+    // appointment waits. Use and egress keep their finite execution.
     if(resident.needs.hunger<=15){
       const urgent=this.decisionCandidate(resident,actor,'eat');
       if(urgent.station&&!urgent.unavailable){
@@ -2621,6 +2676,7 @@ export class CitizensSimulation {
       if(socialParticipants.has(resident.id)||resident.socialSessionId||
         expiredWaiters.has(resident.id))continue;
       this.interruptOptionalForCriticalHunger(resident);
+      this.takeOverOptionalForDueAppointment(resident);
       if(!resident.activity){
         const waiting=this.waitingFor(resident);
         if(waiting)this.progressWaiting(resident,waiting.station,waiting.entry);
