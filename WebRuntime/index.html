@@ -20,6 +20,7 @@
       <section class="citizens-panel" aria-labelledby="citizens-heading">
         <div class="panel-title"><span id="citizens-heading">AI CITIZENS</span><span>Shared Matrix world</span></div>
         <p class="hint">Start a seeded two-resident fixture on an empty desktop floor, or select a built-in chair/table or a registered static GLB with a reviewed rest/eat interaction. Pause and select the complementary station to add it to the same world. Browser save and PC world checkpoints preserve both bindings.</p>
+        <p class="hint">Residents weigh hunger, energy, fun, and social need. A resident may choose a conversation when a peer is available; only a completed interaction raises social need.</p>
         <label for="citizens-seed">Scenario seed</label>
         <div class="row"><input id="citizens-seed" type="number" min="1" max="4294967295" step="1" value="29" /><button id="citizens-start" type="button">Start here</button></div>
         <div class="row"><button id="citizens-bind-selected" type="button" disabled>Use selected station</button></div>
@@ -34,7 +35,7 @@
         <p id="citizens-recovery-status" class="hint" role="status">No pre-deletion browser copy is available. This does not use the manual Save world checkpoint.</p>
         <p id="citizens-status" class="hint" role="status">No Citizens in this world.</p>
         <h3>Residents</h3><ul id="citizens-residents" class="citizens-list"></ul>
-        <h3>Routine decisions</h3><ul id="citizens-routines" class="citizens-list"></ul>
+        <h3>Activity choices and routines</h3><ul id="citizens-routines" class="citizens-list"></ul>
         <h3>Shared objects</h3><ul id="citizens-stations" class="citizens-list"></ul>
         <h3>Social interaction</h3>
         <p id="citizens-social-status" class="hint">No active social session yet.</p>

@@ -8,14 +8,16 @@ const intervalMs=500;
 const activeRoutine=(routine,minute)=>routine.startMinute<routine.endMinute?
   minute>=routine.startMinute&&minute<routine.endMinute:
   minute>=routine.startMinute||minute<routine.endMinute;
+const activityLabel=kind=>kind==='converse'?'conversation':kind;
 const decisionSummary=decision=>{
   if(!decision)return 'No decision sampled yet.';
   const selected=decision.selectedKind?
-    `${decision.selectedKind}${decision.selectedRoutineId?` in ${decision.selectedRoutineId}`:''}`:
+    `${activityLabel(decision.selectedKind)}${decision.selectedRoutineId?` in ${decision.selectedRoutineId}`:''}`:
     'wait';
   const candidates=decision.candidates.map(candidate=>
-    `${candidate.kind}${candidate.routineId?`/${candidate.routineId}`:''} ${candidate.score.toFixed(1)} (need ${candidate.deficit.toFixed(0)}, preference ${candidate.preference.toFixed(2)}, travel ${candidate.travelMeters.toFixed(1)} m, window ${candidate.baseWeight.toFixed(0)}, available ${candidate.availabilityFactor.toFixed(2)})`).join('; ');
-  return `m ${decision.tick} · ${decision.mode} selected ${selected}${decision.roll===null?'':` · roll ${decision.roll.toFixed(3)}`} · ${candidates||'no eligible candidate'}`;
+    `${activityLabel(candidate.kind)}${candidate.routineId?`/${candidate.routineId}`:''} ${candidate.score.toFixed(1)} (need ${candidate.deficit.toFixed(0)}, preference ${candidate.preference.toFixed(2)}, travel ${candidate.travelMeters.toFixed(1)} m, window ${candidate.baseWeight.toFixed(0)}, available ${candidate.availabilityFactor.toFixed(2)})`).join('; ');
+  const mode=decision.mode==='social'?'social need':decision.mode;
+  return `m ${decision.tick} · ${mode} selected ${selected}${decision.roll===null?'':` · roll ${decision.roll.toFixed(3)}`} · ${candidates||'no eligible candidate'}`;
 };
 
 export class CitizensPanel {
@@ -425,7 +427,9 @@ export class CitizensPanel {
       const action=socialAction|| (queue?`waiting for ${queue.stationId} · queue #${queue.position} · execution ${queue.executionId}`:
         resident.activity?`${resident.activity.phase==='egress'?`leaving ${resident.activity.stationId}`:
           `${resident.activity.phase==='travel'?'going to':'using'} ${resident.activity.kind}`} · execution ${resident.activity.executionId}`:'choosing');
-      item.textContent=`${resident.name}: ${action} · fullness ${Math.round(resident.needs.hunger)} · energy ${Math.round(resident.needs.energy)} · fun ${Math.round(resident.needs.fun)}${resident.lastOutcome?` · ${resident.lastOutcome}`:''}`;
+      const socialNeed=Number.isFinite(resident.needs.social)?
+        ` · social ${Math.round(resident.needs.social)}`:'';
+      item.textContent=`${resident.name}: ${action} · fullness ${Math.round(resident.needs.hunger)} · energy ${Math.round(resident.needs.energy)} · fun ${Math.round(resident.needs.fun)}${socialNeed}${resident.lastOutcome?` · ${resident.lastOutcome}`:''}`;
       cards.push(item);
     }
     for(const id of state?.retiredResidentIds||[]){
@@ -439,7 +443,7 @@ export class CitizensPanel {
       const item=document.createElement('li');
       const current=(resident.routines||[]).filter(routine=>
         activeRoutine(routine,dayMinute)).map(routine=>routine.id);
-      item.textContent=`${resident.name}: active ${current.join(', ')||'none'} · ${decisionSummary(resident.lastDecision)}`;
+      item.textContent=`${resident.name}: active routines ${current.join(', ')||'none'} · ${decisionSummary(resident.lastDecision)}`;
       return item;
     });
     byId('citizens-routines').replaceChildren(...routines);

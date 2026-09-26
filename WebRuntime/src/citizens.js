@@ -4,7 +4,8 @@ import {ANCHOR_ID,INTERACTION_USE_MARGIN_METRES,MAX_OBJECTS,ROOM_ID,
   interactionWorldPoint,validInteractionDescriptor} from './protocol.js';
 import {checkedMove,planPath,segmentClear} from './citizens_navigation.js';
 
-const VERSION=8;
+const VERSION=9;
+const EGRESS_VERSION=8;
 const VIRTUAL_DAY_VERSION=7;
 const INTERACTION_VERSION=6;
 const ROUTE_VERSION=5;
@@ -30,6 +31,9 @@ const ACTIVE_TICKS=MAX_TRAVEL_TICKS+12;
 const SOCIAL_USE_TICKS=3;
 const SOCIAL_COOLDOWN_TICKS=24;
 const SOCIAL_WINDOW_TICKS=12;
+const SOCIAL_SCORE_MIN=35;
+const SOCIAL_SCORE_MARGIN=8;
+const SOCIAL_CRITICAL_NEED=15;
 const NEEDS=['hunger','energy','fun'];
 const ACTIVITIES=['rest','eat','explore'];
 const PRIORITIES=['high','default','low'];
@@ -802,12 +806,12 @@ function validStateV7(world,state){
 function migrateV7(world,saved){
   validStateV7(world,saved);
   const state=clone(saved);
-  state.schemaVersion=VERSION;
+  state.schemaVersion=EGRESS_VERSION;
   return state;
 }
 
 function validStateV8(world,state){
-  if(!state||state.schemaVersion!==VERSION)
+  if(!state||state.schemaVersion!==EGRESS_VERSION)
     throw Error('Invalid Citizens egress state');
   const v7=clone(state);
   v7.schemaVersion=VIRTUAL_DAY_VERSION;
@@ -830,6 +834,59 @@ function validStateV8(world,state){
   validStateV7(world,v7);
 }
 
+function migrateV8(world,saved){
+  validStateV8(world,saved);
+  const state=clone(saved);
+  state.schemaVersion=VERSION;
+  for(const resident of state.residents){
+    resident.needs.social=50;
+    resident.preferences.converse=resident.id==='ada'?1.2:1.1;
+  }
+  return state;
+}
+
+function validStateV9(world,state){
+  if(!state||state.schemaVersion!==VERSION||!Array.isArray(state.residents))
+    throw Error('Invalid Citizens social-needs state');
+  const v8=clone(state);
+  v8.schemaVersion=EGRESS_VERSION;
+  for(const resident of v8.residents){
+    if(!keys(resident.needs,['hunger','energy','fun','social'])||
+      !finite(resident.needs.social)||resident.needs.social<0||
+      resident.needs.social>100||
+      !keys(resident.preferences,['rest','eat','explore','converse'])||
+      !finite(resident.preferences.converse)||
+      resident.preferences.converse<.2||resident.preferences.converse>2)
+      throw Error('Invalid Citizens social need or preference');
+    delete resident.needs.social;
+    delete resident.preferences.converse;
+    const decision=resident.lastDecision;
+    if(decision?.mode==='social'){
+      const candidate=decision.candidates?.[0];
+      if(!keys(decision,['tick','mode','roll','selectedKind',
+        'selectedRoutineId','candidates'])||
+        !integer(decision.tick,0,state.clockTick)||decision.roll!==null||
+        decision.selectedKind!=='converse'||
+        decision.selectedRoutineId!==null||
+        !Array.isArray(decision.candidates)||decision.candidates.length!==1||
+        !keys(candidate,['kind','routineId','priority','deficit','preference',
+          'travelMeters','baseWeight','availabilityFactor','score'])||
+        candidate.kind!=='converse'||candidate.routineId!==null||
+        candidate.priority!=='none'||!finite(candidate.deficit)||
+        candidate.deficit<0||candidate.deficit>100||
+        !finite(candidate.preference)||candidate.preference<.2||
+        candidate.preference>2||!finite(candidate.travelMeters)||
+        candidate.travelMeters<0||candidate.travelMeters>1000||
+        candidate.baseWeight!==0||candidate.availabilityFactor!==1||
+        !finite(candidate.score)||candidate.score<SOCIAL_SCORE_MIN||
+        candidate.score>300)
+        throw Error('Invalid Citizens social decision trace');
+      resident.lastDecision=null;
+    }
+  }
+  validStateV8(world,v8);
+}
+
 function pose(x,z,scale=1){
   return {position:{x,y:0,z},rotation:{x:0,y:0,z:0},scale:{x:scale,y:scale,z:scale}};
 }
@@ -841,12 +898,12 @@ function initialState(world,seed,adaId,boId,stations){
     retiredResidentIds:[],socialSession:null,socialEvents:[],
     relationships:[{a:'ada',b:'bo',score:50,completed:[]}],nextSocialTick:35,
     residents:[
-      {id:'ada',name:'Ada',objectId:adaId,needs:{hunger:72,energy:20,fun:62},
-        preferences:{rest:1.2,eat:.85,explore:.75},activity:null,
+      {id:'ada',name:'Ada',objectId:adaId,needs:{hunger:72,energy:20,fun:62,social:30},
+        preferences:{rest:1.2,eat:.85,explore:.75,converse:1.2},activity:null,
         cooldowns:{rest:0,eat:0,explore:0},lastOutcome:'',socialSessionId:null,
         routines:defaultRoutines('ada'),lastDecision:null},
-      {id:'bo',name:'Bo',objectId:boId,needs:{hunger:42,energy:29,fun:54},
-        preferences:{rest:1.1,eat:1,explore:.75},activity:null,
+      {id:'bo',name:'Bo',objectId:boId,needs:{hunger:42,energy:29,fun:54,social:38},
+        preferences:{rest:1.1,eat:1,explore:.75,converse:1.1},activity:null,
         cooldowns:{rest:0,eat:0,explore:0},lastOutcome:'',socialSessionId:null,
         routines:defaultRoutines('bo'),lastDecision:null}
     ],stations,log:[]};
@@ -1021,7 +1078,8 @@ export class CitizensSimulation {
     if(current?.schemaVersion===ROUTE_VERSION)current=migrateV5(world,current);
     if(current?.schemaVersion===INTERACTION_VERSION)current=migrateV6(world,current);
     if(current?.schemaVersion===VIRTUAL_DAY_VERSION)current=migrateV7(world,current);
-    validStateV8(world,current);
+    if(current?.schemaVersion===EGRESS_VERSION)current=migrateV8(world,current);
+    validStateV9(world,current);
     this.world=world;
     this.state=clone(current);
     // Runtime-only baseline: the serialized scene supplies it again on restore.
@@ -1053,7 +1111,7 @@ export class CitizensSimulation {
     if(checkRoutes){
       if(this.world.scene!==this.observedScene)
         throw Error('The scene changed; review Citizens bindings before adding a station');
-      validStateV8(this.world,this.state);
+      validStateV9(this.world,this.state);
       for(const bound of [...this.state.residents,...this.state.stations]){
         const object=objectById(this.world,bound.objectId);
         if(!object||!sameTransform(object.transform,
@@ -1084,7 +1142,7 @@ export class CitizensSimulation {
       this.observedTransforms.set(station.objectId,
         clone(objectById(this.world,station.objectId).transform));
       this.log('','selected',`Reviewed ${station.id} station added to the shared world.`);
-      validStateV8(this.world,this.state);
+      validStateV9(this.world,this.state);
       return this.snapshot();
     }catch(error){
       this.state=previous;
@@ -1095,7 +1153,7 @@ export class CitizensSimulation {
   exportState(){
     this.reconcileWorld();
     if(this.invalidBindings.size)throw Error('Citizens binding is missing or incompatible');
-    validStateV8(this.world,this.state);
+    validStateV9(this.world,this.state);
     return this.snapshot();
   }
   reconcileWorld(){this.reconcileBindings();return this.snapshot();}
@@ -1331,6 +1389,77 @@ export class CitizensSimulation {
     return !resident.activity&&!resident.socialSessionId&&!this.waitingFor(resident)&&
       supportedResident(object)&&!this.invalidBindings.has(resident.objectId);
   }
+  competingActivity(resident){
+    const actor=positionOf(this.world,resident.objectId);
+    if(!actor)return {score:0,priority:'none'};
+    if(resident.needs.hunger<=15){
+      const food=this.decisionCandidate(resident,actor,'eat');
+      if(food.station&&!food.unavailable)
+        return {score:food.score,priority:'critical'};
+    }
+    const active=resident.routines.filter(routine=>
+      routineActive(routine,this.state.clockTick));
+    for(const priority of PRIORITIES){
+      const scores=active.filter(routine=>routine.priority===priority&&
+        resident.cooldowns[routine.kind]<=this.state.clockTick)
+        .map(routine=>this.decisionCandidate(resident,actor,routine.kind,routine).score)
+        .filter(score=>score>0);
+      if(scores.length)return {score:Math.max(...scores),priority};
+    }
+    const scores=ACTIVITIES.filter(kind=>
+      resident.cooldowns[kind]<=this.state.clockTick)
+      .map(kind=>this.decisionCandidate(resident,actor,kind).score)
+      .filter(score=>score>8);
+    return {score:scores.length?Math.max(...scores):0,priority:'none'};
+  }
+  socialUtility(resident,travel){
+    const deficit=100-resident.needs.social;
+    const preference=resident.preferences.converse;
+    const score=Math.max(0,round(deficit*preference-travel*2));
+    const alternative=this.competingActivity(resident);
+    const selected=score>=SOCIAL_SCORE_MIN&&
+      alternative.priority!=='critical'&&
+      (resident.needs.social<=SOCIAL_CRITICAL_NEED||
+        alternative.priority!=='high'&&
+        score>=alternative.score+SOCIAL_SCORE_MARGIN);
+    return {deficit,preference,score,alternative,selected};
+  }
+  wantsSocial(resident){
+    if(!this.eligibleForSocial(resident))return false;
+    const peer=this.state.residents.find(item=>item.id!==resident.id&&
+      supportedResident(objectById(this.world,item.objectId)));
+    if(!peer||this.competingActivity(peer).priority==='critical')return false;
+    const approach=stationApproach(this.world,resident.objectId,
+      {objectId:peer.objectId,kind:'converse'});
+    return approach.ok&&
+      this.socialUtility(resident,approach.route.lengthMeters).selected;
+  }
+  noteSocialWait(resident){
+    const peer=this.state.residents.find(item=>item.id!==resident.id);
+    if(!peer)return;
+    const message=boundedPrefix(`${resident.name} is waiting for ${peer.name} to be free for a conversation through minute ${this.state.nextSocialTick+SOCIAL_WINDOW_TICKS}.`,160);
+    if(!this.state.log.some(entry=>entry.residentId===resident.id&&
+      entry.event==='waiting'&&entry.tick>=this.state.nextSocialTick&&
+      entry.message===message))this.log(resident.id,'waiting',message);
+  }
+  socialChoice(resident,peer){
+    if(!this.eligibleForSocial(resident)||!this.eligibleForSocial(peer))return null;
+    // Both residents must remain free to address urgent food needs. The
+    // initiator is scored below; an invitee cannot be reserved ahead of eat.
+    if(this.competingActivity(peer).priority==='critical')return null;
+    const actor=positionOf(this.world,resident.objectId);
+    const approach=stationApproach(this.world,resident.objectId,
+      {objectId:peer.objectId,kind:'converse'});
+    if(!approach.ok)return null;
+    const travel=approach.route.lengthMeters;
+    const {deficit,preference,score,alternative,selected}=
+      this.socialUtility(resident,travel);
+    return {resident,peer,selected,score,alternative,
+      kind:'converse',routine:null,
+      trace:{kind:'converse',routineId:null,priority:'none',
+        deficit:round(deficit),preference,travelMeters:round(travel),
+        baseWeight:0,availabilityFactor:1,score}};
+  }
   beginSocial(){
     if(this.state.socialSession||this.state.clockTick<this.state.nextSocialTick||
       this.state.residents.length<2)return false;
@@ -1341,9 +1470,20 @@ export class CitizensSimulation {
         this.state.nextSocialTick=this.state.clockTick+SOCIAL_COOLDOWN_TICKS;
       return false;
     }
+    const choices=[this.socialChoice(ready[0],ready[1]),
+      this.socialChoice(ready[1],ready[0])]
+      .filter(choice=>choice?.selected)
+      .sort((a,b)=>(b.score-b.alternative.score)-
+        (a.score-a.alternative.score)||a.resident.id.localeCompare(b.resident.id));
+    if(!choices.length){
+      if(this.state.clockTick>=this.state.nextSocialTick+SOCIAL_WINDOW_TICKS)
+        this.state.nextSocialTick=this.state.clockTick+SOCIAL_COOLDOWN_TICKS;
+      return false;
+    }
+    const choice=choices[0];
     const executionId=this.nextExecutionId();
     if(executionId===null)return false;
-    const [initiator,invitee]=ready;
+    const {resident:initiator,peer:invitee}=choice;
     const id=`social-${this.state.seed}-${executionId}`;
     const session={id,executionId,initiatorId:initiator.id,inviteeId:invitee.id,
       phase:'offered',startedTick:this.state.clockTick,
@@ -1352,8 +1492,9 @@ export class CitizensSimulation {
     initiator.socialSessionId=id;invitee.socialSessionId=id;
     this.state.socialSession=session;
     this.socialEvent(session,'initiated');
+    this.recordDecision(initiator,'social',[choice],choice);
     this.log(initiator.id,'selected',
-      `${initiator.name} invited ${invitee.name} to converse in session ${id}.`);
+      `${initiator.name} chose conversation with ${invitee.name}: social ${round(initiator.needs.social)}, score ${choice.score} versus ${choice.alternative.priority} activity ${choice.alternative.score}; session ${id}.`);
     return true;
   }
   progressSocial(){
@@ -1368,17 +1509,22 @@ export class CitizensSimulation {
     if(session.phase==='offered'){
       if(this.state.clockTick!==session.startedTick+1)return true;
       // A single seeded response roll is serialized through rngState. The
-      // unanswered branch reaches its explicit offer deadline on later ticks.
+      // invitee's social deficit changes the response, while the unanswered
+      // branch still reaches its explicit deadline on later ticks.
       const response=this.nextRandom();
-      if(response<.25){
+      const desire=(100-pair.invitee.needs.social)*
+        pair.invitee.preferences.converse;
+      const declineChance=Math.max(.1,Math.min(.55,.45-desire/250));
+      const acceptChance=Math.max(.15,Math.min(.85,.2+desire/150));
+      if(response<declineChance){
         this.finishSocial('declined',`${pair.invitee.name} declined the invitation`);
-      }else if(response<.65){
+      }else if(response<declineChance+acceptChance){
         session.phase='active';
         session.acceptedTick=this.state.clockTick;
         session.expiresTick=this.state.clockTick+ACTIVE_TICKS;
         this.socialEvent(session,'accepted');
         this.log(pair.invitee.id,'selected',
-          `${pair.invitee.name} accepted ${pair.initiator.name}'s invitation.`);
+          `${pair.invitee.name} accepted ${pair.initiator.name}'s invitation: social ${round(pair.invitee.needs.social)}, roll ${round(response)}, accept chance ${round(acceptChance)}.`);
       }
       return true;
     }
@@ -1426,6 +1572,8 @@ export class CitizensSimulation {
     relation.score=Math.min(100,50+5*relation.completed.length);
     pair.initiator.needs.fun=clamp(pair.initiator.needs.fun+12);
     pair.invitee.needs.fun=clamp(pair.invitee.needs.fun+12);
+    pair.initiator.needs.social=clamp(pair.initiator.needs.social+35);
+    pair.invitee.needs.social=clamp(pair.invitee.needs.social+35);
     this.finishSocial('ended',`${pair.initiator.name} and ${pair.invitee.name} conversed`,
       receipt.requestId);
     return true;
@@ -2009,6 +2157,7 @@ export class CitizensSimulation {
       resident.needs.hunger=clamp(resident.needs.hunger-.45);
       resident.needs.energy=clamp(resident.needs.energy-.55);
       resident.needs.fun=clamp(resident.needs.fun-.25);
+      resident.needs.social=clamp(resident.needs.social-.1);
     }
     const socialParticipants=new Set(this.state.socialSession?
       [this.state.socialSession.initiatorId,this.state.socialSession.inviteeId]:[]);
@@ -2026,7 +2175,9 @@ export class CitizensSimulation {
       if(!resident.activity){
         const waiting=this.waitingFor(resident);
         if(waiting)this.progressWaiting(resident,waiting.station,waiting.entry);
-        else if(!(waitingWindow&&this.eligibleForSocial(resident)))this.choose(resident);
+        else if(waitingWindow&&this.wantsSocial(resident))
+          this.noteSocialWait(resident);
+        else this.choose(resident);
       }
       if(resident.activity)this.progress(resident);
     }
