@@ -1,7 +1,9 @@
 # Matrix: small, programmable world — PRD
 
-Requirements snapshot: September 25, 2026. The desktop foundation and several
-Quest VR checks subsequently merged through #95; the
+Requirements snapshot: September 25, 2026. The desktop foundation and selected
+Quest VR and AR checks subsequently merged through #98. The wearer confirmed
+panel recall in both modes and an AR Agent creation/revision/save journey;
+reviewed approval/Stop and room-origin recovery are still open. The
 [implementation plan](IMPLEMENTATION_PLAN.md#progress-at-the-merged-web-stack)
 and [Quest acceptance matrix](WebRuntime/QUEST3_ACCEPTANCE.md) carry the dated
 implementation status. Requirements here are not claims of device acceptance.
