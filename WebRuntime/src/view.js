@@ -229,7 +229,7 @@ function setRoomContentVisible(view,visible){
 
 export class MatrixView {
   constructor(container,world,onSelection,getToken=()=>'',onAssetError=()=>{},onSceneEdit=()=>{},onRuntimeChange=()=>{},onVoiceStart=()=>{},onVoiceEnd=()=>{},onVoiceOutputToggle=()=>{},onVisualReview=()=>{},onNewChat=()=>{}){
-    this.world=world;this.onSelection=onSelection;this.getToken=getToken;this.onAssetError=onAssetError;this.onSceneEdit=onSceneEdit;this.onRuntimeChange=onRuntimeChange;this.onVoiceStart=onVoiceStart;this.onVoiceEnd=onVoiceEnd;this.onVoiceOutputToggle=onVoiceOutputToggle;this.onVisualReview=onVisualReview;this.onNewChat=onNewChat;this.onPanelAction=()=>{};this.onFrame=()=>{};
+    this.world=world;this.onSelection=onSelection;this.getToken=getToken;this.onAssetError=onAssetError;this.onSceneEdit=onSceneEdit;this.onRuntimeChange=onRuntimeChange;this.onVoiceStart=onVoiceStart;this.onVoiceEnd=onVoiceEnd;this.onVoiceOutputToggle=onVoiceOutputToggle;this.onVisualReview=onVisualReview;this.onNewChat=onNewChat;this.onPanelAction=()=>{};this.onFrame=()=>{};this.onAssetReadinessChange=()=>{};
     this.container=container;this.objectRoots=new Map();this.anchorRoots=new Map();this.planeOutlines=new Map();this.planeIds=new WeakMap();this.nextPlaneId=0;this.hitSource=null;this.reticleVisible=false;this.xrViewer=null;this.reticleAnchorId='';this.lastPlaneTime=0;
     this.modelCache=new Map();
     this.scene=new THREE.Scene();this.scene.background=new THREE.Color(0x0a1b29);
@@ -711,6 +711,11 @@ export class MatrixView {
       }
       root.userData.assetLoading=false;this.modelCache.delete(asset.assetId);
       this.onAssetError(`${asset.displayName}: ${error.message}`);
+    }finally{
+      // A GLB can finish after selection. Refresh readiness controls without
+      // rebuilding the scene (which would start another asynchronous load).
+      if(this.objectRoots.get(objectId)===root)
+        this.onAssetReadinessChange?.(objectId);
     }
   }
   highlight(){

@@ -1,8 +1,10 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import * as THREE from 'three';
 import {MatrixWorld} from '../src/protocol.js';
 import {createCitizensDemo,citizensFurnitureReadiness} from '../src/citizens.js';
 import {CitizensPanel} from '../src/citizens_panel.js';
+import {MatrixView} from '../src/view.js';
 import {CITIZENS_DELETION_RECOVERY_KEY,WORLD_KEY,restoreStoredWorld,
   saveStoredWorld,storedBrowserWorld,storedWorld} from '../src/scene_store.js';
 import {applyPCWorld} from '../src/world_checkpoint.js';
@@ -58,6 +60,71 @@ test('panel enables selected authored furniture and preserves other world object
     if(panel)clearInterval(panel.timer);
     dom.restore();
   }
+});
+
+async function selectedChairGlbLoad(shouldFail){
+  const dom=stubDocument();
+  let panel;
+  try{
+    let sequence=0;
+    const world=new MatrixWorld(()=>`pending-glb-${++sequence}`);
+    const hash='a'.repeat(64);
+    const asset={assetId:'web:pending-panel-obstacle',displayName:'Panel obstacle',
+      description:'Static GLB near the selected chair',spawnScale:1,sha256:hash,
+      byteLength:1024,url:`/api/web/assets/${hash}.glb`,
+      localBounds:{center:{x:0,y:.5,z:0},size:{x:1,y:1,z:1}}};
+    world.registerAssets([asset]);
+    const pose=(x,z)=>({position:{x,y:0,z},rotation:{x:0,y:0,z:0},
+      scale:{x:1,y:1,z:1}});
+    const chair=world.execute({requestId:'pending-chair',op:'spawn',assetId:'chair',
+      anchorId:'web-floor',transform:pose(0,0)});
+    const obstacle=world.execute({requestId:'pending-obstacle',op:'spawn',
+      assetId:asset.assetId,anchorId:'web-floor',transform:pose(-.9,0)});
+    assert.equal(chair.ok,true);assert.equal(obstacle.ok,true);
+    world.setSelection(chair.objectId,{x:0,y:0,z:0});
+    panel=new CitizensPanel(world,{onChange(){},
+      canStart:mode=>mode==='selected'?
+        citizensFurnitureReadiness(world,world.selection.objectId):'fixture disabled',
+      onFeedback(){}});
+    const button=dom.elements.get('citizens-bind-selected');
+    assert.equal(button.disabled,true);
+    assert.match(dom.elements.get('citizens-selection-status').textContent,
+      /verified rendered GLB/);
+
+    let release,refuse;
+    const loading=new Promise((resolve,reject)=>{release=resolve;refuse=reject;});
+    const root=new THREE.Group(),visual=new THREE.Group();root.add(visual);
+    root.userData.assetLoading=true;
+    const view=Object.create(MatrixView.prototype);
+    view.world=world;
+    view.modelCache=new Map([[asset.assetId,loading]]);
+    view.objectRoots=new Map([[obstacle.objectId,root]]);
+    let refreshes=0;
+    view.onAssetReadinessChange=()=>{refreshes++;panel.render();};
+    view.onRuntimeChange=()=>assert.fail('GLB readiness must not rebuild the scene');
+    const errors=[];view.onAssetError=message=>errors.push(message);
+    const completion=view.loadExternal(asset,root,visual,obstacle.objectId);
+    assert.equal(button.disabled,true,'the pending GLB still blocks Citizens start');
+    if(shouldFail)refuse(Error('fixture load failed'));
+    else release({scene:new THREE.Group(),animations:[],measuredSize:{x:1,y:1,z:1}});
+    await completion;
+    assert.equal(refreshes,1,'the current GLB completion refreshes the panel once');
+    assert.equal(button.disabled,shouldFail);
+    assert.match(dom.elements.get('citizens-selection-status').textContent,
+      shouldFail?/verified rendered GLB/:/Selected furniture is ready/);
+    assert.equal(errors.length,shouldFail?1:0);
+  }finally{
+    if(panel)clearInterval(panel.timer);
+    dom.restore();
+  }
+}
+
+test('selected chair becomes available as soon as its nearby GLB verifies',async()=>{
+  await selectedChairGlbLoad(false);
+});
+
+test('failed nearby GLB load refreshes the panel but keeps the chair unavailable',async()=>{
+  await selectedChairGlbLoad(true);
 });
 
 test('panel renders execution claims, FIFO waiters, and retired and missing bindings',()=>{
