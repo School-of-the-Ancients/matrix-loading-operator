@@ -614,7 +614,7 @@ for(const id of ['voice-button','xr-voice']){
   button.addEventListener('contextmenu',event=>event.preventDefault());
 }
 voiceButtons();
-$('xr-exit').addEventListener('click',()=>view.renderer.xr.getSession()?.end());
+$('xr-exit').addEventListener('click',()=>view.exitXR());
 for(const op of ['undo','redo','clear'])$(op).addEventListener('click',()=>call('/api/command',{op},`${op} queued.`));
 $('save').addEventListener('click',async()=>{
   const name=$('save-name').value.trim();if(!name){feedback('Enter a scene name.',true);return;}
