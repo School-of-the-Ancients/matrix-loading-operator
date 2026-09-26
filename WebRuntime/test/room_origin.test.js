@@ -61,6 +61,29 @@ test('an AR session with saved objects but no anchor handle does not create a ne
   }
 });
 
+test('VR ignores a saved AR room anchor and keeps its virtual floor origin',async()=>{
+  const prior=globalThis.localStorage,local=storage();
+  local.setItem(ROOM_ANCHOR_KEY,'ar-room-handle');globalThis.localStorage=local;
+  try{
+    const root=new THREE.Group();root.position.set(0,0,0);
+    const anchor={anchorSpace:{}};let restores=0,poses=0;
+    const session={restorePersistentAnchor:async handle=>{restores++;assert.equal(handle,'ar-room-handle');return anchor;}};
+    const view={isAR:false,roomAnchor:null,virtualFloorRoot:root,
+      renderer:{xr:{getSession:()=>session}},world:new MatrixWorld(),onRuntimeChange(){}};
+    MatrixView.prototype.restoreRoomAnchor.call(view,session);
+    await Promise.resolve();
+    assert.equal(restores,0,'VR does not restore the physical AR anchor');
+    assert.equal(view.roomAnchor,null);
+    view.roomAnchor=anchor; // Even a stale anchor must not move the VR floor.
+    MatrixView.prototype.updateRoomAnchor.call(view,{getPose(){poses++;return {transform:{
+      position:{x:3,y:1,z:4},orientation:{x:0,y:0,z:0,w:1}}};}},{});
+    assert.equal(poses,0);
+    assert.deepEqual(root.position.toArray(),[0,0,0]);
+  }finally{
+    if(prior===undefined)delete globalThis.localStorage;else globalThis.localStorage=prior;
+  }
+});
+
 test('failed archive write leaves the old room and anchor intact',()=>{
   const world=new MatrixWorld(()=> 'old-object');
   world.execute({requestId:'spawn',op:'spawn',assetId:'orb',anchorId:'web-floor',transform});

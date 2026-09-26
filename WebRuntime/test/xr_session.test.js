@@ -65,6 +65,9 @@ test('AR exit allows VR on the same page without competing session offers or sta
   vr.click();
   await new Promise(resolve=>setImmediate(resolve));
   assert.deepEqual(requests.map(request=>request.mode),['immersive-ar','immersive-vr']);
+  assert.deepEqual(requests[1].options.requiredFeatures,['local-floor']);
+  assert.ok(requests[1].options.optionalFeatures.includes('dom-overlay'));
+  assert.equal(requests[1].options.domOverlay.root,requests[0].options.domOverlay.root);
   assert.deepEqual(xrRenderer.referenceSpaces,['local','local-floor']);
   assert.equal(xrRenderer.getSession()!==null,true);
   assert.equal(errors.length,0);

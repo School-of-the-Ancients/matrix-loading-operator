@@ -34,7 +34,9 @@ Matrix origin on port 18767 and release `v0.6.0-preview.1` are unchanged.
 - AR requests `local`; VR requires `local-floor`. The native reference space is
   checked before calling Three's `setSession`, so an unsupported space does not
   enter Three's partial setup path. A late AR hit-test source is cancelled.
-- WebRuntime: 87 Node tests passed; Vite production build passed. The
+  Saved AR room anchors are restored and applied only during AR, so they cannot
+  move the VR virtual floor.
+- WebRuntime: 88 Node tests passed; Vite production build passed. The
   ControlService suite passed 610 Python tests on this stacked base.
 
 ## Quest retest
@@ -50,6 +52,12 @@ showed the left interaction profile unavailable and the right present. This
 run cannot establish whether the remaining VR failure is the app, Quest
 Browser, or the headset input state. Retest after Quest Home recognizes the
 left controller or another supported input route.
+
+After a headset reconnect, a read-only controller log enumerated and tracked
+only the right controller. The wearer also reported that the left controller
+remained disconnected in Quest Home despite a fresh battery. No new VR attempt
+occurred in that log window; this observation does not establish the cause of
+the earlier session exit.
 
 VR entry, floor height, voice, and the complete M4 workflow remain unverified
 on this branch. No room imagery or conversation content was retained.

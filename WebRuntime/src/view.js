@@ -315,6 +315,7 @@ export class MatrixView {
     }catch{if(this.renderer.xr.getSession()===session)this.hitSource=null;}
   }
   restoreRoomAnchor(session){
+    if(!this.isAR)return;
     this.roomAnchor=null;this.roomAnchorPending=false;this.roomAnchorPersistent=false;this.roomAnchorHandleAvailable=false;this.roomPoseMissingSince=0;
     let handle;
     try{handle=localStorage.getItem(ROOM_ANCHOR_KEY);}
@@ -396,7 +397,7 @@ export class MatrixView {
       .finally(()=>{if(this.renderer.xr.getSession()===session)this.roomAnchorPending=false;});
   }
   updateRoomAnchor(frame,ref){
-    if(!this.roomAnchor)return;
+    if(!this.isAR||!this.roomAnchor)return;
     const pose=frame.getPose(this.roomAnchor.anchorSpace,ref);
     if(!pose){
       if(!this.isAR)return;
