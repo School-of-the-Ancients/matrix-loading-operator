@@ -1,291 +1,148 @@
 # Matrix implementation plan
 
-Updated September 26, 2026. **Continue the small, persistent AI Citizens simulation in the existing Three.js/MatrixWorld world.** The isolated desktop fixture, opt-in `/web/` shared world, bounded individual and accepted-social route recovery, up to two reviewed static GLB interactions, need-driven conversation, routine editing, one-shot appointments, pending appointment revision, guarded critical-hunger interruption, and due-appointment handoff are the current stacked candidates. This supersedes the earlier M4-first work queue. Keep every unfinished mode-specific M4 headset check open; wearer-dependent acceptance does not block independent simulation work. Complete a tested slice before expanding scope.
+Updated September 26, 2026. Agreed product description:
 
-[PRD](PRD.md) · [Project map](PROJECTS.md) · [School build plan](https://github.com/School-of-the-Ancients/school-of-the-ancients-roadmap/blob/main/BUILD_PLAN.md)
+> **A Three.js/WebXR sandbox. Start blank or load an existing world. Ask Operator to create and change things around you. Save it and return. Some worlds have AI citizens.**
 
-This is the current work-selection guide, not a replacement for detailed issue acceptance. Existing issue histories, source links, and validation remain intact. A step can finish without closing its broader umbrella issue. No GitHub board statuses are changed by this document.
+[Vision and original roots](VISION.md) · [PRD](PRD.md) · [Project map](PROJECTS.md) · [Agent instructions](AGENTS.md) · [#122 detailed feature acceptance](https://github.com/School-of-the-Ancients/matrix-loading-operator/issues/122)
+
+**Continue the existing Creator Mode implementation. Do not rebuild the engine, restart the project, create a replacement repository or discard ongoing work.** “White Room” is the Matrix-inspired blank-canvas/loading idea, not a Unity prefab, mandatory scene or separate place the user must enter to edit. Blank and existing-world entry use the same sandbox. This clarification requests no runtime build, service restart or world reset.
+
+This is the single Matrix work-selection queue. Preserve completed work, the open PR stack and all remaining acceptance. Historical checkpoint “next” text does not override the selected #122 goal. The wording update does not change its acceptance or replace the compatible slice already underway.
+
+## What to deliver next
+
+Continue the next missing portion of **“Operator, load XYZ” → create → play/experiment → revise → save/resume** in the existing application. Use #122's physics playground/classroom and a different interactive exhibit/experiment to prove reuse and extensibility. Education is a near-term proving ground, not a restriction to classroom templates.
+
+Starting blank or loading a supported existing world are entry paths, not a new launcher, nested-room or multiworld-service project. After loading, Operator can inspect and make authorized edits in that world. Preserve compatible citizen/game state where present; citizens are not required in every world.
+
+Procedural generation, compatible catalog reuse and Blender authoring are complementary. Optional concept imagery under #91 can guide either authoring path but is not a new prerequisite. **The dynamic world-improvement worker and #125 portal network remain later work.**
+
+### Current compatible #122 slice
+
+This branch continues the open #123 Citizens implementation in the same `/web/` world. Its Creator Mode candidate adds versioned procedural bridge and curved-bench generators, Creator/Play controls, Rapier rigid bodies and virtual colliders, a bound challenge with deduplicated progress and exit unlock, world-space displays, and browser/PC saves. [The creation runbook](Docs/Procedural-Creation.md) records the reusable contracts; [isolated desktop evidence](Validation/Immersive-Creator-Desktop-2026-09-26.md) separates actual browser/Agent observations from tests and headset checks.
+
+The desktop browser completed and restored the three-object playground. The connected PC-local Codex Agent then discovered live Matrix tools, built a distinct seven-entity Gravity Lab from a typed request, played its two-object challenge to score 20 and unlock the exit, and revised the same curved bench, gravity and display while retaining progress. Named checkpoint and world archive actions restored both experiences with their identities and game state. Automated desktop canvas input also selected, dragged, released and re-grabbed one dynamic orb without duplicate credit. WebRuntime passes **439/439** and builds; the integrated ControlService suite passes **732/732** on the current isolated source/environment. Gravity Lab proves reuse across a second world but still uses a delivery challenge. The next missing user-visible slice is a genuinely different interactive exhibit or experiment using the shared creation, discovery, action and persistence path, followed by separate real VR and AR wearer runs. Spoken headset input, tracked controller use, physical-room collision and device performance remain unverified.
+
+## Select and integrate the right base
+
+1. Refresh `main`, open PRs, base/head refs, reviews and active worktrees before integration. Before the #124 documentation merge, `main` was `0cb8c23` after #99 and the inspected Citizens stack reached #123 at `25cde859676b7d752e4ae4118c7f68e67998bfe6`. That docs merge did not merge the implementation. Check current refs rather than treating this snapshot as current runtime state.
+2. Preserve the compatible Creator Mode work already underway. Reuse relevant world/interaction/checkpoint code and keep review fixes and isolated demos intact. Inspect the station-replacement concern linked from #122 before relying on that seam; unrelated appointment/social refinements do not gate Creator Mode.
+3. Record the chosen implementation base, running service/build and actual supported capabilities separately. Do not describe an open PR's reported results as tests rerun here or as live headset support. GitHub does not reveal another session's unpushed work.
+4. Review/consolidate open work only with the requested authority. Leave PRs open unless merging is explicitly authorized; a docs merge is not permission to merge the entire Citizens stack or reset the live world.
+
+## Thin end-to-end delivery sequence
+
+The detailed requirements, regression cases and implementation slices remain owned by #122. The sequence below selects user-visible outcomes, not competing acceptance. Record what is already complete and continue from it; do not restart at step one.
+
+### 1. A creator can summon, inspect, test and revise a small world
+
+Reuse `/web/`, current Operator voice/input, Agent Portal, selection/pointing and Matrix tools. Establish explicit Creator and Play/Test authority in the same world; keep Stop/Pause and the return-to-creator control usable. These are modes, not separate rooms. A paused-by-default editing policy is acceptable when clearly shown.
+
+Generate or extend a small layout with owned, inspectable entities, one meaningful interaction and a display. Include a genuinely parameterized shaped/curved element, not only scaled baked meshes. Preserve seed/parameters/generator version and manual edits on revision. Bind displays and agent operations to real shared state.
+
+Wire the same controls into VR/AR as this slice develops. Use desktop as a regression harness, not the final immersive result. Record actual wearer evidence or an explicit hardware gap. Existing capability configuration should work in-headset; broader executable-code approval can retain its explicit PC handoff.
+
+**Outcome:** a voice request creates something usable, the user tries it, Operator inspects the actual result and a follow-up changes the same experience without a silent reset. Passing a build or generating a file is not this outcome.
+
+### 2. Make the physics playground and its objective real
+
+Inspect/reuse current physics work, then extend or integrate only the maintained runtime functionality needed by #122. Do not hand-write a general solver or create a physics service. Verify the selected implementation/version/license during coding.
+
+Prove static colliders, dynamic objects, held/kinematic handoff, gravity and contact with the world and other objects. Required regression: drop → settle → grab/move → release → simulate again, including repeat grabs, rotation, shape/scale changes and deletion. Coordinate animation, dragging and physics ownership; regenerated geometry must update affected collider/interaction readiness.
+
+Add one executable objective, such as delivering three distinct objects to a receptacle to unlock an exit. Progress and consequences come from verified actor/object events, not narration or an LLM's assertion. Prevent duplicate credit across repeated contacts, re-grabs, reconnect and completion. Show live progress/results in a usable in-world display.
+
+**Outcome:** a learner/player can solve the challenge, see why an attempt worked or failed, and ask Operator to revise the setup. Broader citizen-driven quests remain #118; autonomous quest-givers are not prerequisites.
+
+### 3. Preserve the experience and prove educational reuse
+
+Extend existing browser and PC whole-world checkpoints only where the current contracts lack the supported recipe, dependencies, physics/play state or display/objective bindings. Keep validators/migrations aligned. Preserve stable IDs and compatible state on edits; incompatible rules require explicit migration or reset.
+
+Test settled and moving-body save/reopen, missing/corrupt dependencies, stale/cancelled/duplicate commands and rollback on failed revisions. Label unsupported continuation state and tolerances. Do not turn authoring undo into an undocumented rewind of unrelated simulation state.
+
+Demonstrate a second interactive exhibit or experiment using the same state/tool/view path; inspect [Scale Experiment](Docs/Scale-Experiment.md) and #31/#32 before adding modules. Show that a missing capability can be developed, tested, deployed and discovered through normal reviewed code, rather than a fixed preset menu. Provide checked units/models and meaningful feedback. Keep School curriculum and learner records in School; a reusable Matrix demo requires no new School backend.
+
+**Outcome:** the saved world survives return and further editing, one concrete concept is taught through interaction, and creation supports a different experience without a second engine or duplicated simulation.
+
+### 4. Rehearse the actual student/demo journey
+
+Run the full create → interact/learn → revise → save/reopen flow on the intended build and device. Record VR and AR separately: voice, readability, selection/grab, displays, approvals/Stop, return-to-creator, world restore, tracking/alignment and recovery. Reuse the existing M4 checklist; do not hide remaining gates behind a new demo name.
+
+Provide a reproducible demonstration script, saved starting point and clearly labeled fallback for a provider outage. A fallback is not evidence that live generation passed. Measure time to first usable result, regeneration cost and rendering budgets on the tested surface. Keep private room imagery/learner data out of public evidence.
+
+**Outcome:** another person can run the demonstration and distinguish working behavior from limitations. Do not wait for universal catalogs, a full society, multiplayer, global mapping, future glasses, portals or the dynamic upgrader.
 
 ## Progress at the merged Web stack
 
-The original baseline below describes `main` at `509a72a` before these slices.
-The source through [PR #98](https://github.com/School-of-the-Ancients/matrix-loading-operator/pull/98)
-merged at `2f6554c`; [PR #99](https://github.com/School-of-the-Ancients/matrix-loading-operator/pull/99)
-then merged checkpoint documentation at `0cb8c23`. Use the [project map](PROJECTS.md) to choose the
-current Web track versus the original Unity, Matrix World, or AI Citizens
-work. Post-merge validation passed 643 ControlService Python tests, 141
-WebRuntime Node tests, and the Vite build. At this snapshot,
-[`v0.7.0-preview.1`](https://github.com/School-of-the-Ancients/matrix-loading-operator/releases/tag/v0.7.0-preview.1)
-tags that `0cb8c23` checkpoint; it predates the Citizens candidate.
+This is a reference snapshot, not fresh validation performed by the documentation change.
 
-| Step | Merged evidence | Remaining distinction |
+The merged Web capability stack through #98 was at `2f6554c`; #99 added checkpoint docs at `0cb8c23`. The separately inspected open Citizens tip #123 was `25cde85`. See [Current Checkpoint](Docs/Current-Checkpoint.md), the [pinned Citizens candidate runbook](https://github.com/School-of-the-Ancients/matrix-loading-operator/blob/25cde859676b7d752e4ae4118c7f68e67998bfe6/Docs/Citizens-Shared-World.md), [Quest acceptance](WebRuntime/QUEST3_ACCEPTANCE.md), and the exact PR/source being used. Publishing these documents does not publish the candidate code.
+
+| Foundation | Preserve/reuse | Remaining distinction |
 | --- | --- | --- |
-| M0 desktop loop | Persistent Agent Portal, selected-object context, typed Matrix tools and runtime receipts were exercised in desktop and later Quest runs. | An umbrella issue may retain broader acceptance. |
-| M1 Blender | [Copper Astrolabe desktop MCP trace](Validation/WebRuntime-Blender-MCP-M1-2026-09-25.md) with revision, GLB registration, placement receipt and browser rendering (#87). | Quest authoring and placed-asset replacement identity were not established by that trace. |
-| M2 world | [PC whole-world checkpoint](ControlService/WORLD_CHECKPOINTS.md) (#88) and [physics/checkpoint integration](Validation/WebRuntime-Physics-Checkpoint-Integration-2026-09-25.md) (#94). | Browser room-origin recovery and physical-plane state need separate Quest checks. |
-| M3 shared experiment | [Reviewed Block Scale Lab](Docs/Scale-Experiment.md) (#92) and desktop equivalence tests. | School bridge consumption and complete multi-surface acceptance remain separate. |
-| M4 immersive | Quest VR Agent voice, spawn, animation, revision, save/reopen, same-thread continuation, CODEX paging and WORLD save feedback have wearer evidence. The [AR Agent journey](Validation/WebRuntime-AR-World-Transition-2026-09-26.md) exercised voice creation/revision, grab and save/reopen on merged main. [Panel recall](Validation/WebRuntime-M4-Panel-Recall-2026-09-26.md) (#97) worked for the wearer in VR and AR; the initial [VR-to-AR preview fix](Validation/WebRuntime-AR-World-Transition-2026-09-26.md#candidate-fix-vr-world-previews-in-ar) (#98) showed the same animated Dragon in both modes. | Reviewed approval/denial, Stop, panel text readability and active-turn/page survival, saved-origin recovery and physical-surface checks remain open in the [Quest acceptance matrix](WebRuntime/QUEST3_ACCEPTANCE.md). The final #98 provenance refinements have automated coverage but no wearer retest. |
-| Follow-up capabilities | [Virtual-floor GLB drop](Docs/Web-Floor-Physics.md) (#93) and [typed existing-object rotation](Validation/WebRuntime-Typed-Rotation-2026-09-26.md) (#95), including a Quest VR Agent voice/rotation receipt. | These are bounded mechanics, not general rigid-body physics; AR rotation and broader interaction remain separate checks. |
+| M0 agent loop | Persistent session, spatial context, tools, approvals and receipts | An old or new capability still needs its own runtime/mode acceptance |
+| M1 Blender | [Copper Astrolabe creation/revision trace](Validation/WebRuntime-Blender-MCP-M1-2026-09-25.md), GLB registration and placement | One trace does not prove general identity-preserving replacement or Quest authoring |
+| M2 persistence | [PC whole-world checkpoints](ControlService/WORLD_CHECKPOINTS.md), browser state and compatibility guards | Scene-only backup, whole-world save and AR relocalization are distinct |
+| M3 experiment | [Block Scale Lab](Docs/Scale-Experiment.md) shared state/math and observations | School integration and usable immersive controls remain separately evidenced |
+| M4 immersive | Selected Quest creation/revision/save, paging and panel-recall observations | Approval/Stop, readability, origin recovery and physical-surface criteria must remain explicit |
+| Existing floor mechanics | [Bounded GLB drops](Docs/Web-Floor-Physics.md), transforms and animation | Not general rigid-body or object-to-object collision acceptance |
+| Open Citizens work | World identity, finite interactions, authored stations, reservations, route recovery and versioned saves | Candidate state is not merged/live state; desktop evidence is not Quest evidence |
 
-The current implementation priority is the [AI Citizens roadmap #29](https://github.com/School-of-the-Ancients/matrix-loading-operator/issues/29).
-[PR #100](https://github.com/School-of-the-Ancients/matrix-loading-operator/pull/100)
-adds a seeded two-resident fixture at `/web/citizens.html`.
-Stacked [PR #101](https://github.com/School-of-the-Ancients/matrix-loading-operator/pull/101)
-adds the explicit **Start here** control to the ordinary `/web/` desktop virtual
-room and persists Citizens with its existing browser and PC world checkpoints.
-Both PRs remain open. The [shared-world runbook](Docs/Citizens-Shared-World.md)
-records real browser evidence for need changes, observed rest/eat outcomes,
-chair contention, pause/step, save/reopen, PC restore, and service restart.
-The original **Start here** path remains a fixed two-resident scenario on an
-empty virtual floor; the isolated page remains useful for reproducible debugging.
-The current [#15](https://github.com/School-of-the-Ancients/matrix-loading-operator/issues/15)
-candidate adds an explicit selected built-in chair/table path in `/web/` that
-keeps existing scene objects and spawns only the two orb residents in open
-[PR #104](https://github.com/School-of-the-Ancients/matrix-loading-operator/pull/104).
+The Citizens chronology remains in the [pinned pre-refocus plan](https://github.com/School-of-the-Ancients/matrix-loading-operator/blob/25cde859676b7d752e4ae4118c7f68e67998bfe6/IMPLEMENTATION_PLAN.md), [prior PRD](https://github.com/School-of-the-Ancients/matrix-loading-operator/blob/25cde859676b7d752e4ae4118c7f68e67998bfe6/PRD.md) and [candidate checkpoint](https://github.com/School-of-the-Ancients/matrix-loading-operator/blob/25cde859676b7d752e4ae4118c7f68e67998bfe6/Docs/Current-Checkpoint.md). Their dated “next” language is historical. No tests, source, saves or hardware records are removed by this documentation change.
 
-The current [#19](https://github.com/School-of-the-Ancients/matrix-loading-operator/issues/19)
-candidate strengthens capacity-one reservation lifecycles with execution identities,
-bounded leases, deterministic fair waiting, and cleanup after actor or resource
-removal. Surviving residents continue in Chrome after live deletion, and
-versioned browser/PC saves restore the same event order. Stacked
-[PR #103](https://github.com/School-of-the-Ancients/matrix-loading-operator/pull/103)
-adds a bounded two-resident invitation, seeded accept/decline/timeout
-outcomes, and a relationship change only after a checked MatrixWorld receipt.
-The selected-furniture candidate binds one existing chair or table as a
-capacity-one station, checks bounded virtual-floor paths and refuses unsupported
-or blocked geometry. An active game must finish or be removed first. Citizens
-selects intentions; Matrix validates finite world actions and reports receipts.
-The stacked [PR #106](https://github.com/School-of-the-Ancients/matrix-loading-operator/pull/106)
-candidate on `codex/citizens-glb-readiness` adds actual renderer
-verification before catalog bounds of a registered GLB can enter that bounded
-route check, and pauses Citizens if the verification becomes unavailable.
-Its [desktop browser record](Validation/citizens-glb-readiness-browser.json)
-includes a mismatched catalog refusal and a saved two-resident chair queue
-that replays after reload and PC restore. The current
-`codex/citizens-route-recovery` branch then tracks changed navigation geometry,
-replans active individual travel from the observed pose, and permits three blocked-route
-retry ticks before failing the execution and releasing its claim. A cleared
-route can finish the same execution. Its [isolated `/web/` browser record](Validation/citizens-route-recovery-browser.json)
-shows Ada's detour around a moved wall, Bo's temporary blocked route and
-completion after the wall moved away, and a restored checkpoint that fails
-without a rest benefit when the wall stays. Nested Citizens v5 saves the retry
-count and geometry identity; valid v4 browser states migrate, while older PC
-checkpoint files are read without rewriting. WebRuntime passed **257/257**
-tests, ControlService **674/674**, and Vite built for that route-recovery candidate.
-The following `codex/citizens-affordances` candidate binds one reviewed registered
-static GLB as a capacity-one rest/eat station in the same `/web/` world. The
-descriptor records its asset hash, local approach/use poses, finite duration
-and bounded need effect. The PC validates/queues typed set or remove commands;
-the renderer, MatrixWorld receipt and Citizens reservation/benefit path remain
-separate. A seed-29 browser run with an original static chair showed Ada and Bo
-using the same seat, restart readiness gating and named PC checkpoint replay.
-See [browser evidence](Validation/citizens-authored-seat-browser.json) and the
-[runbook](Docs/Citizens-Shared-World.md). Nested Citizens v6 saves the station
-definition while the outer world envelope remains v3. This candidate passed
-WebRuntime **276/276**, ControlService **681/681**, and the Vite build.
-The next `codex/citizens-dual-stations` candidate lets the user pause that same
-world and bind one complementary reviewed static station without resetting the
-two residents, clock, needs, claims or social history. An original registered
-food-table GLB advertises `hunger +32` beside the chair's `energy +22`.
-An [isolated desktop browser trace](Validation/citizens-dual-stations-browser.json)
-observed both eat and rest decisions, a completed social session at minute 96,
-and a named minute-123 checkpoint with both GLB dependencies. Restoring the
-minute-1 checkpoint and stepping replayed the same social end. The
-[runbook](Docs/Citizens-Shared-World.md) gives the exact asset hashes and
-paused add flow. The selected built-in station retains its approach when a
-second station is attached, while the old fixed fixture keeps its route rule.
-This candidate passed WebRuntime **282/282**, ControlService **682/682**,
-Python compilation and the Vite build. A chair route failed after its bounded
-retries during the browser run; later observed need and social outcomes still
-completed. Simultaneous multi-resource acquisition, animated or moving
-interactions, social-session route recovery, full #15 acceptance, and Quest
-wear checks remain open.
+## Earlier M0–M4 acceptance references
 
-The `codex/citizens-catalog-recovery` candidate addresses a restart gap
-for those authored GLBs. If the browser's newest saved world references a
-`web:` asset absent from the current catalog, `/web/` keeps that save pending,
-reports the missing IDs, and waits for the matching catalog before ordinary
-scene/game/Citizens validation. It does not substitute an older or empty world
-or rewrite the saved copy while waiting. It also rejects old queued commands
-on the first exchange after recovery so an uncertain pre-reload effect cannot
-be applied twice. [An isolated browser catalog-outage/recovery run](Validation/citizens-catalog-recovery-browser.json)
-restored the two rendered GLBs, exact four object IDs, minute-123 Citizens
-state, chair claim and relationship 55 after the catalog returned; a further
-browser reload kept them. Focused scene-store tests passed **34/34**, the full
-WebRuntime suite **288/288**, ControlService **682/682**, and Vite built.
-Neither browser nor PC checkpoints contain GLB bytes. The next
-[`codex/citizens-virtual-day` PR #112](https://github.com/School-of-the-Ancients/matrix-loading-operator/pull/112) implements a bounded first
-[#17](https://github.com/School-of-the-Ancients/matrix-loading-operator/issues/17)
-schedule layer on that world. Citizens v7 saves 1×/4×/16× clock speed,
-recurring daily rest/eat/explore windows and the latest score trace per
-resident. Idle choices use active windows, needs, preferences, distance,
-station availability and priority tiers. Existing finite actions and Matrix
-receipts remain the path to earned effects. [The isolated browser run](Validation/citizens-virtual-day-browser.json)
-restored the prior v6 two-GLB minute-1 world, crossed midnight at 16×, and
-saved/reloaded/restored a v7 day-two checkpoint at minute 1761 with the same
-four object IDs. WebRuntime passed **297/297**, ControlService **685/685**,
-and Vite built. This advances #17 without completing appointments, active
-interruptions, social-need scoring or schedule authoring. A bounded rejected
-second-station browser edit and the reproducible minute-82 occupied-approach
-handoff remain #15/#19 follow-ups; M4 wearer checks remain separate.
+Keep these labels/links for existing issues. They are foundation/evidence categories, **not a requirement to postpone every immersive step until all desktop work or Citizens development is finished**.
 
-The next `codex/citizens-station-egress` candidate resolves that occupied
-approach handoff on the existing two-resident world. After a receipt-backed
-rest/eat outcome, a resident keeps the station claim through bounded Matrix
-egress movement; only observed clearance lets the FIFO head inherit its
-existing execution ID. A blocked or uncertain departure, navigation pause,
-external move, or identical scene replacement retains the claim and wait
-ticket. Independent obstruction near the waiter uses its own bounded retries.
-Nested Citizens v8 persists the departure phase and migrates valid v1–v7
-checkpoints; the outer world remains v3. [The isolated browser replay](Validation/citizens-egress-browser.json)
-restored the two-GLB minute-1 world, showed Ada's held claim and Bo's wait
-at minute 14, Bo's FIFO promotion at 18, and Bo's observed rest at 31.
-Named PC checkpoints saved/restored the v8 mid-egress and later state; a
-browser reload retained the replay. WebRuntime passed **306/306**,
-ControlService **687/687**, and Vite built. The rejected unreachable
-second-station browser edit and broader #15/#17 behavior remain open;
-M4 wearer checks remain independent.
+### M0 — Validate the desktop browser workflow, fix observed blockers
 
-The `codex/citizens-social-choice` candidate advances [#29](https://github.com/School-of-the-Ancients/matrix-loading-operator/issues/29) and a bounded part of [#17](https://github.com/School-of-the-Ancients/matrix-loading-operator/issues/17) by adding a persisted social need and conversation preference to both residents. At an eligible social opportunity, a free resident's conversation score competes with its legal individual activity; a reachable critical-hunger food choice takes precedence for either participant. An invitation alone gives no benefit. A completed session needs its exact Matrix converse receipt to raise both social needs and the relationship. Nested Citizens v9 migrates valid v1–v8 saves while the outer world stays v3. [The isolated browser replay](Validation/citizens-social-need-browser.json) migrated the earlier v6 two-GLB minute-1 checkpoint, showed Ada choose conversation at minute 78 with score 64.37 against 19.47, and observed the accepted session end at minute 91 with receipt `citizens-29-social-7-100`. Both social needs reached 76 and the relationship changed 50→55. Final-build named PC minute-78 and minute-91 checkpoints, browser reload, and restoring minute 78 followed by 13 Step actions reproduced byte-equivalent saved world JSON at minute 91; console errors were 0. WebRuntime **314/314**, ControlService **689/689**, and Vite build passed. Broader #17 scheduling, moving affordances, and M4 wearer checks remain open. The [runbook](Docs/Citizens-Shared-World.md) records the desktop path.
+Owners #44/#59/#24. Preserve persistent conversation, selection/edit targeting, visible approval/denial/Stop, actual runtime receipts and save/reopen. Test on an isolated service/profile; provider failure preserves the world. Desktop remains useful but is not the full product acceptance surface.
 
-The `codex/citizens-routine-editor` candidate advances [#17](https://github.com/School-of-the-Ancients/matrix-loading-operator/issues/17) by editing one existing routine's daily start/end and priority while Citizens is paused in `/web/`. It validates the full v9 state before commit, clears only the edited resident's stale choice trace, and preserves live actions, claims, waiters, social sessions, IDs, clock and RNG. Browser save and the existing PC checkpoint path retain the result without a schema change. [The isolated built-browser run](Validation/citizens-routine-editor-browser.json) restored the two-GLB minute-1 world with Ada's chair claim and Bo's FIFO ticket, rejected an equal-start/end edit, changed Ada's active window to high-priority meal, and reloaded without losing the four object IDs. Ada's next idle choice selected food at minute 19, and its observed outcome completed at minute 36. Restoring named PC minute 1 and stepping 35 minutes reproduced the exact minute-36 payload hash. WebRuntime **321/321**, ControlService **689/689**, Vite build and browser console **0** errors passed. The subsequent one-shot appointment candidate below adds a bounded deadline; broader preemptive schedules, moving affordances and independent M4 wearer checks remain open. The [runbook](Docs/Citizens-Shared-World.md) gives the routine replay path.
+### M1 — Finish one real Blender-to-Matrix conversation on desktop
 
-The `codex/citizens-appointments` candidate adds a first one-shot deadline contract to the same saved `/web/` world. A paused desktop editor schedules an existing resident's `rest` or `eat` at a bound station with an absolute start within the next 1440 simulated minutes and an inclusive completion deadline within 1440 minutes of that start. At most three appointments per resident retain their pending, queued/active, completed or missed outcomes without silent replacement. Once idle, a resident considers due appointments by earliest deadline, then start and ID, before optional routines; reachable critical hunger still outranks a due rest appointment, while a due meal can satisfy the urgent food choice. This first interruption policy preserves in-flight travel/use/egress, social sessions, claims and FIFO tickets. A pending or active appointment misses at deadline+1; a later receipt may still grant the action's intrinsic need effect but cannot turn the missed appointment into a completed one. Only the exact Matrix interaction receipt completes an appointment at or before its deadline. Sequential Step/1×/4×/16× ticks observe the same boundary. Nested Citizens v10 migrates valid v9 state with empty appointment lists, and the outer v3 scene/game/Citizens envelope remains the browser and PC checkpoint path. [The isolated built-browser replay](Validation/citizens-appointments-browser.json) kept Bo's chair FIFO ticket while his eat appointment missed at minute 6, then observed Ada's food receipt and completed appointment at minute 36. Browser reload and a 35-Step replay from a named PC minute-1 checkpoint reproduced the exact minute-36 world payload hash. WebRuntime **336/336**, ControlService **691/691**, Vite build and browser console **0** errors passed. General preemptive jobs, bounded pending-appointment revision, broader resident authoring and independent Quest wearer checks remain open.
+Owners #59/#28. Preserve the existing scratch-scene create/revise/export/validate/register/place trace and editable source. Compatible replacement/identity and headset authoring need their own evidence. Direct procedural generation must not require this authoring path.
 
-The `codex/citizens-appointment-revision` candidate removes the v10 lifetime-three bottleneck while keeping a small saved state. Nested v11 uses a monotonic per-resident appointment ID, at most three pending/active commitments, and the three most recent terminal records. A paused edit or cancellation applies only to a still-pending appointment after exact old-value validation. It preserves live claims, activities, FIFO waits and receipt-backed outcomes. The panel gives explicit New/Edit/Cancel modes and overlap advisories for one resident or a shared station; warnings do not change deterministic earliest-deadline choice or nonpreemptive execution. Valid v10 worlds migrate without replacing their scene or outer v3 checkpoint. [The isolated browser replay](Validation/citizens-appointment-revision-browser.json) revised Ada's deadline, warned about same-resident and shared-food overlap, observed an appointment miss and receipt-backed completion, then scheduled and cancelled IDs 3 and 4 while retaining only the three latest Ada outcomes. A named PC restore, 35 Step actions and the same two cancellation pairs reproduced both minute-36 payload hashes. WebRuntime **347/347**, ControlService **693/693**, Vite build and browser console **0** errors passed. This advances bounded operator planning under #17; the guarded interruption candidates below follow it.
+### M2 — Save and restore the whole supported experience
 
-The `codex/citizens-critical-interruption` candidate first allowed reachable critical hunger at fullness 15 or below to release optional rest/explore travel or an optional chair FIFO ticket after a safe handoff check. The [desktop browser replay](Validation/citizens-critical-interruption-browser.json) showed Bo leave ticket 2 for food execution 3 at minute 2, then earn the food benefit at minute 10 from the checked Matrix interaction. Nested Citizens remains v11, and the outer world remains v3. WebRuntime **358/358**, ControlService **693/693**, Vite build, exact named-checkpoint replay and browser console **0** errors passed.
+Owners #44/#24. Keep browser and PC whole-world state, dependency validation and compatibility paths. Keep scene-only backup clearly labeled. Extend for #122's recipe/physics/objective state as needed; preserve old worlds. Physical-room relocalization remains a separate check.
 
-The next `codex/citizens-due-appointment` candidate lets a due rest/eat appointment adopt a matching optional travel/FIFO execution or take over different optional work after reachable-target, cooldown and station-handoff checks. Station use/egress, social sessions and appointment-owned executions stay committed; no selected goal grants a predicted benefit. In the [isolated built browser](Validation/citizens-due-appointment-browser.json), Bo's minute-2 eat appointment took over optional chair ticket 2 as food execution 3 while Ada retained chair claim 1. The exact Matrix receipt completed the meal at minute 10. A named PC minute-1 restore and nine Step actions reproduced both minute-2 and minute-10 whole-world payload hashes; browser reload retained the outcome. The browser run had WebRuntime **365/365**, ControlService **693/693**, Vite build and browser console **0** errors. A review follow-up adopted a due rest appointment before urgent-food filtering when an unsafe chair claim kept that rest execution running; a focused restore and receipt test raised WebRuntime to **366/366** with a passing build. The unchanged v11 save still cannot prove optional provenance if a resident has appointment history and the choice trace was erased, so that work remains committed. Social-session route recovery, richer prerequisite actions for substantive GOAP, moving/animated station ownership and independent M4 wearer checks remain open.
+### M3 — One reusable HTML + Three.js experiment
 
-The `codex/citizens-social-route-recovery` candidate then extends that same two-resident world under #15/#19. An accepted invitation keeps one session and both participant bindings through three route failures, recomputing the path from each observed scene; a fourth blocked tick interrupts without an earned benefit. Uncertain or non-route movement receipts still terminate. Nested v12 persists the retry count and migrates valid v11 sessions; the outer whole-world envelope stays v3 and older PC checkpoints remain valid. The [isolated built-browser run](Validation/citizens-social-route-recovery-browser.json) restored a v9 two-GLB offered world, placed a wall over Ada after acceptance, saved and reloaded a minute-80 retry checkpoint, then moved the wall away and observed the same session's exact converse receipt at minute 92. Restoring the blocked checkpoint and leaving the wall produced a single interruption at minute 83 with relationship unchanged. A second clearance replay reproduced the exact minute-92 whole-world payload hash. WebRuntime **372/372**, ControlService **695/695**, Vite build and browser console **0** errors passed. Broader moving-target routing, richer prerequisite actions for substantive GOAP, moving/animated station ownership and independent M4 wearer checks remain open.
+Owners #31/#32 and [School roadmap #8](https://github.com/School-of-the-Ancients/school-of-the-ancients-roadmap/issues/8). Reuse one calculation/transition implementation and observations across controls, world and agent. The existing desktop baseline is useful; #122 also needs usable immersive views, not an unrelated HTML simulation. School keeps learner ownership.
 
-No simulated resident gets the Operator's shell credentials
-or permission to run fleet jobs. Richer rigs, ComfyUI/Blender authoring, GOAP,
-general behavior programs, and an LLM call per frame are not prerequisites.
+### M4 — Adapt the working experience for VR, then AR
 
-M4 remains an independent acceptance track. Its next device slice still uses
-an isolated Quest service/scene for reviewed approval/denial or Stop, followed
-by room-origin recovery on a disposable AR world. The AR Agent creation loop
-and panel recall already have wearer evidence, but recovery, readability,
-physical-surface checks, and the final #98 provenance refinements do not.
-Record desktop simulation evidence and Quest wearer evidence separately; a
-desktop Citizens pass does not close an M4 check.
-
-## Delivery decision — desktop first, immersive UI later
-
-The user reports that Matrix partly works but its current AR/VR UI is poor. The chosen response is **not** to redesign the headset UI first: finish the core workflow in the ordinary desktop browser, then adapt its controls and presentation for VR/AR.
-
-M0–M3 use the existing `/web/` Three.js application with mouse/keyboard and normal HTML controls, without entering an immersive session. Keep the same world, agent, assets, validation and persistence; do not build a separate desktop engine. Fix desktop usability where it blocks the workflow. Voice is optional for desktop acceptance.
-
-The earlier “get everything working” target meant a reliable create → revise → interact → save/reopen loop and one reusable experiment, rather than every catalog, citizen, city or future feature. The Citizens fixture reuses desktop runtime code on a separate page, and PR #101 also integrates its bounded simulation into the main `/web/` desktop world. Existing XR paths and safety checks stay intact; immersive UI and wearer acceptance remain tracked in M4. Desktop passes do not close outstanding headset criteria in the parent issues.
-
-## Reviewed baseline — do not rebuild it
-
-Snapshot: Matrix main [`509a72a`](https://github.com/School-of-the-Ancients/matrix-loading-operator/commit/509a72a344faa8e2cc63c12b67a6b08d140c43ce), after PR #80.
-
-| Already present | Source and remaining distinction |
-| --- | --- |
-| Three.js/WebXR, GLB loading, input, local speech, room origin and browser persistence | PRs #45–#49. Earlier Quest AR/primitive-robot and same-position reopen evidence exists; that does not establish every later feature. |
-| Game/scene saves, storage and room recovery, footprint checks, optional camera probe | PRs #51–#58. Later hardware checks remain; camera and virtual images are not a calibrated composite. |
-| PC Codex transport, replaceable session backend, durable mapping, portal, spatial context, MCP and approvals | PRs #60–#69 and #76. Extend these instead of building another agent or gateway. |
-| Numeric components, GLB animation and selection bindings | PRs #70–#73 and #75. These are specific bounded capabilities, not arbitrary scripting or complete NPC behavior. |
-| Dragon/skiff assets and ready-AR virtual-floor tool support | PRs #77–#79. The dragon has desktop evidence; richer Blender MCP and final Quest creation acceptance are still incomplete. |
-| Client pairing, reviewed placement/scale and model proposals | PRs #34, #36, #37. Reuse for School; previous Unity/fixture evidence is not WebXR acceptance. |
-
-PR descriptions and [WebRuntime documentation](WebRuntime/README.md) are evidence references, not tests rerun during this planning review. Refresh main/open PRs before coding.
-
-## M0 — Validate the desktop browser workflow, fix observed blockers
-
-**Owners:** [#44](https://github.com/School-of-the-Ancients/matrix-loading-operator/issues/44), [#59](https://github.com/School-of-the-Ancients/matrix-loading-operator/issues/59), release evidence [#24](https://github.com/School-of-the-Ancients/matrix-loading-operator/issues/24).
-
-Use an isolated service port and disposable desktop browser profile/origin. Do not clear the user's live scene or anchors. Run the current automated suites, then test `/web/` without an immersive session: same agent conversation through a follow-up and reopen; mouse selection and object move; readable activity and Approve/Deny/Stop; registered asset spawn and clip selection; browser world/game restore. Text input must be sufficient.
-
-Fix only demonstrated browser workflow or runtime blockers. Do not redesign in-world panels, controller mappings, passthrough or room setup here. A provider outage can block live-agent acceptance while deterministic/runtime tests continue; record the blocker rather than faking completion.
-
-**Exit:** exact source/CLI/browser versions, actual desktop interaction and receipts are recorded for the tested path. No headset is required. Preserve existing automated XR regressions; new wearer observations and immersive usability acceptance belong to M4, not this gate.
-
-## M1 — Finish one real Blender-to-Matrix conversation on desktop
-
-**Owners:** #59 and [#28](https://github.com/School-of-the-Ancients/matrix-loading-operator/issues/28). Depends on the relevant M0 desktop portal/receipt checks, not headset or camera acceptance.
-
-Reuse configured Blender tools, a dedicated scratch scene, the existing authoring/catalog path and Matrix MCP. Start with one non-primitive static asset; named animations can use the current contract afterward. Demonstrate create → follow-up revision → export → validate → register → place in the same agent conversation. Preserve `.blend`/authoring source outside the runtime catalog. Replacing an already placed asset must explicitly preserve or replace its object identity; do not silently duplicate it.
-
-Make approval handling usable on the PC with the smallest change: exact review for understood operations, or a visible PC handoff for broad code execution. Do not summarize arbitrary Python as a harmless one-click action, bypass native approval, or build a general policy engine. XR-specific approval presentation waits for M4. Keep the primitive blueprint fallback. Local Blender scripting is a valid separate path; only an actual tool trace establishes Blender MCP acceptance.
-
-**Exit:** one real end-to-end desktop trace, revision, registered asset, acknowledged placement, and final browser visual check. A generated file or an interrupted authoring turn alone is not done. See [authoring tiers](WebRuntime/BLENDER_AUTHORING_TIERS.md).
-
-The [Copper Astrolabe desktop trace](Validation/WebRuntime-Blender-MCP-M1-2026-09-25.md) meets this one-asset M1 exit on merged `main`: a connected scratch Blender MCP scene, creation and follow-up revision in one Agent Portal conversation, validated registration, receipt-acknowledged placement, browser rendering and reload. It does not close Quest authoring or replacement-identity acceptance.
-
-## M2 — Save and restore the whole supported experience
-
-**Owners:** #44 and #24. Reuse existing state and files; no new database. Desktop browser and PC-service restart are the acceptance target.
-
-First inventory the current browser world envelope, manual checkpoint, PC scene save, asset references and component/animation bindings. Browser scene/game restore already exists; PC scene-only backups do not preserve game progress. Add only the missing versioned whole-experience PC checkpoint/export and matching restore, using existing validation and atomic-file patterns.
-
-Keep world data separate from agent chat and School records. Save configuration, not animation playback phase or transient device streams. Preserve existing saves with an explicit compatibility path. Missing content, an interrupted write, or unavailable room origin must preserve the old state and report recovery options. Physical-plane objects keep their honest session-local restriction until separately supported; do not remove these guards to simplify desktop work.
-
-**Exit:** save a supported object/game/component configuration, restart browser and PC service, restore exact IDs and progress, and reject a missing/corrupt dependency without silently replacing the world. This is one local recovery path, not multi-user synchronization. Physical-room relocalization is separately tested in M4.
-
-## M3 — One reusable HTML + Three.js experiment
-
-**Owners:** [#31](https://github.com/School-of-the-Ancients/matrix-loading-operator/issues/31), [#32](https://github.com/School-of-the-Ancients/matrix-loading-operator/issues/32), School roadmap [#8](https://github.com/School-of-the-Ancients/school-of-the-ancients-roadmap/issues/8).
-
-Use the existing scale experiment as the first case. Inspect both existing implementations before choosing the owner of its state and math. Keep one tested calculation/operation implementation; HTML, the Three.js view, and agent actions consume it. A short configuration object and ordinary code module are enough. Do not build a universal experience-package standard or require WebMCP.
-
-Prove set dimensions → observe exact volume/ratio → reset in the desktop browser, with normalized observed events. HTML/3D view switching retains identity/state; simultaneous separate devices are out of scope. Reuse the limited client API for School; do not expose the privileged coding agent to the lesson application. M3 can start independently of rich Blender authoring using built-in blocks. Immersive presentation is M4, not an M3 acceptance requirement.
-
-**Exit:** equivalent HTML/3D/tool inputs yield equivalent results, one save/resume works, and School can consume observations through its existing bridge. Scale mathematics is not measured physical volume or a physics simulation.
-
-## M4 — Adapt the working experience for VR, then AR
-
-**Owners:** #44/#59 for immersive UI, [#22](https://github.com/School-of-the-Ancients/matrix-loading-operator/issues/22) for room behavior and #24 for evidence. School headset integration remains #23.
-
-After the desktop loop is reliable, improve the existing headset presentation rather than rebuilding the backend. Start with the same virtual scene in VR: readable conversation/status, reliable controller selection, discoverable input, usable approvals/Stop, and a panel that can be brought into view, moved or hidden. Then test AR-specific placement, contrast against the room, tracking/origin recovery and avoiding unnecessary obstruction. Do not assume one successful mode proves the other.
-
-Use [the existing Quest checklist](WebRuntime/QUEST3_ACCEPTANCE.md) and record observed usability problems before choosing a larger UI library or redesign. Preserve meaningful approvals: operations requiring detailed PC review stay an explicit handoff, not an automatic approval. No new agent session, asset pipeline or world state owner.
-
-**Exit:** the wearer can complete the same supported select → request → review → revise → interact → save/reopen flow with readable controls and predictable targeting. Record actual VR and AR evidence separately, including failures/unavailable features and source/browser/device versions. Camera capture remains optional. Desktop screenshots or tests alone cannot establish immersive comfort or usability.
+Owners #44/#59/#22/#24; School integration #23 remains separately scoped. Keep [Quest acceptance](WebRuntime/QUEST3_ACCEPTANCE.md) authoritative for recorded mode-specific checks. Wire/rehearse the selected creation experience with separately recorded voice/input/approval/Stop, readability, origin recovery and physical alignment limitations. Do not call a desktop result wearer validation.
 
 ## Current and later — keep the existing backlog
 
-| Lane | Existing owners | Small next outcome, when selected |
+| Lane | Existing owner/reference | Selection rule |
 | --- | --- | --- |
-| AI Citizens — current priority | #29 with the needed slices of #13–#20 | The two-resident, seeded contention fixture has an opt-in path in the main `/web/` world, versioned browser/PC checkpoints, reservation recovery, and a finite social session candidate. The #15 candidates bind a selected existing built-in chair/table or reviewed static GLB, then add one complementary station while paused. They check rendered geometry and recover a changed static route for at most three retry ticks without replacing the scene. Animated/moving affordances, simultaneous multi-resource acquisition, and the rest of #15 remain open. Do not claim headset budgets from desktop checks. |
-| Current Matrix | #44, #59, #28, #24 | Keep remaining M4 mode-specific checks and concrete M3 bridge gaps tracked independently; no second implementation stack. |
-| Shared lesson | #31, #32, #23 | Desktop M3 plus the School build plan; headset presentation follows in M4. No Citizens/Boulder prerequisite. |
-| Reusable runtime | #13, #25 | Extend only for a demonstrated missing interaction; reuse numeric components and existing receipts. |
-| Content and visual feedback | #9, #8 | One additional provider or same-session capture loop after the basic creation path works. |
-| Immersive UI and spatial/device work | #44, #59, #22, #26 | M4 is in progress; finish VR and AR wearer checks separately. Physical-camera support remains optional. |
-| Later Citizens extensions | #14–#20, #29 | Add richer body, GOAP prerequisites, grounded memory, and social dialogue only after the small individual/shared-object loop is reliable. |
-| Persistent geography | #38 | Reuse Boulder prototype findings; evaluate one small Web world view and coordinate mapping before a port or city expansion. |
-| Alternative realtime agent | #62 | Reuse the existing session backend; add one provider only for a concrete unmet need. |
-| Legacy/native | #21 and Unity-specific portions of #12/#22/#24 | Maintain existing packs/builds; do not route Web GLBs through AssetBundles. |
-| Late/research | #41; roadmap #14/#15/#18 | Astral presence, community models, Jev/CLM benchmarks. Not first-release gates. |
+| Current creation/learning demo | #122 with #44/#59/#116 | Continue the small immersive create/play/revise/save loop |
+| Reusable physics, interactions, displays and objectives | #13/#15/#31/#32/#118 as applicable | Build only the pieces required by that loop; retain each umbrella's remaining criteria |
+| Blender, asset reuse and visual feedback | #28/#9/#8; concept imagery #91 | Complement procedural generation; not mandatory authoring stages |
+| Independent School | #31/#32/#23 and [School build plan](https://github.com/School-of-the-Ancients/school-of-the-ancients-roadmap/blob/main/BUILD_PLAN.md) | Independently selected teaching work; do not move curriculum/learner records into Matrix |
+| AI Citizens and resident building | #29/#14–#20/#109 | Preserve/review existing stack; expand when explicitly selected or needed by a demonstrated interaction |
+| Dynamic world improvement | [VISION.md](VISION.md#later-dynamic-world-improvement) | Later, opt-in bounded review/improve/verify/revert; no worker or overnight scheduling now |
+| Portals, multiplayer, persistent geography and wider society | #125, #38/#41 and #29 | Future extensions, not local-demo prerequisites |
+| Alternative agents/providers/devices/fleet | #62 and existing resource references | Add only for a concrete unmet need; no new mandatory infrastructure/hardware |
+| Unity/native | #21 and Unity portions of #12/#22/#24 | Maintain supported builds, content packs and historical evidence; no required White Room prefab for Web |
 
-These are planning lanes, not assertions that entire issues are unimplemented or completed. #12 remains the foundation umbrella. School, Citizens and geography are independently useful tracks, not a mandatory global waterfall.
+The upgrader eventually needs identity-preserving replacement, manual-edit protection, stale-work rejection, rollback, permissions, budgets and asset provenance. Those are compatibility considerations, not instructions to implement autonomous improvement now.
 
 ## Resource inputs retained
 
-Use the existing [catalog guide](Docs/Content-Catalogs.md), [runtime package notes](Docs/WebXR-Runtime-Packages.md), [Boulder PRD](Docs/Matrix-Boulder-PRD.md), and [NPC resource index](https://github.com/School-of-the-Ancients/school-of-the-ancients-roadmap/blob/main/RESOURCES.md) instead of inventing another registry design.
+Use [creation resources](RESOURCES.md), [content catalogs](Docs/Content-Catalogs.md), [WebXR runtime packages](Docs/WebXR-Runtime-Packages.md), [Boulder PRD](Docs/Matrix-Boulder-PRD.md) and the [School resource index](https://github.com/School-of-the-Ancients/school-of-the-ancients-roadmap/blob/main/RESOURCES.md). The pinned previous plan retains the original resource list.
 
-| Input group | Role and disposition |
-| --- | --- |
-| Three.js/WebXR, HTML, Blender, local Codex, Matrix/Blender MCP | Current runtime/authoring path. Keep working versions and existing adapters. |
-| Poly Haven, Sketchfab, Openverse; Scenario, Blockade/Skybox, Adobe Substance | Existing discovery work plus the original asset-library vision. Discovery, acquisition, conversion and runtime readiness are different states. Select one concrete integration at a time under #9/#28. |
-| [image-to-3dlab](https://github.com/Bingeljell/image-to-3dlab), local ComfyUI and other generators | Optional asset producers. Verify output, provenance, hardware and licensing before enabling; not required for M1. |
-| [Aula Inteligente interactive labs](https://aula-inteligente.guillermo23.chatgpt.site/#inicio) and interactive HTML | Interaction inspiration for M3 and future School presentation, not a required framework or a promise of arbitrary browser code execution. Matrix supplies reusable actions and observations; School owns guided lessons and learner work. |
-| ElevenLabs and [Gemini Live/Avatar input](https://blog.google/innovation-and-ai/models-and-research/gemini-models/gemini-3-8-live-with-live-avatar/) | Optional voice/presentation/provider leads under #62 and School #7. No new paid dependency for the first lesson. |
-| LLMR, Voice2Action, Project Sid/PIANO, Sims/GOAP, [CLM](https://contrastive-lm.notion.site/), [Brood War agent report](https://bw.swerdlow.dev/report) | Research/design inputs to finite actions and Citizens; not a required combined agent stack. Existing roadmap research retains SwarmWorld, Voyager, Jev, Odyssey and motion sources. |
-| Cesium/Google tiles, open GIS; generated-world leads | Optional visual/data providers for #38. Keep Matrix-owned entities separate from streamed imagery; confirm rights and actual APIs before integration. |
-| Manfred/Omi/phone, Quest/Aura, Demerzel/fleet, NOMAD | Separate input/device/infrastructure tracks. No lifelog, cluster deployment, or new hardware is required to finish this plan. |
-
-The original planning review used available September 20–25 conversation summaries, 26 Matrix issue bodies, 16 roadmap issue bodies, recent organization PR descriptions/evidence, and the linked repository documents. The September 26 progress note above uses the merged PR and validation records. Neither is an exhaustive export of every conversation or a fresh check of every hardware claim. External resource mentions are retained leads, not newly verified vendor capability claims.
+Retained leads include Three.js/WebXR, Sakuragaoka procedural modules, HTML, local Codex, Matrix/Blender tools, Poly Haven/Sketchfab/Openverse, Scenario/Blockade/Substance, image-to-3dlab/ComfyUI, interactive HTML labs, voice providers, LLMR/Voice2Action, GOAP/Project Sid and other NPC research, geospatial sources, and Manfred/Demerzel/fleet/device inputs. They are references, not newly verified vendor capabilities or required dependencies. Check API/access/license/cost/version before integration.
 
 ## Working rules and next Codex task
 
-One active Matrix implementation slice at a time. One independent School slice may proceed separately. Prefer a small PR against current main; inspect existing open work first. Keep tests next to the changed code. Use the current Python suite and WebRuntime `npm test` / `npm run build`; cross-product changes also run the existing School tests/typecheck with the documented Matrix checkout.
+Continue one active Matrix implementation slice at a time. Inspect/reuse open work before starting another branch; preserve review history and dependencies. Record the current slice's goal, actual compatible base, completed behavior, remaining acceptance and explicit exclusions. Do not reset its progress because the product wording was clarified.
 
-Each PR states: user-visible result, reused files/contracts, excluded scope, tests actually run, device checks still pending, and the next step. Update this plan only when evidence changes the queue. Leave PRs open unless the user authorizes merging; do not close umbrella issues from a partial milestone.
+Run relevant ControlService Python tests and WebRuntime `npm test` / `npm run build` when implementing code; cross-product edits also need existing School checks. The merged #124 documentation update itself required no application rebuild or service restart. Record tests actually run, browser interaction and separate pending wearer checks.
 
-**Start prompt:** “Read AGENTS.md, PROJECTS.md, PRD.md, IMPLEMENTATION_PLAN.md and AI Citizens issues #29, #15, #19 and #20. Check current `main`, open stacked PRs, the shared-world Citizens runbook, the `codex/citizens-dual-stations` branch and its browser evidence, existing simulation code, and the Quest acceptance matrix. Select the next useful #15 contract after two reviewed static stations; verify which prerequisites already exist before coding. A rejected second-station browser edit with unchanged saved-world state is one bounded follow-up. Preserve the selected built-in and registered-GLB paths, observed MatrixWorld receipts, scene/Citizens checkpoint migration, seeded replay, and isolated fixtures. Exercise the actual browser and run relevant tests/builds. Preserve live scenes, PC credentials, the Unity client and release checkpoints. Keep unfinished M4 wearer checks open and independent; do not expand into School, Matrix World, a new engine, or a full city/economy.”
+Each PR states the user-visible result, reused contracts, scope exclusions, evidence and next smallest step. Keep detailed evidence in checkpoint/runbook/validation files, not an ever-growing PRD diary. Change the queue for an explicit owner decision or verified blocker, not because another subfeature is imaginable. Leave PRs open unless authorized to merge.
+
+**Continuation prompt:** “Read the updated AGENTS.md, VISION.md, PROJECTS.md, PRD.md, IMPLEMENTATION_PLAN.md and #122. Continue compatible Creator Mode work already underway; do not rebuild or restart the project. The product is a Three.js/WebXR sandbox: start blank or load an existing world, create/change through Operator, save and return; some worlds have AI citizens. White Room is inspiration, not a Unity prefab or separate editing room. Identify the actual source/running state, preserve Citizens/world/checkpoint work and continue the next missing portion of #122. Keep its physics, objective/display, agent access, save and extensibility acceptance intact. Coordinate current capability context with #116. Validate actual runtime outcomes and separate desktop from VR/AR wearer evidence. Protect live worlds, services, approvals and native Unity. Do not implement deferred portals or the upgrader, or merge unrelated PRs without authorization.”

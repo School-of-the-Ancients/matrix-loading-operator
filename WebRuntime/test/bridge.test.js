@@ -5,6 +5,28 @@ import {MatrixBridge} from '../src/bridge.js';
 import {createCitizensDemo} from '../src/citizens.js';
 import {applyPCWorld} from '../src/world_checkpoint.js';
 import {storedWorld} from '../src/scene_store.js';
+import {executeWorldSlotCommand} from '../src/world_slots.js';
+
+test('read-only entity queries return receipts without resetting the live view',async()=>{
+  const previousStorage=globalThis.sessionStorage;
+  globalThis.sessionStorage={getItem:()=>null,setItem:()=>{}};
+  try{
+    const world=new MatrixWorld(()=> 'query-object');
+    const spawn=world.execute({requestId:'spawn-query-object',op:'spawn',assetId:'block',
+      anchorId:'web-floor',transform:{position:{x:0,y:0,z:-2},
+        rotation:{x:0,y:0,z:0},scale:{x:1,y:1,z:1}}});
+    assert.equal(spawn.ok,true,spawn.error);
+    const events=[],bridge=new MatrixBridge(world,()=>'',event=>events.push(event));
+    bridge.request=async()=>({commands:[
+      {requestId:'inspect-query-object',op:'inspect_entity',objectId:spawn.objectId},
+      {requestId:'get-query-scene',op:'get_scene'}]});
+    await bridge.exchange(null);
+    assert.equal(events.filter(event=>event.type==='receipt').length,2);
+    assert.equal(events.some(event=>event.type==='scene'),false);
+    assert.equal(bridge.receipts.get('inspect-query-object').outcome.object.objectId,
+      spawn.objectId);
+  }finally{globalThis.sessionStorage=previousStorage;}
+});
 
 test('an Operator command delivered after Citizens motion gets a failed receipt without mutation',async()=>{
   const previousStorage=globalThis.sessionStorage;
@@ -406,5 +428,67 @@ test('startup recovery rejects old pending commands once, then accepts new comma
     assert.equal(world.scene.objects.length,2,'a new command executes after the guarded exchange');
     assert.equal(world.scene.objects[1].assetId,'block');
     assert.equal(bridge.receipts.get(fresh.requestId).ok,true);
+  }finally{globalThis.sessionStorage=previousStorage;}
+});
+
+test('typed archive receipts are read only and a world switch rejects old-batch commands',async()=>{
+  const previousStorage=globalThis.sessionStorage;
+  const values=new Map();
+  const tab={getItem:key=>values.get(key)??null,
+    setItem:(key,value)=>values.set(key,String(value)),removeItem:key=>values.delete(key)};
+  const durableValues=new Map();
+  const durable={getItem:key=>durableValues.get(key)??null,
+    setItem:(key,value)=>durableValues.set(key,String(value)),
+    removeItem:key=>durableValues.delete(key)};
+  globalThis.sessionStorage=tab;
+  try{
+    let nextId=0;
+    const world=new MatrixWorld(()=>`switch-object-${++nextId}`);
+    const pose={position:{x:0,y:0,z:-2},rotation:{x:0,y:0,z:0},
+      scale:{x:1,y:1,z:1}};
+    const initial=world.execute({requestId:'initial',op:'spawn',assetId:'orb',
+      anchorId:'web-floor',transform:pose});
+    assert.equal(initial.ok,true);
+    const snapshot=world.snapshot();
+    const switchCommand={requestId:'switch-world',op:'start_new_world',
+      archiveName:'Original world',expectedScene:snapshot.scene,
+      expectedGame:snapshot.game,
+      expectedCreatorRevision:snapshot.creatorMode.revision,
+      expectedGravity:snapshot.rigidGravity,
+      expectedCitizensState:snapshot.citizensState,
+      expectedCitizensGeneration:snapshot.citizensObservation?.authoredGeneration??null};
+    const stale={requestId:'old-world-spawn',op:'spawn',assetId:'block',
+      anchorId:'web-floor',transform:pose};
+    const delayed={...stale,requestId:'delayed-old-world-spawn'};
+    const fresh={...stale,requestId:'fresh-world-spawn'};
+    const events=[],requests=[];
+    const bridge=new MatrixBridge(world,()=>'',event=>events.push(event));
+    bridge.onWorldSlotCommand=command=>executeWorldSlotCommand(world,command,tab,durable);
+    bridge.request=async(_path,body)=>{
+      requests.push(structuredClone(body));
+      return {commands:requests.length===1?
+        [{requestId:'list-worlds',op:'list_world_archives'}]:
+        requests.length===2?[switchCommand,stale]:
+        requests.length===3?[delayed]:[fresh]};
+    };
+    await bridge.exchange(null);
+    assert.equal(bridge.receipts.get('list-worlds').outcome.kind,'world-archives');
+    assert.equal(events.some(event=>event.type==='scene'),false,
+      'listing browser archives does not rebuild the scene');
+    await bridge.exchange(null);
+    assert.equal(bridge.receipts.get('switch-world').ok,true);
+    assert.equal(bridge.receipts.get('switch-world').outcome.kind,'world-created');
+    assert.equal(bridge.receipts.get('old-world-spawn').ok,false);
+    assert.match(bridge.receipts.get('old-world-spawn').error,/World changed during this command batch/);
+    assert.equal(world.scene.objects.length,0);
+    assert.equal(bridge.rejectPendingOnNextExchange,true);
+    await bridge.exchange(null);
+    assert.equal(bridge.receipts.get('delayed-old-world-spawn').ok,false);
+    assert.equal(world.scene.objects.length,0);
+    assert.equal(bridge.rejectPendingOnNextExchange,false);
+    await bridge.exchange(null);
+    assert.equal(bridge.receipts.get('fresh-world-spawn').ok,true);
+    assert.equal(world.scene.objects.length,1);
+    assert.equal(world.scene.objects[0].assetId,'block');
   }finally{globalThis.sessionStorage=previousStorage;}
 });

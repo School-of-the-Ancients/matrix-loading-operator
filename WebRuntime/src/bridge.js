@@ -1,5 +1,8 @@
 const validRequestId=value=>typeof value==='string'&&value.length>0&&
   value.length<=128&&!/[\x00-\x1f]/.test(value);
+const READ_ONLY_OPS=new Set(['get_scene','list_assets','list_targets','inspect_entity',
+  'list_world_archives']);
+const WORLD_SLOT_OPS=new Set(['list_world_archives','start_new_world','restore_world_archive']);
 
 export class MatrixBridge {
   constructor(world, getToken, onUpdate) {
@@ -8,6 +11,7 @@ export class MatrixBridge {
     sessionStorage.setItem('matrix-web-client-id',this.clientId);
     this.receipts=new Map(); this.running=false; this.timer=null;this.inFlight=false;this.exchangePaused=false;this.rejectPendingOnNextExchange=false;this.lastExchange=0;this.getViewer=()=>null;
     this.getCapture=null;this.captureInFlight=false;this.captureReceipt=null;
+    this.onWorldSlotCommand=null;
     this.getCaptureCapabilities=()=>({modes:['virtual'],device:'Matrix WebXR',
       mixedStatus:'permission_required',reason:'Environment camera has not been tested in this browser.',
       depthOcclusion:false});
@@ -39,13 +43,26 @@ export class MatrixBridge {
     for(const result of sent)this.receipts.delete(result.requestId);
     if(this.captureReceipt===sentCapture)this.captureReceipt=null;
     let changed=false;
+    let worldSwitched=false;
     const completed=new Map(sent.map(result=>[result.requestId,result]));
+    const apply=async operation=>{
+      if(!WORLD_SLOT_OPS.has(operation.op))return this.world.execute(operation);
+      try{
+        if(!this.onWorldSlotCommand)throw Error('Browser world archive controls are unavailable');
+        const outcome=await this.onWorldSlotCommand(operation);
+        return {requestId:operation.requestId,ok:true,error:'',objectId:'',outcome};
+      }catch(error){
+        return {requestId:operation.requestId,ok:false,
+          error:String(error?.message||error).slice(0,1000),objectId:''};
+      }
+    };
     for(const command of data.commands||[]) {
       if(this.receipts.has(command.requestId))continue;
       let result;
-      if(rejectPending)
+      if(rejectPending||worldSwitched)
         result={requestId:command.requestId,ok:false,
-          error:'Command outcome unknown after saved-world recovery; inspect the restored scene before retrying',objectId:''};
+          error:worldSwitched?'World changed during this command batch; inspect the new world before retrying':
+            'Command outcome unknown after saved-world recovery; inspect the restored scene before retrying',objectId:''};
       else if(Object.hasOwn(command,'requiresSuccessOf')){
         const predecessor=command.requiresSuccessOf;
         if(!validRequestId(predecessor)||predecessor===command.requestId)
@@ -55,14 +72,18 @@ export class MatrixBridge {
             error:`Skipped because prerequisite command ${predecessor} did not succeed`,objectId:''};
         else {
           const {requiresSuccessOf,...operation}=command;
-          result=this.world.execute(operation);
+          result=await apply(operation);
         }
-      }else result=this.world.execute(command);
-      this.receipts.set(command.requestId,result); changed=changed||result.ok;
+      }else result=await apply(command);
+      this.receipts.set(command.requestId,result);
+      if(result.ok&&(command.op==='start_new_world'||command.op==='restore_world_archive'))
+        worldSwitched=true;
+      changed=changed||(result.ok&&!READ_ONLY_OPS.has(command.op));
       completed.set(command.requestId,result);
       this.onUpdate({type:'receipt',result});
     }
     if(rejectPending)this.rejectPendingOnNextExchange=false;
+    if(worldSwitched)this.rejectPendingOnNextExchange=true;
     if(changed)this.onUpdate({type:'scene'});
     if(data.capture&&this.getCapture&&!this.captureInFlight&&!this.captureReceipt){
       this.captureInFlight=true;

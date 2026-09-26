@@ -14,9 +14,21 @@ POST /api/web/world/save
 {"name":"Demo","world":{"version":2,"scene":{"schemaVersion":1,"roomId":"web-virtual-room-v1","objects":[]},"game":null}}
 ```
 
-Version 2 retains exactly `version`, `scene`, and `game` and loads as a world
-without Citizens. Version 3 requires exactly those fields plus a non-null
-`citizens` section. That section holds resident and station IDs, needs, current
+Version 2 requires `version`, `scene`, and `game` and loads as a world without
+Citizens. Version 3 requires those fields plus a non-null `citizens` section.
+The Immersive Creator Mode candidate permits optional `creatorMode` and
+`rigidGravity` fields in either envelope; old files without them restore to
+paused Creator Mode and default gravity. Scene objects may carry validated
+procedural recipes, rigid configurations, and world-display definitions. Game
+version 2 saves its existing-ID role bindings, credited delivery events,
+objective progress and unlocked exit IDs in the same `game` field. Browser and
+PC validators reject invalid or unavailable pinned generator versions before
+replacing a world. A checkpoint saves the latest authored/simulated object pose,
+not Rapier's transient velocities and contact cache. Keep the matching reviewed
+generator source with the checkpoint; the JSON file does not contain it. See
+the [Creator Mode runbook](../Docs/Procedural-Creation.md).
+
+The `citizens` section holds resident and station IDs, needs, current
 finite activities, reservations, clock, seed/random state, and bounded event
 history. The service validates residents and stations against stable object IDs
 and built-in orb/chair/table assets in the same scene. Nested Citizens v4
@@ -87,3 +99,23 @@ The JSON file under `--scenes/world_checkpoints/` is the PC export. Keep it
 with the matching `--web-assets` catalog to restore its registered GLBs after
 a PC move or reinstall. The checkpoint is not a portable bundle of asset
 bytes, editable Blender sources, Agent Portal chat, or School records.
+
+## Browser world archives in the Creator Mode candidate
+
+**World archives**, **New world**, and **Restore archive** switch among worlds in
+the same browser profile. A safe switch first stores the active world, then
+starts an empty one or restores a selected archive. The archive retains the
+validated world envelope, object IDs, rigid configurations, game bindings,
+earned progress, and displays. It is browser-local storage, not a named PC
+checkpoint or an asset bundle. The separate AR room-origin recovery archives
+serve a different purpose and do not form this world list.
+
+Switches require paused Creator Mode, a valid world and available origin, no
+held body, and no pending action. The PC-local Agent Portal exposes bounded
+archive metadata through `matrix_list_world_archives`; reviewed
+`matrix_start_new_world` and `matrix_restore_world_archive` actions use current
+revision guards and the ordinary runtime receipt path. The agent can reconcile
+an uncertain result through `matrix_world_archive_status`. It does not receive
+raw archive contents. The [Creator Mode runbook](../Docs/Procedural-Creation.md)
+and [desktop validation trace](../Validation/Immersive-Creator-Desktop-2026-09-26.md)
+record the tested new/restore sequence. Quest wearer behavior is still open.

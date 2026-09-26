@@ -1,6 +1,8 @@
 // Browser-local recovery. One versioned envelope contains the whole supported world.
 import {validSavedGame} from './game.js';
 import {CitizensSimulation} from './citizens.js';
+import {listProceduralGenerators} from './procedural.js';
+import {createCreatorMode,restoredCreatorMode} from './creator_mode.js';
 export const TAB_SCENE_KEY='matrix-web-scene';
 export const DURABLE_SCENE_KEY='matrix-web-scene-v1';
 export const WORLD_KEY='matrix-web-world-v2';
@@ -68,9 +70,14 @@ export function storedWorld(world){
   const scene=world.spatial?{...world.virtualScene.scene,
     objects:world.scene.objects.filter(object=>object.anchorId==='web-floor')}:world.scene;
   const savedScene=structuredClone(scene),game=structuredClone(world.game);
-  if(world.citizens==null)return {version:2,scene:savedScene,game};
+  const additions={
+    ...(world.creatorMode&&JSON.stringify(world.creatorMode)!==JSON.stringify(createCreatorMode())?
+      {creatorMode:structuredClone(world.creatorMode)}:{}),
+    ...(world.rigidGravity&&JSON.stringify(world.rigidGravity)!==
+      JSON.stringify({x:0,y:-9.81,z:0})?{rigidGravity:structuredClone(world.rigidGravity)}:{})};
+  if(world.citizens==null)return {version:2,scene:savedScene,game,...additions};
   const citizens=checkedCitizens(world,savedScene,world.citizens);
-  return {version:3,scene:savedScene,game,citizens};
+  return {version:3,scene:savedScene,game,citizens,...additions};
 }
 
 // Keep browser-only origin provenance out of PC world checkpoints, whose
@@ -180,11 +187,29 @@ class MissingWebAssetsError extends Error {
   }
 }
 
+class MissingProceduralGeneratorError extends Error {
+  constructor(ids){
+    super(`Saved world is waiting for reviewed procedural generators: ${ids.join(', ')}`);
+    this.missingGenerators=ids;
+  }
+}
+
+function requireProceduralGenerators(scene){
+  const available=new Set(listProceduralGenerators().map(item=>
+    `${item.generatorId}@${item.generatorVersion}:${item.sourceRevision}`));
+  const missing=[...new Set((scene.objects||[]).filter(item=>item?.procedural)
+    .map(item=>item.procedural).filter(recipe=>!available.has(
+      `${recipe.generatorId}@${recipe.generatorVersion}:${recipe.sourceRevision}`))
+    .map(recipe=>`${recipe.generatorId}@${recipe.generatorVersion}:${recipe.sourceRevision}`))];
+  if(missing.length)throw new MissingProceduralGeneratorError(missing.sort());
+}
+
 function validateSavedScene(world,scene,value){
   // Use MatrixWorld's validator without changing the active world. Its normal
   // checks run in order; only an actual lookup of an absent Web asset signals
   // a recoverable catalog dependency.
   const validationWorld=Object.create(world);
+  requireProceduralGenerators(scene);
   validationWorld.asset=id=>{
     const asset=world.asset(id);
     if(!asset&&typeof id==='string'&&id.startsWith('web:'))
@@ -204,6 +229,9 @@ export function restoreBestStoredWorld(world,pending,storage){
       if(error instanceof MissingWebAssetsError)
         return {state:'waiting',source:candidate.source,
           missingAssets:error.missingAssets,reason:error.message,rejected};
+      if(error instanceof MissingProceduralGeneratorError)
+        return {state:'waiting',source:candidate.source,
+          missingGenerators:error.missingGenerators,reason:error.message,rejected};
       if(!quarantineStoredWorld(candidate,storage,rejected.length))
         return {state:'blocked',reason:`Could not preserve rejected ${candidate.source} before recovery: ${error.message}`,
           rejected};
@@ -231,6 +259,7 @@ export function restoreStoredWorld(world,value,{waitForWebAssets=false}={}){
   // Validate every layer before changing the active world. A Citizens snapshot
   // names scene objects, so it is checked against the saved virtual scene.
   const savedScene=structuredClone(value.scene);
+  requireProceduralGenerators(savedScene);
   const scene=world.spatial?{...savedScene,roomId:world.scene.roomId}:savedScene;
   if(waitForWebAssets)validateSavedScene(world,scene,value);
   else world.validateScene(scene);
@@ -246,9 +275,18 @@ export function restoreStoredWorld(world,value,{waitForWebAssets=false}={}){
   }
   const game=structuredClone(value.game);
   const citizens=value.version===3?checkedCitizens(world,savedScene,value.citizens):null;
+  const creatorMode=restoredCreatorMode(value.creatorMode);
+  const gravity=value.rigidGravity??{x:0,y:-9.81,z:0};
+  if(!gravity||!['x','y','z'].every(axis=>typeof gravity[axis]==='number'&&
+      Number.isFinite(gravity[axis]))||
+      Math.hypot(gravity.x,gravity.y,gravity.z)>30)
+    throw Error('Invalid saved rigid gravity');
   restoreStoredScene(world,savedScene);
   world.game=game;
   world.citizens=citizens;
+  world.creatorMode=creatorMode;
+  world.rigidGravity=structuredClone(gravity);
+  if(world.rigidPhysics)world.rebuildRigidPhysics({preserve:false});
   world.originBinding=world.spatial&&world.originBinding==='ar'?'ar':binding;
   world.originAnchorHandle=world.spatial&&world.originBinding==='ar'&&binding!=='ar'?
     world.originAnchorHandle:anchorHandle;
@@ -258,9 +296,14 @@ export function restoreStoredWorld(world,value,{waitForWebAssets=false}={}){
 const hasSavedWorldContent=value=>value.scene.objects?.length>0||value.game!==null||
   value.citizens!=null;
 
-export function saveCheckpoint(scene,game,storage,originBinding,originAnchorHandle,citizens=null){
+export function saveCheckpoint(scene,game,storage,originBinding,originAnchorHandle,
+  citizens=null,creatorMode=undefined,rigidGravity=undefined){
   try{storage.setItem(CHECKPOINT_KEY,JSON.stringify({version:citizens==null?2:3,scene,game,
     ...(citizens==null?{}:{citizens}),
+    ...(creatorMode&&JSON.stringify(creatorMode)!==JSON.stringify(createCreatorMode())?
+      {creatorMode}:{}),
+    ...(rigidGravity&&JSON.stringify(rigidGravity)!==JSON.stringify({x:0,y:-9.81,z:0})?
+      {rigidGravity}:{}),
     ...(originBinding?{originBinding}:{}),
     ...(originBinding==='ar'&&originAnchorHandle?{originAnchorHandle}:{})}));return '';}
   catch(error){return `World checkpoint could not be saved: ${error.message}`;}

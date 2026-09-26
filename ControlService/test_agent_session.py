@@ -1,12 +1,14 @@
 """The browser-safe contract contains no opaque Codex or MCP event payloads."""
+import json
 import tempfile
 import unittest
 from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import patch
 
-from agent_session import (LocalCodexAgentBackend, normalize_event, _approval_description,
-                           _mcp_approval_description)
+from agent_session import (LocalCodexAgentBackend, MatrixMCPUnavailableError,
+                           normalize_event, _approval_description,
+                           _mcp_approval_description, _xr_game_summary)
 from codex_provider import CodexConfig
 
 
@@ -102,17 +104,27 @@ class AgentSessionTests(unittest.TestCase):
             executable.write_bytes(b"MZ test")
             bridge = SimpleNamespace(url="http://127.0.0.1:1234/scene", token="PC-only")
             prompted_tools = {"matrix_move_object", "matrix_scale_block", "matrix_reset_block_scale",
-                              "matrix_register_glb", "matrix_spawn_asset",
+                              "matrix_register_glb", "matrix_spawn_asset", "matrix_spawn_builtin",
+                              "matrix_create_procedural", "matrix_update_procedural",
+                              "matrix_bind_game", "matrix_update_game",
+                              "matrix_set_display", "matrix_remove_display",
+                              "matrix_set_rigid_body", "matrix_remove_rigid_body",
+                              "matrix_set_gravity",
+                              "matrix_begin_grab", "matrix_move_grab", "matrix_release_grab",
+                              "matrix_start_new_world", "matrix_restore_world_archive",
                               "matrix_bind_animation", "matrix_publish_component", "matrix_attach_component",
                               "matrix_stop_component", "matrix_remove_component",
                               "matrix_set_physics", "matrix_remove_physics",
                               "matrix_set_interaction", "matrix_remove_interaction"}
-            for policy, expected_count in (("on-request", 14), ("never", 0)):
+            for policy, expected_count in (("on-request", len(prompted_tools)), ("never", 0)):
                 with self.subTest(policy=policy), patch("agent_session.AppServerTransport") as transport:
                     config = CodexConfig(str(executable), agent_sandbox="danger-full-access",
                                          agent_approval_policy=policy)
                     backend = LocalCodexAgentBackend(config, folder, bridge)
                     command = transport.call_args.args[0]
+                    advertised = next(part.split("=", 1)[1] for part in command
+                                      if part.startswith("mcp_servers.matrix_webxr.enabled_tools="))
+                    self.assertEqual(list(backend.enabled_matrix_tools), json.loads(advertised))
                     prompt = [part for part in command if '.approval_mode="prompt"' in part]
                     self.assertEqual(len(prompt), expected_count)
                     names = {part.split(".tools.", 1)[1].split(".approval_mode", 1)[0]
@@ -127,6 +139,33 @@ class AgentSessionTests(unittest.TestCase):
                                      policy)
                     self.assertEqual(transport.return_value.thread_resume.call_args.kwargs["approval_policy"],
                                      policy)
+
+    def test_matrix_mcp_dependency_is_checked_before_starting_codex(self):
+        with tempfile.TemporaryDirectory() as folder:
+            executable = Path(folder) / "codex.exe"
+            executable.write_bytes(b"MZ test")
+            config = CodexConfig(str(executable))
+            bridge = SimpleNamespace(url="http://127.0.0.1:1234/scene", token="PC-only")
+            with patch("agent_session.AppServerTransport") as transport, \
+                    patch("agent_session.importlib.import_module", side_effect=ImportError("missing mcp")):
+                backend = LocalCodexAgentBackend(config, folder, bridge)
+                with self.assertRaisesRegex(MatrixMCPUnavailableError,
+                                            "requirements-agent-mcp.txt"):
+                    backend.start()
+                transport.return_value.start.assert_not_called()
+
+            with patch("agent_session.AppServerTransport") as transport, \
+                    patch("agent_session.importlib.import_module", return_value=object()) as importer:
+                backend = LocalCodexAgentBackend(config, folder, bridge)
+                backend.start()
+                self.assertEqual(importer.call_count, 2)
+                transport.return_value.start.assert_called_once_with()
+
+            with patch("agent_session.AppServerTransport") as transport, \
+                    patch("agent_session.importlib.import_module", side_effect=ImportError("missing mcp")):
+                backend = LocalCodexAgentBackend(config, folder)
+                backend.start()
+                transport.return_value.start.assert_called_once_with()
 
     def test_normalizer_drops_tool_arguments_and_credentials(self):
         backend = LocalCodexAgentBackend.__new__(LocalCodexAgentBackend)
@@ -236,6 +275,174 @@ class AgentSessionTests(unittest.TestCase):
         unsafe = {**params, "_meta": {**params["_meta"], "tool_params": {
             **params["_meta"]["tool_params"], "factors": {"x": 5, "y": 3, "z": 4}}}}
         self.assertFalse(_mcp_approval_description(unsafe)[1])
+
+    def test_creator_tool_approvals_are_bounded_and_describe_the_intent(self):
+        def approval(tool, arguments):
+            return _mcp_approval_description({
+                "serverName": "matrix_webxr", "mode": "form",
+                "message": f'Allow the matrix_webxr MCP server to run tool "{tool}"?',
+                "_meta": {"codex_approval_kind": "mcp_tool_call", "tool_params": arguments}})
+
+        common = {"room_id": "web-virtual-room-v1", "scene_revision": 12}
+        pose = {"position": {"x": 1, "y": 0, "z": -2},
+                "rotation": {"x": 0, "y": 0, "z": 0},
+                "scale": {"x": 1, "y": 1, "z": 1}}
+        body = {"schemaVersion": 1, "type": "dynamic", "collider": "bounds-box",
+                "restitution": .2, "friction": .8, "sensor": False}
+        display = {"schemaVersion": 1, "title": "Challenge",
+                   "body": "Deliver the blocks.", "binding": {"kind": "game-progress"}}
+        spec = {"schemaVersion": 2, "kind": "game", "title": "Delivery",
+                "summary": "Deliver two blocks to the zone.",
+                "roles": [{"roleId": "cargo", "kind": "pickup", "assetId": "block", "count": 2},
+                          {"roleId": "zone", "kind": "delivery-zone", "assetId": "pedestal", "count": 1},
+                          {"roleId": "exit", "kind": "exit", "assetId": "wall", "count": 1}],
+                "rules": [{"event": "release-near", "actorRoleId": "cargo",
+                           "targetRoleId": "zone", "distanceMeters": 1, "scorePoints": 10}],
+                "objectives": [{"kind": "delivered-count", "roleId": "cargo", "targetCount": 2}],
+                "consequences": [{"kind": "unlock", "roleId": "exit"}]}
+        bindings = {"cargo": ["block-one", "block-two"], "zone": ["zone-one"],
+                    "exit": ["exit-one"]}
+        inspection = "a" * 32
+        grab = {"room_id": common["room_id"], "object_id": "block-one",
+                "inspection_request_id": inspection}
+        grab_pose = {"position": {"x": 2, "y": 1, "z": -2},
+                     "rotation": {"x": 0, "y": 45, "z": 0}}
+        cases = {
+            "matrix_spawn_builtin": ({**common, "asset_id": "block", "transform": pose}, "Spawn built-in block"),
+            "matrix_create_procedural": ({**common, "generator_id": "parametric-bridge",
+                "parameters": {"width": 2, "rail": True}, "transform": pose}, "params"),
+            "matrix_update_procedural": ({**common, "object_id": "ramp-one",
+                "expected_source_revision": "rev-a", "parameters_patch": {"width": 3}}, "Regenerate ramp-one"),
+            "matrix_bind_game": ({**common, "spec": spec, "bindings": bindings}, "release-near"),
+            "matrix_update_game": ({**common, "spec": spec, "bindings": bindings}, "Revise"),
+            "matrix_set_display": ({**common, "object_id": "board-one", "display": display}, "Deliver the blocks"),
+            "matrix_remove_display": ({**common, "object_id": "board-one"}, "Remove display"),
+            "matrix_set_rigid_body": ({**common, "object_id": "block-one", "rigid_body": body}, "friction 0.8"),
+            "matrix_remove_rigid_body": ({**common, "object_id": "block-one"}, "Remove rigid body"),
+            "matrix_set_gravity": ({**common, "gravity": {"x": 0, "y": -9.81, "z": 0}}, "-9.81"),
+            "matrix_begin_grab": (grab, inspection),
+            "matrix_move_grab": ({**grab, "target_pose": grab_pose}, "45"),
+            "matrix_release_grab": (grab, "Release block-one")}
+        cases.update({
+            "matrix_start_new_world": ({**common, "archive_name": "Gravity Lab"},
+                                        "Gravity Lab"),
+            "matrix_restore_world_archive": ({**common,
+                "archive_id": "c71c91e5-bf36-4670-bc19-b0e929ef6b21",
+                "archive_name": "Current world"}, "c71c91e5-bf36")})
+        for tool, (arguments, expected) in cases.items():
+            with self.subTest(tool=tool):
+                summary, reviewable = approval(tool, arguments)
+                self.assertTrue(reviewable, summary)
+                self.assertLessEqual(len(summary), 240)
+                self.assertIn(expected, summary)
+                self.assertNotIn("secret", summary)
+
+    def test_creator_tool_approvals_reject_unreviewable_or_malformed_requests(self):
+        def allowed(tool, arguments):
+            return _mcp_approval_description({
+                "serverName": "matrix_webxr", "mode": "form",
+                "message": f'Allow the matrix_webxr MCP server to run tool "{tool}"?',
+                "_meta": {"codex_approval_kind": "mcp_tool_call", "tool_params": arguments}})[1]
+
+        common = {"room_id": "web-virtual-room-v1", "scene_revision": 1}
+        pose = {"position": {"x": 0, "y": 0, "z": 0},
+                "rotation": {"x": 0, "y": 0, "z": 0},
+                "scale": {"x": 1, "y": 1, "z": 1}}
+        self.assertFalse(allowed("matrix_spawn_builtin", {**common, "asset_id": "matrix:procedural", "transform": pose}))
+        self.assertFalse(allowed("matrix_spawn_builtin", {**common, "asset_id": "block", "transform": {**pose, "extra": 1}}))
+        self.assertFalse(allowed("matrix_create_procedural", {**common, "generator_id": "bridge",
+            "parameters": {"width": float("nan")}, "transform": pose}))
+        self.assertFalse(allowed("matrix_update_procedural", {**common, "object_id": "ramp",
+            "expected_source_revision": "rev-a", "parameters_patch": {}}))
+        self.assertFalse(allowed("matrix_set_display", {**common, "object_id": "board",
+            "display": {"schemaVersion": 1, "title": "Board", "body": "x" * 600, "binding": None}}))
+        self.assertFalse(allowed("matrix_set_rigid_body", {**common, "object_id": "block",
+            "rigid_body": {"schemaVersion": 1, "type": "dynamic", "collider": "bounds-box",
+                           "restitution": 0, "friction": 1, "sensor": True}}))
+        self.assertFalse(allowed("matrix_set_gravity", {**common, "gravity": {"x": 0, "y": -40, "z": 0}}))
+        self.assertFalse(allowed("matrix_move_grab", {"room_id": common["room_id"],
+            "object_id": "block", "inspection_request_id": "bad", "target_pose": {
+                "position": {"x": 0, "y": 1, "z": 0}, "rotation": {"x": 0, "y": 0, "z": 0}}}))
+        self.assertFalse(allowed("matrix_remove_display", {**common, "object_id": "board", "extra": True}))
+        self.assertFalse(allowed("matrix_remove_rigid_body", {**common, "object_id": "board", "scene_revision": True}))
+        self.assertFalse(allowed("matrix_start_new_world", {**common, "archive_name": " "}))
+        self.assertFalse(allowed("matrix_restore_world_archive", {**common,
+            "archive_id": "missing", "archive_name": "Current world"}))
+        spec = {"schemaVersion": 2, "kind": "game", "title": "Delivery", "summary": "Deliver one block.",
+                "roles": [{"roleId": "cargo", "kind": "pickup", "assetId": "block", "count": 1},
+                          {"roleId": "zone", "kind": "delivery-zone", "assetId": "pedestal", "count": 1}],
+                "rules": [{"event": "release-near", "actorRoleId": "cargo",
+                           "targetRoleId": "zone", "distanceMeters": 1, "scorePoints": 10}],
+                "objectives": [{"kind": "delivered-count", "roleId": "cargo", "targetCount": 1}],
+                "consequences": []}
+        self.assertFalse(allowed("matrix_bind_game", {**common, "spec": spec,
+            "bindings": {"cargo": ["same-id"], "zone": ["same-id"]}}))
+        self.assertFalse(allowed("matrix_update_game", {**common,
+            "spec": {**spec, "rules": [{**spec["rules"][0], "scorePoints": 1001}]},
+            "bindings": {"cargo": ["a"], "zone": ["b"]}}))
+
+    def test_two_specimen_game_approval_shows_both_rules_and_objectives(self):
+        spec = {"schemaVersion": 2, "kind": "game", "title": "Gravity Lab Delivery",
+                "summary": "Deliver the cube and orb to unlock the exit.",
+                "roles": [{"roleId": "cube", "kind": "pickup", "assetId": "block", "count": 1},
+                          {"roleId": "orb", "kind": "pickup", "assetId": "orb", "count": 1},
+                          {"roleId": "receptacle", "kind": "delivery-zone", "assetId": "pedestal", "count": 1},
+                          {"roleId": "exit", "kind": "exit", "assetId": "wall", "count": 1}],
+                "rules": [{"event": "release-near", "actorRoleId": role,
+                           "targetRoleId": "receptacle", "distanceMeters": 1, "scorePoints": 10}
+                          for role in ("cube", "orb")],
+                "objectives": [{"kind": "delivered-count", "roleId": role, "targetCount": 1}
+                               for role in ("cube", "orb")],
+                "consequences": [{"kind": "unlock", "roleId": "exit"}]}
+        bindings = {"cube": ["adb88c5f7279483db7ba88c43a7fc783"],
+                    "orb": ["84ea5751b5a840e88d926b0a6c2ad85a"],
+                    "receptacle": ["c3b18d31c8274246813e1b76c9656a0f"],
+                    "exit": ["f04de84e0b1140ffa7e5be217a13cd2f"]}
+        params = {"serverName": "matrix_webxr", "mode": "form",
+                  "message": 'Allow the matrix_webxr MCP server to run tool "matrix_bind_game"?',
+                  "_meta": {"codex_approval_kind": "mcp_tool_call", "tool_params": {
+                      "room_id": "web-virtual-room-v1", "scene_revision": 95,
+                      "spec": spec, "bindings": bindings}}}
+        summary, reviewable = _mcp_approval_description(params)
+        raw = _xr_game_summary("matrix_bind_game", params["_meta"]["tool_params"])
+        self.assertTrue(reviewable, f"{summary}; raw length={len(raw) if raw else None}: {raw}")
+        self.assertLessEqual(len(summary), 240)
+        for phrase in ("release-near cube|orb->receptacle", "deliver cube>=1,orb>=1",
+                       "cube/block@adb88c5f", "orb/orb@84ea5751",
+                       "receptacle/pedestal@c3b18d31", "exit/wall@f04de84e",
+                       "4 IDs SHA", "unlock exit"):
+            self.assertIn(phrase, summary)
+        changed = {**params, "_meta": {**params["_meta"], "tool_params": {
+            **params["_meta"]["tool_params"], "bindings": {
+                **bindings, "cube": ["bdb88c5f7279483db7ba88c43a7fc783"]}}}}
+        changed_summary, changed_reviewable = _mcp_approval_description(changed)
+        self.assertTrue(changed_reviewable)
+        self.assertIn("cube/block@bdb88c5f", changed_summary)
+        self.assertNotEqual(summary, changed_summary)
+        collisions = {**params, "_meta": {**params["_meta"], "tool_params": {
+            **params["_meta"]["tool_params"], "bindings": {
+                **bindings, "cube": ["aaaaaaaaaaaaaaaa1"],
+                "orb": ["aaaaaaaaaaaaaaaa2"]}}}}
+        self.assertFalse(_mcp_approval_description(collisions)[1])
+        self.assertFalse(_mcp_approval_description({**params, "_meta": {
+            **params["_meta"], "tool_params": {**params["_meta"]["tool_params"],
+                "spec": {**spec, "objectives": spec["objectives"] + [spec["objectives"][0]]}}}})[1])
+
+    def test_exit_display_without_binding_remains_unreviewable(self):
+        display = {"schemaVersion": 1, "title": "Exit Marker",
+                   "body": "When the challenge is active, deliver the cube and orb to the pedestal to unlock this exit."}
+        params = {"serverName": "matrix_webxr", "mode": "form",
+                  "message": 'Allow the matrix_webxr MCP server to run tool "matrix_set_display"?',
+                  "_meta": {"codex_approval_kind": "mcp_tool_call", "tool_params": {
+                      "room_id": "web-virtual-room-v1", "scene_revision": 95,
+                      "object_id": "f04de84e0b1140ffa7e5be217a13cd2f", "display": display}}}
+        self.assertFalse(_mcp_approval_description(params)[1])
+        valid = {**params, "_meta": {**params["_meta"], "tool_params": {
+            **params["_meta"]["tool_params"], "display": {**display, "binding": None}}}}
+        summary, reviewable = _mcp_approval_description(valid)
+        self.assertTrue(reviewable, summary)
+        self.assertIn(display["body"], summary)
+        self.assertLessEqual(len(summary), 240)
 
 
 if __name__ == "__main__":

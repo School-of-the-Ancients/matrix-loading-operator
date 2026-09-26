@@ -6,12 +6,17 @@ import {VoiceRecorder} from './voice.js';
 import {CameraStream} from './camera_stream.js';
 import {AgentClient,agentActivityLabel} from './agent_client.js';
 import {captureAgentContext} from './agent_context.js';
-import {loadStoredWorld,saveStoredWorld,restoreStoredWorld,restoreBestStoredWorld,storedWorld,storedBrowserWorld,
+import {loadStoredWorld,restoreStoredWorld,restoreBestStoredWorld,storedWorld,storedBrowserWorld,
   saveCheckpoint,loadCheckpoint,loadCitizensDeletionRecovery,clearCitizensDeletionRecovery,
   WORLD_KEY} from './scene_store.js';
 import {applyPCWorld} from './world_checkpoint.js';
+import {startNewWorld,restoreWorldArchive,worldArchiveSummaries,
+  executeWorldSlotCommand} from './world_slots.js';
 import {loadConversation,rememberTurn,clearConversation} from './conversation.js';
-import {startGame,deliverMovedObject,gameStatus,validSavedGame} from './game.js';
+import {startGame,deliverMovedObject,recordGameEvent,gameStatus} from './game.js';
+import {transitionCreatorMode,canPlayWorld} from './creator_mode.js';
+import {createRigidPhysics} from './physics_rigid.js';
+import {createPlayPersistence,PLAY_SAVE_INTERVAL_MS} from './play_persistence.js';
 import {archiveAndClearRoom,archiveAndRebaseRoom,roomArchives,
   clearRoomArchives as clearStoredRoomArchives,ROOM_ARCHIVES_KEY} from './room_origin.js';
 import {BlockScaleUI} from './block_scale_ui.js';
@@ -31,6 +36,10 @@ let conversation=loadConversation(sessionStorage);
 let restoreArmedUntil=0;
 let pcRestoreArmedUntil=0,pcRestoreName='';
 let pcWorldBusy=false;
+let worldSwitchBusy=false,newWorldArmedUntil=0,archiveRestoreArmedUntil=0;
+let archiveRestoreId='',selectedArchiveId='',archiveListSignature='',archiveStatusError='';
+const playPersistence=createPlayPersistence(world,sessionStorage,localStorage,
+  {canSave:()=>!pendingWorld&&!pcWorldBusy&&!worldSwitchBusy,now:()=>performance.now()});
 let roomResetArmedUntil=0;
 let roomRecoveryChoice='';
 let clearArchivesArmedUntil=0;
@@ -54,10 +63,37 @@ const feedback=(message,isError=false)=>{
 const view=new MatrixView($('view'),world,()=>{discardProposal();scaleUI?.refreshTargets();citizensPanel?.render();feedback(`Selected ${world.selection.objectId||'placement point'} at ${Object.values(world.selection.position).join(', ')} m.`);},()=>$('token').value.trim(),message=>feedback(message,true),(id,position)=>{discardProposal();const delivered=deliverMovedObject(world,id);if(delivered)speakReply(delivered);renderScene();feedback(delivered||`Moved ${id.slice(0,8)} to ${Object.values(position).join(', ')} m. Undo and Save are available.`);},()=>{if(!view.isAR)cameraStream.stop();if(!view.isAR||!world.spatial?.originUnavailable){roomResetArmedUntil=0;roomRecoveryChoice='';}updateCameraControls();discardProposal();renderScene();},beginVoice,endVoice,()=>{$('speak-replies').checked=!$('speak-replies').checked;view.setVoiceOutputEnabled($('speak-replies').checked);unlockReplyAudio();},reviewView,newChat);
 view.onPanelAction=panelAction;
 view.onAssetReadinessChange=()=>citizensPanel?.render();
+view.onPlayInteraction=({kind,objectId})=>{
+  if(kind!=='release'||!canPlayWorld(world.creatorMode))return;
+  const delivered=deliverMovedObject(world,objectId);
+  if(delivered){refreshGameProgress();feedback(delivered);speakReply(delivered);}
+  else persistCurrentWorld({errorPrefix:'Play release save paused'});
+};
+view.onPhysicsContacts=contacts=>{
+  if(!canPlayWorld(world.creatorMode)||!world.game)return;
+  let outcome=null;
+  for(const contact of contacts){
+    if(!contact.started)continue;
+    for(const [objectId,targetObjectId] of [[contact.objectIdA,contact.objectIdB],
+      [contact.objectIdB,contact.objectIdA]]){
+      const target=world.scene.objects.find(item=>item.objectId===targetObjectId);
+      if(!target?.rigidBody?.sensor)continue;
+      outcome=recordGameEvent(world,{eventId:crypto.randomUUID(),event:'sensor-enter',
+        objectId,targetObjectId})||outcome;
+    }
+  }
+  if(outcome){refreshGameProgress();feedback(outcome.message);speakReply(outcome.message);}
+};
 view.sync();
 view.setVoiceOutputEnabled($('speak-replies').checked);
 view.setConversationCount(conversation.length);
 view.setOperatorGameStatus(gameStatus(world));
+view.setOperatorCreatorMode(world.creatorMode);
+createRigidPhysics().then(engine=>{
+  world.attachRigidPhysics(engine);
+  view.sync();
+  void bridge.tick(true);
+}).catch(error=>feedback(`Rigid simulation unavailable: ${error.message}`,true));
 updateCameraControls();
 $('conversation-status').textContent=`${conversation.length} recent turn${conversation.length===1?'':'s'} in this tab`;
 function initXRIfReady(){
@@ -92,6 +128,13 @@ function discardProposal(){
 }
 
 function updateWorldControls(){
+  const creator=world.creatorMode;
+  $('creator-mode-status').textContent=`${creator.mode==='creator'?'Creator Mode':'Play/Test Mode'} · simulation ${creator.simulation} · revision ${creator.revision}`;
+  $('enter-play').disabled=!!pendingWorld||creator.mode==='play';
+  $('enter-creator').disabled=!!pendingWorld||creator.mode==='creator';
+  $('stop-play').disabled=!!pendingWorld||creator.mode!=='play'||creator.simulation==='paused';
+  $('resume-play').disabled=!!pendingWorld||creator.mode!=='play'||creator.simulation==='running';
+  view.setOperatorCreatorMode(creator);
   const originUnavailable=!!world.spatial?.originUnavailable;
   const resetAvailable=!!view.isAR&&originUnavailable&&view.roomAnchorRestoreFailed;
   const canRetryOrigin=originUnavailable&&(view.roomAnchorHandleAvailable||view.roomAnchorCreationFailed);
@@ -99,13 +142,49 @@ function updateWorldControls(){
     world.spatial.anchors.some(anchor=>anchor.surface?.kind==='support');
   $('confirm-room').disabled=!canConfirm;
   for(const id of ['undo','redo','clear','save','restore'])
-    $(id).disabled=originUnavailable||!!pendingWorld||pcWorldBusy;
-  for(const id of ['save-pc-world','restore-pc-world'])$(id).disabled=!!world.spatial||!!pendingWorld||pcWorldBusy;
+    $(id).disabled=originUnavailable||!!pendingWorld||pcWorldBusy||worldSwitchBusy||
+      (creator.mode==='play'&&id!=='save');
+  $('save-pc-world').disabled=!!world.spatial||!!pendingWorld||pcWorldBusy||worldSwitchBusy||
+    creator.simulation==='running';
+  $('restore-pc-world').disabled=!!world.spatial||!!pendingWorld||pcWorldBusy||worldSwitchBusy||
+    creator.mode!=='creator';
   $('restore-pc-world').textContent=performance.now()<pcRestoreArmedUntil&&
     $('pc-worlds').value===pcRestoreName?'Confirm restore':'Restore world';
+  let archives=[];
+  try{archives=worldArchiveSummaries(localStorage);archiveStatusError='';}
+  catch(error){archiveStatusError=error.message;}
+  const archiveSignature=JSON.stringify(archives);
+  if(archiveSignature!==archiveListSignature){
+    archiveListSignature=archiveSignature;
+    if(!archives.some(item=>item.archiveId===selectedArchiveId))
+      selectedArchiveId=archives.at(-1)?.archiveId||'';
+    $('world-archives').replaceChildren(new Option(archiveStatusError||
+      (archives.length?'Choose an archived world':'No archived worlds'),''),
+      ...archives.map(item=>new Option(`${item.name} · ${item.objectCount} objects`,item.archiveId)));
+    $('world-archives').value=selectedArchiveId;
+  }
+  const archiveReady=creator.mode==='creator'&&creator.simulation==='paused'&&
+    !originUnavailable&&!world.spatial?.stale&&!pendingWorld&&!pcWorldBusy&&
+    !worldSwitchBusy&&!archiveStatusError;
+  $('new-world').disabled=!archiveReady;
+  $('restore-archive').disabled=!archiveReady||!selectedArchiveId;
+  $('world-archives').disabled=!archiveReady||!archives.length;
+  $('new-world').textContent=performance.now()<newWorldArmedUntil?
+    'Confirm new world':'Archive + new world';
+  $('restore-archive').textContent=performance.now()<archiveRestoreArmedUntil&&
+    selectedArchiveId===archiveRestoreId?'Confirm restore':'Restore archive';
+  const archiveIndex=archives.findIndex(item=>item.archiveId===selectedArchiveId);
+  const selectedArchive=archives[archiveIndex];
   view.setOperatorWorldInfo({objects:world.scene.objects.length,canConfirm,restoreArmed:performance.now()<restoreArmedUntil,
     originUnavailable,resetAvailable,canRetryOrigin,
     recoveryArmed:performance.now()<roomResetArmedUntil?roomRecoveryChoice:'',
+    archiveCount:archives.length,archiveIndex:Math.max(0,archiveIndex),
+    archiveReady,
+    archiveName:selectedArchive?.name||'',archiveDetails:selectedArchive?
+      `${selectedArchive.objectCount} objects${selectedArchive.gameTitle?` · ${selectedArchive.gameTitle}`:''}`:'',
+    newWorldArmed:performance.now()<newWorldArmedUntil,
+    archiveRestoreArmed:performance.now()<archiveRestoreArmedUntil&&
+      selectedArchiveId===archiveRestoreId,
     alignment:!world.spatial?'Virtual room':originUnavailable?'Room origin unavailable':world.spatial.alignmentVerified?'AR room aligned':
       canConfirm?'Check outlines, then confirm':'Waiting for room planes'});
   $('retry-room-origin').classList.toggle('hidden',!canRetryOrigin);
@@ -155,33 +234,49 @@ async function toggleCamera(){
   finally{cameraBusy=false;updateCameraControls();bridge.tick(true);}
 }
 
+function showPersistenceStatus(){
+  const deletionRecoveryFailed=persistenceWarning.startsWith('Citizens deletion recovery could not be preserved:');
+  const durableFailed=persistenceWarning.includes('Persistent browser save failed');
+  const tabOnlyFailed=persistenceWarning.startsWith('Tab world save failed:');
+  view.setOperatorWarning(persistenceWarning?deletionRecoveryFailed?
+    'CITIZENS RECOVERY SAVE BLOCKED · previous browser copy kept':durableFailed?
+      'PERSISTENT SAVE FAILED · closing browser may lose world':tabOnlyFailed?
+        'TAB COPY FAILED · durable world saved':'WORLD SAVE PAUSED · previous browser copy kept':
+    restoreWarning?'Saved world rejected · new changes can save':'');
+  if(persistenceWarning)feedback(deletionRecoveryFailed?persistenceWarning:durableFailed?
+    'The current world changed, but durable storage failed.':tabOnlyFailed?
+      'The tab recovery copy failed; the durable browser world was saved.':persistenceWarning,true);
+}
+function persistCurrentWorld({periodic=false,quiet=false,errorPrefix='World save paused'}={}){
+  // applyPCWorld places a candidate on world while the PC exchange is pending.
+  // No browser copy may be written until that exchange accepts or rolls back.
+  if(pendingWorld||pcWorldBusy||worldSwitchBusy)return false;
+  try{
+    const outcome=playPersistence.persist({periodic});
+    if(!outcome.attempted)return false;
+    persistenceWarning=outcome.warning;
+  }catch(error){
+    persistenceWarning=`${errorPrefix}: ${error.message}. The previous valid browser copy was kept.`;
+  }
+  if(!quiet)showPersistenceStatus();
+  return true;
+}
 function renderScene(){
   citizensPanel?.syncFromWorld();
   view.sync();$('object-count').textContent=`${world.scene.objects.length} object${world.scene.objects.length===1?'':'s'}`;
   citizensPanel?.decorate(view);
   updateWorldControls();
   scaleUI?.refreshTargets();
-  // applyPCWorld places a candidate on world while the PC exchange is pending.
-  // No browser copy may be written until that exchange accepts or rolls back.
-  if(!pendingWorld&&!pcWorldBusy){
-    try{persistenceWarning=saveStoredWorld(storedBrowserWorld(world),sessionStorage,localStorage);}
-    catch(error){persistenceWarning=`World save paused: ${error.message}. The previous valid browser copy was kept.`;}
-    const deletionRecoveryFailed=persistenceWarning.startsWith('Citizens deletion recovery could not be preserved:');
-    const durableFailed=persistenceWarning.includes('Persistent browser save failed');
-    const tabOnlyFailed=persistenceWarning.startsWith('Tab world save failed:');
-    view.setOperatorWarning(persistenceWarning?deletionRecoveryFailed?
-      'CITIZENS RECOVERY SAVE BLOCKED · previous browser copy kept':durableFailed?
-        'PERSISTENT SAVE FAILED · closing browser may lose world':tabOnlyFailed?
-          'TAB COPY FAILED · durable world saved':'WORLD SAVE PAUSED · previous browser copy kept':
-      restoreWarning?'Saved world rejected · new changes can save':'');
-    if(persistenceWarning)feedback(deletionRecoveryFailed?persistenceWarning:durableFailed?
-      'The current world changed, but durable storage failed.':tabOnlyFailed?
-        'The tab recovery copy failed; the durable browser world was saved.':persistenceWarning,true);
-  }
+  persistCurrentWorld();
   // A deletion backup is written during saveStoredWorld, after the panel's
   // earlier render. Refresh its recovery control even if Citizens is paused.
   citizensPanel?.render();
   return persistenceWarning;
+}
+function refreshGameProgress(){
+  view.refreshGamePresentation();
+  updateWorldControls();
+  persistCurrentWorld({errorPrefix:'World progress save paused'});
 }
 function confirmedDurableWorld(){
   try{
@@ -194,7 +289,6 @@ function confirmedDurableWorld(){
 renderScene();
 const bridge=new MatrixBridge(world,()=>$('token').value.trim(),event=>{
   if(event.type==='scene'){
-    if(world.game&&!validSavedGame(world.game,world.scene,id=>!!world.asset(id)))world.game=null;
     renderScene();
   }
   if(event.type==='connection'){
@@ -205,10 +299,46 @@ const bridge=new MatrixBridge(world,()=>$('token').value.trim(),event=>{
     lastConnectionOnline=event.online;
   }
   if(event.type==='receipt'){
-    const message=event.result.ok?`Applied ${event.result.requestId.slice(0,8)}${event.result.objectId?` · ${event.result.objectId.slice(0,8)}`:''}`:`Command failed: ${event.result.error}`;
+    const outcome=event.result.outcome;
+    const message=event.result.ok?
+      outcome?.gameEvent?.message||
+        (outcome?.kind==='world-archives'?
+          `Found ${outcome.total} browser world archive${outcome.total===1?'':'s'}.`:
+        outcome?.kind==='world-created'?
+          `New world ready; archived ${outcome.archived.name}.`:
+        outcome?.kind==='world-restored'?
+          `Restored ${outcome.restored.name}; archived the prior world as ${outcome.archived.name}.`:
+        (outcome?.kind==='entity-inspection'?
+          `Inspected ${event.result.objectId.slice(0,8)} · ${outcome.availableActions.join(', ')||'read only'}`:
+          `Applied ${event.result.requestId.slice(0,8)}${event.result.objectId?` · ${event.result.objectId.slice(0,8)}`:''}`)):
+      `Command failed: ${event.result.error}`;
     feedback(message,!event.result.ok);lastOperatorReply=lastOperatorReply?`${lastOperatorReply}\n\n${message}`:message;operatorMessageUntil=Infinity;view.setOperatorStatus(lastOperatorReply,event.result.ok?'idle':'error');
   }
 });
+bridge.onWorldSlotCommand=command=>{
+  if(command.op==='list_world_archives')
+    return executeWorldSlotCommand(world,command,sessionStorage,localStorage);
+  const blocker=worldSwitchBlocker({fromAgent:true});
+  if(blocker)throw Error(blocker);
+  // This command is executing inside the exchange, so it cannot wait for an
+  // exclusive exchange. The archive transaction itself is synchronous.
+  worldSwitchBusy=true;
+  let outcome;
+  try{
+    outcome=executeWorldSlotCommand(world,command,sessionStorage,localStorage);
+  }finally{worldSwitchBusy=false;}
+  // Presentation failures must not turn a committed switch into a failed
+  // receipt. The bridge's scene event will also refresh the world view.
+  try{
+    selectedArchiveId=outcome.archived.archiveId;
+    newWorldArmedUntil=0;archiveRestoreArmedUntil=0;archiveRestoreId='';
+    view.setOperatorWorldNotice(outcome.kind==='world-restored'?
+      `Restored ${outcome.restored.name}; prior world archived.`:
+      `New world ready; archived ${outcome.archived.name}.`);
+    updateWorldControls();
+  }catch(error){console.warn('World switch presentation refresh failed',error);}
+  return outcome;
+};
 // A saved world needs its catalog before it can be the authoritative browser
 // snapshot. Do not exchange an empty startup scene while recovery is pending.
 bridge.exchangePaused=!!pendingWorld;
@@ -327,11 +457,15 @@ async function refreshAssets(silent=false){
     if(pendingWorld){
       const restored=restoreBestStoredWorld(world,pendingWorld,localStorage);
       if(restored.state==='waiting'){
-        const missing=restored.missingAssets.slice(0,3).join(', ');
-        const more=restored.missingAssets.length>3?
-          ` and ${restored.missingAssets.length-3} more`:'';
-        restoreWarning=`Saved world is waiting for registered web assets: ${missing}${more}. Browser copies remain untouched. Restore the catalog and choose Refresh assets.`;
-        view.setOperatorWarning('SAVED WORLD WAITING FOR WEB ASSETS');
+        const dependencies=restored.missingAssets||restored.missingGenerators||[];
+        const missing=dependencies.slice(0,3).join(', ');
+        const more=dependencies.length>3?
+          ` and ${dependencies.length-3} more`:'';
+        restoreWarning=restored.missingGenerators?
+          `Saved world needs reviewed generator source ${missing}${more}. Browser copies remain untouched. Restore that code version and reload.`:
+          `Saved world is waiting for registered web assets: ${missing}${more}. Browser copies remain untouched. Restore the catalog and choose Refresh assets.`;
+        view.setOperatorWarning(restored.missingGenerators?
+          'SAVED WORLD WAITING FOR GENERATOR SOURCE':'SAVED WORLD WAITING FOR WEB ASSETS');
         updateWorldControls();
         feedback('World recovery is waiting for required assets.',true);
         return;
@@ -374,7 +508,13 @@ bridge.request('/api/planner').then(status=>{
   if(!modeTouched&&status.configured&&status.mode==='codex-cli'&&$('mode').value==='offline-rules')$('mode').value='codex-cli';
 }).catch(()=>{});
 setInterval(()=>refreshAssets(true),10000);
-addEventListener('beforeunload',()=>{cameraStream.stop();bridge.stop();});
+setInterval(()=>persistCurrentWorld({periodic:true,
+  errorPrefix:'Play simulation save paused'}),PLAY_SAVE_INTERVAL_MS);
+addEventListener('beforeunload',()=>{
+  if(canPlayWorld(world.creatorMode)&&world.scene.objects.some(object=>
+    object.rigidBody?.type==='dynamic'))persistCurrentWorld({quiet:true});
+  cameraStream.stop();bridge.stop();
+});
 
 async function call(path,body,success){
   try{const data=await bridge.request(path,body);if(success)feedback(success);return data;}
@@ -533,7 +673,7 @@ async function showProposal(data,requestText=''){
   feedback(pending?'Review the proposal, then Apply in the world or browser.':data.message||'No scene edits proposed.');
 }
 async function applyProposal(){
-  if(pendingWorld){feedback('Finish saved-world recovery before applying a proposal.',true);return;}
+  if(pendingWorld||worldSwitchBusy){feedback('Finish world recovery or switching before applying a proposal.',true);return;}
   if(gameProposal){
     if(JSON.stringify(storedWorld(world))!==gameProposal.worldAtProposal){feedback('The world changed. Ask Codex to plan the game again.',true);discardProposal();return;}
     try{
@@ -554,7 +694,7 @@ async function confirmRoom(){
   if(result)view.setOperatorStatus('Room alignment confirmation queued. Wait for the runtime receipt.');
 }
 async function saveWorld(){
-  if(pendingWorld){feedback('Finish saved-world recovery before saving a checkpoint.',true);return;}
+  if(pendingWorld||worldSwitchBusy){feedback('Finish world recovery or switching before saving a checkpoint.',true);return;}
   if(pcWorldBusy){feedback('Wait for the current PC world save or restore to finish.',true);return;}
   if(world.spatial?.originUnavailable){
     feedback('Recover the saved room origin before replacing a world checkpoint.',true);
@@ -564,7 +704,8 @@ async function saveWorld(){
   let value;
   try{value=storedBrowserWorld(world);}
   catch(error){feedback(`World checkpoint could not be saved: ${error.message}`,true);return;}
-  const warning=saveCheckpoint(value.scene,value.game,localStorage,value.originBinding,value.originAnchorHandle,value.citizens??null);
+  const warning=saveCheckpoint(value.scene,value.game,localStorage,value.originBinding,
+    value.originAnchorHandle,value.citizens??null,value.creatorMode,value.rigidGravity);
   if(warning){feedback(warning,true);view.setOperatorWorldNotice('Browser checkpoint failed.','error');return;}
   view.setOperatorWorldNotice('Saved in browser · saving PC scene backup…','pending');
   const name=`WebWorld_${new Date().toISOString().replace(/[-:T.Z]/g,'').slice(0,14)}`;
@@ -578,7 +719,10 @@ async function saveWorld(){
   }
 }
 function restoreWorld(){
-  if(pendingWorld){feedback('Finish saved-world recovery before restoring a checkpoint.',true);return;}
+  if(world.creatorMode.mode!=='creator'){
+    feedback('Return to Creator Mode before restoring a browser checkpoint.',true);return;
+  }
+  if(pendingWorld||worldSwitchBusy){feedback('Finish world recovery or switching before restoring a checkpoint.',true);return;}
   if(pcWorldBusy){feedback('Wait for the current PC world save or restore to finish.',true);return;}
   if(world.spatial?.originUnavailable){
     feedback('Recover the saved room origin before restoring a checkpoint.',true);
@@ -607,7 +751,10 @@ function restoreWorld(){
   }
 }
 async function savePCWorld(){
-  if(pcWorldBusy)return;
+  if(pcWorldBusy||worldSwitchBusy)return;
+  if(world.creatorMode.simulation==='running'){
+    feedback('Pause Play/Test before saving a PC world checkpoint.',true);return;
+  }
   const name=$('world-save-name').value.trim();
   if(!name){feedback('Enter a PC world checkpoint name.',true);return;}
   if(world.spatial||pendingWorld){feedback('PC world checkpoints require the ready desktop virtual room.',true);return;}
@@ -623,7 +770,10 @@ async function savePCWorld(){
   finally{pcWorldBusy=false;renderScene();}
 }
 async function restorePCWorld(){
-  if(pcWorldBusy)return;
+  if(pcWorldBusy||worldSwitchBusy)return;
+  if(world.creatorMode.mode!=='creator'){
+    feedback('Return to Creator Mode before restoring a PC world.',true);return;
+  }
   const name=$('pc-worlds').value;
   if(!name){feedback('Choose a PC world checkpoint.',true);return;}
   if(world.spatial||pendingWorld){feedback('Leave AR or finish browser recovery before restoring a PC world.',true);return;}
@@ -651,6 +801,98 @@ async function restorePCWorld(){
       `PC world checkpoint restored in this tab, but the browser save could not be verified${warning?`: ${warning}`:'.'}`,true);
     else feedback(`PC world checkpoint restored: ${name}. Object IDs, game and Citizens progress are active.`);
   }
+}
+function worldSwitchBlocker({fromAgent=false}={}){
+  if(pendingWorld||pcWorldBusy||worldSwitchBusy)return 'Finish the current world recovery or checkpoint first.';
+  if(world.creatorMode.mode!=='creator'||world.creatorMode.simulation!=='paused')
+    return 'Return to paused Creator Mode before switching worlds.';
+  if(world.spatial?.originUnavailable||world.spatial?.stale)
+    return 'Recover the room origin or tracking before switching worlds.';
+  if(view.grab||view.pointerGrab||world.agentGrab||
+     world.rigidPhysics?.states().some(state=>state.held))
+    return 'Release grabbed objects before switching worlds.';
+  if(voiceRecording||voiceStarting||reviewBusy||agentActionBusy||proposal||gameProposal||
+     (!fromAgent&&(voiceJob||agentClient?.status?.activeTurnId)))
+    return 'Finish the current Operator request or proposal before switching worlds.';
+  if(archiveStatusError)return archiveStatusError;
+  return '';
+}
+const worldArchiveName=()=>{
+  const entered=$('world-archive-name').value.trim();
+  if(entered)return entered;
+  const title=(world.game?.spec?.title||'Matrix world').slice(0,44);
+  return `${title} · ${new Date().toISOString().slice(0,19).replace('T',' ')}`;
+};
+async function switchBrowserWorld(action){
+  const blocker=worldSwitchBlocker();
+  if(blocker){feedback(blocker,true);view.setOperatorWorldNotice(blocker,'error');return;}
+  citizensPanel?.pauseForCheckpoint();
+  worldSwitchBusy=true;updateWorldControls();
+  let switched=false;
+  try{
+    const result=await bridge.withExclusiveExchange(()=>{
+      const switched=action();
+      // Any PC command queued against the prior world needs fresh inspection.
+      bridge.rejectPendingOnNextExchange=true;
+      return switched;
+    });
+    switched=true;
+    selectedArchiveId=result.archived.archiveId;
+    discardProposal();
+    view.setOperatorWorldNotice(result.restored?
+      `Restored ${result.restored.name}; prior world archived.`:
+      `New world ready; archived ${result.archived.name}.`);
+    feedback(result.restored?
+      `Restored ${result.restored.name}. The world it replaced is archived as ${result.archived.name}.`:
+      `New world ready. The previous scene, game and progress are archived as ${result.archived.name}.`);
+  }catch(error){
+    feedback(error.message,true);
+    view.setOperatorWorldNotice(error.message,'error');
+  }finally{
+    worldSwitchBusy=false;
+    if(switched){renderScene();void bridge.tick(true);}
+    else{view.sync();updateWorldControls();citizensPanel?.render();}
+  }
+}
+async function beginNewWorld(){
+  const blocker=worldSwitchBlocker();
+  if(blocker){feedback(blocker,true);return;}
+  if(performance.now()>=newWorldArmedUntil){
+    newWorldArmedUntil=performance.now()+10000;archiveRestoreArmedUntil=0;
+    updateWorldControls();
+    feedback('Confirm within ten seconds. The complete current world will be archived and a separate empty world will open.');
+    view.setOperatorWorldNotice('Confirm archive + new world within 10 seconds.','pending');
+    return;
+  }
+  newWorldArmedUntil=0;
+  await switchBrowserWorld(()=>startNewWorld(world,sessionStorage,localStorage,
+    worldArchiveName()));
+}
+async function restoreSelectedArchive(){
+  const blocker=worldSwitchBlocker();
+  if(blocker){feedback(blocker,true);return;}
+  const archiveId=selectedArchiveId;
+  if(!archiveId){feedback('Choose an archived world first.',true);return;}
+  if(performance.now()>=archiveRestoreArmedUntil||archiveRestoreId!==archiveId){
+    archiveRestoreArmedUntil=performance.now()+10000;archiveRestoreId=archiveId;
+    newWorldArmedUntil=0;updateWorldControls();
+    feedback('Confirm within ten seconds to restore the selected world. The current world will be archived first.');
+    view.setOperatorWorldNotice('Confirm archived world restore within 10 seconds.','pending');
+    return;
+  }
+  archiveRestoreArmedUntil=0;archiveRestoreId='';
+  await switchBrowserWorld(()=>restoreWorldArchive(world,archiveId,
+    sessionStorage,localStorage,worldArchiveName()));
+}
+function selectAdjacentArchive(direction){
+  let archives;
+  try{archives=worldArchiveSummaries(localStorage);}
+  catch(error){feedback(error.message,true);return;}
+  if(!archives.length){feedback('No archived world is available.',true);return;}
+  const current=archives.findIndex(item=>item.archiveId===selectedArchiveId);
+  selectedArchiveId=archives[(current+direction+archives.length)%archives.length].archiveId;
+  $('world-archives').value=selectedArchiveId;
+  archiveRestoreArmedUntil=0;archiveRestoreId='';updateWorldControls();
 }
 function retryRoomOrigin(){
   if(!view.retryRoomOrigin()){feedback('No room anchor can be retried in this session.',true);return;}
@@ -695,8 +937,29 @@ function clearExportedRoomArchives(){
   try{clearStoredRoomArchives(localStorage);updateWorldControls();feedback('Local recovery archives cleared. The active world was not changed.');}
   catch(error){feedback(`Could not clear recovery archives: ${error.message}`,true);}
 }
+function changeCreatorMode(action){
+  if(pendingWorld||pcWorldBusy||worldSwitchBusy){feedback('Finish world recovery or switching before changing modes.',true);return;}
+  if(action==='enter-play'&&world.scene.objects.some(item=>item.rigidBody)&&
+     !world.rigidPhysics){feedback('Wait for rigid physics to load before playing.',true);return;}
+  try{
+    for(const state of world.rigidPhysics?.states()||[])
+      if(state.held)world.releaseRigidGrab(state.objectId);
+    const command={'enter-play':'enter-play','enter-creator':'enter-creator',
+      'stop-play':'stop','resume-play':'resume'}[action];
+    world.creatorMode=transitionCreatorMode(world.creatorMode,command,
+      world.creatorMode.revision);
+    renderScene();
+    void bridge.tick(true);
+    feedback(`${world.creatorMode.mode==='creator'?'Creator Mode':'Play/Test Mode'} · simulation ${world.creatorMode.simulation}. World and progress retained.`);
+  }catch(error){feedback(error.message,true);}
+}
+
 function panelAction(action){
-  if(pendingWorld&&['apply','save-world','restore-world','undo','redo','clear'].includes(action)){
+  if(['enter-play','enter-creator','stop-play','resume-play'].includes(action)){
+    changeCreatorMode(action);return;
+  }
+  if((pendingWorld||worldSwitchBusy)&&['apply','save-world','restore-world',
+    'undo','redo','clear'].includes(action)){
     feedback('Finish saved-world recovery before changing the world.',true);return;
   }
   if(pcWorldBusy&&['undo','redo','clear'].includes(action)){
@@ -711,6 +974,10 @@ function panelAction(action){
   else if(action==='confirm-room')confirmRoom();
   else if(action==='save-world')saveWorld();
   else if(action==='restore-world')restoreWorld();
+  else if(action==='new-world')void beginNewWorld();
+  else if(action==='restore-archive')void restoreSelectedArchive();
+  else if(action==='archive-prev')selectAdjacentArchive(-1);
+  else if(action==='archive-next')selectAdjacentArchive(1);
   else if(action==='toggle-camera')toggleCamera();
   else if(action==='retry-room-origin')retryRoomOrigin();
   else if(action==='reset-room-origin')recoverRoomOrigin('empty');
@@ -819,7 +1086,15 @@ $('restore').addEventListener('click',async()=>{
 $('save-pc-world').addEventListener('click',savePCWorld);
 $('restore-pc-world').addEventListener('click',restorePCWorld);
 $('pc-worlds').addEventListener('change',()=>{pcRestoreArmedUntil=0;pcRestoreName='';updateWorldControls();});
+$('new-world').addEventListener('click',()=>void beginNewWorld());
+$('restore-archive').addEventListener('click',()=>void restoreSelectedArchive());
+$('world-archives').addEventListener('change',()=>{
+  selectedArchiveId=$('world-archives').value;
+  archiveRestoreArmedUntil=0;archiveRestoreId='';updateWorldControls();
+});
 $('mode').addEventListener('change',()=>{modeTouched=true;discardProposal();});
+for(const action of ['enter-play','enter-creator','stop-play','resume-play'])
+  $(action).addEventListener('click',()=>changeCreatorMode(action));
 $('refresh-assets').addEventListener('click',()=>refreshAssets());
 $('token').addEventListener('change',()=>refreshAssets());
 refreshScenes();

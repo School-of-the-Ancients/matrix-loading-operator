@@ -118,6 +118,39 @@ test('XR select animates a Firefly and starts a grab on the same press',()=>{
   assert.equal(committed?.transform.position.x,.5);
 });
 
+test('Play/Test XR grab uses a dynamic body and never authors set_transform',()=>{
+  const {view,controller}=selectableFirefly();
+  const object=view.world.requireObject();object.rigidBody={type:'dynamic'};
+  view.world.creatorMode={schemaVersion:1,mode:'play',simulation:'running',revision:1};
+  const calls=[];
+  view.world.beginRigidGrab=id=>{calls.push(['begin',id]);return true;};
+  view.world.moveRigidGrab=(id,transform)=>{calls.push(['move',id,transform]);return true;};
+  view.world.releaseRigidGrab=id=>{calls.push(['release',id]);return {position:{x:.5,y:1,z:-2}};};
+  view.world.execute=()=>{throw Error('Play cannot author a scene transform');};
+  view.onPlayInteraction=event=>calls.push(['interaction',event]);
+  view.commitMove=()=>{throw Error('Play release must not call authored move');};
+  view.selectFromController(controller);
+  assert.equal(view.grab?.rigid,true);
+  controller.position.x=.5;
+  view.releaseGrab(controller);
+  assert.deepEqual(calls.map(item=>item[0]),['begin','move','release','interaction']);
+  assert.equal(calls.at(-1)[1].objectId,'firefly-1');
+});
+
+test('Play/Test refuses a non-physical or paused XR grab',()=>{
+  const {view,controller}=selectableFirefly();
+  let error='';view.onAssetError=message=>{error=message;};
+  view.world.creatorMode={schemaVersion:1,mode:'play',simulation:'running',revision:1};
+  view.selectFromController(controller);
+  assert.equal(view.grab,null);
+  assert.match(error,/dynamic body/);
+  view.world.requireObject().rigidBody={type:'dynamic'};
+  view.world.creatorMode={schemaVersion:1,mode:'play',simulation:'paused',revision:2};
+  view.selectFromController(controller);
+  assert.equal(view.grab,null);
+  assert.match(error,/running dynamic body/);
+});
+
 test('desktop click animates a Firefly and starts a pointer drag',()=>{
   const {view,root,glowCount}=selectableFirefly();
   view.renderer={xr:{isPresenting:false},domElement:{setPointerCapture(){}}};

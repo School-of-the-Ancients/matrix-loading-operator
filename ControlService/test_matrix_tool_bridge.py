@@ -31,6 +31,7 @@ class MatrixToolBridgeTests(unittest.TestCase):
 
     def test_offline_and_authenticated_live_scene_are_bounded(self):
         self.assertEqual(self.get()["online"], False)
+        self.assertIsNone(self.get()["runtimeDescriptor"])
         with self.assertRaises(urllib.error.HTTPError) as error:
             self.get("wrong-token")
         self.assertEqual(error.exception.code, 404)
@@ -41,9 +42,15 @@ class MatrixToolBridgeTests(unittest.TestCase):
         self.assertEqual(data["objectCount"], len(SNAPSHOT["scene"]["objects"]))
         self.assertNotIn("capture", data)
         self.assertNotIn("results", data)
+        with self.state.lock:
+            self.state.latest["runtimeDescriptor"] = {"schemaVersion": 1,
+                "client": "matrix-web", "renderer": "threejs-webxr",
+                "presentation": "desktop"}
+        self.assertEqual(self.get()["runtimeDescriptor"]["presentation"], "desktop")
         self.state.last_seen = -float("inf")
         self.assertEqual(self.get()["objects"], [])
         self.assertIsNone(self.get()["roomId"])
+        self.assertIsNone(self.get()["runtimeDescriptor"])
 
     def test_catalog_is_limited_and_transport_keeps_token_out_of_arguments(self):
         self.state.exchange({"clientId": "web-client", "snapshot": SNAPSHOT, "results": []})

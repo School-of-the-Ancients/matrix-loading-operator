@@ -19,6 +19,33 @@ PLAN = {"kind": "game", "title": "Orb Courier",
 
 
 class GamePlanTests(unittest.TestCase):
+    def test_v2_event_credit_and_unlock_checkpoint_are_checked(self):
+        snapshot = copy.deepcopy(fixtures.SNAPSHOT)
+        spec = {**PLAN, "schemaVersion": 2,
+                "roles": [{**PLAN["roles"][0], "count": 1}, PLAN["roles"][1],
+                          {"roleId": "exit", "kind": "exit", "assetId": "cube", "count": 1}],
+                "rules": [{**PLAN["rules"][0], "event": "sensor-enter"}],
+                "objectives": [{"kind": "delivered-count", "roleId": "cubes", "targetCount": 1}],
+                "consequences": [{"kind": "unlock", "roleId": "exit"}]}
+        scene = {"objects": [{"objectId": object_id, "assetId": "cube", "anchorId": "web-floor"}
+                             for object_id in ("pickup-1", "station-1", "exit-1")]}
+        game = {"spec": spec, "bindings": {"cubes": ["pickup-1"], "station": ["station-1"],
+                                            "exit": ["exit-1"]},
+                "state": {"phase": "won", "score": 10, "deliveries": ["pickup-1"],
+                          "objectiveProgress": {"cubes": 1},
+                          "creditedEvents": [{"eventId": "contact-1", "event": "sensor-enter",
+                                              "objectId": "pickup-1", "targetObjectId": "station-1",
+                                              "scorePoints": 10}],
+                          "unlockedObjectIds": ["exit-1"]}}
+        self.assertIs(web_game.validate_saved_game(game, scene, snapshot), game)
+        for change in ({"unlockedObjectIds": []},
+                       {"creditedEvents": [{**game["state"]["creditedEvents"][0], "targetObjectId": "exit-1"}]},
+                       {"score": 20}):
+            altered = copy.deepcopy(game)
+            altered["state"].update(change)
+            with self.subTest(change=change), self.assertRaises(ValueError):
+                web_game.validate_saved_game(altered, scene, snapshot)
+
     def test_catalog_ids_and_item_count_are_validated(self):
         snapshot = copy.deepcopy(fixtures.SNAPSHOT)
         self.assertEqual(web_game.validate_game_plan(PLAN, snapshot), PLAN)

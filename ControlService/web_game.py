@@ -73,7 +73,9 @@ def wants_game(prompt):
 
 
 def validate_game_plan(value, snapshot):
-    if not isinstance(value, dict) or set(value) != set(GAME_SCHEMA["required"]):
+    v2 = isinstance(value, dict) and value.get("schemaVersion") == 2
+    keys = set(GAME_SCHEMA["required"]) | ({"schemaVersion", "consequences"} if v2 else set())
+    if not isinstance(value, dict) or set(value) != keys:
         raise ValueError("Invalid game plan shape")
     kind, title, summary = value["kind"], value["title"], value["summary"]
     if kind not in ("game", "unsupported") or not isinstance(title, str) or not 1 <= len(title.strip()) <= 64 or any(ord(c) < 32 for c in title):
@@ -82,26 +84,36 @@ def validate_game_plan(value, snapshot):
         raise ValueError("Invalid game summary")
     ids = {item.get("assetId") for item in snapshot.get("assets", []) if isinstance(item, dict)}
     roles, rules, objectives = value["roles"], value["rules"], value["objectives"]
+    consequences = value["consequences"] if v2 else []
     if not all(isinstance(items, list) for items in (roles, rules, objectives)):
         raise ValueError("Invalid game mechanics")
     if kind == "unsupported":
-        if roles or rules or objectives:
+        if roles or rules or objectives or consequences:
             raise ValueError("Unsupported game plan must contain no mechanics")
         return value
     if not 2 <= len(roles) <= 8 or not 1 <= len(rules) <= 8 or not 1 <= len(objectives) <= 8:
         raise ValueError("Game needs bounded roles, rules and objectives")
     if any(not isinstance(role, dict) or set(role) != {"roleId", "kind", "assetId", "count"}
            or not isinstance(role["roleId"], str) or not re.fullmatch(r"[a-z][a-z0-9-]{0,31}", role["roleId"])
-           or role["kind"] not in ("pickup", "delivery-zone") or role["assetId"] not in ids
+           or role["kind"] not in (("pickup", "delivery-zone", "exit") if v2 else ("pickup", "delivery-zone"))
+           or role["assetId"] not in ids
            or type(role["count"]) is not int or not 1 <= role["count"] <= 6 for role in roles):
         raise ValueError("Invalid game role or asset")
     by_id = {role["roleId"]: role for role in roles}
-    if len(by_id) != len(roles) or {role["kind"] for role in roles} != {"pickup", "delivery-zone"} or sum(role["count"] for role in roles) > 24:
+    if len(by_id) != len(roles) or not {"pickup", "delivery-zone"} <= {role["kind"] for role in roles} or sum(role["count"] for role in roles) > 24:
         raise ValueError("Game needs unique bounded pickup and delivery roles")
+    if v2:
+        if (type(consequences) is not list or len(consequences) > 4 or
+                any(type(item) is not dict or set(item) != {"kind", "roleId"} or
+                    item["kind"] != "unlock" or by_id.get(item["roleId"], {}).get("kind") != "exit"
+                    for item in consequences) or
+                len({item["roleId"] for item in consequences}) != len(consequences)):
+            raise ValueError("Invalid game consequence")
     rule_pairs = set()
     for rule in rules:
         if (not isinstance(rule, dict) or set(rule) != {"event", "actorRoleId", "targetRoleId", "distanceMeters", "scorePoints"}
-                or rule["event"] != "release-near" or by_id.get(rule["actorRoleId"], {}).get("kind") != "pickup"
+                or rule["event"] not in (("release-near", "sensor-enter") if v2 else ("release-near",))
+                or by_id.get(rule["actorRoleId"], {}).get("kind") != "pickup"
                 or by_id.get(rule["targetRoleId"], {}).get("kind") != "delivery-zone"
                 or type(rule["distanceMeters"]) not in (int, float) or not 0.25 <= rule["distanceMeters"] <= 1.0
                 or type(rule["scorePoints"]) is not int or not 1 <= rule["scorePoints"] <= 1000):
@@ -152,7 +164,11 @@ def validate_saved_game(value, scene, snapshot):
                 raise ValueError("Invalid saved game bindings")
             bound.add(object_id)
     state = value["state"]
-    if type(state) is not dict or set(state) != {"phase", "score", "deliveries", "objectiveProgress"} or \
+    v2 = spec.get("schemaVersion") == 2
+    state_keys = {"phase", "score", "deliveries", "objectiveProgress"}
+    if v2:
+        state_keys |= {"creditedEvents", "unlockedObjectIds"}
+    if type(state) is not dict or set(state) != state_keys or \
             state["phase"] not in ("playing", "won") or type(state["score"]) is not int or \
             not 0 <= state["score"] <= 9007199254740991 or type(state["deliveries"]) is not list or \
             type(state["objectiveProgress"]) is not dict:
@@ -168,6 +184,45 @@ def validate_saved_game(value, scene, snapshot):
                 for item in count_objectives}
     if state["objectiveProgress"] != progress or any(type(number) is not int for number in state["objectiveProgress"].values()):
         raise ValueError("Invalid saved game objective progress")
+    if v2:
+        records = state["creditedEvents"]
+        unlocked = state["unlockedObjectIds"]
+        if type(records) is not list or len(records) != len(deliveries) or type(unlocked) is not list:
+            raise ValueError("Invalid saved game event ledger")
+        target_role_by_object = {object_id: role for role in spec["roles"] if role["kind"] == "delivery-zone"
+                                 for object_id in bindings[role["roleId"]]}
+        seen_events, earned, prefix_counts = set(), 0, {}
+        for index, record in enumerate(records):
+            if type(record) is not dict or set(record) != {"eventId", "event", "objectId", "targetObjectId", "scorePoints"}:
+                raise ValueError("Invalid saved game event ledger")
+            event_id, object_id, target_id = record["eventId"], record["objectId"], record["targetObjectId"]
+            if (type(event_id) is not str or not 1 <= len(event_id) <= 128 or any(ord(char) < 32 for char in event_id)
+                    or event_id in seen_events or object_id != deliveries[index] or
+                    type(target_id) is not str or target_id not in target_role_by_object or
+                    type(record["scorePoints"]) is not int or
+                    not any(rule["event"] == record["event"] and
+                            rule["actorRoleId"] == role_by_object[object_id]["roleId"] and
+                            rule["targetRoleId"] == target_role_by_object[target_id]["roleId"] and
+                            rule["scorePoints"] == record["scorePoints"] for rule in spec["rules"])):
+                raise ValueError("Invalid saved game event ledger")
+            seen_events.add(event_id)
+            earned += record["scorePoints"]
+            role_id = role_by_object[object_id]["roleId"]
+            prefix_counts[role_id] = prefix_counts.get(role_id, 0) + 1
+            if index < len(records) - 1 and all(
+                    earned >= item["targetPoints"] if item["kind"] == "score-at-least" else
+                    prefix_counts.get(item["roleId"], 0) >= item["targetCount"]
+                    for item in spec["objectives"]):
+                raise ValueError("Invalid saved game post-win event")
+        if earned != state["score"]:
+            raise ValueError("Invalid saved game score")
+        won = all(state["score"] >= item["targetPoints"] if item["kind"] == "score-at-least"
+                  else progress[item["roleId"]] >= item["targetCount"] for item in spec["objectives"])
+        expected_unlocks = [object_id for consequence in spec["consequences"]
+                            for object_id in bindings[consequence["roleId"]]] if won else []
+        if (state["phase"] == "won") != won or unlocked != expected_unlocks:
+            raise ValueError("Invalid saved game consequence or phase")
+        return value
     reachable = {0}
     prefix_counts = {}
     for index, object_id in enumerate(deliveries):

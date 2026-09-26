@@ -107,7 +107,7 @@ const objectById=(world,id)=>world.scene.objects.find(object=>object.objectId===
 const positionOf=(world,id)=>objectById(world,id)?.transform?.position;
 // Runtime motion and GLB clips can move rendered geometry without changing its
 // authored transform. Citizens must not route through that stale footprint.
-const hasActiveTransformOwner=object=>!!(object?.physics||
+const hasActiveTransformOwner=object=>!!(object?.physics||object?.rigidBody||
   object?.component?.status==='running'||
   object?.behaviors?.some(behavior=>behavior.enabled&&!behavior.paused)||
   object?.animation?.loopClip);
@@ -130,7 +130,7 @@ function navigationObstacles(world,actorObjectId=''){
       throw Error(`Navigation cannot use animated GLB ${object.objectId}`);
     if(object.anchorId!==ANCHOR_ID||hasActiveTransformOwner(object))
       throw Error(`Navigation cannot use moving or anchored object ${object.objectId}`);
-    const bounds=asset?.localBounds;
+    const bounds=world.objectBounds?.(object)??asset?.localBounds;
     const transform=object.transform;
     const scale=asset?.spawnScale??1;
     if(!bounds||!transform||!finite(scale)||scale<=0||

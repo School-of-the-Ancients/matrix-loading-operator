@@ -1,7 +1,8 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {MatrixWorld} from '../src/protocol.js';
-import {startGame,deliverMovedObject,gameStatus,validateGameSpec,validSavedGame} from '../src/game.js';
+import {bindGame,startGame,deliverMovedObject,gameStatus,isGameExitUnlocked,recordGameEvent,
+  validateGameSpec,validSavedGame} from '../src/game.js';
 
 const plan={kind:'game',title:'Orb Courier',summary:'Carry three orbs to the station.',
   roles:[{roleId:'orbs',kind:'pickup',assetId:'orb',count:3},
@@ -141,4 +142,76 @@ test('invalid or unsupported plans leave the world intact',()=>{
   assert.throws(()=>validateGameSpec({...plan,rules:[{...plan.rules[0],targetRoleId:'orbs'}]}),/Invalid game rule/);
   assert.deepEqual(current.scene,before);
   assert.equal(current.game,null);
+});
+
+test('version 2 challenge credits observed events once and unlocks a bound exit',()=>{
+  const spec={...plan,schemaVersion:2,
+    roles:[...plan.roles,{roleId:'exit',kind:'exit',assetId:'wall',count:1}],
+    rules:[{...plan.rules[0],event:'sensor-enter'}],
+    consequences:[{kind:'unlock',roleId:'exit'}]};
+  const current=world(),game=startGame(current,spec,viewer);
+  const exitId=game.bindings.exit[0],station=game.bindings.station[0];
+  assert.equal(isGameExitUnlocked(current,exitId),false);
+  for(const [index,id] of game.bindings.orbs.entries()){
+    moveTo(current,id,station);
+    const event={eventId:`contact-${index}`,event:'sensor-enter',objectId:id,targetObjectId:station};
+    const result=recordGameEvent(current,event);
+    assert.equal(result.credited,true);
+    assert.equal(recordGameEvent(current,event),null);
+    assert.equal(isGameExitUnlocked(current,exitId),index===2);
+  }
+  assert.equal(game.state.phase,'won');
+  assert.deepEqual(game.state.unlockedObjectIds,[exitId]);
+  assert.equal(validSavedGame(structuredClone(game),current.scene)?.state.score,30);
+  assert.match(gameStatus(current),/exit unlocked/);
+  assert.equal(recordGameEvent(current,{eventId:'late',event:'sensor-enter',
+    objectId:game.bindings.orbs[0],targetObjectId:station}),null);
+});
+
+test('version 2 saved ledger and unlock state reject forged or duplicated credit',()=>{
+  const spec={...plan,schemaVersion:2,
+    roles:[...plan.roles,{roleId:'exit',kind:'exit',assetId:'wall',count:1}],
+    rules:[{...plan.rules[0],event:'sensor-enter'}],
+    consequences:[{kind:'unlock',roleId:'exit'}],
+    objectives:[{kind:'delivered-count',roleId:'orbs',targetCount:1}]};
+  const current=world(),game=startGame(current,spec,viewer);
+  const item=game.bindings.orbs[0],target=game.bindings.station[0],exit=game.bindings.exit[0];
+  moveTo(current,item,target);
+  recordGameEvent(current,{eventId:'contact-1',event:'sensor-enter',objectId:item,targetObjectId:target});
+  assert.equal(validSavedGame(game,current.scene),game);
+  const altered=structuredClone(game);
+  altered.state.unlockedObjectIds=[];
+  assert.equal(validSavedGame(altered,current.scene),null);
+  altered.state.unlockedObjectIds=[exit];
+  altered.state.creditedEvents[0].targetObjectId=exit;
+  assert.equal(validSavedGame(altered,current.scene),null);
+  altered.state.creditedEvents[0].targetObjectId=target;
+  altered.state.creditedEvents.push({...altered.state.creditedEvents[0]});
+  assert.equal(validSavedGame(altered,current.scene),null);
+});
+
+test('version 2 challenge binds existing identities without respawning or removing other content',()=>{
+  const current=world();
+  const spawn=(assetId,x)=>{
+    const result=current.execute({requestId:`spawn-${assetId}-${x}`,op:'spawn',assetId,
+      anchorId:'web-floor',transform:{position:{x,y:0,z:-2},rotation:{x:0,y:0,z:0},
+        scale:{x:1,y:1,z:1}}});
+    assert.equal(result.ok,true);return result.objectId;
+  };
+  const objects=[spawn('orb',0),spawn('orb',1),spawn('pedestal',2),spawn('wall',3),spawn('chair',4)];
+  const spec={...plan,schemaVersion:2,
+    roles:[{...plan.roles[0],count:2},plan.roles[1],
+      {roleId:'exit',kind:'exit',assetId:'wall',count:1}],
+    objectives:[{kind:'delivered-count',roleId:'orbs',targetCount:2}],
+    consequences:[{kind:'unlock',roleId:'exit'}]};
+  const bindings={orbs:objects.slice(0,2),station:[objects[2]],exit:[objects[3]]};
+  const sceneBefore=structuredClone(current.scene);
+  assert.throws(()=>bindGame(current,spec,{...bindings,exit:[objects[0]]}),/bindings/);
+  assert.equal(current.game,null);
+  assert.deepEqual(current.scene,sceneBefore);
+  const game=bindGame(current,spec,bindings);
+  assert.deepEqual(current.scene,sceneBefore);
+  assert.deepEqual(game.bindings,bindings);
+  assert.ok(current.scene.objects.some(object=>object.objectId===objects[4]));
+  assert.throws(()=>bindGame(current,spec,bindings),/migrated or reset/);
 });

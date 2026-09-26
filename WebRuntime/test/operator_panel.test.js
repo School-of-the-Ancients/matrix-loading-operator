@@ -107,6 +107,40 @@ test('WORLD page keeps checkpoint feedback visible through ordinary redraws',()=
   }
 });
 
+test('XR WORLD panel can select, create and restore archived worlds with guarded controls',()=>{
+  const drawn=[];
+  const context={fillRect(){},strokeRect(){},
+    fillText(value){drawn.push(String(value));},measureText(){return {width:0};}};
+  const previousDocument=globalThis.document;
+  globalThis.document={createElement:kind=>{
+    assert.equal(kind,'canvas');return {width:0,height:0,getContext:()=>context};
+  }};
+  try{
+    const panel=operatorPanel();
+    const hit=(x,y)=>panel.hit({x:x/1024,y:1-y/768});
+    panel.toggleWorld();
+    assert.equal(hit(510,570),'toggle-archives');
+    panel.toggleArchives();
+    panel.setWorldInfo({objects:0,alignment:'Virtual room',archiveReady:true,
+      archiveCount:2,archiveIndex:1,archiveName:'Orb playground',
+      archiveDetails:'6 objects · Orb Course'});
+    assert.ok(drawn.includes('Orb playground'));
+    assert.equal(hit(200,445),'archive-prev');
+    assert.equal(hit(510,445),'archive-next');
+    assert.equal(hit(200,550),'new-world');
+    assert.equal(hit(745,550),'restore-archive');
+    panel.setWorldInfo({objects:0,alignment:'AR room',originUnavailable:true,
+      archiveReady:false,archiveCount:2,archiveIndex:1,
+      archiveName:'Orb playground'});
+    assert.equal(hit(200,550),null);
+    assert.equal(hit(745,550),null);
+    assert.equal(hit(462,71),'toggle-world');
+  }finally{
+    if(previousDocument===undefined)delete globalThis.document;
+    else globalThis.document=previousDocument;
+  }
+});
+
 test('Hide remains reachable on every Operator page',()=>{
   const context={fillRect(){},strokeRect(){},fillText(){},measureText(){return {width:0};}};
   const previousDocument=globalThis.document;
@@ -121,6 +155,30 @@ test('Hide remains reachable on every Operator page',()=>{
     panel.toggleAgent();assert.equal(panel.hit(hide),'hide-panel');
     panel.setProposal({summary:'Create one block',commands:[]});
     assert.equal(panel.hit(hide),'hide-panel');
+  }finally{
+    if(previousDocument===undefined)delete globalThis.document;
+    else globalThis.document=previousDocument;
+  }
+});
+
+test('immersive mode page exposes play, stop and return without hiding Operator',()=>{
+  const context={fillRect(){},strokeRect(){},fillText(){},measureText(){return {width:0};}};
+  const previousDocument=globalThis.document;
+  globalThis.document={createElement:kind=>{
+    assert.equal(kind,'canvas');return {width:0,height:0,getContext:()=>context};
+  }};
+  try{
+    const panel=operatorPanel();
+    const hit=(x,y)=>panel.hit({x:x/1024,y:1-y/768});
+    assert.equal(hit(597,71),'toggle-mode');
+    panel.toggleModePage();
+    assert.equal(hit(500,485),'enter-play');
+    panel.setCreatorMode({mode:'play',simulation:'running',revision:1});
+    assert.equal(hit(270,480),'enter-creator');
+    assert.equal(hit(745,480),'stop-play');
+    panel.setCreatorMode({mode:'play',simulation:'paused',revision:2});
+    assert.equal(hit(745,480),'resume-play');
+    assert.equal(hit(895,71),'hide-panel');
   }finally{
     if(previousDocument===undefined)delete globalThis.document;
     else globalThis.document=previousDocument;

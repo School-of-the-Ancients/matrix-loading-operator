@@ -6,6 +6,10 @@ import {viewerPose,planeData,insideBoundary,matchPlaneAnchor,samePlaneShape,meas
 import {ROOM_ANCHOR_KEY,hasWorldToProtect} from './room_origin.js';
 import {componentFrame} from './components.js';
 import {instantiateAnimatedAsset,stopAnimatedAsset} from './asset_animation.js';
+import {generateProcedural} from './procedural.js';
+import {canPlayWorld} from './creator_mode.js';
+import {gameStatus,isGameExitUnlocked} from './game.js';
+import {displayObservation,validDisplay} from './display.js';
 
 const wood=()=>new THREE.MeshStandardMaterial({color:0xa56f45,roughness:.78});
 const metal=()=>new THREE.MeshStandardMaterial({color:0x738995,roughness:.45,metalness:.45});
@@ -27,6 +31,21 @@ function makeAsset(id){
     const mesh=new THREE.Mesh(new THREE.SphereGeometry(.25,32,20),new THREE.MeshStandardMaterial({color:0x4cd8ef,emissive:0x12647d,roughness:.22,metalness:.2}));mesh.position.y=.25;group.add(mesh);
   } else if(id==='column'){cylinder(group,.25,1.8,0,1,0,s);cylinder(group,.32,.1,0,.05,0,s);cylinder(group,.32,.1,0,1.95,0,s);}
   else throw Error(`Unknown asset: ${id}`);
+  return group;
+}
+export function makeProcedural(recipe){
+  const result=generateProcedural(recipe),group=new THREE.Group();
+  group.userData.localBounds=result.localBounds;
+  for(const part of result.parts){
+    const geometry=new THREE.BufferGeometry();
+    geometry.setAttribute('position',new THREE.Float32BufferAttribute(part.geometry.positions,3));
+    geometry.setIndex(part.geometry.indices);
+    geometry.computeVertexNormals();
+    const material=new THREE.MeshStandardMaterial(part.material);
+    const mesh=new THREE.Mesh(geometry,material);
+    mesh.userData.partId=part.partId;
+    mesh.castShadow=true;mesh.receiveShadow=true;group.add(mesh);
+  }
   return group;
 }
 export function validateRenderedFootprint(asset,size){
@@ -65,6 +84,42 @@ function planeLabel(label){
   const texture=new THREE.CanvasTexture(canvas);const sprite=new THREE.Sprite(new THREE.SpriteMaterial({map:texture,transparent:true,depthTest:false}));
   sprite.userData.ownedTexture=true;sprite.scale.set(.7,.13,1);sprite.position.set(0,.075,0);return sprite;
 }
+function displayBoard(asset){
+  const canvas=document.createElement('canvas');canvas.width=1024;canvas.height=640;
+  const texture=new THREE.CanvasTexture(canvas);texture.colorSpace=THREE.SRGBColorSpace;
+  const mesh=new THREE.Mesh(new THREE.PlaneGeometry(1.75,1.1),
+    new THREE.MeshBasicMaterial({map:texture,side:THREE.DoubleSide}));
+  const bounds=asset?.localBounds,scale=asset?.spawnScale||1;
+  mesh.position.set((bounds?.center.x||0)*scale,(bounds?.center.y||1)*scale,
+    ((bounds?.center.z||0)+(bounds?.size.z||.2)/2)*scale+.04);
+  mesh.userData.ownedTexture=true;mesh.userData.displayBoard=true;
+  return {mesh,canvas,texture,lastSignature:'',lastUpdated:-Infinity};
+}
+function paintDisplay(board,display,observation){
+  const ctx=board.canvas.getContext('2d');
+  ctx.fillStyle='#081c2a';ctx.fillRect(0,0,1024,640);
+  ctx.strokeStyle=observation.status==='unavailable'?'#e6a47e':'#66dfc5';
+  ctx.lineWidth=12;ctx.strokeRect(7,7,1010,626);
+  ctx.fillStyle='#a9f4e5';ctx.font='bold 62px sans-serif';
+  ctx.fillText(display.title,52,91,920);
+  const wrap=(value,startY,font,color,maxLines,lineHeight)=>{
+    ctx.font=font;ctx.fillStyle=color;
+    const words=value.split(/\s+/),lines=[];let line='';
+    for(const word of words){
+      const next=line?`${line} ${word}`:word;
+      if(ctx.measureText(next).width>920&&line){lines.push(line);line=word;}else line=next;
+    }
+    if(line)lines.push(line);
+    lines.slice(0,maxLines).forEach((text,index)=>ctx.fillText(text,52,startY+index*lineHeight,920));
+  };
+  wrap(display.body,158,'32px sans-serif','#e5f3f7',5,45);
+  const source=observation.status==='current'?'LIVE MATRIX STATE':
+    observation.status==='unavailable'?'READING UNAVAILABLE':'AUTHORED TEXT';
+  ctx.fillStyle='#79adbc';ctx.font='bold 25px sans-serif';ctx.fillText(source,52,408,920);
+  wrap(observation.text,460,'bold 35px sans-serif',
+    observation.status==='unavailable'?'#ffd0b7':'#b8ffeb',4,47);
+  board.texture.needsUpdate=true;
+}
 export function operatorPanel(){
   const canvas=document.createElement('canvas');canvas.width=1024;canvas.height=768;
   const texture=new THREE.CanvasTexture(canvas);texture.colorSpace=THREE.SRGBColorSpace;
@@ -76,6 +131,7 @@ export function operatorPanel(){
   let pinLabel='PIN TO WALL',voiceLabel='VOICE ON',originLabel='ROOM ORIGIN UNKNOWN',conversationCount=0;
   let voiceInputLabel='HOLD TO SPEAK';
   let gameStatus='No game running.',worldInfo={objects:0,canConfirm:false,alignment:'No room scan'},worldWarning='';
+  let creatorMode={mode:'creator',simulation:'paused',revision:0};
   let worldNotice={text:'',tone:'idle'};
   let cameraStatus='Camera not tested',cameraActive=false;
   let buttons=[];
@@ -90,13 +146,34 @@ export function operatorPanel(){
       ctx.textAlign='center';ctx.textBaseline='middle';ctx.fillText(label,x+w/2,y+h/2);ctx.textAlign='left';ctx.textBaseline='alphabetic';
       buttons.push({id,x,y,w,h});
     };
-    button('toggle-agent',mode==='agent'?'CHAT':'CODEX',320,35,120,72,mode==='agent');
-    button('toggle-world',mode==='world'?'CHAT':'WORLD',452,35,142,72);
-    button(proposal&&mode!=='proposal'?'open-proposal':'review-view',proposal&&mode!=='proposal'?'PROPOSAL':'REVIEW VIEW',606,35,194,72);
+    button('toggle-agent',mode==='agent'?'CHAT':'CODEX',290,35,103,72,mode==='agent');
+    button('toggle-world',mode==='world'?'CHAT':'WORLD',404,35,120,72,
+      mode==='world'||mode==='archives');
+    button('toggle-mode',mode==='modes'?'CHAT':creatorMode.mode==='play'?'PLAY':'CREATE',535,35,124,72,mode==='modes');
+    button(proposal&&mode!=='proposal'?'open-proposal':'review-view',proposal&&mode!=='proposal'?'PROPOSAL':'REVIEW VIEW',670,35,130,72);
     button('hide-panel','HIDE',812,35,164,72);
     ctx.fillStyle='#8bb8c2';ctx.font='bold 21px sans-serif';ctx.fillText(originLabel,55,123);
     ctx.font='19px sans-serif';ctx.fillText('STICK CLICK: RECALL · HIDE · SHOW',540,123);
-    if(mode==='world'){
+    if(mode==='modes'){
+      ctx.fillStyle='#dff7f8';ctx.font='bold 38px sans-serif';
+      ctx.fillText(creatorMode.mode==='creator'?'Creator Mode':'Play/Test Mode',55,205);
+      ctx.font='27px sans-serif';ctx.fillStyle='#8bb8c2';
+      ctx.fillText(`Simulation ${creatorMode.simulation} · revision ${creatorMode.revision}`,55,265);
+      ctx.fillText(creatorMode.mode==='creator'?'Create, inspect and revise the current world.':
+        'Interact with the same world and keep earned progress.',55,325);
+      ctx.fillText(creatorMode.mode==='creator'?'Entering Play/Test resumes simulation.':
+        'Return to Creator Mode to pause and revise it.',55,367);
+      if(creatorMode.mode==='creator'){
+        button('enter-play','ENTER PLAY / TEST',55,445,914,86,true);
+      }else{
+        button('enter-creator','RETURN TO CREATOR',55,440,440,86,true);
+        button(creatorMode.simulation==='running'?'stop-play':'resume-play',
+          creatorMode.simulation==='running'?'STOP / PAUSE':'RESUME PLAY',525,440,444,86,
+          creatorMode.simulation==='running');
+      }
+      button('toggle-world','WORLD / SAVE',55,553,440,72);
+      button('agent-stop','STOP OPERATOR',525,553,444,72);
+    }else if(mode==='world'){
       ctx.fillStyle='#dff7f8';ctx.font='29px sans-serif';
       ctx.fillText(`${worldInfo.objects} scene objects · ${worldInfo.alignment}`,55,180);
       ctx.font='25px sans-serif';
@@ -129,8 +206,33 @@ export function operatorPanel(){
         button('reset-room-origin',worldInfo.recoveryArmed==='empty'?'CONFIRM START EMPTY':'ARCHIVE + START EMPTY',525,535,445,76);
       }else{
         button('redo','REDO',55,535,285,76);
-        button('new-chat','NEW CHAT',370,535,285,76);
+        button('toggle-archives','WORLDS',370,535,285,76);
         button('toggle-camera',cameraActive?'STOP CAMERA':'ENABLE CAMERA',685,535,285,76);
+      }
+    }else if(mode==='archives'){
+      ctx.fillStyle='#dff7f8';ctx.font='bold 36px sans-serif';
+      ctx.fillText('BROWSER WORLD ARCHIVES',55,196);
+      ctx.fillStyle='#8bb8c2';ctx.font='27px sans-serif';
+      ctx.fillText(`${worldInfo.archiveCount||0} saved · new worlds keep a verified copy`,55,258);
+      ctx.fillStyle='#dff7f8';ctx.font='bold 28px sans-serif';
+      ctx.fillText(worldInfo.archiveName||'No archived world selected',55,322,910);
+      ctx.fillStyle='#8bb8c2';ctx.font='23px sans-serif';
+      ctx.fillText(worldInfo.archiveCount?
+        `${(worldInfo.archiveIndex||0)+1}/${worldInfo.archiveCount} · ${worldInfo.archiveDetails||''}`:
+        'Create a new world to archive this one.',55,365,910);
+      button('archive-prev','PREVIOUS',55,408,285,72);
+      button('archive-next','NEXT WORLD',370,408,285,72);
+      button('new-chat','NEW CHAT',685,408,285,72);
+      if(worldInfo.archiveReady){
+        button('new-world',worldInfo.newWorldArmed?'CONFIRM NEW WORLD':'ARCHIVE + NEW WORLD',
+          55,515,440,78,true);
+        if(worldInfo.archiveCount)button('restore-archive',
+          worldInfo.archiveRestoreArmed?'CONFIRM RESTORE':'RESTORE SELECTED',
+          525,515,444,78);
+      }else{
+        ctx.fillStyle='#ffad8d';ctx.fillText(worldInfo.originUnavailable?
+          'Recover the saved room origin before switching.':
+          'Return to paused Creator Mode or finish recovery first.',55,560,910);
       }
     }else{
       const content=mode==='agent'?`CODEX AGENT · ${agent.activity}\n\n${agent.content}`:mode==='proposal'&&proposal?
@@ -201,6 +303,9 @@ export function operatorPanel(){
   const setWorldInfo=next=>{if(JSON.stringify(worldInfo)!==JSON.stringify(next)){worldInfo=next;paint();}};
   const setWorldNotice=(text,tone='idle')=>{worldNotice={text:String(text),tone};paint();};
   const setGameStatus=next=>{if(gameStatus!==next){gameStatus=next;paint();}};
+  const setCreatorMode=next=>{if(JSON.stringify(creatorMode)!==JSON.stringify(next)){
+    creatorMode={mode:next.mode,simulation:next.simulation,revision:next.revision};paint();
+  }};
   const setWarning=next=>{if(worldWarning!==next){worldWarning=next;paint();}};
   const setCameraStatus=(next,active)=>{if(cameraStatus!==next||cameraActive!==active){cameraStatus=next;cameraActive=active;paint();}};
   const setAgentStatus=next=>{if(JSON.stringify(agent)!==JSON.stringify(next)){
@@ -208,6 +313,8 @@ export function operatorPanel(){
     agent=next;if(mode==='agent')paint();
   }};
   const toggleWorld=()=>{mode=mode==='world'?'chat':'world';page=0;paint();};
+  const toggleArchives=()=>{mode=mode==='archives'?'world':'archives';page=0;paint();};
+  const toggleModePage=()=>{mode=mode==='modes'?'chat':'modes';page=0;paint();};
   const toggleAgent=()=>{mode=mode==='agent'?'chat':'agent';page=0;paint();};
   const isAgentMode=()=>mode==='agent';
   const openProposal=()=>{if(proposal){mode='proposal';page=0;paint();}};
@@ -218,7 +325,7 @@ export function operatorPanel(){
   const nextPage=()=>{page++;paint();};
   paint();
   return {group,mesh,setMessage,setPinLabel,setVoiceLabel,setOriginLabel,setConversationCount,
-    setProposal,setWorldInfo,setWorldNotice,setGameStatus,setWarning,setCameraStatus,setAgentStatus,setVoiceInputLabel,toggleWorld,toggleAgent,isAgentMode,openProposal,hit,nextPage};
+    setProposal,setWorldInfo,setWorldNotice,setGameStatus,setCreatorMode,setWarning,setCameraStatus,setAgentStatus,setVoiceInputLabel,toggleWorld,toggleArchives,toggleModePage,toggleAgent,isAgentMode,openProposal,hit,nextPage};
 }
 const v3=v=>new THREE.Vector3(v.x,v.y,v.z);
 const plain=v=>({x:Number(v.x.toFixed(3)),y:Number(v.y.toFixed(3)),z:Number(v.z.toFixed(3))});
@@ -229,7 +336,7 @@ function setRoomContentVisible(view,visible){
 
 export class MatrixView {
   constructor(container,world,onSelection,getToken=()=>'',onAssetError=()=>{},onSceneEdit=()=>{},onRuntimeChange=()=>{},onVoiceStart=()=>{},onVoiceEnd=()=>{},onVoiceOutputToggle=()=>{},onVisualReview=()=>{},onNewChat=()=>{}){
-    this.world=world;this.onSelection=onSelection;this.getToken=getToken;this.onAssetError=onAssetError;this.onSceneEdit=onSceneEdit;this.onRuntimeChange=onRuntimeChange;this.onVoiceStart=onVoiceStart;this.onVoiceEnd=onVoiceEnd;this.onVoiceOutputToggle=onVoiceOutputToggle;this.onVisualReview=onVisualReview;this.onNewChat=onNewChat;this.onPanelAction=()=>{};this.onFrame=()=>{};this.onAssetReadinessChange=()=>{};
+    this.world=world;this.onSelection=onSelection;this.getToken=getToken;this.onAssetError=onAssetError;this.onSceneEdit=onSceneEdit;this.onRuntimeChange=onRuntimeChange;this.onVoiceStart=onVoiceStart;this.onVoiceEnd=onVoiceEnd;this.onVoiceOutputToggle=onVoiceOutputToggle;this.onVisualReview=onVisualReview;this.onNewChat=onNewChat;this.onPanelAction=()=>{};this.onFrame=()=>{};this.onAssetReadinessChange=()=>{};this.onPhysicsContacts=()=>{};this.onPlayInteraction=()=>{};
     this.container=container;this.objectRoots=new Map();this.anchorRoots=new Map();this.planeOutlines=new Map();this.planeIds=new WeakMap();this.nextPlaneId=0;this.hitSource=null;this.reticleVisible=false;this.xrViewer=null;this.reticleAnchorId='';this.lastPlaneTime=0;
     this.modelCache=new Map();
     this.scene=new THREE.Scene();this.scene.background=new THREE.Color(0x0a1b29);
@@ -316,6 +423,7 @@ export class MatrixView {
   exitXR(){return this.xrControls?.exit();}
   async onSessionStart(){
     const session=this.renderer.xr.getSession();this.isAR=session.environmentBlendMode!=='opaque';
+    this.world.runtimePresentation=this.isAR?'ar':'vr';
     document.getElementById('xr-exit').textContent=this.isAR?'Exit AR':'Exit VR';
     if(session.domOverlayState)document.getElementById('xr-overlay').style.display='';
     this.operatorPanel.group.visible=true;
@@ -324,7 +432,8 @@ export class MatrixView {
     this.sessionStartedAt=performance.now();this.roomCaptureRequested=false;this.virtualFloorCalibrated=false;this.roomAnchorCreationFailed=false;this.roomAnchorRestoreFailed=false;this.roomAnchorLocated=false;this.roomPoseMissingSince=0;
     if(this.isAR)this.world.enterAR();
     this.restoreRoomAnchor(session);
-    if(this.isAR){this.sync();this.onRuntimeChange();}
+    if(this.isAR)this.sync();
+    this.onRuntimeChange();
     for(const ray of this.controllerRays)ray.visible=true;
     this.floor.visible=!this.isAR;this.grid.visible=!this.isAR;this.scene.background=this.isAR?null:new THREE.Color(0x0a1b29);
     document.getElementById('view-label').textContent=this.isAR?'WEBXR AR · SCANNING ROOM PLANES':'WEBXR VR · VIRTUAL ROOM';
@@ -491,7 +600,7 @@ export class MatrixView {
     this.xrViewer=null;this.planeIds=new WeakMap();this.nextPlaneId=0;this.clearPlanes();this.isAR=false;
     this.roomAnchor=null;this.roomAnchorPending=false;this.roomAnchorPersistent=false;this.roomAnchorRestoredHandle=null;this.roomAnchorRestoreFailed=false;this.roomAnchorLocated=false;this.roomAnchorHandleAvailable=false;this.roomPoseMissingSince=0;
     this.virtualFloorRoot.visible=true;this.virtualFloorRoot.position.set(0,0,0);this.virtualFloorRoot.quaternion.identity();this.virtualFloorCalibrated=false;
-    this.world.leaveAR();this.sync();this.onRuntimeChange();
+    this.world.leaveAR();this.world.runtimePresentation='desktop';this.sync();this.onRuntimeChange();
     document.getElementById('xr-overlay').style.display='none';document.getElementById('xr-exit').textContent='Exit AR';this.floor.visible=true;this.grid.visible=true;
     this.scene.background=new THREE.Color(0x0a1b29);document.getElementById('view-label').textContent='DESKTOP · VIRTUAL ROOM';
   }
@@ -501,6 +610,7 @@ export class MatrixView {
   setOperatorWorldInfo(info){this.operatorPanel.setWorldInfo(info);}
   setOperatorWorldNotice(message,tone='idle'){this.operatorPanel.setWorldNotice(message,tone);}
   setOperatorGameStatus(status){this.operatorPanel.setGameStatus(status);}
+  setOperatorCreatorMode(state){this.operatorPanel.setCreatorMode(state);}
   setOperatorWarning(warning){this.operatorPanel.setWarning(warning);}
   setOperatorCameraStatus(status,active){this.operatorPanel.setCameraStatus(status,active);}
   setOperatorAgentStatus(status){this.operatorPanel.setAgentStatus(status);}
@@ -625,6 +735,8 @@ export class MatrixView {
     }
   }
   sync(){
+    if(this.grab?.rigid)this.world.releaseRigidGrab?.(this.grab.objectId);
+    if(this.pointerGrab?.rigid)this.world.releaseRigidGrab?.(this.pointerGrab.objectId);
     if(this.grab)this.world.resumePhysics?.(this.grab.objectId);
     if(this.pointerGrab)this.world.resumePhysics?.(this.pointerGrab.objectId);
     this.grab=null;this.pointerGrab=null;
@@ -646,22 +758,78 @@ export class MatrixView {
       const physics=!this.isAR&&this.world.physicsState?.(object.objectId);
       if(physics)root.position.y=physics.position.y;
       root.rotation.set(...['x','y','z'].map(k=>THREE.MathUtils.degToRad(object.transform.rotation[k])),'XYZ');
+      const rigid=this.rigidState(object);
+      if(rigid){root.position.copy(v3(rigid.position));root.quaternion.set(
+        rigid.rotation.x,rigid.rotation.y,rigid.rotation.z,rigid.rotation.w);}
       root.scale.copy(v3(object.transform.scale));
       const asset=this.world.asset(object.assetId);
-      const visual=asset.url?new THREE.Group():makeAsset(object.assetId);
-      visual.scale.setScalar(asset.spawnScale||1);
-      if(asset.url){
+      let visual;
+      if(object.procedural){
+        try{visual=makeProcedural(object.procedural);}
+        catch(error){
+          visual=new THREE.Group();
+          const marker=new THREE.Mesh(new THREE.BoxGeometry(.4,.4,.4),
+            new THREE.MeshBasicMaterial({color:0xff6b64,wireframe:true}));
+          marker.position.y=.2;visual.add(marker);
+          root.userData.proceduralError=error.message;
+          this.onAssetError(`Procedural object ${object.objectId} could not render: ${error.message}`);
+        }
+      }else visual=asset?.url?new THREE.Group():makeAsset(object.assetId);
+      visual.scale.setScalar(asset?.spawnScale||1);
+      if(asset?.url&&!object.procedural){
         const placeholder=new THREE.Mesh(new THREE.BoxGeometry(.35,.35,.35),new THREE.MeshBasicMaterial({color:0x5ee3cf,wireframe:true}));placeholder.position.y=.175;visual.add(placeholder);
       }
       visual.userData.objectId=object.objectId;root.add(visual);root.userData.visual=visual;root.userData.behaviors=object.behaviors||[];
+      if(object.display){
+        if(validDisplay(object.display)){
+          const board=displayBoard(visual.userData.localBounds?
+            {...asset,localBounds:visual.userData.localBounds}:asset);
+          root.add(board.mesh);root.userData.displayBoard=board;
+        }else this.onAssetError(`Display on ${object.objectId} has an invalid definition.`);
+      }
       (this.anchorRoots.get(object.anchorId)||this.virtualFloorRoot).add(root);this.objectRoots.set(object.objectId,root);
-      if(asset.url){
+      if(asset?.url&&!object.procedural){
         this.world.invalidatePhysicsAsset?.(object.objectId);
         root.userData.assetLoading=true;this.loadExternal(asset,root,visual,object.objectId);
       }
     }
+    this.refreshGamePresentation();
     setRoomContentVisible(this,!this.isAR||!this.world.spatial?.originUnavailable);
     this.highlight();
+  }
+  refreshGamePresentation(){
+    this.operatorPanel?.setGameStatus?.(gameStatus(this.world));
+    for(const [objectId,root] of this.objectRoots){
+      const exit=this.world.game?.spec?.roles?.some(role=>role.kind==='exit'&&
+        this.world.game.bindings?.[role.roleId]?.includes(objectId));
+      const unlocked=!!exit&&isGameExitUnlocked(this.world,objectId);
+      if(root.userData.exitLabel&&root.userData.exitUnlocked===unlocked&&exit)continue;
+      if(root.userData.exitLabel){
+        root.remove(root.userData.exitLabel);disposeGroup(root.userData.exitLabel);
+        delete root.userData.exitLabel;delete root.userData.exitUnlocked;
+      }
+      if(!exit)continue;
+      const object=this.world.scene.objects.find(item=>item.objectId===objectId);
+      const bounds=this.world.asset(object.assetId)?.localBounds;
+      const label=planeLabel(unlocked?'EXIT UNLOCKED':'EXIT LOCKED');
+      label.position.y=(bounds?.center.y||0)+(bounds?.size.y||1)/2+.24;
+      root.userData.exitLabel=label;root.userData.exitUnlocked=unlocked;root.add(label);
+    }
+    this.refreshDisplays(true);
+  }
+  refreshDisplays(force=false,now=performance.now()){
+    for(const [objectId,root] of this.objectRoots){
+      const board=root.userData.displayBoard;
+      if(!board||!force&&now-board.lastUpdated<200)continue;
+      const object=this.world.scene.objects.find(item=>item.objectId===objectId);
+      if(!object||!validDisplay(object.display))continue;
+      const observed=displayObservation(this.world,object.display);
+      const signature=JSON.stringify([object.display,observed]);
+      board.lastUpdated=now;
+      if(signature===board.lastSignature)continue;
+      paintDisplay(board,object.display,observed);
+      board.lastSignature=signature;
+    }
   }
   refreshAssets(changedAssetIds){
     if(!changedAssetIds?.length)return false;
@@ -723,6 +891,37 @@ export class MatrixView {
       root.traverse(node=>{if(node.isMesh&&node.material?.emissive){node.material.emissiveIntensity=id===this.world.selection.objectId?2.2:1;}});
     }
   }
+  isPlayMode(){return this.world.creatorMode?.mode==='play';}
+  rigidState(object){
+    if(!object?.rigidBody||!this.world.rigidPhysics)return null;
+    try{return this.world.rigidPhysics.state(object.objectId);}
+    catch{return null;}
+  }
+  heldTransform(root,object){
+    const euler=new THREE.Euler().setFromQuaternion(root.quaternion,'XYZ');
+    return {position:plain(root.position),rotation:{x:THREE.MathUtils.radToDeg(euler.x),
+      y:THREE.MathUtils.radToDeg(euler.y),z:THREE.MathUtils.radToDeg(euler.z)},
+      scale:structuredClone(object.transform.scale)};
+  }
+  moveHeldRigid(grab){
+    if(!grab?.rigid)return;
+    try{this.world.moveRigidGrab(grab.objectId,this.heldTransform(grab.root,
+      this.world.requireObject(grab.objectId)));}
+    catch(error){this.world.releaseRigidGrab?.(grab.objectId);this.onAssetError(error.message);
+      if(this.grab===grab)this.grab=null;
+      if(this.pointerGrab===grab)this.pointerGrab=null;}
+  }
+  finishPlayGrab(grab,transform){
+    if(!grab.rigid)return false;
+    try{
+      if(transform)this.world.moveRigidGrab(grab.objectId,transform);
+      const released=this.world.releaseRigidGrab(grab.objectId);
+      if(released)this.onPlayInteraction({kind:'release',objectId:grab.objectId,
+        position:released.position||grab.root.position});
+      return true;
+    }catch(error){this.world.releaseRigidGrab?.(grab.objectId);this.onAssetError(error.message);
+      return false;}
+  }
   rayFromPointer(event){
     const rect=this.renderer.domElement.getBoundingClientRect();this.pointer.set((event.clientX-rect.left)/rect.width*2-1,-(event.clientY-rect.top)/rect.height*2+1);
     this.pointerKnown=true;
@@ -739,9 +938,16 @@ export class MatrixView {
       if(animation==='loading'){this.onAssetError('Animation is still loading; select again when the GLB appears.');return;}}
     if(id&&this.world.requireObject(id).component?.status==='running'){
       this.onAssetError('Stop this component before moving the object.');return;}
+    if(id&&this.isPlayMode()&&(!canPlayWorld(this.world.creatorMode)||
+      this.world.requireObject(id).rigidBody?.type!=='dynamic')){
+      this.onAssetError('Play/Test grabs require a running dynamic body. Return to Creator Mode to edit other objects.');return;}
     if(id){const grab=beginPointerGrab(this.raycaster,this.objectRoots.get(id));if(grab){
-      this.world.pausePhysics?.(id);
-      this.pointerGrab={...grab,objectId:id,pointerId:event.pointerId,lastY:event.clientY,vertical:false};
+      const rigid=this.isPlayMode();
+      if(rigid&&!this.world.beginRigidGrab?.(id)){
+        this.onAssetError('This dynamic body is unavailable to grab.');return;
+      }
+      if(!rigid)this.world.pausePhysics?.(id);
+      this.pointerGrab={...grab,objectId:id,pointerId:event.pointerId,lastY:event.clientY,vertical:false,rigid};
     }}
   }
   pointerMove(event){
@@ -760,20 +966,27 @@ export class MatrixView {
         movePointerGrab(grab,this.raycaster);grab.vertical=false;
       }
       grab.lastY=event.clientY;
+      this.moveHeldRigid(grab);
     }
   }
   pointerUp(event){
     if(this.pointerLook?.pointerId===event.pointerId)this.pointerLook=null;
     if(this.pointerGrab?.pointerId!==event.pointerId)return;
     const grab=this.pointerGrab;this.pointerGrab=null;
-    if(this.objectRoots.get(grab.objectId)!==grab.root){this.world.resumePhysics?.(grab.objectId);return;}
+    if(this.objectRoots.get(grab.objectId)!==grab.root){
+      if(grab.rigid)this.world.releaseRigidGrab?.(grab.objectId);
+      else this.world.resumePhysics?.(grab.objectId);return;}
     const transform=finishPointerGrab(grab,this.world.requireObject(grab.objectId).transform);
-    if(transform)this.commitMove(grab.objectId,transform);
+    if(grab.rigid)this.finishPlayGrab(grab,transform);
+    else if(transform)this.commitMove(grab.objectId,transform);
     else this.world.resumePhysics?.(grab.objectId);
   }
   cancelPointer(){
     this.pointerLook=null;
-    if(this.pointerGrab){this.world.resumePhysics?.(this.pointerGrab.objectId);this.pointerGrab=null;this.sync();}
+    if(this.pointerGrab){
+      if(this.pointerGrab.rigid)this.world.releaseRigidGrab?.(this.pointerGrab.objectId);
+      else this.world.resumePhysics?.(this.pointerGrab.objectId);
+      this.pointerGrab=null;this.sync();}
   }
   selectFromController(controller){
     if(this.grab)return;
@@ -785,6 +998,8 @@ export class MatrixView {
       const action=this.operatorPanel.hit(panelHit.uv);
       if(action==='review-view')this.onVisualReview();
       else if(action==='toggle-world')this.operatorPanel.toggleWorld();
+      else if(action==='toggle-archives')this.operatorPanel.toggleArchives();
+      else if(action==='toggle-mode')this.operatorPanel.toggleModePage();
       else if(action==='toggle-agent')this.operatorPanel.toggleAgent();
       else if(action==='open-proposal')this.operatorPanel.openProposal();
       else if(action==='next')this.operatorPanel.nextPage();
@@ -804,15 +1019,27 @@ export class MatrixView {
     }
     if(id&&this.world.requireObject(id).component?.status==='running'){
       this.onAssetError('Stop this component before moving the object.');return;}
-    if(id){this.grab={...beginGrab(controller,this.objectRoots.get(id)),objectId:id};
-      this.world.pausePhysics?.(id);}
+    if(id&&this.isPlayMode()&&(!canPlayWorld(this.world.creatorMode)||
+      this.world.requireObject(id).rigidBody?.type!=='dynamic')){
+      this.onAssetError('Play/Test grabs require a running dynamic body. Return to Creator Mode to edit other objects.');return;}
+    if(id){
+      const rigid=this.isPlayMode();
+      if(rigid&&!this.world.beginRigidGrab?.(id)){
+        this.onAssetError('This dynamic body is unavailable to grab.');return;
+      }
+      this.grab={...beginGrab(controller,this.objectRoots.get(id)),objectId:id,rigid};
+      if(!rigid)this.world.pausePhysics?.(id);
+    }
   }
   releaseGrab(controller){
     if(!this.grab||this.grab.controller!==controller)return;
     const grab=this.grab;this.grab=null;
-    if(this.objectRoots.get(grab.objectId)!==grab.root){this.world.resumePhysics?.(grab.objectId);return;}
+    if(this.objectRoots.get(grab.objectId)!==grab.root){
+      if(grab.rigid)this.world.releaseRigidGrab?.(grab.objectId);
+      else this.world.resumePhysics?.(grab.objectId);return;}
     const object=this.world.requireObject(grab.objectId);
     const transform=finishGrab(grab,object.transform);
+    if(grab.rigid){this.finishPlayGrab(grab,transform);return;}
     if(!transform){this.world.resumePhysics?.(grab.objectId);return;}
     this.commitMove(grab.objectId,transform);
   }
@@ -821,6 +1048,9 @@ export class MatrixView {
     this.operatorVoiceController=null;this.onVoiceEnd();
   }
   commitMove(objectId,transform){
+    if(this.isPlayMode()){
+      this.sync();this.onAssetError('Return to Creator Mode before changing an authored transform.');return;
+    }
     if(this.world.spatial?.stale||this.world.spatial?.originUnavailable){
       this.world.resumePhysics?.(objectId);
       this.sync();this.onAssetError('Room origin or tracking is unavailable; object movement was not saved.');return;
@@ -1000,7 +1230,11 @@ export class MatrixView {
     if(frame&&this.renderer.xr.isPresenting)this.onFrame();
     if(this.lastFrameTime!==null&&!this.renderer.xr.isPresenting)moveDesktopCamera(this.camera,this.keys,(time-this.lastFrameTime)/1000);
     this.lastFrameTime=time;
-    if(!this.isAR)this.world.advancePhysics?.(delta);
+    if(!this.world.creatorMode||canPlayWorld(this.world.creatorMode)){
+      if(!this.isAR)this.world.advancePhysics?.(delta);
+      const contacts=this.world.advanceRigidPhysics?.(delta)||[];
+      if(contacts.length)this.onPhysicsContacts(contacts);
+    }
     if(frame&&this.renderer.xr.isPresenting){const ref=this.renderer.xr.getReferenceSpace();if(ref){this.xrViewer=viewerPose(frame,ref);this.updateOperatorShortcut();this.positionOperatorPanel();this.updatePlanes(time,frame,ref);this.updateRoomAnchor(frame,ref);
       if(!this.isAR&&!this.virtualFloorCalibrated&&this.xrViewer&&this.measuredEyeHeight!==null){
         this.virtualFloorRoot.position.y=this.xrViewer.position.y-this.measuredEyeHeight;
@@ -1017,7 +1251,7 @@ export class MatrixView {
         for(const anchor of this.world.spatial?.anchors||[]){if(anchor.surface.kind!=='support')continue;const root=this.planeOutlines.get(anchor.anchorId);if(!root)continue;
           const local=root.worldToLocal(this.reticle.position.clone());if(Math.abs(local.y)<.12&&insideBoundary(local,anchor.surface.boundary)){this.reticleAnchorId=anchor.anchorId;break;}}
       }}
-    if(this.grab)moveGrab(this.grab);
+    if(this.grab){moveGrab(this.grab);this.moveHeldRigid(this.grab);}
     if(this.renderer.xr.isPresenting)for(let index=0;index<this.controllers.length;index++)
       updateControllerRayForPanel(this.controllerRays[index],this.controllers[index],this.operatorPanel);
     for(const root of this.objectRoots.values()){
@@ -1045,12 +1279,18 @@ export class MatrixView {
       const held=this.grab?.objectId===object.objectId||this.pointerGrab?.objectId===object.objectId;
       const physics=!this.isAR&&this.world.physicsState?.(object.objectId);
       if(physics&&!held&&component?.status!=='running')root.position.y=physics.position.y;
+      const rigid=this.rigidState(object);
+      if(rigid&&!held&&component?.status!=='running'){
+        root.position.copy(v3(rigid.position));
+        root.quaternion.set(rigid.rotation.x,rigid.rotation.y,rigid.rotation.z,rigid.rotation.w);
+      }
       const visual=root.userData.visual;visual.position.y=0;visual.rotation.set(0,0,0);
       for(const behavior of root.userData.behaviors){if(!behavior.enabled)continue;const t=behavior.paused?0:time/1000;
         if(behavior.kind==='bob')visual.position.y+=(1-Math.cos(2*Math.PI*behavior.frequencyHz*t))*.5*behavior.amplitudeMeters;
         if(behavior.kind==='rotate')visual.rotation[behavior.axis]+=THREE.MathUtils.degToRad(behavior.speedDegreesPerSecond*t);
       }
     }
+    this.refreshDisplays(false,time);
     this.renderer.render(this.scene,this.camera);
   }
 }

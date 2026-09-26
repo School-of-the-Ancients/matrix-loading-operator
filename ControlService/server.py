@@ -39,17 +39,20 @@ from web_components import ComponentError, validate_attachment, validate_package
 from web_component_catalog import WebComponentCatalog
 from web_authoring import WebAuthoringJobs, WebAuthoringError
 from blender_authoring import BlenderAuthoringJobs, BlenderAuthoringError
-from web_game import GamePlanError, design_game, wants_game, validate_saved_game
+from web_game import GamePlanError, design_game, wants_game, validate_game_plan, validate_saved_game
 from content_service import ContentBridge, runtime_capabilities
 from content_catalog import ContentError
 from quest_connection import QuestConnection
 from client_api import ClientAPI, ClientError
 import scale_experiment
+from procedural_contract import (ProceduralError, checked_recipe, checked_generators,
+                                 available_recipe, new_recipe, revised_recipe)
 
 MAX_BODY = 1024 * 1024
 MAX_EXCHANGE_BODY = 3 * 1024 * 1024  # two bounded snapshots plus a base64 JPEG
 MAX_OBJECTS = 100
 MAX_PHYSICS_BODIES = 16
+MAX_RIGID_BODIES = 32
 MAX_PENDING = 64
 MAX_BATCH = 20
 LEASE_SECONDS = 15
@@ -57,7 +60,12 @@ NAME = re.compile(r"[A-Za-z0-9][A-Za-z0-9 _-]{0,63}\Z")
 OPS = {"spawn", "set_transform", "select", "duplicate", "delete", "undo", "redo", "clear", "load",
        "get_scene", "list_assets", "list_targets", "confirm_room", "set_behavior", "remove_behavior",
        "attach_component", "stop_component", "remove_component", "bind_animation",
-       "set_physics", "remove_physics", "set_interaction", "remove_interaction"}
+       "set_physics", "remove_physics", "set_interaction", "remove_interaction",
+       "create_procedural", "update_procedural", "bind_game", "update_game",
+       "set_display", "remove_display",
+       "set_rigid_body", "remove_rigid_body", "set_gravity",
+       "inspect_entity", "begin_grab", "move_grab", "release_grab",
+       "list_world_archives", "start_new_world", "restore_world_archive"}
 INTERACTION_ID = re.compile(r"[a-z0-9](?:[a-z0-9-]{0,30}[a-z0-9])?\Z")
 GLB_SHA = re.compile(r"[0-9a-f]{64}\Z")
 
@@ -83,6 +91,29 @@ def text(value, field, empty=False, limit=128):
             f"Invalid {field}")
     require(not any(ord(c) < 32 for c in value), f"Invalid {field}")
     return value
+
+
+def display_descriptor(value):
+    """Mirror the versioned, plain-text Matrix display component."""
+    def plain(value, minimum, maximum):
+        return (type(value) is str and
+                minimum <= sum(2 if ord(char) > 0xffff else 1 for char in value) <= maximum and
+                not any(ord(char) < 9 or ord(char) in (11, 12) or 14 <= ord(char) <= 31 or
+                        0xd800 <= ord(char) <= 0xdfff for char in value))
+
+    require(type(value) is dict and set(value) ==
+            {"schemaVersion", "title", "body", "binding"} and
+            type(value["schemaVersion"]) is int and value["schemaVersion"] == 1 and
+            plain(value["title"], 1, 80) and plain(value["body"], 0, 600),
+            "Invalid Matrix display")
+    binding = value["binding"]
+    require(binding is None or
+            type(binding) is dict and
+            (set(binding) == {"kind"} and binding["kind"] in ("game-progress", "gravity") or
+             set(binding) == {"kind", "objectId"} and binding["kind"] == "rigid-body" and
+             plain(binding["objectId"], 1, 128)),
+            "Invalid Matrix display binding")
+    return copy.deepcopy(value)
 
 
 def conversation(value):
@@ -116,6 +147,18 @@ def transform(value):
             "scale": vector(value.get("scale"), "scale", True)}
 
 
+def grab_pose(value):
+    require(type(value) is dict and set(value) == {"position", "rotation"} and
+            type(value["position"]) is dict and set(value["position"]) == {"x", "y", "z"} and
+            type(value["rotation"]) is dict and set(value["rotation"]) == {"x", "y", "z"},
+            "Invalid grab target pose")
+    position = vector(value["position"], "position")
+    rotation = vector(value["rotation"], "rotation")
+    require(-20 <= position["x"] <= 20 and 0 <= position["y"] <= 10 and
+            -20 <= position["z"] <= 20, "Grab target is outside the virtual world")
+    return {"position": position, "rotation": rotation}
+
+
 def animation_binding(value, *, allow_empty=False):
     require(isinstance(value, dict) and set(value) == {"loopClip", "selectClip"},
             "Invalid animation binding")
@@ -146,6 +189,308 @@ def physics_config(value):
     # floor proxy. Canonicalize it as scenes and snapshots pass through here.
     return {"schemaVersion": 1, "kind": "gravity-floor", "collider": "rendered-bounds-box",
             "restitution": restitution}
+
+
+def rigid_body_config(value):
+    fields = {"schemaVersion", "type", "collider", "restitution", "friction", "sensor"}
+    require(type(value) is dict and set(value) == fields and
+            type(value["schemaVersion"]) is int and value["schemaVersion"] == 1 and
+            value["type"] in ("static", "dynamic") and
+            value["collider"] in ("bounds-box", "procedural-mesh") and
+            (value["collider"] != "procedural-mesh" or value["type"] == "static") and
+            type(value["sensor"]) is bool and
+            (not value["sensor"] or value["type"] == "static"),
+            "Invalid rigid body configuration")
+    for name, maximum in (("restitution", 1), ("friction", 2)):
+        item = value[name]
+        require(type(item) in (int, float) and math.isfinite(item) and
+                0 <= item <= maximum, f"Invalid rigid body {name}")
+    return copy.deepcopy(value)
+
+
+def rigid_gravity(value):
+    require(type(value) is dict and set(value) == {"x", "y", "z"} and
+            all(type(value[axis]) in (int, float) and math.isfinite(value[axis])
+                for axis in ("x", "y", "z")) and
+            math.hypot(value["x"], value["y"], value["z"]) <= 30,
+            "Invalid rigid gravity")
+    return copy.deepcopy(value)
+
+
+def creator_mode(value):
+    require(type(value) is dict and set(value) ==
+            {"schemaVersion", "mode", "simulation", "revision"} and
+            type(value["schemaVersion"]) is int and value["schemaVersion"] == 1 and
+            value["mode"] in ("creator", "play") and
+            value["simulation"] in ("paused", "running") and
+            (value["mode"] != "creator" or value["simulation"] == "paused") and
+            type(value["revision"]) is int and
+            0 <= value["revision"] <= 9007199254740991,
+            "Invalid creator mode")
+    return copy.deepcopy(value)
+
+
+def rigid_states(value, authored_scene):
+    require(type(value) is list and len(value) <= MAX_RIGID_BODIES,
+            "Invalid rigid states")
+    configured = {item["objectId"]: item["rigidBody"]["type"]
+                  for item in authored_scene["objects"] if "rigidBody" in item}
+    result, seen = [], set()
+    for item in value:
+        require(type(item) is dict and set(item) ==
+                {"objectId", "type", "held", "position", "rotation",
+                 "linearVelocity", "angularVelocity", "sleeping"},
+                "Invalid rigid state")
+        object_id = text(item["objectId"], "rigid objectId")
+        require(object_id in configured and object_id not in seen and
+                item["type"] == configured[object_id] and
+                type(item["held"]) is bool and type(item["sleeping"]) is bool and
+                (not item["held"] or item["type"] == "dynamic"),
+                "Unknown or incompatible rigid body state")
+        seen.add(object_id)
+        for name, axes in (("position", ("x", "y", "z")),
+                           ("rotation", ("x", "y", "z", "w")),
+                           ("linearVelocity", ("x", "y", "z")),
+                           ("angularVelocity", ("x", "y", "z"))):
+            vector_value = item[name]
+            require(type(vector_value) is dict and set(vector_value) == set(axes) and
+                    all(type(vector_value[axis]) in (int, float) and
+                        math.isfinite(vector_value[axis]) and
+                        abs(vector_value[axis]) <= (100 if name != "rotation" else 1.01)
+                        for axis in axes), f"Invalid rigid {name}")
+        result.append(copy.deepcopy(item))
+    return result
+
+
+def agent_grab(value, authored_scene):
+    if value is None:
+        return None
+    require(type(value) is dict and set(value) ==
+            {"objectId", "grabId", "expiresAtMs"}, "Invalid agent grab")
+    object_id = text(value["objectId"], "agent grab objectId")
+    grab_id = text(value["grabId"], "agent grab ID")
+    expires = value["expiresAtMs"]
+    require(type(expires) is int and 0 <= expires <= 9007199254740991 and
+            any(item["objectId"] == object_id and item.get("rigidBody", {}).get("type") == "dynamic"
+                for item in authored_scene["objects"]), "Invalid agent grab lease")
+    return {"objectId": object_id, "grabId": grab_id, "expiresAtMs": expires}
+
+
+def game_status(value, authored_scene):
+    if value is None:
+        return None
+    require(type(value) is dict and set(value) ==
+            {"phase", "score", "objectiveProgress", "unlockedObjectIds"} and
+            value["phase"] in ("playing", "won") and
+            type(value["score"]) is int and 0 <= value["score"] <= 9007199254740991 and
+            type(value["objectiveProgress"]) is dict and
+            len(value["objectiveProgress"]) <= 8 and
+            all(type(key) is str and 1 <= len(key) <= 32 and
+                type(count) is int and 0 <= count <= MAX_OBJECTS
+                for key, count in value["objectiveProgress"].items()) and
+            type(value["unlockedObjectIds"]) is list and
+            len(value["unlockedObjectIds"]) <= MAX_OBJECTS and
+            len(set(value["unlockedObjectIds"])) == len(value["unlockedObjectIds"]),
+            "Invalid game status")
+    scene_ids = {item["objectId"] for item in authored_scene["objects"]}
+    require(all(type(object_id) is str and object_id in scene_ids
+                for object_id in value["unlockedObjectIds"]),
+            "Game status references an unavailable object")
+    return copy.deepcopy(value)
+
+
+def entity_outcome(value, op, item, current):
+    """Keep only bounded, typed browser evidence for an entity receipt."""
+    require(type(value) is dict and type(value.get("schemaVersion")) is int and
+            value["schemaVersion"] == 1, "Invalid entity action outcome")
+    object_id = item["objectId"]
+    if op == "inspect_entity":
+        require(set(value) == {"schemaVersion", "kind", "roomId", "object",
+                               "rigidState", "colliderScope", "availableActions",
+                               "creatorMode", "gameStatus", "gameRoles", "agentGrab",
+                               "roomContext"} and
+                value["kind"] == "entity-inspection" and
+                value["roomId"] == current["scene"]["roomId"] and
+                type(value["object"]) is dict and
+                value["object"].get("objectId") == object_id,
+                "Invalid entity inspection")
+        candidate = copy.deepcopy(current["scene"])
+        candidate["objects"] = [value["object"] if obj["objectId"] == object_id else obj
+                                for obj in candidate["objects"]]
+        inspected_scene = scene(candidate)
+        require(value["colliderScope"] == ("virtual-floor" if
+                "rigidBody" in value["object"] else None), "Invalid collider scope")
+        actions = value["availableActions"]
+        require(type(actions) is list and len(actions) <= 2 and
+                len(set(actions)) == len(actions) and
+                all(action in ("begin_grab", "move_grab", "release_grab")
+                    for action in actions), "Invalid entity actions")
+        roles = value["gameRoles"]
+        require(type(roles) is list and len(roles) <= 8, "Invalid entity game roles")
+        game = current.get("game")
+        expected_roles = ([] if game is None else
+                          [role for role in game["spec"]["roles"]
+                           if object_id in game["bindings"].get(role["roleId"], [])])
+        require(roles == expected_roles, "Entity game roles changed")
+        grab = agent_grab(value["agentGrab"], inspected_scene)
+        require(grab is None or grab["objectId"] == object_id,
+                "Invalid inspected grab")
+        context = value["roomContext"]
+        require(type(context) is dict and set(context) ==
+                {"mode", "state", "alignmentVerified"} and
+                context["mode"] in ("white-room", "ar") and
+                context["state"] in ("ready", "missing") and
+                type(context["alignmentVerified"]) is bool,
+                "Invalid inspected room context")
+    else:
+        keys = {"schemaVersion", "kind", "objectId", "grabId", "rigidState",
+                "transform", "creatorMode"}
+        if op == "release_grab":
+            keys |= {"gameEvent", "gameStatus"}
+        require(set(value) == keys and
+                value["kind"] == {"begin_grab": "grab-began",
+                                  "move_grab": "grab-moved",
+                                  "release_grab": "grab-released"}[op] and
+                value["objectId"] == object_id and
+                type(value["grabId"]) is str and
+                value["grabId"] == (item["requestId"] if op == "begin_grab"
+                                    else item["grabId"]),
+                "Invalid grab outcome")
+        transform(value["transform"])
+        inspected_scene = copy.deepcopy(current["scene"])
+        inspected_scene["objects"] = [
+            {**obj, "transform": value["transform"]} if obj["objectId"] == object_id else obj
+            for obj in inspected_scene["objects"]]
+        if op == "release_grab":
+            event = value["gameEvent"]
+            if event is not None:
+                require(type(event) is dict and set(event) ==
+                        {"eventId", "objectId", "targetObjectId", "credited",
+                         "completed", "unlockedObjectIds", "message"} and
+                        event["eventId"] == item["requestId"] and
+                        event["objectId"] == object_id and
+                        text(event["targetObjectId"], "game target") and
+                        current.get("game") is not None and
+                        event["targetObjectId"] in {
+                            target for role in current["game"]["spec"]["roles"]
+                            if role["kind"] == "delivery-zone"
+                            for target in current["game"]["bindings"][role["roleId"]]} and
+                        event["credited"] is True and type(event["completed"]) is bool and
+                        type(event["unlockedObjectIds"]) is list and
+                        len(event["unlockedObjectIds"]) <= MAX_OBJECTS and
+                        type(event["message"]) is str and len(event["message"]) <= 500,
+                        "Invalid release game event")
+            game_status(value["gameStatus"], inspected_scene)
+    mode = creator_mode(value["creatorMode"])
+    require(current.get("creatorMode") == mode, "Entity outcome mode changed")
+    state = value["rigidState"]
+    if state is not None:
+        rigid_states([state], inspected_scene)
+        require(state["objectId"] == object_id and
+                (op == "inspect_entity" or
+                 state["held"] == (op != "release_grab")),
+                "Invalid inspected rigid state")
+    elif op != "inspect_entity":
+        raise APIError(400, "Grab outcome needs a rigid state")
+    if op != "inspect_entity":
+        current_state = next((entry for entry in current.get("rigidStates", [])
+                              if entry["objectId"] == object_id), None)
+        require(current_state is not None and
+                current_state["held"] == (op != "release_grab"),
+                "Entity action was not observed in the live solver")
+        if op != "release_grab":
+            current_object = next((obj for obj in current["scene"]["objects"]
+                                   if obj["objectId"] == object_id), None)
+            require(current_object is not None and
+                    current_object["transform"] == value["transform"],
+                    "Grab pose was not observed")
+        active = current.get("agentGrab")
+        require((active is not None and active["objectId"] == object_id and
+                 active["grabId"] == value["grabId"]) if op != "release_grab" else
+                (active is None or active["objectId"] != object_id),
+                "Entity grab lease was not observed")
+        if op == "release_grab":
+            require(current.get("gameStatus") == value["gameStatus"],
+                    "Release game progress was not observed")
+    if op == "inspect_entity":
+        game_status(value["gameStatus"], inspected_scene)
+    try:
+        require(len(json.dumps(value, allow_nan=False).encode("utf-8")) <= 16 * 1024,
+                "Entity outcome exceeds its limit")
+    except (TypeError, ValueError, UnicodeError):
+        raise APIError(400, "Invalid entity outcome JSON") from None
+    return copy.deepcopy(value)
+
+
+def world_archive_outcome(value, op, item, current):
+    """Accept only compact browser archive evidence, never full saved worlds."""
+    require(type(value) is dict and current is not None and
+            current.get("worldSlotSchemaVersion") == 1 and
+            current["scene"]["roomId"] == item["roomId"] and
+            not current.get("readOnly"),
+            "World archive receipt lacks a live compatible room")
+
+    def archive(value, *, summary=False):
+        required = {"archiveId", "name", "createdAtUtc", "objectCount", "gameTitle"} if summary else \
+                   {"archiveId", "name"}
+        require(type(value) is dict and set(value) == required,
+                "Invalid world archive metadata")
+        archive_id = value["archiveId"]
+        require(type(archive_id) is str and
+                re.fullmatch(r"[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}", archive_id),
+                "Invalid world archive ID")
+        name = value["name"]
+        require(type(name) is str and name == name.strip() and
+                1 <= sum(2 if ord(c) > 0xffff else 1 for c in name) <= 80 and
+                not any(ord(c) < 32 or 0xd800 <= ord(c) <= 0xdfff for c in name),
+                "Invalid world archive name")
+        if summary:
+            require(type(value["createdAtUtc"]) is str and
+                    re.fullmatch(r"[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}\.[0-9]{3}Z",
+                                 value["createdAtUtc"]) and
+                    type(value["objectCount"]) is int and
+                    0 <= value["objectCount"] <= MAX_OBJECTS and
+                    type(value["gameTitle"]) is str and
+                    len(value["gameTitle"]) <= 80 and
+                    not any(0xd800 <= ord(c) <= 0xdfff for c in value["gameTitle"]),
+                    "Invalid world archive summary")
+        return copy.deepcopy(value)
+
+    if op == "list_world_archives":
+        require(set(value) == {"kind", "archives", "offset", "total", "nextOffset"} and
+                value["kind"] == "world-archives" and
+                value["offset"] == item["offset"] and
+                type(value["total"]) is int and 0 <= value["total"] <= 1000000 and
+                type(value["archives"]) is list and len(value["archives"]) <= 32,
+                "Invalid world archive list")
+        entries = [archive(entry, summary=True) for entry in value["archives"]]
+        require(len({entry["archiveId"] for entry in entries}) == len(entries) and
+                (value["nextOffset"] is None or
+                 type(value["nextOffset"]) is int and
+                 value["nextOffset"] == item["offset"] + len(entries) and
+                 value["nextOffset"] < value["total"]),
+                "Invalid world archive page")
+        return {**value, "archives": entries}
+
+    keys = {"kind", "archived"} | ({"restored"} if op == "restore_world_archive" else set())
+    require(set(value) == keys and
+            value["kind"] == ("world-created" if op == "start_new_world" else "world-restored") and
+            (current.get("creatorMode") or {}).get("mode") == "creator" and
+            (current.get("creatorMode") or {}).get("simulation") == "paused" and
+            current.get("agentGrab") is None,
+            "Invalid world switch receipt")
+    archived = archive(value["archived"])
+    require(archived["name"] == item["archiveName"],
+            "World archive name changed during switch")
+    if op == "start_new_world":
+        require(not current["scene"]["objects"] and current.get("game") is None and
+                current.get("citizensState") is None,
+                "New world did not become the empty active world")
+        return {"kind": "world-created", "archived": archived}
+    restored = archive(value["restored"])
+    require(restored["archiveId"] == item["archiveId"],
+            "A different world archive was restored")
+    return {"kind": "world-restored", "archived": archived, "restored": restored}
 
 
 def interaction_descriptor(value):
@@ -274,12 +619,24 @@ def scene(value):
     for item in objects:
         require(isinstance(item, dict), "Invalid scene object")
         object_id = text(item.get("objectId"), "objectId")
+        require(object_id != "__matrix_floor__", "Reserved Matrix floor objectId")
         require(object_id not in ids, "Duplicate objectId")
         ids.add(object_id)
         normalized.append({"objectId": object_id,
                            "assetId": text(item.get("assetId"), "assetId"),
                            "anchorId": text(item.get("anchorId"), "anchorId"),
                            "transform": transform(item.get("transform"))})
+        authored = normalized[-1]
+        if authored["assetId"] == "matrix:procedural":
+            require(authored["anchorId"] == "web-floor" and "procedural" in item,
+                    "Procedural objects require a virtual-floor recipe")
+            try:
+                authored["procedural"] = copy.deepcopy(checked_recipe(item["procedural"]))
+            except ProceduralError as error:
+                raise APIError(400, str(error)) from None
+        else:
+            require("procedural" not in item,
+                    "Procedural recipe requires the procedural asset")
         try:
             source = validate_content_source(item.get("source"), normalized[-1]["assetId"])
             if source:
@@ -297,6 +654,17 @@ def scene(value):
             normalized[-1]["component"] = copy.deepcopy(item["component"])
         if "animation" in item:
             normalized[-1]["animation"] = animation_binding(item["animation"])
+        if "display" in item:
+            normalized[-1]["display"] = display_descriptor(item["display"])
+        if "rigidBody" in item:
+            authored = normalized[-1]
+            authored["rigidBody"] = rigid_body_config(item["rigidBody"])
+            require(authored["anchorId"] == "web-floor" and
+                    (authored["rigidBody"]["collider"] != "procedural-mesh" or
+                     authored["assetId"] == "matrix:procedural") and
+                    "component" not in authored and "animation" not in authored and
+                    not any(behavior["enabled"] for behavior in authored.get("behaviors", [])),
+                    "Rigid bodies need a virtual-floor object without another motion owner")
         if "physics" in item:
             normalized[-1]["physics"] = physics_config(item["physics"])
             authored = normalized[-1]
@@ -306,6 +674,7 @@ def scene(value):
                     abs(pose["rotation"]["z"]) <= .01 and
                     0 <= pose["position"]["y"] <= 5 and
                     "component" not in authored and
+                    "rigidBody" not in authored and
                     not any(behavior["enabled"] for behavior in authored.get("behaviors", [])),
                     "Physics requires an upright virtual-floor object without another motion writer")
         if "interaction" in item:
@@ -318,6 +687,7 @@ def scene(value):
                     abs(pose["rotation"]["z"]) <= .01 and
                     "animation" not in authored and
                     "physics" not in authored and
+                    "rigidBody" not in authored and
                     authored.get("component", {}).get("status") != "running" and
                     not any(behavior["enabled"] and not behavior["paused"]
                             for behavior in authored.get("behaviors", [])),
@@ -325,6 +695,8 @@ def scene(value):
             authored["interaction"] = interaction_descriptor(item["interaction"])
     require(sum("physics" in item for item in normalized) <= MAX_PHYSICS_BODIES,
             "Scene physics body limit reached")
+    require(sum("rigidBody" in item for item in normalized) <= MAX_RIGID_BODIES,
+            "Scene rigid body limit reached")
     for item in normalized:
         component = item.get("component")
         if component:
@@ -436,11 +808,40 @@ def catalog(value, key, limit):
     return result
 
 
+def runtime_descriptor(value):
+    """Accept only a known live client descriptor; older versions remain unknown."""
+    if value is None:
+        return None
+    require(type(value) is dict, "Invalid runtime descriptor")
+    if type(value.get("schemaVersion")) is not int or value["schemaVersion"] != 1:
+        return None
+    require(set(value) == {"schemaVersion", "client", "renderer", "presentation"} and
+            value["client"] == "matrix-web" and value["renderer"] == "threejs-webxr" and
+            value["presentation"] in ("desktop", "vr", "ar"),
+            "Invalid Matrix Web runtime descriptor")
+    return copy.deepcopy(value)
+
+
 def snapshot(value):
     require(isinstance(value, dict), "Invalid snapshot")
     result = {"scene": scene(value.get("scene")),
               "assets": catalog(value.get("assets"), "assetId", 512),
               "anchors": catalog(value.get("anchors"), "anchorId", 128)}
+    if "proceduralGenerators" in value:
+        try:
+            result["proceduralGenerators"] = copy.deepcopy(
+                checked_generators(value["proceduralGenerators"]))
+        except ProceduralError as error:
+            raise APIError(400, str(error)) from None
+    procedural_objects = [item for item in result["scene"]["objects"]
+                          if "procedural" in item]
+    require(not procedural_objects or "proceduralGenerators" in result,
+            "Procedural scene requires an advertised generator registry")
+    for item in procedural_objects:
+        try:
+            available_recipe(item["procedural"], result["proceduralGenerators"])
+        except ProceduralError as error:
+            raise APIError(409, str(error)) from None
     selected = value.get("selection")
     if selected is not None:
         require(isinstance(selected, dict), "Invalid selection")
@@ -465,6 +866,16 @@ def snapshot(value):
             require(type(value["physicsSchemaVersion"]) is int and value["physicsSchemaVersion"] == 1,
                     "Unsupported physics schema")
             result["physicsSchemaVersion"] = 1
+        if value.get("rigidSchemaVersion") is not None:
+            require(type(value["rigidSchemaVersion"]) is int and
+                    value["rigidSchemaVersion"] == 1,
+                    "Unsupported rigid body schema")
+            result["rigidSchemaVersion"] = 1
+        if value.get("entityActionSchemaVersion") is not None:
+            require(type(value["entityActionSchemaVersion"]) is int and
+                    value["entityActionSchemaVersion"] == 1,
+                    "Unsupported entity action schema")
+            result["entityActionSchemaVersion"] = 1
         if value.get("interactionSchemaVersion") is not None:
             require(type(value["interactionSchemaVersion"]) is int and
                     value["interactionSchemaVersion"] == 1,
@@ -479,6 +890,9 @@ def snapshot(value):
         require(result.get("physicsSchemaVersion") == 1 or
                 not any("physics" in item for item in result["scene"]["objects"]),
                 "Scene physics requires the WebXR physics runtime")
+        require(result.get("rigidSchemaVersion") == 1 or
+                not any("rigidBody" in item for item in result["scene"]["objects"]),
+                "Scene rigid bodies require the Matrix Web rigid runtime")
         require(result.get("interactionSchemaVersion") == 1 or
                 not any("interaction" in item for item in result["scene"]["objects"]),
                 "Scene interactions require the Matrix Web runtime")
@@ -501,6 +915,7 @@ def snapshot(value):
                                      {a["anchorId"]: a for a in result["anchors"]},
                                      {o["objectId"]: o for o in result["scene"]["objects"]})
         room = validate_room_context(value.get("roomContext"))
+        descriptor = runtime_descriptor(value.get("runtimeDescriptor"))
     except PlannerError as error:
         raise APIError(400, str(error)) from None
     if viewer is not None:
@@ -509,6 +924,11 @@ def snapshot(value):
         result["pointing"] = pointing
     if room is not None:
         result["roomContext"] = room
+    if descriptor is not None:
+        require(room is not None and
+                (room["mode"] == "ar") == (descriptor["presentation"] == "ar"),
+                "Runtime presentation and room context disagree")
+        result["runtimeDescriptor"] = descriptor
     # Keep a structurally valid authored descriptor available for cleanup when
     # a registered GLB later becomes unavailable, or the wearer enters AR.
     # Set/use and checkpoint restore validate current catalog dependencies.
@@ -519,6 +939,46 @@ def snapshot(value):
         require(not states or room is not None and room["mode"] == "white-room" and
                 room["state"] == "ready", "Physics observations require the ready White Room")
         result["physicsStates"] = states
+    if "rigidGravity" in value:
+        require(result.get("rigidSchemaVersion") == 1,
+                "Rigid gravity requires the Matrix Web rigid runtime")
+        result["rigidGravity"] = rigid_gravity(value["rigidGravity"])
+    if "rigidStates" in value:
+        require(result.get("rigidSchemaVersion") == 1,
+                "Rigid observations require the Matrix Web rigid runtime")
+        result["rigidStates"] = rigid_states(value["rigidStates"], result["scene"])
+    if "creatorMode" in value:
+        result["creatorMode"] = creator_mode(value["creatorMode"])
+    if "agentGrab" in value:
+        require(result.get("entityActionSchemaVersion") == 1,
+                "Agent grab requires the Matrix entity action runtime")
+        result["agentGrab"] = agent_grab(value["agentGrab"], result["scene"])
+    if "worldSlotSchemaVersion" in value:
+        require(type(value["worldSlotSchemaVersion"]) is int and
+                value["worldSlotSchemaVersion"] == 1,
+                "Unsupported browser world archive contract")
+        result["worldSlotSchemaVersion"] = 1
+        require("citizensState" in value,
+                "World archive contract requires a Citizens state observation")
+        if value["citizensState"] is not None:
+            validate_citizens_checkpoint(value["citizensState"], result["scene"])
+        result["citizensState"] = copy.deepcopy(value["citizensState"])
+    if "gameStatus" in value:
+        result["gameStatus"] = game_status(value["gameStatus"], result["scene"])
+    if "game" in value:
+        try:
+            result["game"] = copy.deepcopy(validate_saved_game(
+                value["game"], result["scene"], result))
+        except (ValueError, TypeError, KeyError) as error:
+            raise APIError(400, str(error) or "Invalid connected game state") from None
+        expected = (None if result["game"] is None else {
+            "phase": result["game"]["state"]["phase"],
+            "score": result["game"]["state"]["score"],
+            "objectiveProgress": result["game"]["state"]["objectiveProgress"],
+            "unlockedObjectIds": result["game"]["state"].get("unlockedObjectIds", [])})
+        if "gameStatus" in result:
+            require(result["gameStatus"] == expected,
+                    "Game status disagrees with connected game state")
     read_only = value.get("readOnly", False)
     require(type(read_only) is bool, "Invalid readOnly marker")
     if read_only:
@@ -556,7 +1016,9 @@ def scene_revision_data(value, *, include_observed_motion=False):
     # Voice captures head/controller pose at recording start. Movement isn't a scene edit.
     if value is None:
         return None
-    result = {key: item for key, item in value.items() if key not in ("viewer", "pointing", "physicsStates")}
+    result = {key: item for key, item in value.items()
+              if key not in ("viewer", "pointing", "physicsStates", "rigidStates", "gameStatus",
+                             "agentGrab", "citizensState")}
     observation = result.get("citizensObservation")
     if observation is not None and not include_observed_motion:
         residents = set(observation["residentObjectIds"])
@@ -608,7 +1070,9 @@ RESIDENT_PRECONDITION_OPS = {"set_transform", "set_behavior", "remove_behavior",
                              "delete", "duplicate", "select", "attach_component",
                              "stop_component", "remove_component", "bind_animation",
                              "set_physics", "remove_physics", "set_interaction",
-                             "remove_interaction"}
+                             "remove_interaction", "update_procedural",
+                             "set_display", "remove_display", "set_rigid_body", "remove_rigid_body",
+                             "begin_grab", "move_grab", "release_grab"}
 
 
 def command(value, *, allow_precondition=False):
@@ -617,6 +1081,32 @@ def command(value, *, allow_precondition=False):
     require(isinstance(op, str) and op in OPS, "Unknown command op")
     allowed = {"op", "requestId"}
     required = {"spawn": {"assetId", "anchorId", "transform"}, "set_transform": {"objectId", "transform"},
+                "bind_game": {"spec", "bindings"},
+                "update_game": {"spec", "bindings", "expectedSpec", "expectedBindings"},
+                "create_procedural": {"anchorId", "transform", "procedural"},
+                "update_procedural": {"objectId", "procedural", "expectedProcedural",
+                                      "expectedTransform"},
+                "set_display": {"objectId", "display", "expectedDisplay"},
+                "remove_display": {"objectId", "expectedDisplay"},
+                "set_rigid_body": {"objectId", "rigidBody", "expectedRigidBody",
+                                   "expectedTransform"},
+                "remove_rigid_body": {"objectId", "expectedRigidBody",
+                                      "expectedTransform"},
+                "set_gravity": {"gravity", "expectedGravity"},
+                "inspect_entity": {"objectId"},
+                "begin_grab": {"objectId", "expectedTransform", "expectedCreatorRevision"},
+                "move_grab": {"objectId", "expectedTransform", "expectedCreatorRevision",
+                              "grabId", "targetPose"},
+                "release_grab": {"objectId", "expectedTransform", "expectedCreatorRevision",
+                                 "grabId"},
+                "list_world_archives": {"roomId", "offset"},
+                "start_new_world": {"roomId", "archiveName", "expectedScene", "expectedGame",
+                                    "expectedCreatorRevision", "expectedGravity",
+                                    "expectedCitizensState", "expectedCitizensGeneration"},
+                "restore_world_archive": {"roomId", "archiveId", "archiveName", "expectedScene",
+                                          "expectedGame", "expectedCreatorRevision",
+                                          "expectedGravity", "expectedCitizensState",
+                                          "expectedCitizensGeneration"},
                 "set_behavior": {"objectId", "behavior"}, "remove_behavior": {"objectId", "behaviorKind"},
                 "attach_component": {"objectId", "componentId", "package", "targetObjectId"},
                 "stop_component": {"objectId"}, "remove_component": {"objectId"},
@@ -638,6 +1128,8 @@ def command(value, *, allow_precondition=False):
     require(not (set(value) - allowed), "Unexpected command fields")
     require(required <= set(value), "Missing command fields")
     result = {"op": op}
+    if op in {"list_world_archives", "start_new_world", "restore_world_archive"}:
+        result["roomId"] = text(value["roomId"], "roomId")
     for key in ("assetId", "objectId", "anchorId", "componentId", "targetObjectId"):
         if key in value:
             result[key] = text(value[key], key, empty=key == "anchorId")
@@ -652,6 +1144,74 @@ def command(value, *, allow_precondition=False):
         result["placement"] = "surface"
     if "scene" in value:
         result["scene"] = scene(value["scene"])
+    if "display" in value:
+        result["display"] = display_descriptor(value["display"])
+    if "expectedDisplay" in value:
+        result["expectedDisplay"] = (None if value["expectedDisplay"] is None else
+                                     display_descriptor(value["expectedDisplay"]))
+    if "rigidBody" in value:
+        result["rigidBody"] = rigid_body_config(value["rigidBody"])
+    if "expectedRigidBody" in value:
+        result["expectedRigidBody"] = (None if value["expectedRigidBody"] is None else
+                                       rigid_body_config(value["expectedRigidBody"]))
+    if "gravity" in value:
+        result["gravity"] = rigid_gravity(value["gravity"])
+    if "expectedGravity" in value:
+        result["expectedGravity"] = rigid_gravity(value["expectedGravity"])
+    if "expectedCreatorRevision" in value:
+        revision = value["expectedCreatorRevision"]
+        require(type(revision) is int and 0 <= revision <= 9007199254740991,
+                "Invalid expected Creator Mode revision")
+        result["expectedCreatorRevision"] = revision
+    if op in {"start_new_world", "restore_world_archive"}:
+        name = value["archiveName"]
+        require(type(name) is str and name == name.strip() and
+                1 <= sum(2 if ord(char) > 0xffff else 1 for char in name) <= 80 and
+                not any(ord(char) < 32 or 0xd800 <= ord(char) <= 0xdfff for char in name),
+                "Invalid world archive name")
+        result["archiveName"] = name
+        result["expectedScene"] = scene(value["expectedScene"])
+        game = value["expectedGame"]
+        require(game is None or type(game) is dict, "Invalid expected game state")
+        result["expectedGame"] = copy.deepcopy(game)
+        result["expectedCitizensState"] = copy.deepcopy(value["expectedCitizensState"])
+        generation = value["expectedCitizensGeneration"]
+        require(generation is None or type(generation) is int and
+                0 <= generation <= 9007199254740991,
+                "Invalid expected Citizens generation")
+        result["expectedCitizensGeneration"] = generation
+    if op == "restore_world_archive":
+        archive_id = value["archiveId"]
+        require(type(archive_id) is str and
+                re.fullmatch(r"[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}", archive_id),
+                "Invalid browser archive ID")
+        result["archiveId"] = archive_id
+    if op == "list_world_archives":
+        offset = value["offset"]
+        require(type(offset) is int and 0 <= offset <= 10000,
+                "Invalid browser archive offset")
+        result["offset"] = offset
+    if "grabId" in value:
+        result["grabId"] = text(value["grabId"], "grabId")
+    if "targetPose" in value:
+        result["targetPose"] = grab_pose(value["targetPose"])
+    if "spec" in value:
+        require(type(value["spec"]) is dict and type(value.get("bindings")) is dict,
+                "Invalid Matrix game binding")
+        result["spec"] = copy.deepcopy(value["spec"])
+        result["bindings"] = copy.deepcopy(value["bindings"])
+    if "expectedSpec" in value:
+        require(type(value["expectedSpec"]) is dict and
+                type(value.get("expectedBindings")) is dict,
+                "Invalid expected game binding")
+        result["expectedSpec"] = copy.deepcopy(value["expectedSpec"])
+        result["expectedBindings"] = copy.deepcopy(value["expectedBindings"])
+    for key in ("procedural", "expectedProcedural"):
+        if key in value:
+            try:
+                result[key] = copy.deepcopy(checked_recipe(value[key]))
+            except ProceduralError as error:
+                raise APIError(400, str(error)) from None
     if "behavior" in value:
         try:
             result["behavior"] = validate_behavior(value["behavior"])
@@ -1503,6 +2063,34 @@ def local_agent_backend(state=None):
                                   getattr(state, "matrix_tool_bridge", None))
 
 
+def agent_capability_context(current):
+    """Small, server-validated capability view; no scene objects or pointing data."""
+    versions = {key: current[key] for key in
+                ("componentSchemaVersion", "animationSchemaVersion",
+                 "physicsSchemaVersion", "rigidSchemaVersion",
+                 "interactionSchemaVersion", "entityActionSchemaVersion",
+                 "worldSlotSchemaVersion")
+                if key in current}
+    return {"runtimeDescriptor": current.get("runtimeDescriptor"),
+            "capabilityVersions": versions,
+            "assetCatalogCount": len(current["assets"]),
+            "proceduralGeneratorCount": len(current.get("proceduralGenerators", [])),
+            "creatorMode": current.get("creatorMode")}
+
+
+def agent_runtime_context(state):
+    """Refresh metadata for a text turn whose wearer did not opt into spatial data."""
+    with state.lock:
+        state.expire()
+        current = state.latest if state.online() and state.latest else None
+        return {"schemaVersion": 1, "kind": "matrix_runtime_context",
+                "online": current is not None,
+                **(agent_capability_context(current) if current else
+                   {"runtimeDescriptor": None, "capabilityVersions": {},
+                    "assetCatalogCount": None, "proceduralGeneratorCount": 0,
+                    "creatorMode": None})}
+
+
 def agent_turn_context(state, value):
     """Reduce one wearer-owned semantic hit to bounded, advisory agent data."""
     require(isinstance(value, dict) and set(value) == {"schemaVersion", "inputSource", "clientId",
@@ -1550,7 +2138,8 @@ def agent_turn_context(state, value):
             frame = checked["frames"][0]
         def object_summary(item):
             return {"objectId": item["objectId"], "assetId": item["assetId"],
-                    "anchorId": item["anchorId"], "transform": item["transform"]}
+                    "anchorId": item["anchorId"], "transform": item["transform"],
+                    **({"procedural": item["procedural"]} if "procedural" in item else {})}
         scene_objects = current["scene"]["objects"]
         priority_ids = [identifier for identifier in
                         (selected_id, target["objectId"] if target else None) if identifier]
@@ -1570,6 +2159,8 @@ def agent_turn_context(state, value):
         return {"schemaVersion": 1, "kind": "matrix_spatial_context",
                 "inputSource": value["inputSource"], "roomId": room_id,
                 "sceneRevision": state.revision,
+                **agent_capability_context(current),
+                "gameStatus": current.get("gameStatus"),
                 "room": {"mode": room.get("mode", "unknown"), "state": room.get("state", "unknown"),
                          "alignmentVerified": room.get("alignmentVerified", False),
                          "readOnly": current.get("readOnly", False)},
@@ -1602,7 +2193,8 @@ def agent_portal_action(state, path, body):
     if path == "/api/agent/turn":
         require(set(body) in ({"sessionId", "text"}, {"sessionId", "text", "context"}),
                 "Invalid Agent turn request")
-        context = agent_turn_context(state, body["context"]) if "context" in body else None
+        context = (agent_turn_context(state, body["context"]) if "context" in body
+                   else agent_runtime_context(state))
         return portal.send_text(body["sessionId"], body["text"], context)
     if path == "/api/agent/approval":
         require(set(body) == {"sessionId", "approvalId", "turnId", "approve"}, "Invalid Agent approval request")
@@ -1627,8 +2219,17 @@ def virtual_floor_command(snapshot, item):
     """Allow only commands proven to stay on the virtual floor before AR alignment."""
     if not web_virtual_floor_ready(snapshot):
         return False
-    if item["op"] == "spawn":
+    if item["op"] in {"spawn", "create_procedural"}:
         return item["anchorId"] == "web-floor" and "placement" not in item
+    if item["op"] == "set_gravity":
+        return True
+    if item["op"] == "inspect_entity":
+        return True
+    if item["op"] in {"bind_game", "update_game"}:
+        floor_ids = {obj["objectId"] for obj in snapshot["scene"]["objects"]
+                     if obj["anchorId"] == "web-floor"}
+        return all(object_id in floor_ids for ids in item["bindings"].values()
+                   for object_id in ids)
     objects = {obj["objectId"]: obj for obj in snapshot["scene"]["objects"]}
     target = objects.get(item.get("objectId"))
     if target is None or target["anchorId"] != "web-floor":
@@ -1639,7 +2240,10 @@ def virtual_floor_command(snapshot, item):
         other = objects.get(item["targetObjectId"])
         return (other is not None and other["anchorId"] == "web-floor" and
                 other["objectId"] != target["objectId"])
-    return item["op"] in {"duplicate", "set_behavior", "remove_behavior",
+    return item["op"] in {"duplicate", "update_procedural", "set_display", "remove_display",
+                          "set_rigid_body", "remove_rigid_body",
+                          "begin_grab", "move_grab", "release_grab",
+                          "set_behavior", "remove_behavior",
                           "stop_component", "remove_component", "bind_animation",
                            "remove_physics", "remove_interaction", "delete"}
 
@@ -1691,6 +2295,12 @@ class State:
         self.results = collections.deque(maxlen=100)
         self.agent_move_ids = collections.OrderedDict()
         self.agent_spawn_ids = collections.OrderedDict()
+        self.agent_procedural_ids = collections.OrderedDict()
+        self.agent_game_ids = collections.OrderedDict()
+        self.agent_display_ids = collections.OrderedDict()
+        self.agent_rigid_ids = collections.OrderedDict()
+        self.agent_entity_ids = collections.OrderedDict()
+        self.agent_world_archive_ids = collections.OrderedDict()
         self.agent_animation_ids = collections.OrderedDict()
         self.agent_component_ids = collections.OrderedDict()
         self.agent_physics_ids = collections.OrderedDict()
@@ -1839,7 +2449,8 @@ class State:
             require(isinstance(item, dict) and type(item.get("ok")) is bool, "Invalid result")
             checked.append({"requestId": text(item.get("requestId"), "requestId"), "ok": item["ok"],
                             "error": text("" if item.get("error") is None else item["error"], "error", empty=True, limit=2048),
-                            "objectId": text("" if item.get("objectId") is None else item["objectId"], "objectId", empty=True)})
+                            "objectId": text("" if item.get("objectId") is None else item["objectId"], "objectId", empty=True),
+                            **({"outcome": item["outcome"]} if "outcome" in item else {})})
         with self.lock:
             self.expire()
             require(self.client_id in (None, client_id), "Another client holds the active lease", 409)
@@ -1859,6 +2470,28 @@ class State:
             self.client_id, self.last_seen = client_id, self.clock()
             for result in checked:
                 if result["requestId"] in self.pending:
+                    issued = self.pending[result["requestId"]]
+                    if issued["op"] in {"inspect_entity", "begin_grab", "move_grab", "release_grab"}:
+                        require(result["objectId"] == issued["objectId"] or not result["ok"],
+                                "Entity receipt target mismatch")
+                        if result["ok"]:
+                            require(current is not None and "outcome" in result,
+                                    "Entity receipt lacks observation")
+                            result["outcome"] = entity_outcome(
+                                result["outcome"], issued["op"], issued, current)
+                        else:
+                            result.pop("outcome", None)
+                    elif issued["op"] in {"list_world_archives", "start_new_world",
+                                          "restore_world_archive"}:
+                        require(result["objectId"] == "", "World archive receipt has an object target")
+                        if result["ok"]:
+                            require("outcome" in result, "World archive receipt lacks its result")
+                            result["outcome"] = world_archive_outcome(
+                                result["outcome"], issued["op"], issued, current)
+                        else:
+                            result.pop("outcome", None)
+                    else:
+                        result.pop("outcome", None)
                     del self.pending[result["requestId"]]
                     self.results.append(result)
             if current is None or (current.get("readOnly") and not (self.latest or {}).get("readOnly")):
@@ -2015,6 +2648,25 @@ class State:
         require(isinstance(raw_commands, list) and 0 < len(raw_commands) <= MAX_BATCH,
                 f"Expected 1-{MAX_BATCH} commands")
         checked = [command(item, allow_precondition=True) for item in raw_commands]
+        if any(item["op"] in {"create_procedural", "update_procedural"} for item in checked):
+            require(len(checked) == 1,
+                    "Review one procedural world edit at a time", 409)
+        if any(item["op"] in {"bind_game", "update_game"} for item in checked):
+            require(len(checked) == 1,
+                    "Review one game revision at a time", 409)
+        if any(item["op"] in {"set_display", "remove_display"} for item in checked):
+            require(len(checked) == 1,
+                    "Review one display edit at a time", 409)
+        if any(item["op"] in {"set_rigid_body", "remove_rigid_body", "set_gravity"}
+               for item in checked):
+            require(len(checked) == 1,
+                    "Review one rigid-physics edit at a time", 409)
+        if any(item["op"] in {"inspect_entity", "begin_grab", "move_grab", "release_grab"}
+               for item in checked):
+            require(len(checked) == 1, "Operate one entity at a time", 409)
+        if any(item["op"] in {"list_world_archives", "start_new_world", "restore_world_archive"}
+               for item in checked):
+            require(len(checked) == 1, "Operate one browser world archive at a time", 409)
         if any(item["op"] in {"set_interaction", "remove_interaction"} for item in checked):
             require(len(checked) == 1,
                     "Review one interaction change at a time", 409)
@@ -2036,7 +2688,184 @@ class State:
             room = self.runtime
             for item in checked:
                 supported = self.latest.get("behaviorKinds", [])
-                if item["op"] in {"set_behavior", "remove_behavior"}:
+                if item["op"] in {"list_world_archives", "start_new_world", "restore_world_archive"}:
+                    current = self.latest
+                    mode = current.get("creatorMode") or {}
+                    require(current.get("worldSlotSchemaVersion") == 1 and
+                            "citizensState" in current and
+                            current["scene"]["roomId"] == item["roomId"] and
+                            room and room["state"] == "ready" and
+                            room["mode"] in ("white-room", "ar") and
+                            web_virtual_floor_ready(current) and
+                            not current.get("readOnly") and not self.pending,
+                            "Connected Matrix runtime has no ready browser world archive contract", 409)
+                    if item["op"] != "list_world_archives":
+                        require(mode.get("mode") == "creator" and
+                                mode.get("simulation") == "paused" and
+                                current.get("agentGrab") is None and
+                                not any(state["held"] for state in current.get("rigidStates", [])) and
+                                not self.proposals and
+                                all(obj["anchorId"] == "web-floor" for obj in
+                                    current["scene"]["objects"]),
+                                "Return to paused Creator Mode with only virtual floor objects before switching worlds", 409)
+                        require(item["expectedScene"] == current["scene"] and
+                                item["expectedGame"] == current.get("game") and
+                                item["expectedGravity"] == current.get("rigidGravity") and
+                                item["expectedCreatorRevision"] == mode["revision"] and
+                                item["expectedCitizensState"] == current["citizensState"] and
+                                item["expectedCitizensGeneration"] ==
+                                (current.get("citizensObservation") or {}).get("authoredGeneration"),
+                                "World changed; inspect the current room before switching", 409)
+                elif item["op"] in {"bind_game", "update_game"}:
+                    mode = self.latest.get("creatorMode") or {}
+                    require(web_virtual_floor_ready(self.latest) and
+                            mode.get("mode") == "creator" and
+                            mode.get("simulation") == "paused" and
+                            not self.pending,
+                            "Revise games only in paused Creator Mode", 409)
+                    prior = self.latest.get("game")
+                    if item["op"] == "bind_game":
+                        require(prior is None,
+                                "An existing game must be explicitly preserved or cleared before rebinding", 409)
+                    else:
+                        require(prior is not None and prior["spec"].get("schemaVersion") == 2 and
+                                prior["spec"] == item["expectedSpec"] and
+                                prior["bindings"] == item["expectedBindings"],
+                                "Game changed; inspect its current spec and bindings", 409)
+                    try:
+                        spec = validate_game_plan(item["spec"], self.latest)
+                        require(spec.get("schemaVersion") == 2 and spec["kind"] == "game",
+                                "Game revision requires a supported version-2 game", 409)
+                        earned = bool(prior and prior["state"]["creditedEvents"])
+                        require(not earned or
+                                (spec["roles"] == prior["spec"]["roles"] and
+                                 spec["rules"] == prior["spec"]["rules"]),
+                                "Earned game events require unchanged roles and rules", 409)
+                        progress = {objective["roleId"]: 0 for objective in spec["objectives"]
+                                    if objective["kind"] == "delivered-count"}
+                        next_state = (copy.deepcopy(prior["state"]) if earned else
+                                      {"phase": "playing", "score": 0,
+                                       "deliveries": [],
+                                       "objectiveProgress": progress,
+                                       "creditedEvents": [],
+                                       "unlockedObjectIds": []})
+                        proposed = {"spec": spec, "bindings": item["bindings"],
+                                    "state": next_state}
+                        validate_saved_game(proposed, self.latest["scene"], self.latest)
+                    except (ValueError, TypeError, KeyError) as error:
+                        raise APIError(409, str(error) or "Invalid game binding") from None
+                elif item["op"] in {"inspect_entity", "begin_grab", "move_grab", "release_grab"}:
+                    require(self.latest.get("entityActionSchemaVersion") == 1,
+                            "Connected Matrix runtime has no entity action contract", 409)
+                    obj = next((obj for obj in self.latest["scene"]["objects"]
+                                if obj["objectId"] == item["objectId"]), None)
+                    require(obj is not None, "Entity is unavailable", 409)
+                    if item["op"] != "inspect_entity":
+                        mode = self.latest.get("creatorMode") or {}
+                        require(web_virtual_floor_ready(self.latest) and
+                                mode.get("mode") == "play" and mode.get("simulation") == "running" and
+                                self.latest.get("rigidSchemaVersion") == 1 and
+                                not self.pending,
+                                "Entity actions require running Play/Test Mode", 409)
+                        require(obj["anchorId"] == "web-floor" and
+                                obj.get("rigidBody", {}).get("type") == "dynamic" and
+                                obj["transform"] == item["expectedTransform"] and
+                                mode["revision"] == item["expectedCreatorRevision"],
+                                "Entity changed since inspection", 409)
+                        rigid = next((state for state in self.latest.get("rigidStates", [])
+                                      if state["objectId"] == item["objectId"]), None)
+                        require(rigid is not None, "Live rigid entity is unavailable", 409)
+                        active = self.latest.get("agentGrab")
+                        if item["op"] == "begin_grab":
+                            require(active is None and not rigid["held"],
+                                    "Entity is already grabbed", 409)
+                        else:
+                            require(active is not None and active["objectId"] == item["objectId"] and
+                                    active["grabId"] == item["grabId"] and rigid["held"],
+                                    "Agent grab lease changed; inspect entity again", 409)
+                            if item["op"] == "move_grab":
+                                target = item["targetPose"]["position"]
+                                source = obj["transform"]["position"]
+                                require(math.hypot(*(target[axis] - source[axis]
+                                                     for axis in ("x", "y", "z"))) <= 3,
+                                        "Grab target is outside the bounded move range", 409)
+                elif item["op"] in {"set_display", "remove_display"}:
+                    mode = self.latest.get("creatorMode") or {}
+                    require(web_virtual_floor_ready(self.latest) and
+                            mode.get("mode") == "creator" and
+                            mode.get("simulation") == "paused" and
+                            not self.pending,
+                            "Edit displays only in paused Creator Mode", 409)
+                    obj = next((obj for obj in self.latest["scene"]["objects"]
+                                if obj["objectId"] == item["objectId"]), None)
+                    require(obj is not None and obj["anchorId"] == "web-floor",
+                            "Display target is unavailable on the virtual floor", 409)
+                    require(obj.get("display") == item["expectedDisplay"],
+                            "Display changed; inspect the object again", 409)
+                    require(item["op"] != "remove_display" or "display" in obj,
+                            "Object has no display", 409)
+                elif item["op"] in {"set_rigid_body", "remove_rigid_body", "set_gravity"}:
+                    mode = self.latest.get("creatorMode") or {}
+                    require(self.latest.get("rigidSchemaVersion") == 1 and
+                            web_virtual_floor_ready(self.latest) and
+                            mode.get("mode") == "creator" and
+                            mode.get("simulation") == "paused" and
+                            not self.pending,
+                            "Edit rigid physics only in paused Creator Mode", 409)
+                    if item["op"] == "set_gravity":
+                        require(item["expectedGravity"] == self.latest.get("rigidGravity"),
+                                "Gravity changed; inspect the room again", 409)
+                    else:
+                        obj = next((obj for obj in self.latest["scene"]["objects"]
+                                    if obj["objectId"] == item["objectId"]), None)
+                        require(obj is not None and obj["anchorId"] == "web-floor",
+                                "Rigid body target is unavailable on the virtual floor", 409)
+                        require(obj.get("rigidBody") == item["expectedRigidBody"] and
+                                obj["transform"] == item["expectedTransform"],
+                                "Rigid body target changed; inspect it again", 409)
+                        if item["op"] == "remove_rigid_body":
+                            require("rigidBody" in obj, "Object has no rigid body", 409)
+                        else:
+                            body = item["rigidBody"]
+                            require("physics" not in obj and "component" not in obj and
+                                    "interaction" not in obj and "animation" not in obj and
+                                    not any(behavior["enabled"] for behavior in obj.get("behaviors", [])),
+                                    "Rigid body target has another motion owner", 409)
+                            require(body["collider"] != "procedural-mesh" or
+                                    obj["assetId"] == "matrix:procedural",
+                                    "Mesh collider requires a procedural object", 409)
+                            require("rigidBody" in obj or
+                                    sum("rigidBody" in other for other in self.latest["scene"]["objects"])
+                                    < MAX_RIGID_BODIES,
+                                    "Scene rigid body limit reached", 409)
+                elif item["op"] in {"create_procedural", "update_procedural"}:
+                    require(web_virtual_floor_ready(self.latest) and
+                            self.latest.get("proceduralGenerators"),
+                            "Connected Matrix Web runtime has no procedural generators", 409)
+                    try:
+                        available_recipe(item["procedural"],
+                                         self.latest["proceduralGenerators"])
+                    except ProceduralError as error:
+                        raise APIError(409, str(error)) from None
+                    if item["op"] == "create_procedural":
+                        require(item["anchorId"] == "web-floor" and
+                                len(self.latest["scene"]["objects"]) < MAX_OBJECTS,
+                                "Procedural creation needs an available virtual-floor slot", 409)
+                    else:
+                        obj = next((obj for obj in self.latest["scene"]["objects"]
+                                    if obj["objectId"] == item["objectId"]), None)
+                        require(obj is not None and obj["assetId"] == "matrix:procedural" and
+                                obj["anchorId"] == "web-floor",
+                                "Procedural target is unavailable", 409)
+                        require(obj["procedural"] == item["expectedProcedural"] and
+                                obj["transform"] == item["expectedTransform"],
+                                "Procedural target changed; inspect it again", 409)
+                        require("physics" not in obj and
+                                obj.get("component", {}).get("status") != "running" and
+                                not any(behavior["enabled"] and not behavior["paused"]
+                                        for behavior in obj.get("behaviors", [])),
+                                "Pause motion ownership before regenerating geometry", 409)
+                elif item["op"] in {"set_behavior", "remove_behavior"}:
                     require(bool(supported), "Connected player does not support behaviors; update the Quest app", 409)
                     kind = item["behavior"]["kind"] if item["op"] == "set_behavior" else item["behaviorKind"]
                     require(kind == "all" or kind in supported, "Connected player does not support this behavior", 409)
@@ -2151,6 +2980,13 @@ class State:
                         require_registered_interaction(duplicated, self.latest["assets"],
                                                        self.web_assets)
                 elif item["op"] == "load":
+                    for obj in item["scene"]["objects"]:
+                        if "procedural" in obj:
+                            try:
+                                available_recipe(obj["procedural"],
+                                                 self.latest.get("proceduralGenerators", []))
+                            except ProceduralError as error:
+                                raise APIError(409, str(error)) from None
                     require(all(behavior["kind"] in supported for obj in item["scene"]["objects"]
                                 for behavior in obj.get("behaviors", [])),
                             "Saved behaviors need an updated Quest app; scene has not been loaded", 409)
@@ -2182,7 +3018,8 @@ class State:
                     require(room and room["mode"] == "ar" and room["state"] == "ready",
                             "Load a real room and inspect its outlines before confirming alignment", 409)
                 elif room and room["mode"] == "ar" and not room.get("alignmentVerified"):
-                    require(item["op"] in {"clear", "select", "get_scene", "list_assets", "list_targets"}
+                    require(item["op"] in {"clear", "select", "get_scene", "list_assets", "list_targets",
+                                            "inspect_entity", "list_world_archives"}
                             or virtual_floor_command(self.latest, item),
                             "Check the labeled outlines in the headset, then confirm room alignment on this panel", 409)
             configured_ids = {obj["objectId"] for obj in self.latest["scene"]["objects"]
@@ -2321,7 +3158,49 @@ class State:
                                   "anchorId": "web-floor", "transform": pose}])["commands"][0]
             request_id = queued["requestId"]
             self.agent_spawn_ids[request_id] = {"roomId": room_id, "assetId": asset_id,
-                                                "transform": pose}
+                                                "transform": pose,
+                                                "existingObjectIds": {item["objectId"] for item in
+                                                                      current["scene"]["objects"]}}
+            while len(self.agent_spawn_ids) > 64:
+                self.agent_spawn_ids.popitem(last=False)
+            return self.agent_spawn_status(request_id)
+
+    def agent_spawn_builtin(self, value):
+        """Spawn one asset advertised by the live built-in Web runtime catalog."""
+        require(type(value) is dict and set(value) ==
+                {"room_id", "scene_revision", "asset_id", "transform"},
+                "Invalid Matrix built-in spawn request")
+        room_id = text(value["room_id"], "room_id")
+        asset_id = text(value["asset_id"], "asset_id")
+        revision = value["scene_revision"]
+        require(type(revision) is int and revision >= 0, "Invalid scene revision")
+        pose = transform(value["transform"])
+        with self.lock:
+            self.expire()
+            require(self.online() and self.latest is not None,
+                    self.room_unavailable_message(), 409)
+            current = self.latest
+            require(current["scene"]["roomId"] == room_id and self.revision == revision,
+                    "Matrix scene changed; inspect the current room and retry", 409)
+            mode = current.get("creatorMode") or {}
+            require(web_virtual_floor_ready(current) and
+                    mode.get("mode") == "creator" and mode.get("simulation") == "paused",
+                    "Spawn built-in objects only in paused Creator Mode", 409)
+            require(not current.get("readOnly") and not self.pending,
+                    "Matrix world is not ready for a new spawn", 409)
+            asset = next((item for item in current["assets"]
+                          if item["assetId"] == asset_id), None)
+            require(asset is not None and "localBounds" in asset and
+                    "sha256" not in asset and
+                    not asset_id.startswith(("web:", "matrix:")),
+                    "Built-in asset is unavailable in the connected Web runtime", 409)
+            queued = self.queue([{"op": "spawn", "assetId": asset_id,
+                                  "anchorId": "web-floor", "transform": pose}])["commands"][0]
+            request_id = queued["requestId"]
+            self.agent_spawn_ids[request_id] = {"roomId": room_id, "assetId": asset_id,
+                                                "transform": pose,
+                                                "existingObjectIds": {item["objectId"] for item in
+                                                                      current["scene"]["objects"]}}
             while len(self.agent_spawn_ids) > 64:
                 self.agent_spawn_ids.popitem(last=False)
             return self.agent_spawn_status(request_id)
@@ -2345,12 +3224,580 @@ class State:
             else:
                 object_id = receipt.get("objectId")
                 observed = (self.latest and self.latest["scene"]["roomId"] == issued["roomId"] and
-                            isinstance(object_id, str) and next((item for item in self.latest["scene"]["objects"]
+                            isinstance(object_id, str) and
+                            object_id not in issued.get("existingObjectIds", ()) and
+                            next((item for item in self.latest["scene"]["objects"]
                             if item["objectId"] == object_id and item["assetId"] == issued["assetId"] and
                             item["anchorId"] == "web-floor" and item["transform"] == issued["transform"]), None))
                 result["status"] = "succeeded" if observed else "unconfirmed"
                 if observed:
                     result["objectId"] = object_id
+            return result
+
+    def agent_list_procedural_generators(self):
+        """Expose only generators advertised by the connected reviewed runtime."""
+        with self.lock:
+            self.expire()
+            require(self.online() and self.latest is not None,
+                    "Matrix runtime is offline", 409)
+            return {"roomId": self.latest["scene"]["roomId"],
+                    "sceneRevision": self.revision,
+                    "generators": copy.deepcopy(self.latest.get("proceduralGenerators", []))}
+
+    def agent_procedural_action(self, value):
+        """Queue one generic create/regenerate operation, pinned to live code."""
+        require(type(value) is dict and value.get("action") in ("create", "update"),
+                "Invalid Matrix procedural request")
+        action = value["action"]
+        required = ({"action", "room_id", "scene_revision", "generator_id",
+                     "parameters", "transform"} if action == "create" else
+                    {"action", "room_id", "scene_revision", "object_id",
+                     "expected_source_revision", "parameters_patch"})
+        require(set(value) == required, "Invalid Matrix procedural request")
+        room_id = text(value["room_id"], "room_id")
+        revision = value["scene_revision"]
+        require(type(revision) is int and revision >= 0,
+                "Invalid scene revision")
+        if action == "create":
+            generator_id = text(value["generator_id"], "generator_id")
+            pose = transform(value["transform"])
+        else:
+            object_id = text(value["object_id"], "object_id")
+            expected_revision = text(value["expected_source_revision"],
+                                     "expected_source_revision")
+        with self.lock:
+            self.expire()
+            require(self.online() and self.latest is not None,
+                    self.room_unavailable_message(), 409)
+            current = self.latest
+            require(current["scene"]["roomId"] == room_id and
+                    self.revision == revision,
+                    "Matrix scene changed; inspect the current room and retry", 409)
+            require(web_virtual_floor_ready(current) and
+                    current.get("proceduralGenerators"),
+                    "Connected Matrix Web runtime has no procedural generators", 409)
+            require(not current.get("readOnly") and not self.pending,
+                    "Matrix world is not ready for a procedural edit", 409)
+            try:
+                if action == "create":
+                    recipe = new_recipe(current["proceduralGenerators"],
+                                        generator_id, value["parameters"])
+                    raw = {"op": "create_procedural", "anchorId": "web-floor",
+                           "transform": pose, "procedural": recipe}
+                    object_id = None
+                else:
+                    obj = next((item for item in current["scene"]["objects"]
+                                if item["objectId"] == object_id), None)
+                    require(obj is not None and obj["assetId"] == "matrix:procedural"
+                            and obj["anchorId"] == "web-floor",
+                            "Procedural target is no longer available", 409)
+                    old = copy.deepcopy(obj["procedural"])
+                    require(old["sourceRevision"] == expected_revision,
+                            "Procedural implementation changed; inspect the object again", 409)
+                    recipe = revised_recipe(current["proceduralGenerators"], old,
+                                            value["parameters_patch"])
+                    pose = copy.deepcopy(obj["transform"])
+                    raw = {"op": "update_procedural", "objectId": object_id,
+                           "procedural": recipe, "expectedProcedural": old,
+                           "expectedTransform": pose}
+            except ProceduralError as error:
+                raise APIError(409, str(error)) from None
+            queued = self.queue([raw])["commands"][0]
+            request_id = queued["requestId"]
+            self.agent_procedural_ids[request_id] = {
+                "action": action, "roomId": room_id, "objectId": object_id,
+                "recipe": copy.deepcopy(recipe), "transform": pose}
+            while len(self.agent_procedural_ids) > 64:
+                self.agent_procedural_ids.popitem(last=False)
+            return self.agent_procedural_status(request_id)
+
+    def agent_procedural_status(self, request_id):
+        require(type(request_id) is str and
+                re.fullmatch(r"[0-9a-f]{32}", request_id),
+                "Invalid Matrix procedural receipt ID")
+        with self.lock:
+            self.expire()
+            issued = self.agent_procedural_ids.get(request_id)
+            require(issued is not None, "Matrix procedural receipt is unavailable", 404)
+            receipt = next((item for item in reversed(self.results)
+                            if item["requestId"] == request_id), None)
+            recipe = issued["recipe"]
+            result = {"requestId": request_id, "roomId": issued["roomId"],
+                      "action": issued["action"],
+                      "generatorId": recipe["generatorId"],
+                      "generatorVersion": recipe["generatorVersion"],
+                      "sourceRevision": recipe["sourceRevision"],
+                      "sceneRevision": self.revision}
+            if receipt is None:
+                result["status"] = "queued" if request_id in self.pending else "unconfirmed"
+                return result
+            if not receipt["ok"]:
+                result["status"] = ("unconfirmed" if "outcome unknown" in receipt["error"]
+                                    else "failed")
+                if result["status"] == "failed":
+                    result["error"] = receipt["error"][:200]
+                return result
+            object_id = (receipt.get("objectId") if issued["action"] == "create"
+                         else issued["objectId"])
+            observed = (type(object_id) is str and self.latest and
+                        self.latest["scene"]["roomId"] == issued["roomId"] and
+                        next((item for item in self.latest["scene"]["objects"]
+                              if item["objectId"] == object_id and
+                              item["assetId"] == "matrix:procedural" and
+                              item["anchorId"] == "web-floor" and
+                              item.get("procedural") == recipe and
+                              item["transform"] == issued["transform"]), None))
+            result["status"] = "succeeded" if observed else "unconfirmed"
+            if observed:
+                result["objectId"] = object_id
+            return result
+
+    def agent_bind_game(self, value):
+        """Bind one declarative challenge to existing objects through MatrixWorld."""
+        require(type(value) is dict and set(value) ==
+                {"room_id", "scene_revision", "spec", "bindings"},
+                "Invalid Matrix game binding request")
+        room_id = text(value["room_id"], "room_id")
+        revision = value["scene_revision"]
+        require(type(revision) is int and revision >= 0,
+                "Invalid scene revision")
+        with self.lock:
+            self.expire()
+            require(self.online() and self.latest is not None,
+                    self.room_unavailable_message(), 409)
+            require(self.latest["scene"]["roomId"] == room_id and
+                    self.revision == revision,
+                    "Matrix scene changed; inspect the current room and retry", 409)
+            require(not self.latest.get("readOnly") and not self.pending,
+                    "Matrix world is not ready for a game binding", 409)
+            queued = self.queue([{"op": "bind_game", "spec": value["spec"],
+                                  "bindings": value["bindings"]}])["commands"][0]
+            request_id = queued["requestId"]
+            self.agent_game_ids[request_id] = {
+                "action": "bind", "roomId": room_id, "spec": copy.deepcopy(queued["spec"]),
+                "bindings": copy.deepcopy(queued["bindings"])}
+            while len(self.agent_game_ids) > 64:
+                self.agent_game_ids.popitem(last=False)
+            return self.agent_game_status(request_id)
+
+    def agent_update_game(self, value):
+        """Revise a bound game only when its complete earned ledger still fits."""
+        require(type(value) is dict and set(value) ==
+                {"room_id", "scene_revision", "spec", "bindings"},
+                "Invalid Matrix game revision request")
+        room_id = text(value["room_id"], "room_id")
+        revision = value["scene_revision"]
+        require(type(revision) is int and revision >= 0, "Invalid scene revision")
+        with self.lock:
+            self.expire()
+            require(self.online() and self.latest is not None,
+                    self.room_unavailable_message(), 409)
+            current = self.latest
+            require(current["scene"]["roomId"] == room_id and self.revision == revision,
+                    "Matrix scene changed; inspect the current room and retry", 409)
+            require(not current.get("readOnly") and not self.pending and
+                    current.get("game") is not None,
+                    "Matrix world has no available game to revise", 409)
+            old = current["game"]
+            raw = {"op": "update_game", "spec": value["spec"],
+                   "bindings": value["bindings"],
+                   "expectedSpec": copy.deepcopy(old["spec"]),
+                   "expectedBindings": copy.deepcopy(old["bindings"])}
+            queued = self.queue([raw])["commands"][0]
+            expected_state = (copy.deepcopy(old["state"]) if old["state"]["creditedEvents"] else
+                              {"phase": "playing", "score": 0, "deliveries": [],
+                               "objectiveProgress": {
+                                   objective["roleId"]: 0 for objective in queued["spec"]["objectives"]
+                                   if objective["kind"] == "delivered-count"},
+                               "creditedEvents": [], "unlockedObjectIds": []})
+            request_id = queued["requestId"]
+            self.agent_game_ids[request_id] = {
+                "action": "update", "roomId": room_id,
+                "spec": copy.deepcopy(queued["spec"]),
+                "bindings": copy.deepcopy(queued["bindings"]),
+                "expectedState": expected_state}
+            while len(self.agent_game_ids) > 64:
+                self.agent_game_ids.popitem(last=False)
+            return self.agent_game_status(request_id)
+
+    def agent_game_status(self, request_id):
+        require(type(request_id) is str and
+                re.fullmatch(r"[0-9a-f]{32}", request_id),
+                "Invalid Matrix game receipt ID")
+        with self.lock:
+            self.expire()
+            issued = self.agent_game_ids.get(request_id)
+            require(issued is not None, "Matrix game receipt is unavailable", 404)
+            receipt = next((item for item in reversed(self.results)
+                            if item["requestId"] == request_id), None)
+            result = {"requestId": request_id, "roomId": issued["roomId"],
+                      "action": issued.get("action", "bind"),
+                      "sceneRevision": self.revision}
+            if receipt is None:
+                result["status"] = "queued" if request_id in self.pending else "unconfirmed"
+            elif not receipt["ok"]:
+                result["status"] = ("unconfirmed" if "outcome unknown" in receipt["error"]
+                                    else "failed")
+                if result["status"] == "failed":
+                    result["error"] = receipt["error"][:200]
+            else:
+                observed = (self.latest and self.latest["scene"]["roomId"] == issued["roomId"]
+                            and self.latest.get("game") is not None and
+                            self.latest["game"]["spec"] == issued["spec"] and
+                            self.latest["game"]["bindings"] == issued["bindings"] and
+                            ("expectedState" not in issued or
+                             self.latest["game"]["state"] == issued["expectedState"]))
+                result["status"] = "succeeded" if observed else "unconfirmed"
+                if observed:
+                    result["gameStatus"] = copy.deepcopy(self.latest.get("gameStatus"))
+            return result
+
+    def agent_display_action(self, value):
+        """Queue one display change against the exact observed component."""
+        require(type(value) is dict and value.get("action") in ("set", "remove"),
+                "Invalid Matrix display request")
+        action = value["action"]
+        required = {"action", "room_id", "scene_revision", "object_id"}
+        if action == "set":
+            required.add("display")
+        require(set(value) == required, "Invalid Matrix display request")
+        room_id = text(value["room_id"], "room_id")
+        object_id = text(value["object_id"], "object_id")
+        revision = value["scene_revision"]
+        require(type(revision) is int and revision >= 0, "Invalid scene revision")
+        display = display_descriptor(value["display"]) if action == "set" else None
+        with self.lock:
+            self.expire()
+            require(self.online() and self.latest is not None,
+                    self.room_unavailable_message(), 409)
+            current = self.latest
+            require(current["scene"]["roomId"] == room_id and self.revision == revision,
+                    "Matrix scene changed; inspect the current room and retry", 409)
+            require(not current.get("readOnly") and not self.pending,
+                    "Matrix world is not ready for a display edit", 409)
+            obj = next((item for item in current["scene"]["objects"]
+                        if item["objectId"] == object_id), None)
+            require(obj is not None, "Display target is unavailable", 409)
+            raw = {"op": "set_display" if action == "set" else "remove_display",
+                   "objectId": object_id,
+                   "expectedDisplay": copy.deepcopy(obj.get("display"))}
+            if action == "set":
+                raw["display"] = display
+            queued = self.queue([raw])["commands"][0]
+            request_id = queued["requestId"]
+            self.agent_display_ids[request_id] = {
+                "action": action, "roomId": room_id, "objectId": object_id,
+                "display": copy.deepcopy(display)}
+            while len(self.agent_display_ids) > 64:
+                self.agent_display_ids.popitem(last=False)
+            return self.agent_display_status(request_id)
+
+    def agent_display_status(self, request_id):
+        require(type(request_id) is str and
+                re.fullmatch(r"[0-9a-f]{32}", request_id),
+                "Invalid Matrix display receipt ID")
+        with self.lock:
+            self.expire()
+            issued = self.agent_display_ids.get(request_id)
+            require(issued is not None, "Matrix display receipt is unavailable", 404)
+            receipt = next((item for item in reversed(self.results)
+                            if item["requestId"] == request_id), None)
+            result = {"requestId": request_id, "roomId": issued["roomId"],
+                      "objectId": issued["objectId"], "action": issued["action"],
+                      "sceneRevision": self.revision}
+            if receipt is None:
+                result["status"] = "queued" if request_id in self.pending else "unconfirmed"
+            elif not receipt["ok"]:
+                result["status"] = ("unconfirmed" if "outcome unknown" in receipt["error"]
+                                    else "failed")
+                if result["status"] == "failed":
+                    result["error"] = receipt["error"][:200]
+            else:
+                obj = (next((item for item in self.latest["scene"]["objects"]
+                             if item["objectId"] == issued["objectId"]), None)
+                       if self.latest and self.latest["scene"]["roomId"] == issued["roomId"]
+                       else None)
+                observed = (obj is not None and
+                            (obj.get("display") == issued["display"] if issued["action"] == "set"
+                             else "display" not in obj))
+                result["status"] = "succeeded" if observed else "unconfirmed"
+                if observed:
+                    result["display"] = copy.deepcopy(obj.get("display"))
+            return result
+
+    def agent_rigid_action(self, value):
+        """Edit one authored rigid component or gravity via the runtime queue."""
+        require(type(value) is dict and value.get("action") in
+                ("set-body", "remove-body", "set-gravity"),
+                "Invalid Matrix rigid request")
+        action = value["action"]
+        required = {"action", "room_id", "scene_revision"}
+        required |= ({"gravity"} if action == "set-gravity" else
+                     {"object_id", "rigid_body"} if action == "set-body" else
+                     {"object_id"})
+        require(set(value) == required, "Invalid Matrix rigid request")
+        room_id = text(value["room_id"], "room_id")
+        revision = value["scene_revision"]
+        require(type(revision) is int and revision >= 0, "Invalid scene revision")
+        body = rigid_body_config(value["rigid_body"]) if action == "set-body" else None
+        gravity = rigid_gravity(value["gravity"]) if action == "set-gravity" else None
+        object_id = text(value["object_id"], "object_id") if action != "set-gravity" else None
+        with self.lock:
+            self.expire()
+            require(self.online() and self.latest is not None,
+                    self.room_unavailable_message(), 409)
+            current = self.latest
+            require(current["scene"]["roomId"] == room_id and self.revision == revision,
+                    "Matrix scene changed; inspect the current room and retry", 409)
+            require(not current.get("readOnly") and not self.pending,
+                    "Matrix world is not ready for a rigid edit", 409)
+            if action == "set-gravity":
+                raw = {"op": "set_gravity", "gravity": gravity,
+                       "expectedGravity": copy.deepcopy(current.get("rigidGravity"))}
+            else:
+                obj = next((item for item in current["scene"]["objects"]
+                            if item["objectId"] == object_id), None)
+                require(obj is not None, "Rigid body target is unavailable", 409)
+                raw = {"op": "set_rigid_body" if action == "set-body" else
+                       "remove_rigid_body", "objectId": object_id,
+                       "expectedRigidBody": copy.deepcopy(obj.get("rigidBody")),
+                       "expectedTransform": copy.deepcopy(obj["transform"])}
+                if action == "set-body":
+                    raw["rigidBody"] = body
+            queued = self.queue([raw])["commands"][0]
+            request_id = queued["requestId"]
+            self.agent_rigid_ids[request_id] = {
+                "action": action, "roomId": room_id, "objectId": object_id,
+                "rigidBody": copy.deepcopy(body), "gravity": copy.deepcopy(gravity)}
+            while len(self.agent_rigid_ids) > 64:
+                self.agent_rigid_ids.popitem(last=False)
+            return self.agent_rigid_status(request_id)
+
+    def agent_rigid_status(self, request_id):
+        require(type(request_id) is str and re.fullmatch(r"[0-9a-f]{32}", request_id),
+                "Invalid Matrix rigid receipt ID")
+        with self.lock:
+            self.expire()
+            issued = self.agent_rigid_ids.get(request_id)
+            require(issued is not None, "Matrix rigid receipt is unavailable", 404)
+            receipt = next((item for item in reversed(self.results)
+                            if item["requestId"] == request_id), None)
+            result = {"requestId": request_id, "roomId": issued["roomId"],
+                      "objectId": issued["objectId"], "action": issued["action"],
+                      "sceneRevision": self.revision}
+            if receipt is None:
+                result["status"] = "queued" if request_id in self.pending else "unconfirmed"
+            elif not receipt["ok"]:
+                result["status"] = ("unconfirmed" if "outcome unknown" in receipt["error"]
+                                    else "failed")
+                if result["status"] == "failed":
+                    result["error"] = receipt["error"][:200]
+            else:
+                current = (self.latest if self.latest and
+                           self.latest["scene"]["roomId"] == issued["roomId"] else None)
+                if issued["action"] == "set-gravity":
+                    observed = current is not None and current.get("rigidGravity") == issued["gravity"]
+                    if observed:
+                        result["rigidGravity"] = copy.deepcopy(issued["gravity"])
+                else:
+                    obj = (next((item for item in current["scene"]["objects"]
+                                 if item["objectId"] == issued["objectId"]), None)
+                           if current else None)
+                    observed = obj is not None and (
+                        obj.get("rigidBody") == issued["rigidBody"] if issued["action"] == "set-body"
+                        else "rigidBody" not in obj)
+                    if observed:
+                        result["rigidBody"] = copy.deepcopy(obj.get("rigidBody"))
+                result["status"] = "succeeded" if observed else "unconfirmed"
+            return result
+
+    def agent_inspect_entity(self, value):
+        """Ask the browser for a live typed entity observation, with no edit."""
+        require(type(value) is dict and set(value) ==
+                {"room_id", "scene_revision", "object_id"},
+                "Invalid Matrix entity inspection request")
+        room_id = text(value["room_id"], "room_id")
+        object_id = text(value["object_id"], "object_id")
+        revision = value["scene_revision"]
+        require(type(revision) is int and revision >= 0, "Invalid scene revision")
+        with self.lock:
+            self.expire()
+            require(self.online() and self.latest is not None,
+                    self.room_unavailable_message(), 409)
+            require(self.latest["scene"]["roomId"] == room_id and self.revision == revision,
+                    "Matrix scene changed; inspect the current room and retry", 409)
+            require(not self.pending and self.latest.get("entityActionSchemaVersion") == 1,
+                    "Matrix entity inspection is unavailable while another command is pending", 409)
+            queued = self.queue([{"op": "inspect_entity", "objectId": object_id}])["commands"][0]
+            request_id = queued["requestId"]
+            self.agent_entity_ids[request_id] = {
+                "op": "inspect_entity", "roomId": room_id, "objectId": object_id,
+                "clientId": self.client_id, "runtimeGeneration": self.runtime_generation,
+                "consumed": False}
+            while len(self.agent_entity_ids) > 64:
+                self.agent_entity_ids.popitem(last=False)
+            return self.agent_entity_status(request_id)
+
+    def agent_entity_action(self, value):
+        """Use exactly one unconsumed live inspection for a bounded grab action."""
+        require(type(value) is dict and value.get("action") in
+                ("begin", "move", "release"), "Invalid Matrix entity action")
+        action = value["action"]
+        fields = {"action", "room_id", "object_id", "inspection_request_id"}
+        if action == "move":
+            fields.add("target_pose")
+        require(set(value) == fields, "Invalid Matrix entity action")
+        room_id = text(value["room_id"], "room_id")
+        object_id = text(value["object_id"], "object_id")
+        inspection_id = text(value["inspection_request_id"], "inspection_request_id")
+        require(re.fullmatch(r"[0-9a-f]{32}", inspection_id) is not None,
+                "Invalid inspection receipt ID")
+        target = grab_pose(value["target_pose"]) if action == "move" else None
+        op = {"begin": "begin_grab", "move": "move_grab",
+              "release": "release_grab"}[action]
+        with self.lock:
+            self.expire()
+            require(self.online() and self.latest is not None,
+                    self.room_unavailable_message(), 409)
+            require(not self.pending and not self.latest.get("readOnly"),
+                    "Matrix world is not ready for an entity action", 409)
+            inspection = self.agent_entity_ids.get(inspection_id)
+            require(inspection is not None and inspection["op"] == "inspect_entity" and
+                    not inspection["consumed"] and
+                    inspection["roomId"] == room_id and
+                    inspection["objectId"] == object_id and
+                    inspection["clientId"] == self.client_id and
+                    inspection["runtimeGeneration"] == self.runtime_generation and
+                    self.latest["scene"]["roomId"] == room_id,
+                    "Inspect the current entity before acting", 409)
+            receipt = next((item for item in reversed(self.results)
+                            if item["requestId"] == inspection_id), None)
+            require(receipt is not None and receipt["ok"] and
+                    type(receipt.get("outcome")) is dict and
+                    receipt["outcome"].get("kind") == "entity-inspection",
+                    "Wait for a confirmed entity inspection", 409)
+            observed = receipt["outcome"]
+            obj = next((item for item in self.latest["scene"]["objects"]
+                        if item["objectId"] == object_id), None)
+            require(obj is not None and obj == observed["object"] and
+                    self.latest.get("creatorMode") == observed["creatorMode"] and
+                    op in observed["availableActions"],
+                    "Entity changed since inspection; inspect it again", 409)
+            raw = {"op": op, "objectId": object_id,
+                   "expectedTransform": copy.deepcopy(observed["object"]["transform"]),
+                   "expectedCreatorRevision": observed["creatorMode"]["revision"]}
+            if action != "begin":
+                grab = observed["agentGrab"]
+                require(grab is not None and
+                        self.latest.get("agentGrab") == grab,
+                        "Agent grab lease changed; inspect it again", 409)
+                raw["grabId"] = grab["grabId"]
+            if action == "move":
+                raw["targetPose"] = target
+            queued = self.queue([raw])["commands"][0]
+            inspection["consumed"] = True
+            request_id = queued["requestId"]
+            self.agent_entity_ids[request_id] = {
+                "op": op, "roomId": room_id, "objectId": object_id,
+                "clientId": self.client_id, "runtimeGeneration": self.runtime_generation}
+            while len(self.agent_entity_ids) > 64:
+                self.agent_entity_ids.popitem(last=False)
+            return self.agent_entity_status(request_id)
+
+    def agent_entity_status(self, request_id):
+        require(type(request_id) is str and re.fullmatch(r"[0-9a-f]{32}", request_id),
+                "Invalid Matrix entity receipt ID")
+        with self.lock:
+            self.expire()
+            issued = self.agent_entity_ids.get(request_id)
+            require(issued is not None, "Matrix entity receipt is unavailable", 404)
+            receipt = next((item for item in reversed(self.results)
+                            if item["requestId"] == request_id), None)
+            result = {"requestId": request_id, "roomId": issued["roomId"],
+                      "objectId": issued["objectId"], "op": issued["op"],
+                      "sceneRevision": self.revision}
+            if receipt is None:
+                result["status"] = "queued" if request_id in self.pending else "unconfirmed"
+            elif not receipt["ok"]:
+                result["status"] = ("unconfirmed" if "outcome unknown" in receipt["error"]
+                                    else "failed")
+                if result["status"] == "failed":
+                    result["error"] = receipt["error"][:200]
+            elif type(receipt.get("outcome")) is dict:
+                result["status"] = "succeeded"
+                result["outcome"] = copy.deepcopy(receipt["outcome"])
+            else:
+                result["status"] = "unconfirmed"
+            return result
+
+    def agent_world_archive_action(self, value):
+        """Queue one browser-local world archive operation with server-held state guards."""
+        require(type(value) is dict and value.get("action") in ("list", "new", "restore"),
+                "Invalid Matrix world archive action")
+        action = value["action"]
+        fields = {"action", "room_id", "scene_revision"} | (
+            {"offset"} if action == "list" else
+            {"archive_name"} if action == "new" else
+            {"archive_id", "archive_name"})
+        require(set(value) == fields, "Invalid Matrix world archive request")
+        room_id = text(value["room_id"], "room_id")
+        revision = value["scene_revision"]
+        require(type(revision) is int and 0 <= revision <= 9007199254740991,
+                "Invalid Matrix scene revision")
+        with self.lock:
+            self.expire()
+            require(self.online() and self.latest is not None,
+                    self.room_unavailable_message(), 409)
+            current = self.latest
+            require(current["scene"]["roomId"] == room_id and self.revision == revision,
+                    "Matrix scene changed; inspect the current room and retry", 409)
+            op = {"list": "list_world_archives", "new": "start_new_world",
+                  "restore": "restore_world_archive"}[action]
+            raw = {"op": op, "roomId": room_id}
+            if action == "list":
+                raw["offset"] = value["offset"]
+            else:
+                raw.update(archiveName=value["archive_name"],
+                           expectedScene=copy.deepcopy(current["scene"]),
+                           expectedGame=copy.deepcopy(current.get("game")),
+                           expectedGravity=copy.deepcopy(current.get("rigidGravity")),
+                           expectedCreatorRevision=(current.get("creatorMode") or {}).get("revision"),
+                           expectedCitizensState=copy.deepcopy(current.get("citizensState")),
+                           expectedCitizensGeneration=(current.get("citizensObservation") or {}).get("authoredGeneration"))
+                if action == "restore":
+                    raw["archiveId"] = value["archive_id"]
+            queued = self.queue([raw])["commands"][0]
+            request_id = queued["requestId"]
+            self.agent_world_archive_ids[request_id] = {
+                "roomId": room_id, "op": op, "clientId": self.client_id,
+                "runtimeGeneration": self.runtime_generation}
+            while len(self.agent_world_archive_ids) > 64:
+                self.agent_world_archive_ids.popitem(last=False)
+            return self.agent_world_archive_status(request_id)
+
+    def agent_world_archive_status(self, request_id):
+        require(type(request_id) is str and re.fullmatch(r"[0-9a-f]{32}", request_id),
+                "Invalid Matrix world archive receipt ID")
+        with self.lock:
+            self.expire()
+            issued = self.agent_world_archive_ids.get(request_id)
+            require(issued is not None, "Matrix world archive receipt is unavailable", 404)
+            receipt = next((item for item in reversed(self.results)
+                            if item["requestId"] == request_id), None)
+            result = {"requestId": request_id, "roomId": issued["roomId"],
+                      "op": issued["op"], "sceneRevision": self.revision}
+            if receipt is None:
+                result["status"] = "queued" if request_id in self.pending else "unconfirmed"
+            elif not receipt["ok"]:
+                uncertain = ("outcome unknown" in receipt["error"] or
+                             "Recovery needs attention" in receipt["error"])
+                result["status"] = "unconfirmed" if uncertain else "failed"
+                result["error"] = receipt["error"][:1000]
+            elif type(receipt.get("outcome")) is dict:
+                result["status"] = "succeeded"
+                result["outcome"] = copy.deepcopy(receipt["outcome"])
+            else:
+                result["status"] = "unconfirmed"
             return result
 
     def agent_bind_animation(self, value):
@@ -2807,24 +4254,35 @@ class State:
                 (current.get("roomContext") or {}).get("state") == "ready" and
                 not current.get("readOnly"),
                 "Whole-world PC checkpoints require the desktop virtual room; leave AR or recover its origin first", 409)
+        require((current.get("creatorMode") or {}).get("simulation", "paused") == "paused",
+                "Pause the world simulation before a PC checkpoint", 409)
         return current
 
     def _checked_world_checkpoint(self, value, current):
         require(type(value) is dict and type(value.get("version")) is int and
-                (value["version"] == 2 and set(value) == {"version", "scene", "game"} or
-                 value["version"] == 3 and set(value) == {"version", "scene", "game", "citizens"} and
-                 value["citizens"] is not None),
+                value["version"] in (2, 3),
                 "Unsupported world checkpoint envelope")
+        required = ({"version", "scene", "game"} if value["version"] == 2 else
+                    {"version", "scene", "game", "citizens"})
+        require(required <= set(value) <= required | {"creatorMode", "rigidGravity"} and
+                (value["version"] != 3 or value["citizens"] is not None),
+                "Unsupported world checkpoint envelope")
+        if "creatorMode" in value:
+            creator_mode(value["creatorMode"])
+        if "rigidGravity" in value:
+            rigid_gravity(value["rigidGravity"])
         checked_scene = scene(value["scene"])
         require(checked_scene == value["scene"] and checked_scene["roomId"] == "web-virtual-room-v1" and
                 all(item["anchorId"] == "web-floor" for item in checked_scene["objects"]),
                 "World checkpoint contains unsupported scene data or session-local anchors")
         capabilities = {key: current[key] for key in ("componentSchemaVersion", "animationSchemaVersion",
-                                                     "physicsSchemaVersion", "interactionSchemaVersion",
-                                                     "behaviorKinds")
+                                                     "physicsSchemaVersion", "rigidSchemaVersion",
+                                                     "interactionSchemaVersion",
+                                                     "behaviorKinds", "proceduralGenerators")
                         if key in current}
         snapshot({"scene": checked_scene, "assets": current["assets"], "anchors": current["anchors"],
-                  **capabilities})
+                  **capabilities,
+                  **({"rigidGravity": value["rigidGravity"]} if "rigidGravity" in value else {})})
         if value["version"] == 3:
             validate_citizens_checkpoint(value["citizens"], checked_scene)
         supported = set(current.get("behaviorKinds", []))
@@ -2948,6 +4406,8 @@ class State:
             saved.pop("viewer", None)
             saved.pop("pointing", None)
             saved.pop("physicsStates", None)  # Solver pose, velocity and contacts are transient.
+            saved.pop("rigidStates", None)  # Rigid solver pose and velocity are transient.
+            saved.pop("gameStatus", None)  # Observational; the world checkpoint owns progress.
             saved.pop("citizensObservation", None)  # Runtime motion/authoring marker is not a scene document.
             saved.pop("roomContext", None)
             saved.pop("readOnly", None)
@@ -3458,14 +4918,20 @@ class Handler(BaseHTTPRequestHandler):
     def log_message(self, *_):
         pass  # URLs, headers, prompt text and tokens never enter request logs.
 
-    def send_data(self, status, data, content_type="application/json; charset=utf-8"):
+    def send_data(self, status, data, content_type="application/json; charset=utf-8",
+                  *, allow_webassembly=False):
         raw = data if isinstance(data, bytes) else json.dumps(data, allow_nan=False).encode("utf-8")
         self.send_response(status)
         self.send_header("Content-Type", content_type)
         self.send_header("Content-Length", str(len(raw)))
         self.send_header("Cache-Control", "no-store")
         self.send_header("X-Content-Type-Options", "nosniff")
-        self.send_header("Content-Security-Policy", "default-src 'self'; img-src 'self' data:; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; frame-ancestors 'none'")
+        script_sources = "'self' 'unsafe-inline'"
+        if allow_webassembly:
+            script_sources += " 'wasm-unsafe-eval'"
+        self.send_header("Content-Security-Policy", "default-src 'self'; img-src 'self' data:; "
+                         f"script-src {script_sources}; style-src 'self' 'unsafe-inline'; "
+                         "frame-ancestors 'none'")
         self.end_headers()
         self.wfile.write(raw)
 
@@ -3553,7 +5019,8 @@ class Handler(BaseHTTPRequestHandler):
                     asset = dist / "assets" / name
                     content_type = "text/javascript; charset=utf-8" if name.endswith(".js") else "text/css; charset=utf-8" if name.endswith(".css") else "application/octet-stream"
                 require(asset.is_file(), "Build WebRuntime with npm run build first", 404)
-                self.send_data(200, asset.read_bytes(), content_type)
+                self.send_data(200, asset.read_bytes(), content_type,
+                               allow_webassembly=content_type.startswith("text/html"))
                 return
             if path in ("/", "/learning", "/content", "/clients") and loopback(self.client_address[0]):
                 page = "index.html" if path == "/" else "content.html" if path == "/content" else "clients.html" if path == "/clients" else "learning.html"

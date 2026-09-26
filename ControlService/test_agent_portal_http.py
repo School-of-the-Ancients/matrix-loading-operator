@@ -8,10 +8,13 @@ import urllib.error
 import urllib.request
 from unittest.mock import patch
 
-from agent_portal import AgentPortal
+from agent_portal import AgentPortal, build_matrix_turn_message
 from agent_session import _mcp_approval_description
-from server import Server, State, agent_turn_context, snapshot
+from matrix_tool_bridge import scene_summary
+from server import APIError, Server, State, agent_turn_context, snapshot
 from test_agent_portal import FakeBackend
+from test_web_assets import glb
+from web_assets import WebAssetCatalog
 
 
 class AgentPortalHTTPTests(unittest.TestCase):
@@ -186,12 +189,10 @@ class AgentPortalHTTPTests(unittest.TestCase):
         self.assertEqual(self.post("/api/agent/turn", body)[0], 200)
         sent = self.state.agent_portal._backend.sent_texts[-1]
         self.assertIn("User request:\nPut this over there", sent)
-        self.assertIn("matrix_move_object sets position and optional bounded Euler rotation", sent)
-        self.assertIn("Published numeric Matrix components can be attached", sent)
-        self.assertIn("matrix_spawn_asset", sent)
-        self.assertIn("build a reusable WebXR capability", sent)
-        self.assertNotIn("asset spawning are unavailable", sent)
-        self.assertNotIn("No typed Matrix world-action tool is available", sent)
+        self.assertIn("Live runtime identity and presentation: unknown", sent)
+        self.assertIn("Use only available typed Matrix tools", sent)
+        self.assertNotIn("matrix_move_object sets position", sent)
+        self.assertLess(len(sent), 2000)
         encoded = sent.split("<matrix_spatial_context>", 1)[1].split("</matrix_spatial_context>", 1)[0]
         grounded = json.loads(encoded)
         self.assertEqual(grounded["sceneRevision"], 7)
@@ -202,6 +203,97 @@ class AgentPortalHTTPTests(unittest.TestCase):
         self.assertNotIn("Virtual room", sent)
         status = self.post("/api/agent/status", {"sessionId": session_id})[1]
         self.assertEqual(status["transcript"][-1]["user"], "Put this over there")
+
+    def test_text_turn_without_spatial_opt_in_gets_fresh_runtime_metadata_only(self):
+        room = {"scene": {"schemaVersion": 1, "roomId": "web-virtual-room-v1",
+                          "objects": [{"objectId": "private-chair", "assetId": "chair",
+                                       "anchorId": "web-floor",
+                                       "transform": {"position": {"x": 1, "y": 0, "z": -2},
+                                                     "rotation": {"x": 0, "y": 0, "z": 0},
+                                                     "scale": {"x": 1, "y": 1, "z": 1}}}]},
+                "assets": [{"assetId": "chair", "displayName": "Chair"}],
+                "anchors": [{"anchorId": "web-floor", "displayName": "Virtual floor"}],
+                "rigidSchemaVersion": 1,
+                "roomContext": {"mode": "white-room", "state": "ready",
+                                "alignmentVerified": False, "message": "Virtual room"},
+                "runtimeDescriptor": {"schemaVersion": 1, "client": "matrix-web",
+                                      "renderer": "threejs-webxr", "presentation": "desktop"}}
+        self.state.latest = snapshot(room)
+        self.state.client_id = "web-client"
+        self.state.last_seen = self.state.clock()
+        session_id = self.post("/api/agent/session", {})[1]["sessionId"]
+        self.state.agent_portal._backend.enabled_matrix_tools = (
+            "matrix_scene_summary", "matrix_list_assets")
+        code, _ = self.post("/api/agent/turn", {"sessionId": session_id,
+                                                "text": "Operator, load XYZ"})
+        self.assertEqual(code, 200)
+        sent = self.state.agent_portal._backend.sent_texts[-1]
+        self.assertIn("desktop presentation", sent)
+        self.assertIn("matrix_list_assets offset/limit pages", sent)
+        self.assertNotIn("private-chair", sent)
+        encoded = sent.split("<matrix_runtime_context>", 1)[1].split(
+            "</matrix_runtime_context>", 1)[0]
+        grounded = json.loads(encoded)
+        self.assertEqual(grounded["capabilityVersions"]["rigidSchemaVersion"], 1)
+        self.assertEqual(grounded["assetCatalogCount"], 1)
+        self.assertNotIn("sceneSummary", grounded)
+        self.assertNotIn("selectedObject", grounded)
+
+    def test_live_descriptor_capability_guidance_and_catalog_beyond_preview(self):
+        context = {"schemaVersion": 1, "inputSource": "text", "clientId": "web-client",
+                   "roomId": "web-virtual-room-v1", "selectedObjectId": None,
+                   "pointingTarget": None, "viewerFrame": None}
+        source = Path(self.temp.name) / "catalog-example.glb"
+        source.write_bytes(glb())
+        self.state.web_assets = WebAssetCatalog(Path(self.temp.name) / "catalog")
+        registered = [self.state.web_assets.register(source, f"Asset {i:02}")
+                      for i in range(30)]
+        assets = [{"assetId": item["assetId"], "displayName": item["displayName"],
+                   "sha256": item["sha256"]} for item in registered]
+        base = {"scene": {"schemaVersion": 1, "roomId": context["roomId"], "objects": []},
+                "assets": assets,
+                "anchors": [{"anchorId": "web-floor", "displayName": "Virtual floor"}],
+                "rigidSchemaVersion": 1, "entityActionSchemaVersion": 1,
+                "proceduralGenerators": [],
+                "roomContext": {"mode": "white-room", "state": "ready",
+                                "alignmentVerified": False, "message": "Virtual room"}}
+        self.state.client_id = context["clientId"]
+        self.state.last_seen = self.state.clock()
+        enabled = ("matrix_scene_summary", "matrix_list_assets",
+                   "matrix_list_procedural_generators")
+        for presentation in ("desktop", "vr", "ar"):
+            room = {**base, "roomContext": {**base["roomContext"],
+                                            "mode": "ar" if presentation == "ar" else "white-room"},
+                    "runtimeDescriptor": {"schemaVersion": 1, "client": "matrix-web",
+                                          "renderer": "threejs-webxr",
+                                          "presentation": presentation}}
+            self.state.latest = snapshot(room)
+            grounded = agent_turn_context(self.state, context)
+            message = build_matrix_turn_message("Operator, load Asset 29", grounded, enabled)
+            self.assertIn(f"{presentation} presentation", message)
+            self.assertEqual(grounded["capabilityVersions"]["rigidSchemaVersion"], 1)
+            self.assertEqual(grounded["assetCatalogCount"], 30)
+            self.assertIn("matrix_list_assets offset/limit pages", message)
+        preview = scene_summary(self.state)
+        self.assertEqual(len(preview["assets"]), 24)
+        self.assertTrue(preview["assetsTruncated"])
+        target = registered[29]["assetId"]
+        self.assertNotIn(target, [asset["assetId"] for asset in preview["assets"]])
+        self.assertIn(target, [asset["assetId"] for asset in
+                               self.state.agent_list_assets(24, 24)["assets"]])
+        old = {**base, "runtimeDescriptor": {"schemaVersion": 0}}
+        self.state.latest = snapshot(old)
+        grounded = agent_turn_context(self.state, context)
+        self.assertIsNone(grounded["runtimeDescriptor"])
+        self.assertIn("Live runtime identity and presentation: unknown",
+                      build_matrix_turn_message("Operator, load Asset 29", grounded, enabled))
+        with self.assertRaisesRegex(APIError, "presentation and room context disagree"):
+            snapshot({**base, "runtimeDescriptor": {"schemaVersion": 1,
+                      "client": "matrix-web", "renderer": "threejs-webxr",
+                      "presentation": "ar"}})
+        with self.assertRaisesRegex(APIError, "Invalid Matrix Web runtime descriptor"):
+            snapshot({**base, "runtimeDescriptor": {"schemaVersion": 1,
+                      "client": "matrix-web", "renderer": "unity", "presentation": "desktop"}})
 
     def test_pointed_object_is_in_bounded_summary_even_after_first_eight(self):
         pose = {"position": {"x": 0, "y": 0, "z": 0},
