@@ -256,6 +256,59 @@ test('MatrixWorld runs real ramp collision and repeated grabs while preserving s
   current.rigidPhysics.dispose();reopened.rigidPhysics.dispose();
 });
 
+test('Undo and Redo of a wall preserve an unrelated falling body',async()=>{
+  const current=world();current.attachRigidPhysics(await createRigidPhysics());
+  try{
+    const block=command(current,'spawn',{assetId:'block',anchorId:'web-floor',
+      transform:pose(0,3,0)}).objectId;
+    command(current,'set_rigid_body',{objectId:block,rigidBody:rigid('dynamic')});
+    current.creatorMode=transitionCreatorMode(current.creatorMode,'enter-play',0);
+    for(let tick=0;tick<10;tick++)current.advanceRigidPhysics(1/60);
+    current.creatorMode=transitionCreatorMode(current.creatorMode,'enter-creator',1);
+    const wall=command(current,'spawn',{assetId:'wall',anchorId:'web-floor',
+      transform:pose(4,0,0)}).objectId;
+    const atWall=current.rigidPhysics.state(block).position.y;
+    current.creatorMode=transitionCreatorMode(current.creatorMode,'enter-play',2);
+    for(let tick=0;tick<10;tick++)current.advanceRigidPhysics(1/60);
+    current.creatorMode=transitionCreatorMode(current.creatorMode,'enter-creator',3);
+    const falling=current.rigidPhysics.state(block);
+    assert.ok(falling.position.y<atWall);
+    assert.ok(falling.linearVelocity.y<0);
+    command(current,'undo');
+    assert.equal(current.scene.objects.some(item=>item.objectId===wall),false);
+    assert.deepEqual(current.rigidPhysics.state(block).position,falling.position);
+    assert.deepEqual(current.rigidPhysics.state(block).linearVelocity,falling.linearVelocity);
+    assert.deepEqual(current.requireObject(block).transform.position,falling.position);
+    command(current,'redo');
+    assert.equal(current.scene.objects.some(item=>item.objectId===wall),true);
+    assert.deepEqual(current.rigidPhysics.state(block).position,falling.position);
+    assert.deepEqual(current.rigidPhysics.state(block).linearVelocity,falling.linearVelocity);
+    assert.deepEqual(current.requireObject(block).transform.position,falling.position);
+    current.creatorMode=transitionCreatorMode(current.creatorMode,'enter-play',4);
+    current.advanceRigidPhysics(1/60);
+    assert.ok(current.rigidPhysics.state(block).position.y<falling.position.y);
+  }finally{current.rigidPhysics.dispose();}
+});
+
+test('Undo and Redo still restore a deliberately edited rigid body pose',async()=>{
+  const current=world();current.attachRigidPhysics(await createRigidPhysics());
+  try{
+    const block=command(current,'spawn',{assetId:'block',anchorId:'web-floor',
+      transform:pose(0,2,0)}).objectId;
+    command(current,'set_rigid_body',{objectId:block,rigidBody:rigid('dynamic')});
+    const original=structuredClone(current.requireObject(block).transform);
+    const moved=pose(0,4,0);
+    command(current,'set_transform',{objectId:block,transform:moved});
+    assert.equal(current.rigidPhysics.state(block).position.y,4);
+    command(current,'undo');
+    assert.deepEqual(current.requireObject(block).transform,original);
+    assert.equal(current.rigidPhysics.state(block).position.y,2);
+    command(current,'redo');
+    assert.deepEqual(current.requireObject(block).transform,moved);
+    assert.equal(current.rigidPhysics.state(block).position.y,4);
+  }finally{current.rigidPhysics.dispose();}
+});
+
 test('existing objects bind a real challenge, dedupe credit, unlock exit, and survive edits',async()=>{
   const current=world();current.attachRigidPhysics(await createRigidPhysics());
   const items=[];

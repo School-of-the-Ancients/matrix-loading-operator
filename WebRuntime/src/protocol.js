@@ -745,7 +745,7 @@ export class MatrixWorld {
         rigidSceneReference:this.rigidSceneReference,agentGrab:this.agentGrab,
         authoredGeneration:this.authoredGeneration}):null;
       if(rigidRollback)rigidRollbackSolver=this.rigidPhysics.snapshot();
-      let object;
+      let object,replayEntry;
       switch(op) {
         case 'get_scene': case 'list_assets': case 'list_targets': break;
         case 'inspect_entity':
@@ -1197,21 +1197,31 @@ export class MatrixWorld {
           this.physicsBodies.clear();this.physicsVerification.clear();
           this.renderedVerification.clear();this.physicsSceneReference=this.scene;break;
         case 'undo':
-          if(this.undo.length)assertCompatibleGameScene(this,this.undo.at(-1));
+          if(this.undo.length)assertCompatibleGameScene(this,this.undo.at(-1).scene);
           rigidMutationStarted=this.undo.length>0;
-          this.replay(this.undo,this.redo);break;
+          replayEntry=this.replay(this.undo,this.redo);break;
         case 'redo':
-          if(this.redo.length)assertCompatibleGameScene(this,this.redo.at(-1));
+          if(this.redo.length)assertCompatibleGameScene(this,this.redo.at(-1).scene);
           rigidMutationStarted=this.redo.length>0;
-          this.replay(this.redo,this.undo);break;
+          replayEntry=this.replay(this.redo,this.undo);break;
         default: throw Error('Unknown operation');
       }
+      // Scene history records edits, while the solver owns unrelated live poses.
+      const replayRigidIds=replayEntry?.preserveRigid&&this.rigidPhysics?
+        new Set(this.rigidPhysics.states().map(state=>state.objectId)):null;
       if(this.rigidPhysics&&RIGID_REBUILD_OPS.has(op)){
-        this.rebuildRigidPhysics({preserve:!['clear','load','undo','redo'].includes(op),
-          resetObjectId:op==='set_transform'?object?.objectId:null});
+        this.rebuildRigidPhysics({preserve:replayEntry?replayEntry.preserveRigid:
+          !['clear','load'].includes(op),resetObjectId:replayEntry?.rigidResetObjectId??
+          (op==='set_transform'?object?.objectId:null)});
         rigidRebuildCompleted=true;
+        if(replayRigidIds)for(const item of this.scene.objects)
+          if(item.rigidBody?.type==='dynamic'&&replayRigidIds.has(item.objectId)&&
+             item.objectId!==replayEntry.rigidResetObjectId)
+            this.syncRigidTransform(item.objectId,this.rigidPhysics.state(item.objectId));
       }
-      if (before) {this.undo.push(before); if(this.undo.length>32)this.undo.shift();}
+      if(before){this.undo.push({scene:before,preserveRigid:!['clear','load'].includes(op),
+        rigidResetObjectId:op==='set_transform'&&object?.rigidBody?object.objectId:null});
+        if(this.undo.length>32)this.undo.shift();}
       // An unrecorded simulation edit still supersedes any undone future.
       if (mutation)this.redo=[];
       if(recordHistory&&(mutation||op==='undo'||op==='redo'))this.markAuthoredSceneChange();
@@ -1279,5 +1289,14 @@ export class MatrixWorld {
       if(o.physics)this.assertPhysicsEligible(o);
     }
   }
-  replay(from,to) {if(!from.length)throw Error('History is empty'); to.push(clone(this.scene)); if(to.length>32)to.shift(); this.scene=from.pop(); this.selection.objectId='';this.physicsBodies.clear();this.physicsVerification.clear();this.renderedVerification.clear();this.physicsSceneReference=this.scene;}
+  replay(from,to) {
+    if(!from.length)throw Error('History is empty');
+    const entry=from.at(-1);
+    to.push({...entry,scene:clone(this.scene)});
+    if(to.length>32)to.shift();
+    this.scene=from.pop().scene;this.selection.objectId='';
+    this.physicsBodies.clear();this.physicsVerification.clear();
+    this.renderedVerification.clear();this.physicsSceneReference=this.scene;
+    return entry;
+  }
 }
