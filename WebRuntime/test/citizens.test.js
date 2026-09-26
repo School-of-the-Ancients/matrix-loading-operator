@@ -192,6 +192,133 @@ test('overnight routine wraps into the next day and ends at 06:00',()=>{
   assert.equal(afterWindow.residents[0].lastDecision.mode,'needs');
 });
 
+test('paused routine edits change only the next idle choice and survive restore',()=>{
+  const fixture=simulationAtMinute(29,540,
+    {hunger:45,energy:95,fun:35,social:100});
+  const matrix=fixture.matrix,state=fixture.simulation.exportState();
+  state.residents[0].routines[0].stationId='food';
+  const simulation=CitizensSimulation.restore(matrix,state);
+  const before=simulation.snapshot(),scene=structuredClone(matrix.scene);
+  const edited=simulation.editRoutine('ada','morning-meal',{
+    startMinute:600,endMinute:660,priority:'high'});
+  const meal=edited.residents[0].routines.find(item=>item.id==='morning-meal');
+  assert.deepEqual(meal,{...before.residents[0].routines[0],
+    startMinute:600,endMinute:660,priority:'high'});
+  assert.equal(meal.stationId,'food','a reviewed station binding is unchanged');
+  assert.equal(edited.residents[0].lastDecision,null);
+  assert.deepEqual(edited.residents[1],before.residents[1]);
+  assert.equal(edited.clockTick,before.clockTick);
+  assert.equal(edited.rngState,before.rngState);
+  assert.deepEqual(edited.stations,before.stations);
+  assert.deepEqual(matrix.scene,scene);
+  assert.match(edited.log.at(-1).message,/morning-meal routine changed/);
+  assert.deepEqual(CitizensSimulation.restore(matrix,simulation.exportState()).exportState(),
+    edited);
+  const after=simulation.step();
+  assert.equal(after.residents[0].lastDecision.mode,'routine');
+  assert.equal(after.residents[0].lastDecision.selectedRoutineId,'morning-walk');
+  assert.deepEqual(after.residents[0].lastDecision.candidates.map(item=>item.routineId),
+    ['morning-walk']);
+
+  const higher=simulationAtMinute(29,540,{hunger:45,energy:95,fun:35,social:100});
+  higher.simulation.editRoutine('ada','morning-meal',{
+    startMinute:420,endMinute:600,priority:'high'});
+  assert.equal(higher.simulation.step().residents[0].lastDecision.selectedRoutineId,
+    'morning-meal','a high-priority meal wins above an eligible default walk');
+});
+
+test('routine edits reject invalid, running, AR, and stale binding requests atomically',()=>{
+  const matrix=world(),sim=createCitizensDemo(matrix,{seed:29});
+  const valid={startMinute:420,endMinute:600,priority:'default'};
+  const before=sim.snapshot(),scene=structuredClone(matrix.scene);
+  for(const [residentId,routineId,changes] of [
+    ['missing','morning-meal',valid],['ada','missing',valid],
+    ['ada','morning-meal',{...valid,endMinute:420}],
+    ['ada','morning-meal',{...valid,startMinute:-1}],
+    ['ada','morning-meal',{...valid,endMinute:1441}],
+    ['ada','morning-meal',{...valid,priority:'urgent'}],
+    ['ada','morning-meal',{...valid,startMinute:420.5}],
+    ['ada','morning-meal',{...valid,kind:'eat'}],
+    ['ada','morning-meal',{startMinute:420,endMinute:600}]
+  ]){
+    assert.throws(()=>sim.editRoutine(residentId,routineId,changes));
+    assert.deepEqual(sim.snapshot(),before);
+    assert.deepEqual(matrix.scene,scene);
+  }
+  sim.resume();
+  const running=sim.snapshot();
+  assert.throws(()=>sim.editRoutine('ada','morning-meal',valid),/Pause Citizens/);
+  assert.deepEqual(sim.snapshot(),running);
+  sim.pause();
+  matrix.spatial={};
+  const inAR=sim.snapshot();
+  assert.throws(()=>sim.editRoutine('ada','morning-meal',valid),/desktop virtual room/);
+  assert.deepEqual(sim.snapshot(),inAR);
+  matrix.spatial=null;
+  const chair=matrix.scene.objects.find(item=>item.assetId==='chair');
+  const transform=structuredClone(chair.transform);
+  transform.position.x+=1;
+  assert.equal(matrix.execute({requestId:'routine-stale-chair',op:'set_transform',
+    objectId:chair.objectId,transform}).ok,true);
+  const stale=sim.snapshot(),movedScene=structuredClone(matrix.scene);
+  assert.throws(()=>sim.editRoutine('ada','morning-meal',valid),/moved or disappeared/);
+  assert.deepEqual(sim.snapshot(),stale);
+  assert.deepEqual(matrix.scene,movedScene);
+});
+
+test('editing while paused preserves an active claim and FIFO waiter through replay',()=>{
+  const matrix=world(),sim=createCitizensDemo(matrix,{seed:17});
+  const before=sim.step();
+  const chair=before.stations.find(item=>item.kind==='rest');
+  assert.equal(chair.claim?.residentId,'ada');
+  assert.equal(chair.waiters[0]?.residentId,'bo');
+  const edited=sim.editRoutine('ada','morning-meal',{
+    startMinute:480,endMinute:620,priority:'high'});
+  assert.equal(edited.clockTick,before.clockTick);
+  assert.equal(edited.rngState,before.rngState);
+  assert.deepEqual(edited.residents[0].activity,before.residents[0].activity);
+  assert.deepEqual(edited.stations,before.stations);
+  assert.deepEqual(edited.socialSession,before.socialSession);
+  const saved=sim.exportState(),restoredWorld=world();
+  assert.equal(restoredWorld.execute({requestId:'load-edited-claim',op:'load',
+    scene:structuredClone(matrix.scene)}).ok,true);
+  const restored=CitizensSimulation.restore(restoredWorld,saved);
+  assert.deepEqual(restored.exportState(),saved);
+  for(let minute=0;minute<18;minute++){
+    assert.deepEqual(sim.step(),restored.step());
+    assert.deepEqual(matrix.scene,restoredWorld.scene);
+  }
+  assert.equal(sim.snapshot().log.filter(entry=>entry.event==='completed'&&
+    entry.residentId==='ada'&&entry.message.includes('rest')).length,1);
+});
+
+test('editing a paused active social session preserves its receipt-backed result',()=>{
+  const matrix=world(),sim=createCitizensDemo(matrix,{seed:2});
+  const before=stepUntil(sim,state=>state.socialSession?.phase==='active'&&
+    state.socialSession.travelTicks>0,300);
+  const edited=sim.editRoutine('ada','morning-meal',{
+    startMinute:500,endMinute:610,priority:'low'});
+  assert.deepEqual(edited.socialSession,before.socialSession);
+  assert.deepEqual(edited.socialEvents,before.socialEvents);
+  assert.deepEqual(edited.relationships,before.relationships);
+  assert.deepEqual(edited.residents.map(item=>item.socialSessionId),
+    before.residents.map(item=>item.socialSessionId));
+  assert.equal(edited.clockTick,before.clockTick);
+  assert.equal(edited.rngState,before.rngState);
+  const saved=sim.exportState(),restoredWorld=world();
+  assert.equal(restoredWorld.execute({requestId:'load-edited-social',op:'load',
+    scene:structuredClone(matrix.scene)}).ok,true);
+  const restored=CitizensSimulation.restore(restoredWorld,saved);
+  for(let minute=0;minute<24;minute++){
+    assert.deepEqual(sim.step(),restored.step());
+    assert.deepEqual(matrix.scene,restoredWorld.scene);
+  }
+  const after=sim.exportState();
+  assert.equal(after.socialEvents.filter(event=>event.event==='ended').length,1);
+  assert.equal(after.relationships[0].score,55);
+  assert.equal(after.relationships[0].completed.length,1);
+});
+
 test('seeded routine sampling changes with needs and activity preferences',()=>{
   const countEat=(needs,preferences=null)=>{
     let eat=0;

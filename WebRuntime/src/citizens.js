@@ -1096,6 +1096,41 @@ export class CitizensSimulation {
     this.state.clockSpeed=value;
     return this.snapshot();
   }
+  editRoutine(residentId,routineId,changes){
+    assertWorld(this.world);
+    if(!this.state.paused)throw Error('Pause Citizens before editing a routine');
+    if(this.invalidBindings.size)
+      throw Error('Recover the existing Citizens bindings before editing a routine');
+    if(this.world.scene!==this.observedScene)
+      throw Error('The scene changed; review Citizens bindings before editing a routine');
+    for(const bound of [...this.state.residents,...this.state.stations]){
+      const object=objectById(this.world,bound.objectId);
+      if(!object||!sameTransform(object.transform,
+        this.observedTransforms.get(bound.objectId)))
+        throw Error('A Citizens object moved or disappeared; review bindings first');
+    }
+    if(!keys(changes,['startMinute','endMinute','priority']))
+      throw Error('Specify the routine start, end, and priority');
+    const resident=this.state.residents.find(item=>item.id===residentId);
+    if(!resident)throw Error('Choose an existing Citizens resident');
+    const index=resident.routines.findIndex(item=>item.id===routineId);
+    if(index<0)throw Error('Choose an existing Citizens routine');
+    const next=this.snapshot();
+    const edited=next.residents.find(item=>item.id===residentId);
+    edited.routines[index]={...edited.routines[index],
+      startMinute:changes.startMinute,endMinute:changes.endMinute,
+      priority:changes.priority};
+    // A stored choice can refer to the old window or priority. The current
+    // activity, reservation, queue ticket, and social session remain in flight.
+    edited.lastDecision=null;
+    const message=boundedPrefix(`${edited.name}'s ${routineId} routine changed to `+
+      `${changes.startMinute}–${changes.endMinute} (${changes.priority}).`,160);
+    next.log.push({tick:next.clockTick,residentId,event:'selected',message});
+    if(next.log.length>MAX_LOG)next.log.shift();
+    validStateV9(this.world,next);
+    this.state=next;
+    return this.snapshot();
+  }
   additionalStation(objectId,{checkRoutes=false}={}){
     assertWorld(this.world);
     if(!this.state.paused)throw Error('Pause Citizens before adding a station');

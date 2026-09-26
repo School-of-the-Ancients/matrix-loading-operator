@@ -41,6 +41,11 @@ export class CitizensPanel {
     this.stopArmedUntil=0;
     this.recoverArmedUntil=0;
     this.recoverArmedCopy='';
+    this.routineSelection=null;
+    this.routineFieldKey=null;
+    this.routineResidentOptions=null;
+    this.routineOptions=null;
+    this.routineStatus='';
     byId('citizens-start').addEventListener('click',()=>this.start());
     byId('citizens-bind-selected').addEventListener('click',()=>this.start('selected'));
     byId('citizens-add-selected').addEventListener('click',()=>this.addStation());
@@ -49,6 +54,9 @@ export class CitizensPanel {
     byId('citizens-speed').addEventListener('change',()=>this.setSpeed());
     byId('citizens-stop').addEventListener('click',()=>this.stop());
     byId('citizens-recover').addEventListener('click',()=>this.recover());
+    byId('citizens-routine-resident').addEventListener('change',()=>this.selectRoutineResident());
+    byId('citizens-routine-id').addEventListener('change',()=>this.selectRoutine());
+    byId('citizens-routine-apply').addEventListener('click',()=>this.applyRoutine());
     this.timer=setInterval(()=>this.tick(),intervalMs);
     this.syncFromWorld();
   }
@@ -57,7 +65,15 @@ export class CitizensPanel {
     this.world.citizens=this.simulation?.snapshot()||null;
     this.boundState=this.world.citizens;
     this.render();
-    this.onChange();
+    return this.onChange();
+  }
+
+  resetRoutineEditor(){
+    this.routineSelection=null;
+    this.routineFieldKey=null;
+    this.routineResidentOptions=null;
+    this.routineOptions=null;
+    this.routineStatus='';
   }
 
   syncFromWorld(){
@@ -69,6 +85,7 @@ export class CitizensPanel {
       // adapter exists. Rebind to that restored state instead of overwriting it.
       if(this.world.citizens!==this.boundState){
         this.simulation=null;this.arWorld=null;
+        this.resetRoutineEditor();
       }
       if(!this.simulation&&this.world.citizens){
         try{
@@ -128,9 +145,11 @@ export class CitizensPanel {
       this.arWorld=null;
     }
     if(!this.world.citizens){
+      this.resetRoutineEditor();
       this.simulation=null;this.boundState=null;this.error='';this.render();return;
     }
     if(this.world.citizens!==this.boundState||!this.simulation){
+      this.resetRoutineEditor();
       try{
         this.simulation=CitizensSimulation.restore(this.world,this.world.citizens);
         this.boundState=this.world.citizens;
@@ -235,6 +254,135 @@ export class CitizensPanel {
     }catch(error){this.onFeedback(`Citizens clock speed was rejected: ${error.message}`,true);this.render();}
   }
 
+  selectRoutineResident(){
+    this.routineSelection={residentId:byId('citizens-routine-resident').value,
+      routineId:null};
+    this.routineFieldKey=null;
+    this.routineStatus='';
+    this.render();
+  }
+
+  selectRoutine(){
+    this.routineSelection={residentId:byId('citizens-routine-resident').value,
+      routineId:byId('citizens-routine-id').value};
+    this.routineFieldKey=null;
+    this.routineStatus='';
+    this.render();
+  }
+
+  routineEditBlock(state,mutationBlocked,routine){
+    if(mutationBlocked)return mutationBlocked;
+    if(this.world.spatial)return 'Return to the desktop virtual room to edit routines.';
+    if(this.error)return this.error;
+    if(!state)return 'Start Citizens and pause to edit a routine.';
+    if(!state.paused)return 'Pause Citizens before editing a routine.';
+    if(this.simulation?.invalidBindings?.size)
+      return 'Recover Citizens bindings before editing routines.';
+    if(!routine)return 'This resident has no routine to edit.';
+    return '';
+  }
+
+  renderRoutineEditor(state,mutationBlocked){
+    const residents=state?.residents||[];
+    const residentSelect=byId('citizens-routine-resident');
+    const routineSelect=byId('citizens-routine-id');
+    const residentOptions=JSON.stringify(residents.map(item=>[item.id,item.name]));
+    if(this.routineResidentOptions!==residentOptions){
+      residentSelect.replaceChildren(...residents.map(resident=>{
+        const option=document.createElement('option');
+        option.value=resident.id;option.textContent=resident.name;
+        return option;
+      }));
+      this.routineResidentOptions=residentOptions;
+    }
+    const resident=residents.find(item=>item.id===this.routineSelection?.residentId)||
+      residents[0];
+    const routineOptions=JSON.stringify([resident?.id||'',
+      ...(resident?.routines||[]).map(item=>[item.id,item.kind])]);
+    if(this.routineOptions!==routineOptions){
+      routineSelect.replaceChildren(...(resident?.routines||[]).map(routine=>{
+        const option=document.createElement('option');
+        option.value=routine.id;
+        option.textContent=`${routine.id} · ${routine.kind}`;
+        return option;
+      }));
+      this.routineOptions=routineOptions;
+    }
+    const routine=resident?.routines?.find(item=>
+      item.id===this.routineSelection?.routineId)||resident?.routines?.[0];
+    const fieldKey=JSON.stringify([resident?.id||'',routine?.id||'']);
+    this.routineSelection=resident?{residentId:resident.id,routineId:routine?.id||null}:null;
+    residentSelect.value=resident?.id||'';
+    routineSelect.value=routine?.id||'';
+    if(this.routineFieldKey!==fieldKey){
+      byId('citizens-routine-start').value=routine?String(routine.startMinute):'';
+      byId('citizens-routine-end').value=routine?String(routine.endMinute):'';
+      byId('citizens-routine-priority').value=routine?.priority||'default';
+      this.routineFieldKey=fieldKey;
+    }
+    const block=this.routineEditBlock(state,mutationBlocked,routine);
+    for(const id of ['citizens-routine-resident','citizens-routine-id',
+      'citizens-routine-start','citizens-routine-end','citizens-routine-priority',
+      'citizens-routine-apply'])byId(id).disabled=!!block;
+    byId('citizens-routine-status').textContent=block||this.routineStatus||
+      `Editing ${resident.name}'s ${routine.id}. Changes apply at the next idle choice.`;
+  }
+
+  applyRoutine(){
+    const mutationBlocked=this.canMutate();
+    if(mutationBlocked||this.world.spatial){
+      this.routineStatus=mutationBlocked||
+        'Return to the desktop virtual room to edit routines.';
+      this.onFeedback(this.routineStatus,true);
+      this.render();return;
+    }
+    this.syncFromWorld();
+    const state=this.simulation?.snapshot();
+    const residentId=byId('citizens-routine-resident').value;
+    const routineId=byId('citizens-routine-id').value;
+    const resident=state?.residents?.find(item=>item.id===residentId);
+    const routine=resident?.routines?.find(item=>item.id===routineId);
+    const blocked=this.routineEditBlock(state,this.canMutate(),routine);
+    if(blocked){
+      this.routineStatus=blocked;this.onFeedback(blocked,true);this.render();return;
+    }
+    try{
+      const minute=(id,max,label)=>{
+        const raw=byId(id).value.trim();
+        const value=Number(raw);
+        if(!/^\d+$/.test(raw)||!Number.isSafeInteger(value)||value>max)
+          throw Error(`${label} must be a whole minute from 0 to ${max}`);
+        return value;
+      };
+      const startMinute=minute('citizens-routine-start',1439,'Start');
+      const endMinute=minute('citizens-routine-end',1440,'End');
+      if(startMinute===endMinute)throw Error('Start and end must differ');
+      const priority=byId('citizens-routine-priority').value;
+      if(!['high','default','low'].includes(priority))
+        throw Error('Choose a valid routine priority');
+      this.simulation.editRoutine(residentId,routineId,
+        {startMinute,endMinute,priority});
+    }catch(error){
+      this.routineStatus=`Routine was not changed: ${error.message}`;
+      this.onFeedback(this.routineStatus,true);
+      this.render();
+      return;
+    }
+    this.routineFieldKey=null;
+    this.routineStatus=`${resident.name}'s ${routine.id} routine updated. It applies at the next idle choice; current activity continues.`;
+    try{
+      const warning=this.commit();
+      if(warning){
+        this.routineStatus=`Routine updated in this tab, but browser saving reported: ${warning}`;
+        this.render();
+      }
+    }catch(error){
+      this.routineStatus=`Routine updated in this tab, but browser saving did not finish: ${error.message}`;
+      this.onFeedback(this.routineStatus,true);
+      this.render();
+    }
+  }
+
   tick(){
     if(this.recoverArmedUntil&&performance.now()>this.recoverArmedUntil){
       this.recoverArmedUntil=0;this.recoverArmedCopy='';this.render();
@@ -282,6 +430,7 @@ export class CitizensPanel {
     this.simulation?.cancelSocial('stopping Citizens cancelled the social session');
     this.simulation=null;this.arWorld=null;this.boundState=null;
     this.world.citizens=null;this.error='';
+    this.resetRoutineEditor();
     this.render();this.onChange();
     this.onFeedback('Citizens stopped. Their objects remain as ordinary scene objects.');
   }
@@ -447,6 +596,7 @@ export class CitizensPanel {
       return item;
     });
     byId('citizens-routines').replaceChildren(...routines);
+    this.renderRoutineEditor(state,mutationBlocked);
     const stations=(state?.stations||[]).map(station=>{
       const item=document.createElement('li');
       const claim=station.claim;
