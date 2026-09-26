@@ -6,7 +6,7 @@ export class MatrixBridge {
     this.world=world; this.getToken=getToken; this.onUpdate=onUpdate;
     this.clientId=sessionStorage.getItem('matrix-web-client-id')||crypto.randomUUID().replaceAll('-','');
     sessionStorage.setItem('matrix-web-client-id',this.clientId);
-    this.receipts=new Map(); this.running=false; this.timer=null;this.inFlight=false;this.exchangePaused=false;this.lastExchange=0;this.getViewer=()=>null;
+    this.receipts=new Map(); this.running=false; this.timer=null;this.inFlight=false;this.exchangePaused=false;this.rejectPendingOnNextExchange=false;this.lastExchange=0;this.getViewer=()=>null;
     this.getCapture=null;this.captureInFlight=false;this.captureReceipt=null;
     this.getCaptureCapabilities=()=>({modes:['virtual'],device:'Matrix WebXR',
       mixedStatus:'permission_required',reason:'Environment camera has not been tested in this browser.',
@@ -32,6 +32,10 @@ export class MatrixBridge {
       ...(worldRestoreExpectedRevision===null?{}:{worldRestoreExpectedRevision})});
     if(worldRestoreExpectedRevision!==null&&data.commands?.length)
       throw Error('A command arrived during PC world restore; retry after the command finishes');
+    // After a saved-world reload, an old command may already be reflected in
+    // the restored browser copy even though its receipt never reached the PC.
+    // Reject commands from the first successful exchange to avoid replaying it.
+    const rejectPending=this.rejectPendingOnNextExchange;
     for(const result of sent)this.receipts.delete(result.requestId);
     if(this.captureReceipt===sentCapture)this.captureReceipt=null;
     let changed=false;
@@ -39,7 +43,10 @@ export class MatrixBridge {
     for(const command of data.commands||[]) {
       if(this.receipts.has(command.requestId))continue;
       let result;
-      if(Object.hasOwn(command,'requiresSuccessOf')){
+      if(rejectPending)
+        result={requestId:command.requestId,ok:false,
+          error:'Command outcome unknown after saved-world recovery; inspect the restored scene before retrying',objectId:''};
+      else if(Object.hasOwn(command,'requiresSuccessOf')){
         const predecessor=command.requiresSuccessOf;
         if(!validRequestId(predecessor)||predecessor===command.requestId)
           result={requestId:command.requestId,ok:false,error:'Invalid requiresSuccessOf precondition',objectId:''};
@@ -55,6 +62,7 @@ export class MatrixBridge {
       completed.set(command.requestId,result);
       this.onUpdate({type:'receipt',result});
     }
+    if(rejectPending)this.rejectPendingOnNextExchange=false;
     if(changed)this.onUpdate({type:'scene'});
     if(data.capture&&this.getCapture&&!this.captureInFlight&&!this.captureReceipt){
       this.captureInFlight=true;

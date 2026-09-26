@@ -1,5 +1,13 @@
 # Matrix Operator checkpoints
 
+## Browser world waits for missing Web catalog assets (September 26, 2026)
+
+Open review: [PR #111](https://github.com/School-of-the-Ancients/matrix-loading-operator/pull/111), stacked on open PR #110.
+
+The `codex/citizens-catalog-recovery` candidate addresses a restart gap in the ordinary `/web/` world. If the newest browser save refers to registered `web:` assets absent from the current catalog, startup reports their exact asset IDs and keeps that save pending. It does not quarantine that copy, restore an older tab copy, overwrite either browser save, or exchange an empty fallback scene with the PC. The page leaves world editing and checkpoints locked while it waits. After the matching catalog entries return, **Refresh assets** or the ten-second catalog poll retries the same saved candidate through normal scene, game and Citizens validation. Intrinsic envelope, origin, scene-object and transform errors still use the quarantine and older-copy recovery path; asset-dependent validity is decided when the catalog returns. The first exchange after recovery rejects any old queued command whose outcome might already be in the saved world, returning a failed receipt for reconciliation instead of replaying it. Named PC whole-world checkpoints continue to require their exact catalog files and hashes; this change does not embed or fetch GLB bytes.
+
+The [isolated browser run](../Validation/citizens-catalog-recovery-browser.json) used port **19850** and the paused minute-123 two-GLB Citizens checkpoint. With only that demo catalog's manifest unavailable, `/web/` named both missing asset IDs, held recovery and disabled world edits; the PC lease expired with its four-object snapshot intact. After the manifest returned, **Refresh assets** brought back the same four object IDs, two rendered GLBs, Ada's chair claim, minute **123**, ended social event and relationship **55**. A second browser reload kept that state. The isolated PC checkpoint hash remained unchanged and the browser error log was empty. The focused scene-store tests passed **34/34**, full WebRuntime **288/288**, ControlService **682/682**, and Vite built. Browser storage bytes were not directly inspected; the store tests assert they remain unchanged during the wait. The stale-command case was exercised in a bridge test, not in this browser run, which had zero pending commands. Quest wearer checks remain pending.
+
 ## Two reviewed Citizens stations in one world (September 26, 2026)
 
 Open review: [PR #110](https://github.com/School-of-the-Ancients/matrix-loading-operator/pull/110), stacked on open PR #108.

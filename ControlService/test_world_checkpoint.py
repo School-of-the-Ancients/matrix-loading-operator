@@ -253,8 +253,8 @@ class WorldCheckpointTests(unittest.TestCase):
         fixture = Path(__file__).resolve().parents[1] / "WebRuntime" / "test" / "fixtures"
         source = self.root / "food-table.glb"
         source.write_bytes((fixture / "citizens-demo-food-table.glb").read_bytes())
-        food_bounds = {"center": {"x": 0, "y": .4215, "z": 0},
-                       "size": {"x": 1.2, "y": .843, "z": .8}}
+        food_bounds = {"center": {"x": 0, "y": .4275, "z": 0},
+                       "size": {"x": 1.2, "y": .855, "z": .8}}
         food_asset = self.state.web_assets.register(
             source, "Food table", local_bounds=food_bounds)
         food_interaction = json.loads((fixture / "citizens-demo-food-table-interaction.json")
