@@ -23,9 +23,11 @@ candidate adds no dialogue generation, multiplayer synchronization, selected
 furniture binding, obstacle-aware paths, or Quest wearer validation.
 
 After rebasing on the PR #102 AR deletion recovery fix, the local WebRuntime
-suite passed **202/202** and the Vite build passed. The full ControlService
+suite passed **203/203** and the Vite build passed. The full ControlService
 suite passed **652/652** on the identical Python source before the rebase;
-the checkpoint module passed **20/20** afterward. The built desktop browser
+the checkpoint module passed **20/20** afterward. Browser restore now also
+rejects malformed surrogate text under the same UTF-16 limits as the PC
+checkpoint validator. The built desktop browser
 on isolated port **19841** ran seed 2 in `/web/`: Ada
 invited Bo at minute 76, Bo accepted at 77, and the local MatrixWorld receipt
 `citizens-2-social-9-80` ended the session at 87. The relationship inspector

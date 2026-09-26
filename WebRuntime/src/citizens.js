@@ -23,7 +23,18 @@ const finite=value=>typeof value==='number'&&Number.isFinite(value);
 const plain=value=>value!==null&&typeof value==='object'&&!Array.isArray(value);
 const keys=(value,expected)=>plain(value)&&Object.keys(value).sort().join('|')===expected.slice().sort().join('|');
 const integer=(value,min,max)=>Number.isSafeInteger(value)&&value>=min&&value<=max;
-const boundedText=(value,max)=>typeof value==='string'&&value.length<=max&&!/[\x00-\x1f]/.test(value);
+const validUtf16=value=>{
+  for(let index=0;index<value.length;index++){
+    const code=value.charCodeAt(index);
+    if(code>=0xd800&&code<=0xdbff){
+      const next=value.charCodeAt(++index);
+      if(!(next>=0xdc00&&next<=0xdfff))return false;
+    }else if(code>=0xdc00&&code<=0xdfff)return false;
+  }
+  return true;
+};
+const boundedText=(value,max)=>typeof value==='string'&&value.length<=max&&
+  !/[\x00-\x1f]/.test(value)&&validUtf16(value);
 const clone=value=>structuredClone(value);
 const round=value=>Math.round(value*100)/100;
 const clamp=value=>Math.max(0,Math.min(100,round(value)));

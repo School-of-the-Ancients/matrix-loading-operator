@@ -684,3 +684,21 @@ test('v3 restore rejects mismatched bilateral IDs, forged social events and unkn
     assert.deepEqual(matrix.scene,scene);
   }
 });
+
+test('v3 checkpoint text accepts paired Unicode and rejects unpaired UTF-16 surrogates',()=>{
+  const matrix=world(),sim=createCitizensDemo(matrix,{seed:2});
+  const saved=sim.exportState();
+  const valid=structuredClone(saved);
+  valid.residents[0].name='🙂'.repeat(20);
+  valid.residents[0].lastOutcome='🙂'.repeat(80);
+  assert.deepEqual(CitizensSimulation.restore(matrix,valid).exportState(),valid);
+
+  const invalidName=structuredClone(saved);
+  invalidName.residents[0].name='\ud800';
+  assert.throws(()=>CitizensSimulation.restore(matrix,invalidName),/Invalid Citizens resident/);
+
+  const invalidId=structuredClone(saved);
+  invalidId.residents[0].id='\udfff';
+  invalidId.relationships=[{a:'bo',b:'\udfff',score:50}];
+  assert.throws(()=>CitizensSimulation.restore(matrix,invalidId),/Invalid Citizens resident/);
+});
