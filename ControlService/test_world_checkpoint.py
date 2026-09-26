@@ -120,6 +120,136 @@ class WorldCheckpointTests(unittest.TestCase):
                              "message": "Bo queued for the chair."})
         return world
 
+    def citizens_v3_world(self):
+        world = self.citizens_v2_world()
+        state = world["citizens"]
+        state.update(schemaVersion=3, socialSession=None, socialEvents=[],
+                     relationships=[{"a": "ada", "b": "bo", "score": 50}], nextSocialTick=35)
+        state["residents"][0]["activity"] = None
+        state["stations"][0]["claim"] = None
+        state["stations"][0]["waiters"] = []
+        for resident in state["residents"]:
+            resident["socialSessionId"] = None
+        return world
+
+    def citizens_v3_offered_world(self):
+        world = self.citizens_v3_world()
+        state = world["citizens"]
+        state["actionSequence"] = 3
+        state["socialSession"] = {
+            "id": "social-73-3", "executionId": 3, "initiatorId": "ada", "inviteeId": "bo",
+            "phase": "offered", "startedTick": 12, "expiresTick": 16,
+            "acceptedTick": None, "travelTicks": 0, "remainingTicks": 3}
+        state["socialEvents"] = [{"id": "social-73-3-initiated-12", "event": "initiated",
+                                  "tick": 12, "initiatorId": "ada", "inviteeId": "bo",
+                                  "requestId": ""}]
+        for resident in state["residents"]:
+            resident["socialSessionId"] = "social-73-3"
+        return world
+
+    def test_citizens_v3_social_roundtrip_and_older_shapes(self):
+        world = self.citizens_v3_offered_world()
+        self.assertTrue(self.state.save_world_checkpoint("SocialOffer", world)["saved"])
+        self.assertEqual(self.state.load_world_checkpoint("SocialOffer")["world"]["citizens"],
+                         world["citizens"])
+
+        active = copy.deepcopy(world)
+        state = active["citizens"]
+        state["clockTick"] = 13
+        state["socialSession"].update(phase="active", acceptedTick=13, expiresTick=85)
+        state["socialEvents"].append({"id": "social-73-3-accepted-13", "event": "accepted",
+                                      "tick": 13, "initiatorId": "ada", "inviteeId": "bo",
+                                      "requestId": ""})
+        self.assertTrue(self.state.save_world_checkpoint("SocialActive", active)["saved"])
+        self.assertEqual(self.state.load_world_checkpoint("SocialActive")["world"]["citizens"],
+                         state)
+
+        completed = copy.deepcopy(active)
+        state = completed["citizens"]
+        state["socialSession"] = None
+        for resident in state["residents"]:
+            resident["socialSessionId"] = None
+        state["requestSequence"] = 10
+        state["relationships"][0]["score"] = 52
+        state["socialEvents"].append({"id": "social-73-3-ended-13", "event": "ended",
+                                      "tick": 13, "initiatorId": "ada", "inviteeId": "bo",
+                                      "requestId": "citizens-73-social-3-10"})
+        self.assertTrue(self.state.save_world_checkpoint("SocialEnded", completed)["saved"])
+        self.assertEqual(self.state.load_world_checkpoint("SocialEnded")["world"]["citizens"],
+                         state)
+
+        for name, older in (("V1", self.citizens_world()),
+                            ("V2", self.citizens_v2_world())):
+            with self.subTest(name=name):
+                self.assertTrue(self.state.save_world_checkpoint(name, older)["saved"])
+                self.assertEqual(self.state.load_world_checkpoint(name)["world"]["citizens"],
+                                 older["citizens"])
+
+    def test_citizens_v3_rejects_corrupt_social_state_atomically(self):
+        world = self.citizens_v3_offered_world()
+        self.state.save_world_checkpoint("SocialOffer", world)
+        path = self.scenes / "world_checkpoints" / "SocialOffer.json"
+        original = path.read_bytes()
+        original_runtime = copy.deepcopy(self.state.latest)
+
+        def add_waiter(item):
+            item["citizens"]["stations"][0]["waiters"].append(
+                {"residentId": "bo", "executionId": 2, "enqueuedTick": 11})
+
+        def duplicate_event(item):
+            item["citizens"]["socialEvents"].append(
+                copy.deepcopy(item["citizens"]["socialEvents"][0]))
+
+        def active_without_acceptance(item):
+            item["citizens"]["socialSession"].update(phase="active", expiresTick=84)
+
+        cases = (
+            ("orphan resident session", lambda item: item["citizens"]["residents"][0].update(
+                socialSessionId=None)),
+            ("missing social session", lambda item: item["citizens"].update(socialSession=None)),
+            ("participant waits", add_waiter),
+            ("session execution out of range", lambda item: item["citizens"]["socialSession"].update(
+                executionId=4)),
+            ("session ID differs", lambda item: item["citizens"]["socialSession"].update(
+                id="social-73-2")),
+            ("stale offer", lambda item: item["citizens"]["socialSession"].update(
+                expiresTick=12)),
+            ("offer accepted field", lambda item: item["citizens"]["socialSession"].update(
+                acceptedTick=12)),
+            ("active without acceptance", active_without_acceptance),
+            ("event from future", lambda item: item["citizens"]["socialEvents"][0].update(
+                tick=13)),
+            ("duplicate event", duplicate_event),
+            ("bad event receipt", lambda item: item["citizens"]["socialEvents"][0].update(
+                requestId="citizens-73-social-3-9")),
+            ("reversed pair", lambda item: item["citizens"]["relationships"][0].update(
+                a="bo", b="ada")),
+            ("unknown pair member", lambda item: item["citizens"]["relationships"][0].update(
+                b="missing")),
+            ("next tick out of range", lambda item: item["citizens"].update(
+                nextSocialTick=-1)),
+        )
+        for label, mutate in cases:
+            with self.subTest(label=label):
+                invalid = copy.deepcopy(world)
+                mutate(invalid)
+                with self.assertRaises(APIError) as rejected:
+                    self.state.save_world_checkpoint("SocialOffer", invalid)
+                self.assertEqual(rejected.exception.status, 400)
+                self.assertEqual(path.read_bytes(), original)
+                self.assertEqual(self.state.latest, original_runtime)
+
+                document = json.loads(original)
+                mutate(document["world"])
+                document["payloadSha256"] = world_checkpoint_digest(
+                    document["world"], document["dependencies"])
+                path.write_text(json.dumps(document), encoding="utf-8")
+                with self.assertRaises(APIError) as rejected:
+                    self.state.load_world_checkpoint("SocialOffer")
+                self.assertEqual(rejected.exception.status, 400)
+                self.assertEqual(self.state.latest, original_runtime)
+                path.write_bytes(original)
+
     def test_citizens_v3_roundtrip_keeps_intent_ids_and_legacy_v2_exact(self):
         world = self.citizens_world()
         saved = self.state.save_world_checkpoint("Citizens", world)

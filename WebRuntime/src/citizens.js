@@ -2,7 +2,8 @@
 // scene objects and validates every placement/move. No Agent Portal access.
 import {ANCHOR_ID,MAX_OBJECTS,ROOM_ID} from './protocol.js';
 
-const VERSION=2;
+const VERSION=3;
+const RESERVATION_VERSION=2;
 const LEGACY_VERSION=1;
 const MOVE_METRES=.28;
 const ARRIVAL_METRES=.08;
@@ -10,6 +11,12 @@ const MAX_TRAVEL_TICKS=60;
 const LEASE_TICKS=MAX_TRAVEL_TICKS+12;
 const MAX_WAIT_TICKS=96;
 const MAX_LOG=80;
+const MAX_SOCIAL_EVENTS=24;
+const OFFER_TICKS=4;
+const ACTIVE_TICKS=MAX_TRAVEL_TICKS+12;
+const SOCIAL_USE_TICKS=3;
+const SOCIAL_COOLDOWN_TICKS=24;
+const SOCIAL_WINDOW_TICKS=12;
 const NEEDS=['hunger','energy','fun'];
 const ACTIVITIES=['rest','eat','explore'];
 const finite=value=>typeof value==='number'&&Number.isFinite(value);
@@ -49,7 +56,7 @@ function validPreferences(preferences){
 function validActivity(activity,version=LEGACY_VERSION){
   if(activity===null)return true;
   if(!keys(activity,['kind','stationId','phase','remainingTicks','travelTicks','target',
-    ...(version===VERSION?['executionId']:[])])||
+    ...(version>=RESERVATION_VERSION?['executionId']:[])])||
      !ACTIVITIES.includes(activity.kind)||!['travel','use'].includes(activity.phase)||
      !integer(activity.remainingTicks,0,12)||!integer(activity.travelTicks,0,MAX_TRAVEL_TICKS))return false;
   if(activity.kind==='explore')return activity.stationId===null&&
@@ -123,7 +130,7 @@ function validStateV1(world,state){
 function migrateV1(world,saved){
   validStateV1(world,saved);
   const state=clone(saved);
-  state.schemaVersion=VERSION;
+  state.schemaVersion=RESERVATION_VERSION;
   state.actionSequence=0;
   state.retiredResidentIds=[];
   // Resident order is stable, so a mid-action v1 checkpoint gets repeatable
@@ -145,7 +152,7 @@ function validStateV2(world,state){
   assertWorld(world);
   if(!keys(state,['schemaVersion','world','seed','rngState','requestSequence',
     'actionSequence','clockTick','paused','residents','retiredResidentIds',
-    'stations','log'])||state.schemaVersion!==VERSION||
+    'stations','log'])||state.schemaVersion!==RESERVATION_VERSION||
     !keys(state.world,['schemaVersion','roomId'])||state.world.schemaVersion!==1||
     state.world.roomId!==world.scene.roomId||!integer(state.seed,1,0xffffffff)||
     !integer(state.rngState,0,0xffffffff)||!integer(state.requestSequence,0,1000000000)||
@@ -173,7 +180,7 @@ function validStateV2(world,state){
       !boundedText(resident.name,40)||!resident.name||
       !boundedText(resident.objectId,128)||objectIds.has(resident.objectId)||
       !validNeeds(resident.needs)||!validPreferences(resident.preferences)||
-      !validActivity(action,VERSION)||!keys(resident.cooldowns,ACTIVITIES)||
+      !validActivity(action,RESERVATION_VERSION)||!keys(resident.cooldowns,ACTIVITIES)||
       !ACTIVITIES.every(key=>integer(resident.cooldowns[key],0,1000000012))||
       !boundedText(resident.lastOutcome,160))throw Error('Invalid Citizens resident');
     if(action){
@@ -249,6 +256,121 @@ function validStateV2(world,state){
     !boundedText(entry.message,160))throw Error('Invalid Citizens log');
 }
 
+function migrateV2(world,saved){
+  validStateV2(world,saved);
+  const state=clone(saved);
+  state.schemaVersion=VERSION;
+  state.socialSession=null;
+  state.socialEvents=[];
+  state.nextSocialTick=Math.max(35,state.clockTick+SOCIAL_COOLDOWN_TICKS);
+  state.relationships=[];
+  const residents=[...state.residents].sort((a,b)=>a.id<b.id?-1:a.id>b.id?1:0);
+  for(let i=0;i<residents.length;i++)for(let j=i+1;j<residents.length;j++)
+    state.relationships.push({a:residents[i].id,b:residents[j].id,score:50});
+  for(const resident of state.residents)resident.socialSessionId=null;
+  return state;
+}
+
+function validStateV3(world,state){
+  if(!keys(state,['schemaVersion','world','seed','rngState','requestSequence',
+    'actionSequence','clockTick','paused','residents','retiredResidentIds',
+    'stations','log','socialSession','socialEvents','relationships','nextSocialTick'])||
+    state.schemaVersion!==VERSION||
+    !integer(state.nextSocialTick,0,1000000100)||
+    !Array.isArray(state.socialEvents)||state.socialEvents.length>MAX_SOCIAL_EVENTS||
+    !Array.isArray(state.relationships)||state.relationships.length>6)
+    throw Error('Invalid Citizens social state');
+  // Preserve the exact v2 checks for claims, waiters, bindings, and activity.
+  const v2=clone(state);
+  v2.schemaVersion=RESERVATION_VERSION;
+  delete v2.socialSession;delete v2.socialEvents;
+  delete v2.relationships;delete v2.nextSocialTick;
+  for(const resident of v2.residents){
+    if(!keys(resident,['id','name','objectId','needs','preferences','activity',
+      'cooldowns','lastOutcome','socialSessionId']))
+      throw Error('Invalid Citizens social resident');
+    delete resident.socialSessionId;
+  }
+  validStateV2(world,v2);
+  const ids=new Set([...state.residents.map(resident=>resident.id),
+    ...state.retiredResidentIds]);
+  const relationshipPairs=new Set();
+  let previousPair='';
+  for(const relation of state.relationships){
+    if(!keys(relation,['a','b','score'])||!ids.has(relation.a)||
+      !ids.has(relation.b)||relation.a>=relation.b||
+      !finite(relation.score)||relation.score<0||relation.score>100)
+      throw Error('Invalid Citizens relationship');
+    const pair=`${relation.a}\u0000${relation.b}`;
+    if(pair<=previousPair||relationshipPairs.has(pair))
+      throw Error('Invalid Citizens relationship order');
+    previousPair=pair;relationshipPairs.add(pair);
+  }
+  const eventIds=new Set();
+  let previousTick=-1;
+  const events=new Set(['initiated','accepted','declined','timed_out','ended','interrupted']);
+  for(const entry of state.socialEvents){
+    const match=typeof entry?.id==='string'?entry.id.match(
+      /^social-([0-9]+)-([0-9]+)-(initiated|accepted|declined|timed_out|ended|interrupted)-([0-9]+)$/):null;
+    if(!keys(entry,['id','event','tick','initiatorId','inviteeId','requestId'])||
+      !events.has(entry.event)||!integer(entry.tick,0,state.clockTick)||
+      entry.tick<previousTick||!ids.has(entry.initiatorId)||
+      !ids.has(entry.inviteeId)||entry.initiatorId===entry.inviteeId||
+      !boundedText(entry.id,96)||!match||Number(match[1])!==state.seed||
+      !integer(Number(match[2]),1,state.actionSequence)||
+      entry.id!==`social-${state.seed}-${Number(match[2])}-${entry.event}-${entry.tick}`||
+      eventIds.has(entry.id)||!boundedText(entry.requestId,128)||
+      (entry.event!=='ended'&&entry.requestId!==''))
+      throw Error('Invalid Citizens social event');
+    if(entry.event==='ended'){
+      const request=entry.requestId.match(/^citizens-([0-9]+)-social-([0-9]+)-([0-9]+)$/);
+      if(!match||!request||Number(match[1])!==state.seed||
+        match[1]!==request[1]||match[2]!==request[2]||
+        !integer(Number(request[3]),1,state.requestSequence)||
+        entry.requestId!==`citizens-${state.seed}-social-${Number(match[2])}-${Number(request[3])}`)
+        throw Error('Invalid Citizens social receipt reference');
+    }
+    eventIds.add(entry.id);previousTick=entry.tick;
+  }
+  const session=state.socialSession;
+  if(session===null){
+    if(state.residents.some(resident=>resident.socialSessionId!==null))
+      throw Error('Invalid Citizens social participant');
+    return;
+  }
+  if(!keys(session,['id','executionId','initiatorId','inviteeId','phase',
+    'startedTick','expiresTick','acceptedTick','travelTicks','remainingTicks'])||
+    !integer(session.executionId,1,state.actionSequence)||
+    session.id!==`social-${state.seed}-${session.executionId}`||
+    !['offered','active'].includes(session.phase)||
+    !integer(session.startedTick,0,state.clockTick)||
+    !integer(session.expiresTick,state.clockTick+1,1000000100)||
+    !integer(session.travelTicks,0,MAX_TRAVEL_TICKS)||
+    !integer(session.remainingTicks,0,SOCIAL_USE_TICKS)||
+    session.initiatorId===session.inviteeId)
+    throw Error('Invalid Citizens social session');
+  const participants=[session.initiatorId,session.inviteeId].map(id=>
+    state.residents.find(resident=>resident.id===id));
+  if(participants.some(resident=>!resident||resident.socialSessionId!==session.id||
+    resident.activity||state.stations.some(station=>station.waiters.some(waiter=>
+      waiter.residentId===resident.id)))||
+    state.residents.some(resident=>!participants.includes(resident)&&
+      resident.socialSessionId!==null)||
+    state.residents.some(resident=>resident.activity?.executionId===session.executionId)||
+    state.stations.some(station=>station.waiters.some(waiter=>
+      waiter.executionId===session.executionId)))
+    throw Error('Invalid Citizens social participant');
+  if(session.phase==='offered'){
+    if(session.acceptedTick!==null||session.expiresTick!==session.startedTick+OFFER_TICKS||
+      session.travelTicks!==0||session.remainingTicks!==SOCIAL_USE_TICKS)
+      throw Error('Invalid Citizens social offer');
+  }else if(!integer(session.acceptedTick,session.startedTick+1,
+      Math.min(state.clockTick,session.startedTick+OFFER_TICKS-1))||
+    session.expiresTick!==session.acceptedTick+ACTIVE_TICKS||
+    session.travelTicks>state.clockTick-session.acceptedTick)
+    throw Error('Invalid Citizens social acceptance');
+}
+
 function pose(x,z,scale=1){
   return {position:{x,y:0,z},rotation:{x:0,y:0,z:0},scale:{x:scale,y:scale,z:scale}};
 }
@@ -274,14 +396,15 @@ export function createCitizensDemo(world,{seed=1}={}){
     const boId=spawn('bo','orb',pose(2.3,-.85,.7));
     const state={schemaVersion:VERSION,world:{schemaVersion:1,roomId:world.scene.roomId},
       seed,rngState:seed,requestSequence:0,actionSequence:0,clockTick:0,paused:true,
-      retiredResidentIds:[],
+      retiredResidentIds:[],socialSession:null,socialEvents:[],
+      relationships:[{a:'ada',b:'bo',score:50}],nextSocialTick:35,
       residents:[
         {id:'ada',name:'Ada',objectId:adaId,needs:{hunger:72,energy:20,fun:62},
           preferences:{rest:1.2,eat:.85,explore:.75},activity:null,
-          cooldowns:{rest:0,eat:0,explore:0},lastOutcome:''},
+          cooldowns:{rest:0,eat:0,explore:0},lastOutcome:'',socialSessionId:null},
         {id:'bo',name:'Bo',objectId:boId,needs:{hunger:42,energy:29,fun:54},
           preferences:{rest:1.1,eat:1,explore:.75},activity:null,
-          cooldowns:{rest:0,eat:0,explore:0},lastOutcome:''}
+          cooldowns:{rest:0,eat:0,explore:0},lastOutcome:'',socialSessionId:null}
       ],stations:[
         {id:'chair',kind:'rest',objectId:chairId,capacity:1,claim:null,waiters:[]},
         {id:'food',kind:'eat',objectId:foodId,capacity:1,claim:null,waiters:[]}
@@ -297,8 +420,10 @@ export function createCitizensDemo(world,{seed=1}={}){
 
 export class CitizensSimulation {
   constructor(world,state){
-    const current=state?.schemaVersion===LEGACY_VERSION?migrateV1(world,state):state;
-    validStateV2(world,current);
+    let current=state;
+    if(current?.schemaVersion===LEGACY_VERSION)current=migrateV1(world,current);
+    if(current?.schemaVersion===RESERVATION_VERSION)current=migrateV2(world,current);
+    validStateV3(world,current);
     this.world=world;
     this.state=clone(current);
     // Runtime-only baseline: the serialized scene supplies it again on restore.
@@ -312,13 +437,14 @@ export class CitizensSimulation {
   exportState(){
     this.reconcileWorld();
     if(this.invalidBindings.size)throw Error('Citizens binding is missing or incompatible');
-    validStateV2(this.world,this.state);
+    validStateV3(this.world,this.state);
     return this.snapshot();
   }
   reconcileWorld(){this.reconcileBindings();return this.snapshot();}
   reconcileBindings(){
     try{assertWorld(this.world);}catch(error){
       if(!this.invalidBindings.has('world')){
+        this.cancelSocial('the virtual room became unavailable');
         for(const resident of this.state.residents)if(resident.activity||this.waitingFor(resident))
           this.fail(resident,'the virtual room became unavailable');
         this.log('','failed',`Simulation stopped: ${error.message}`);
@@ -330,6 +456,7 @@ export class CitizensSimulation {
     const replaced=this.world.scene!==this.observedScene;
     this.observedScene=this.world.scene;
     if(replaced){
+      this.cancelSocial('the scene was replaced');
       for(const resident of this.state.residents)if(resident.activity||this.waitingFor(resident))
         this.fail(resident,'the scene was replaced');
       this.state.paused=true;
@@ -374,6 +501,7 @@ export class CitizensSimulation {
     return interrupted||this.invalidBindings.size>0;
   }
   retireResident(resident){
+    if(resident.socialSessionId)this.cancelSocial('a resident object was deleted');
     if(resident.activity||this.waitingFor(resident))
       this.fail(resident,'resident object was deleted');
     this.state.residents=this.state.residents.filter(item=>item.id!==resident.id);
@@ -397,6 +525,7 @@ export class CitizensSimulation {
     this.log('','retired',`${station.id} was removed after object deletion; surviving residents continue.`);
   }
   interruptBinding(kind,bound,reason){
+    if(kind==='resident'&&bound.socialSessionId)this.cancelSocial(reason);
     const affected=kind==='resident'?[bound]:
       this.state.residents.filter(resident=>resident.activity?.stationId===bound.id||
         bound.waiters.some(waiter=>waiter.residentId===resident.id));
@@ -430,6 +559,137 @@ export class CitizensSimulation {
     this.state.log.push({tick:this.state.clockTick,residentId,event,message:message.slice(0,160)});
     if(this.state.log.length>MAX_LOG)this.state.log.shift();
   }
+  socialEvent(session,event,requestId=''){
+    const tick=this.state.clockTick;
+    this.state.socialEvents.push({id:`${session.id}-${event}-${tick}`,event,tick,
+      initiatorId:session.initiatorId,inviteeId:session.inviteeId,requestId});
+    if(this.state.socialEvents.length>MAX_SOCIAL_EVENTS)this.state.socialEvents.shift();
+  }
+  finishSocial(event,reason,requestId=''){
+    const session=this.state.socialSession;
+    if(!session)return false;
+    this.socialEvent(session,event,requestId);
+    for(const id of [session.initiatorId,session.inviteeId]){
+      const resident=this.state.residents.find(item=>item.id===id);
+      if(resident){resident.socialSessionId=null;resident.lastOutcome=
+        `${event==='ended'?'Completed':'Social '+event}: ${reason}`.slice(0,160);}
+    }
+    this.state.socialSession=null;
+    this.state.nextSocialTick=Math.min(1000000100,
+      this.state.clockTick+SOCIAL_COOLDOWN_TICKS);
+    this.log(session.initiatorId,event==='ended'?'completed':'failed',
+      `Social ${event}: ${reason}`);
+    return true;
+  }
+  cancelSocial(reason='session cancelled'){
+    this.finishSocial('interrupted',reason);
+    return this.snapshot();
+  }
+  socialParticipants(session){
+    const initiator=this.state.residents.find(item=>item.id===session.initiatorId);
+    const invitee=this.state.residents.find(item=>item.id===session.inviteeId);
+    if(!initiator||!invitee||initiator.socialSessionId!==session.id||
+      invitee.socialSessionId!==session.id||initiator.activity||invitee.activity||
+      this.waitingFor(initiator)||this.waitingFor(invitee))return null;
+    return {initiator,invitee};
+  }
+  eligibleForSocial(resident){
+    const object=objectById(this.world,resident.objectId);
+    return !resident.activity&&!resident.socialSessionId&&!this.waitingFor(resident)&&
+      object?.assetId==='orb'&&object.anchorId===ANCHOR_ID&&!object.component&&
+      !hasActiveTransformOwner(object)&&!this.invalidBindings.has(resident.objectId);
+  }
+  beginSocial(){
+    if(this.state.socialSession||this.state.clockTick<this.state.nextSocialTick||
+      this.state.residents.length<2)return false;
+    const ready=this.state.residents.filter(resident=>this.eligibleForSocial(resident))
+      .sort((a,b)=>a.id<b.id?-1:a.id>b.id?1:0);
+    if(ready.length<2){
+      if(this.state.clockTick>=this.state.nextSocialTick+SOCIAL_WINDOW_TICKS)
+        this.state.nextSocialTick=this.state.clockTick+SOCIAL_COOLDOWN_TICKS;
+      return false;
+    }
+    const executionId=this.nextExecutionId();
+    if(executionId===null)return false;
+    const [initiator,invitee]=ready;
+    const id=`social-${this.state.seed}-${executionId}`;
+    const session={id,executionId,initiatorId:initiator.id,inviteeId:invitee.id,
+      phase:'offered',startedTick:this.state.clockTick,
+      expiresTick:this.state.clockTick+OFFER_TICKS,acceptedTick:null,
+      travelTicks:0,remainingTicks:SOCIAL_USE_TICKS};
+    initiator.socialSessionId=id;invitee.socialSessionId=id;
+    this.state.socialSession=session;
+    this.socialEvent(session,'initiated');
+    this.log(initiator.id,'selected',
+      `${initiator.name} invited ${invitee.name} to converse in session ${id}.`);
+    return true;
+  }
+  progressSocial(){
+    const session=this.state.socialSession;
+    if(!session)return false;
+    const pair=this.socialParticipants(session);
+    if(!pair){this.finishSocial('interrupted','participant availability changed');return true;}
+    if(this.state.clockTick>=session.expiresTick){
+      this.finishSocial('timed_out','the invitation or conversation expired');
+      return true;
+    }
+    if(session.phase==='offered'){
+      if(this.state.clockTick!==session.startedTick+1)return true;
+      // A single seeded response roll is serialized through rngState. The
+      // unanswered branch reaches its explicit offer deadline on later ticks.
+      const response=this.nextRandom();
+      if(response<.25){
+        this.finishSocial('declined',`${pair.invitee.name} declined the invitation`);
+      }else if(response<.65){
+        session.phase='active';
+        session.acceptedTick=this.state.clockTick;
+        session.expiresTick=this.state.clockTick+ACTIVE_TICKS;
+        this.socialEvent(session,'accepted');
+        this.log(pair.invitee.id,'selected',
+          `${pair.invitee.name} accepted ${pair.initiator.name}'s invitation.`);
+      }
+      return true;
+    }
+    const actor=positionOf(this.world,pair.initiator.objectId);
+    const target=positionOf(this.world,pair.invitee.objectId);
+    if(!actor||!target){this.finishSocial('interrupted','a participant is missing');return true;}
+    const side=actor.x<target.x?-1:1;
+    const goal={x:round(target.x+side*.62),z:round(target.z)};
+    if(distance(actor,goal)>ARRIVAL_METRES){
+      if(session.travelTicks>=MAX_TRAVEL_TICKS){
+        this.finishSocial('timed_out','conversation travel exceeded its limit');return true;
+      }
+      const receipt=this.requestMove(pair.initiator,goal,session.executionId,'social');
+      if(!receipt.ok){
+        this.finishSocial('interrupted',`movement rejected: ${receipt.error}`);return true;
+      }
+      session.travelTicks++;
+      return true;
+    }
+    if(distance(actor,target)>.8){
+      this.finishSocial('interrupted','participants separated before conversation');
+      return true;
+    }
+    if(--session.remainingTicks>0)return true;
+    const receipt=this.requestSocialInteraction(pair.initiator,pair.invitee,session);
+    if(!receipt.ok){
+      this.finishSocial('interrupted',`conversation rejected: ${receipt.error}`);
+      return true;
+    }
+    const [a,b]=[pair.initiator.id,pair.invitee.id].sort();
+    let relation=this.state.relationships.find(item=>item.a===a&&item.b===b);
+    if(!relation){
+      relation={a,b,score:50};this.state.relationships.push(relation);
+      this.state.relationships.sort((left,right)=>
+        left.a<right.a?-1:left.a>right.a?1:left.b<right.b?-1:left.b>right.b?1:0);
+    }
+    relation.score=clamp(relation.score+5);
+    pair.initiator.needs.fun=clamp(pair.initiator.needs.fun+12);
+    pair.invitee.needs.fun=clamp(pair.invitee.needs.fun+12);
+    this.finishSocial('ended',`${pair.initiator.name} and ${pair.invitee.name} conversed`,
+      receipt.requestId);
+    return true;
+  }
   station(id){return this.state.stations.find(station=>station.id===id);}
   waitingFor(resident){
     for(const station of this.state.stations){
@@ -455,7 +715,7 @@ export class CitizensSimulation {
     resident.lastOutcome=`Failed: ${reason}`;
     this.log(resident.id,'failed',`${resident.name}: ${reason}`);
   }
-  requestMove(resident,target){
+  requestMove(resident,target,executionId=resident.activity?.executionId,domain='action'){
     const object=objectById(this.world,resident.objectId);
     if(!object||object.anchorId!==ANCHOR_ID)return {ok:false,error:'resident object is missing'};
     if(object.component||hasActiveTransformOwner(object))
@@ -466,7 +726,7 @@ export class CitizensSimulation {
     const transform=clone(object.transform);
     transform.position.x=round(current.x+(target.x-current.x)*fraction);
     transform.position.z=round(current.z+(target.z-current.z)*fraction);
-    const requestId=`citizens-${this.state.seed}-action-${resident.activity.executionId}-${++this.state.requestSequence}`;
+    const requestId=`citizens-${this.state.seed}-${domain}-${executionId}-${++this.state.requestSequence}`;
     let receipt;
     try{receipt=this.world.execute({requestId,op:'set_transform',objectId:resident.objectId,
       transform},{recordHistory:false});}
@@ -493,6 +753,23 @@ export class CitizensSimulation {
        outcome.observedDistanceMeters>(station.kind==='rest'?.8:.9))
       return {ok:false,error:receipt?.error||'missing or mismatched interaction outcome'};
     return {ok:true};
+  }
+  requestSocialInteraction(initiator,invitee,session){
+    const requestId=`citizens-${this.state.seed}-social-${session.executionId}-${++this.state.requestSequence}`;
+    let receipt;
+    try{receipt=this.world.execute({requestId,op:'interact',
+      actorObjectId:initiator.objectId,targetObjectId:invitee.objectId,
+      kind:'converse',sessionId:session.id},{recordHistory:false});}
+    catch(error){return {ok:false,error:error.message||String(error)};}
+    const outcome=receipt?.outcome;
+    if(!receipt?.ok||receipt.requestId!==requestId||
+      receipt.objectId!==initiator.objectId||outcome?.kind!=='converse'||
+      outcome.actorObjectId!==initiator.objectId||
+      outcome.targetObjectId!==invitee.objectId||outcome.sessionId!==session.id||
+      !finite(outcome.observedDistanceMeters)||outcome.observedDistanceMeters<0||
+      outcome.observedDistanceMeters>.8)
+      return {ok:false,error:receipt?.error||'missing or mismatched conversation outcome'};
+    return {ok:true,requestId};
   }
   targetFor(resident){
     const action=resident.activity;
@@ -639,10 +916,23 @@ export class CitizensSimulation {
       resident.needs.hunger=clamp(resident.needs.hunger-.45);
       resident.needs.energy=clamp(resident.needs.energy-.55);
       resident.needs.fun=clamp(resident.needs.fun-.25);
+    }
+    const socialParticipants=new Set(this.state.socialSession?
+      [this.state.socialSession.initiatorId,this.state.socialSession.inviteeId]:[]);
+    if(this.state.socialSession)this.progressSocial();
+    if(!socialParticipants.size&&this.beginSocial()){
+      socialParticipants.add(this.state.socialSession.initiatorId);
+      socialParticipants.add(this.state.socialSession.inviteeId);
+    }
+    const waitingWindow=this.state.residents.length>=2&&
+      this.state.clockTick>=this.state.nextSocialTick&&
+      this.state.clockTick<this.state.nextSocialTick+SOCIAL_WINDOW_TICKS;
+    for(const resident of this.state.residents){
+      if(socialParticipants.has(resident.id)||resident.socialSessionId)continue;
       if(!resident.activity){
         const waiting=this.waitingFor(resident);
         if(waiting)this.progressWaiting(resident,waiting.station,waiting.entry);
-        else this.choose(resident);
+        else if(!(waitingWindow&&this.eligibleForSocial(resident)))this.choose(resident);
       }
       if(resident.activity)this.progress(resident);
     }

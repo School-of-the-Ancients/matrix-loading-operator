@@ -110,13 +110,16 @@ test('Citizens and scene restore together from a v3 browser world and manual che
   assert.deepEqual(storedWorld(manuallyRestored),snapshot);
 });
 
-test('v1 Citizens browser checkpoints migrate an in-flight reservation to v2',()=>{
+test('v1 Citizens browser checkpoints migrate an in-flight reservation to v3',()=>{
   const original=new MatrixWorld(()=>crypto.randomUUID().replaceAll('-',''));
   const simulation=createCitizensDemo(original,{seed:17});
   simulation.step();original.citizens=simulation.snapshot();
   const legacy=storedWorld(original),state=legacy.citizens;
   state.schemaVersion=1;
   delete state.actionSequence;delete state.retiredResidentIds;
+  delete state.socialSession;delete state.socialEvents;
+  delete state.relationships;delete state.nextSocialTick;
+  for(const resident of state.residents)delete resident.socialSessionId;
   for(const resident of state.residents)if(resident.activity)
     delete resident.activity.executionId;
   state.stations=state.stations.map(station=>({id:station.id,kind:station.kind,
@@ -126,7 +129,7 @@ test('v1 Citizens browser checkpoints migrate an in-flight reservation to v2',()
     'failed','paused','resumed'].includes(entry.event));
   const reopened=new MatrixWorld();
   restoreStoredWorld(reopened,legacy);
-  assert.equal(reopened.citizens.schemaVersion,2);
+  assert.equal(reopened.citizens.schemaVersion,3);
   assert.equal(reopened.citizens.residents.find(resident=>resident.id==='ada')
     .activity.executionId,reopened.citizens.stations.find(station=>station.kind==='rest')
     .claim.executionId);
@@ -135,6 +138,24 @@ test('v1 Citizens browser checkpoints migrate an in-flight reservation to v2',()
   const again=new MatrixWorld();
   restoreStoredWorld(again,loadStoredWorld(storage(),durable).value);
   assert.deepEqual(storedWorld(again),storedWorld(reopened));
+});
+
+test('v2 Citizens browser checkpoints migrate without changing in-flight claims',()=>{
+  const original=new MatrixWorld(()=>crypto.randomUUID().replaceAll('-',''));
+  const simulation=createCitizensDemo(original,{seed:17});
+  simulation.step();original.citizens=simulation.snapshot();
+  const previous=storedWorld(original),state=previous.citizens;
+  state.schemaVersion=2;
+  delete state.socialSession;delete state.socialEvents;
+  delete state.relationships;delete state.nextSocialTick;
+  for(const resident of state.residents)delete resident.socialSessionId;
+  const reopened=new MatrixWorld();
+  restoreStoredWorld(reopened,previous);
+  assert.equal(reopened.citizens.schemaVersion,3);
+  assert.deepEqual(reopened.citizens.stations,state.stations);
+  assert.equal(reopened.citizens.residents[0].activity.executionId,
+    state.residents[0].activity.executionId);
+  assert.deepEqual(reopened.citizens.relationships,[{a:'ada',b:'bo',score:50}]);
 });
 
 test('the first Citizens deletion preserves the complete prior browser world for explicit recovery',()=>{

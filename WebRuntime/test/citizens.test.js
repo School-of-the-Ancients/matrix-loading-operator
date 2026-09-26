@@ -217,8 +217,14 @@ test('v1 mid-action state migrates atomically and replays deletion and FIFO hand
   legacy.schemaVersion=1;
   delete legacy.actionSequence;
   delete legacy.retiredResidentIds;
-  for(const resident of legacy.residents)if(resident.activity)
-    delete resident.activity.executionId;
+  delete legacy.socialSession;
+  delete legacy.socialEvents;
+  delete legacy.relationships;
+  delete legacy.nextSocialTick;
+  for(const resident of legacy.residents){
+    delete resident.socialSessionId;
+    if(resident.activity)delete resident.activity.executionId;
+  }
   legacy.stations=legacy.stations.map(station=>({id:station.id,kind:station.kind,
     objectId:station.objectId,capacity:station.capacity,
     holder:station.claim?.residentId??null}));
@@ -234,7 +240,7 @@ test('v1 mid-action state migrates atomically and replays deletion and FIFO hand
   const a=restore(),b=restore();
   for(const copy of [a,b]){
     const migrated=copy.sim.exportState();
-    assert.equal(migrated.schemaVersion,2);
+    assert.equal(migrated.schemaVersion,3);
     assert.equal(migrated.actionSequence,1);
     assert.equal(migrated.stations.find(station=>station.kind==='rest').claim.executionId,
       migrated.residents.find(resident=>resident.id==='ada').activity.executionId);
@@ -520,4 +526,161 @@ test('deleting the last resident yields a valid paused zero-resident state',()=>
   assert.deepEqual(sim.exportState(),after);
   assert.deepEqual(sim.step(),after,'empty simulation must not advance');
   assert.deepEqual(sim.resume(),after,'empty simulation cannot run');
+});
+
+test('v2 checkpoints migrate to v3 without changing active claims or Matrix objects',()=>{
+  const matrix=world(),sim=createCitizensDemo(matrix,{seed:31});
+  sim.step();
+  const saved=sim.exportState();
+  saved.schemaVersion=2;
+  delete saved.socialSession;delete saved.socialEvents;
+  delete saved.relationships;delete saved.nextSocialTick;
+  for(const resident of saved.residents)delete resident.socialSessionId;
+  const scene=structuredClone(matrix.scene);
+  const migrated=CitizensSimulation.restore(matrix,saved).exportState();
+  assert.equal(migrated.schemaVersion,3);
+  assert.deepEqual(migrated.stations,saved.stations);
+  assert.deepEqual(migrated.relationships,[{a:'ada',b:'bo',score:50}]);
+  assert.equal(migrated.socialSession,null);
+  assert.ok(migrated.nextSocialTick>=35);
+  assert.deepEqual(matrix.scene,scene);
+});
+
+test('fixed seed records decline, timeout and completion; only a receipt changes relationship',()=>{
+  const matrix=world(),sim=createCitizensDemo(matrix,{seed:1});
+  let previous=sim.snapshot();
+  const allEvents=[];
+  for(let i=0;i<300;i++){
+    const state=sim.step();
+    if(state.socialEvents.length>previous.socialEvents.length)
+      allEvents.push(state.socialEvents.at(-1));
+    const changed=state.relationships[0].score!==previous.relationships[0].score;
+    assert.equal(changed,state.socialEvents.at(-1)?.event==='ended'&&
+      state.socialEvents.at(-1).tick===state.clockTick,
+    'relationship changes only on a matching observed social completion');
+    previous=state;
+  }
+  assert.ok(allEvents.some(event=>event.event==='declined'));
+  assert.ok(allEvents.some(event=>event.event==='timed_out'));
+  assert.ok(allEvents.some(event=>event.event==='accepted'));
+  const ended=allEvents.filter(event=>event.event==='ended');
+  assert.equal(ended.length,2);
+  assert.equal(previous.relationships[0].score,60);
+  assert.ok(ended.every(event=>event.requestId.startsWith('citizens-1-social-')));
+  assert.ok(previous.log.some(entry=>entry.event==='completed'&&
+    entry.message.includes('Social ended')));
+  assert.ok(previous.log.some(entry=>entry.event==='completed'&&
+    entry.message.includes('rest')),
+  'individual need actions continue alongside bounded social sessions');
+  assert.deepEqual(sim.exportState(),previous);
+});
+
+test('an accepted mid-conversation checkpoint replays one observed end after restore',()=>{
+  const matrix=world(),sim=createCitizensDemo(matrix,{seed:2});
+  while(sim.snapshot().clockTick<80)sim.step();
+  assert.equal(sim.snapshot().socialSession?.phase,'active');
+  assert.ok(sim.snapshot().socialSession.travelTicks>0);
+  sim.pause();
+  const saved=sim.exportState(),scene=structuredClone(matrix.scene);
+  const restoredWorld=world();
+  assert.equal(restoredWorld.execute({requestId:'load-social',op:'load',scene}).ok,true);
+  const restored=CitizensSimulation.restore(restoredWorld,saved);
+  assert.deepEqual(restored.exportState(),saved);
+  for(let i=0;i<24;i++){
+    assert.deepEqual(sim.step(),restored.step());
+    assert.deepEqual(matrix.scene,restoredWorld.scene);
+  }
+  const after=restored.exportState();
+  assert.equal(after.socialEvents.filter(event=>event.event==='ended').length,1);
+  assert.equal(after.relationships[0].score,55);
+  assert.equal(after.socialSession,null);
+  assert.ok(after.residents.every(resident=>resident.socialSessionId===null));
+});
+
+test('a forged converse outcome interrupts the session without granting social benefit',()=>{
+  const matrix=world(),sim=createCitizensDemo(matrix,{seed:2});
+  while(sim.snapshot().clockTick<77)sim.step();
+  assert.equal(sim.snapshot().socialSession?.phase,'active');
+  const original=matrix.execute.bind(matrix);
+  matrix.execute=(command,options)=>{
+    const receipt=original(command,options);
+    if(command.op==='interact'&&command.kind==='converse'&&receipt.ok)
+      receipt.outcome.sessionId='different-session';
+    return receipt;
+  };
+  for(let i=0;i<30&&sim.snapshot().socialSession;i++)sim.step();
+  const after=sim.exportState();
+  assert.equal(after.socialSession,null);
+  assert.equal(after.relationships[0].score,50);
+  assert.equal(after.socialEvents.at(-1).event,'interrupted');
+  assert.ok(after.residents.every(resident=>resident.socialSessionId===null));
+  assert.ok(!after.socialEvents.some(event=>event.event==='ended'));
+});
+
+test('authored movement and deletion cancel both participants atomically',()=>{
+  for(const mutation of ['move','delete']){
+    const matrix=world(),sim=createCitizensDemo(matrix,{seed:2});
+    sim.resume();
+    while(sim.snapshot().clockTick<77)sim.step();
+    const session=sim.snapshot().socialSession;
+    const invitee=sim.snapshot().residents.find(item=>item.id===session.inviteeId);
+    if(mutation==='move'){
+      const object=matrix.scene.objects.find(item=>item.objectId===invitee.objectId);
+      const transform=structuredClone(object.transform);
+      transform.position.x+=1;
+      assert.equal(matrix.execute({requestId:'move-invitee',op:'set_transform',
+        objectId:invitee.objectId,transform}).ok,true);
+    }else assert.equal(matrix.execute({requestId:'delete-invitee',op:'delete',
+      objectId:invitee.objectId}).ok,true);
+    const after=sim.reconcileWorld();
+    assert.equal(after.socialSession,null);
+    assert.equal(after.socialEvents.at(-1).event,'interrupted');
+    assert.ok(after.residents.every(resident=>resident.socialSessionId===null));
+    assert.equal(after.relationships[0].score,50);
+    assert.equal(after.paused,mutation==='move');
+    assert.deepEqual(sim.exportState(),after);
+  }
+});
+
+test('explicit cancellation and scene replacement end a social session once',()=>{
+  for(const mode of ['stop','replace']){
+    const matrix=world(),sim=createCitizensDemo(matrix,{seed:2});
+    while(sim.snapshot().clockTick<77)sim.step();
+    const before=sim.snapshot();
+    let after;
+    if(mode==='stop'){
+      after=sim.cancelSocial('operator stopped the Citizens demo');
+      assert.deepEqual(sim.cancelSocial('duplicate stop'),after,
+        'a repeated stop cannot add a second terminal event');
+    }else{
+      assert.equal(matrix.execute({requestId:'replace-scene',op:'load',
+        scene:structuredClone(matrix.scene)}).ok,true);
+      after=sim.reconcileWorld();
+      assert.equal(after.paused,true);
+    }
+    assert.equal(after.socialSession,null);
+    assert.equal(after.socialEvents.filter(event=>event.event==='interrupted').length,1);
+    assert.equal(after.relationships[0].score,before.relationships[0].score);
+    assert.ok(after.residents.every(resident=>resident.socialSessionId===null));
+    assert.deepEqual(sim.exportState(),after);
+  }
+});
+
+test('v3 restore rejects mismatched bilateral IDs, forged social events and unknown fields',()=>{
+  const matrix=world(),sim=createCitizensDemo(matrix,{seed:2});
+  while(sim.snapshot().clockTick<77)sim.step();
+  const saved=sim.exportState(),scene=structuredClone(matrix.scene);
+  const variants=[
+    state=>{state.residents[0].socialSessionId='other-session';},
+    state=>{state.socialSession.expiresTick++;},
+    state=>{state.socialSession.executionId=state.residents[0].activity?.executionId||0;},
+    state=>{state.socialEvents[0].requestId='forged';},
+    state=>{state.relationships[0].a='bo';},
+    state=>{state.socialSession.extra=true;}
+  ];
+  for(const change of variants){
+    const broken=structuredClone(saved);change(broken);
+    assert.throws(()=>CitizensSimulation.restore(matrix,broken),/Invalid Citizens/);
+    assert.deepEqual(matrix.scene,scene);
+  }
 });
