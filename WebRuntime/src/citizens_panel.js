@@ -1013,7 +1013,7 @@ export class CitizensPanel {
     const initiator=residentNames.get(social?.initiatorId)||social?.initiatorId;
     const invitee=residentNames.get(social?.inviteeId)||social?.inviteeId;
     byId('citizens-social-status').textContent=social?
-      `Session ${social.id}: ${initiator} ${social.phase==='offered'?'invited':'is conversing with'} ${invitee} · ${social.phase} · expires m ${social.expiresTick}`:
+      `Session ${social.id}: ${initiator} ${social.phase==='offered'?'invited':'is conversing with'} ${invitee} · ${social.phase}${social.routeRetries?` · route retries ${social.routeRetries}/3`:''} · expires m ${social.expiresTick}`:
       latestSocial?`No active session · latest ${latestSocial.event} at m ${latestSocial.tick} · ${latestSocial.id}`:
         'No active social session yet.';
     const socialEvents=(state?.socialEvents||[]).slice(-6).reverse().map(entry=>{

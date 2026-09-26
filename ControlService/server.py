@@ -716,8 +716,33 @@ def validate_citizens_checkpoint(value, checked_scene):
         return type(item) in (int, float) and minimum <= item <= maximum and math.isfinite(item)
 
     require(type(value) is dict and type(value.get("schemaVersion")) is int and
-            value["schemaVersion"] in (1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11), "Unsupported Citizens schemaVersion")
+            value["schemaVersion"] in (1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12), "Unsupported Citizens schemaVersion")
     version = value["schemaVersion"]
+    if version == 12:
+        # Only a non-null social session adds a retry count. Project into the
+        # exact v11 contract so all prior world, resident, appointment and
+        # relationship checks remain authoritative for this checkpoint.
+        projected = copy.deepcopy(value)
+        projected["schemaVersion"] = 11
+        session = value.get("socialSession")
+        if session is not None:
+            shape(session, ("id", "executionId", "initiatorId", "inviteeId", "phase",
+                            "startedTick", "expiresTick", "acceptedTick", "travelTicks",
+                            "remainingTicks", "routeRetries"), "social session")
+            retries = session["routeRetries"]
+            require(integer(retries, 0, 3), "Invalid Citizens social route retries")
+            if session["phase"] == "offered":
+                require(retries == 0, "Invalid Citizens social offer route retries")
+            elif session["phase"] == "active" and \
+                    integer(value.get("clockTick"), 0, 1000000000) and \
+                    integer(session["acceptedTick"], 0, value["clockTick"]) and \
+                    integer(session["travelTicks"], 0, 60):
+                require(retries + session["travelTicks"] <=
+                        value["clockTick"] - session["acceptedTick"],
+                        "Invalid Citizens social route retry timing")
+            del projected["socialSession"]["routeRetries"]
+        validate_citizens_checkpoint(projected, checked_scene)
+        return
     if version in (10, 11):
         # Validate resident-local appointment lifecycles before projecting to
         # v9, which still checks every world, resident and action binding. V11

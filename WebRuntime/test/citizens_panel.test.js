@@ -257,7 +257,7 @@ test('appointment inspector separates queued, started, completed receipt, and mi
       startTick,deadlineTick)=>({id,kind,status,executionId,resolvedTick,requestId,
         reason,startTick,deadlineTick});
     const needs={hunger:50,energy:40,fun:60,social:32};
-    const state={schemaVersion:11,paused:true,clockTick:15,seed:17,
+    const state={schemaVersion:12,paused:true,clockTick:15,seed:17,
       residents:[
         {id:'ada',name:'Ada',needs,activity:null,socialSessionId:null,
           routines:[],lastDecision:{tick:15,mode:'appointment',roll:null,
@@ -697,8 +697,11 @@ test('panel shows offered, active, and completed social sessions with relationsh
     assert.match(dom.elements.get('citizens-relationships').children[0].textContent,/Ada ↔ Bo: 1\/100/);
 
     state.socialSession.phase='active';
+    state.socialSession.routeRetries=2;
     panel.render();
     assert.match(dom.elements.get('citizens-social-status').textContent,/Ada is conversing with Bo · active/);
+    assert.match(dom.elements.get('citizens-social-status').textContent,
+      /route retries 2\/3/);
     assert.match(dom.elements.get('citizens-residents').children[0].textContent,/conversing with Bo/);
 
     state.socialSession=null;

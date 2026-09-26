@@ -110,7 +110,7 @@ test('v6 worlds gain bounded daily routines without changing saved claims or sce
     delete resident.lastDecision;
   }
   const restored=CitizensSimulation.restore(matrix,old).exportState();
-  assert.equal(restored.schemaVersion,11);
+  assert.equal(restored.schemaVersion,12);
   assert.equal(restored.clockSpeed,1);
   assert.deepEqual(restored.residents[0].routines.map(item=>item.id),
     ['morning-meal','morning-walk','daytime-walk','evening-rest']);
@@ -122,14 +122,14 @@ test('v6 worlds gain bounded daily routines without changing saved claims or sce
   assert.deepEqual(matrix.scene,scene);
 });
 
-test('v7 virtual-day checkpoint migrates to v11 without changing its execution',()=>{
+test('v7 virtual-day checkpoint migrates to v12 without changing its execution',()=>{
   const matrix=world(),simulation=createCitizensDemo(matrix,{seed:17});
   simulation.step();
   const old=simulation.exportState(),scene=structuredClone(matrix.scene);
   old.schemaVersion=7;
   stripV9Fields(old);
   const migrated=CitizensSimulation.restore(matrix,old).exportState();
-  assert.equal(migrated.schemaVersion,11);
+  assert.equal(migrated.schemaVersion,12);
   const comparable=structuredClone(migrated);
   comparable.schemaVersion=7;
   stripV9Fields(comparable);
@@ -138,14 +138,14 @@ test('v7 virtual-day checkpoint migrates to v11 without changing its execution',
   assert.deepEqual(matrix.scene,scene);
 });
 
-test('v8 egress checkpoint migrates to v11 without changing claims or scene',()=>{
+test('v8 egress checkpoint migrates to v12 without changing claims or scene',()=>{
   const matrix=world(),simulation=createCitizensDemo(matrix,{seed:17});
   simulation.step();
   const old=simulation.exportState(),scene=structuredClone(matrix.scene);
   old.schemaVersion=8;
   stripV9Fields(old);
   const migrated=CitizensSimulation.restore(matrix,old).exportState();
-  assert.equal(migrated.schemaVersion,11);
+  assert.equal(migrated.schemaVersion,12);
   const comparable=structuredClone(migrated);
   comparable.schemaVersion=8;
   stripV9Fields(comparable);
@@ -166,7 +166,7 @@ test('v9 social-needs state gains empty v11 appointments without changing execut
     delete resident.appointmentSequence;
   }
   const migrated=CitizensSimulation.restore(matrix,old).exportState();
-  assert.equal(migrated.schemaVersion,11);
+  assert.equal(migrated.schemaVersion,12);
   assert.ok(migrated.residents.every(item=>
     Array.isArray(item.appointments)&&item.appointments.length===0&&
     item.appointmentSequence===0));
@@ -192,7 +192,7 @@ test('v10 terminal appointments migrate with a monotonic sequence and permit day
   const before=structuredClone(state),scene=structuredClone(matrix.scene);
   const sim=CitizensSimulation.restore(matrix,state);
   const migrated=sim.exportState();
-  assert.equal(migrated.schemaVersion,11);
+  assert.equal(migrated.schemaVersion,12);
   assert.equal(migrated.residents[0].appointmentSequence,3);
   assert.equal(migrated.residents[0].appointments.length,3);
   assert.deepEqual(state,before);
@@ -214,7 +214,7 @@ test('a due appointment selects a hard goal and completes only with its Matrix r
   };
   const scheduled=sim.scheduleAppointment('ada',{
     kind:'eat',startTick:1,deadlineTick:60});
-  assert.equal(scheduled.schemaVersion,11);
+  assert.equal(scheduled.schemaVersion,12);
   assert.deepEqual(appointmentOf(scheduled),{
     id:'appointment-1',kind:'eat',startTick:1,deadlineTick:60,
     status:'pending',executionId:null,resolvedTick:null,requestId:null,reason:''});
@@ -539,7 +539,7 @@ test('critical hunger links a due rest when its chair claim cannot safely releas
   const checkpoint=resumed.exportState();
   assert.deepEqual(checkpoint,linked);
   assert.deepEqual(CitizensSimulation.restore(matrix,checkpoint).exportState(),
-    checkpoint,'active appointment has a valid v11 checkpoint trace');
+    checkpoint,'active appointment has a valid v12 checkpoint trace');
 
   const completed=stepUntil(resumed,state=>
     appointmentOf(state).status==='completed',40);
@@ -918,7 +918,7 @@ test('numeric appointment ID order resolves same-window conflicts after ID ten',
   assert.equal(appointmentOf(selected,'ada','appointment-10').status,'pending');
 });
 
-test('v11 restore rejects forged sequence, cancelled state and capacity',()=>{
+test('v12 restore rejects forged sequence, cancelled state and capacity',()=>{
   const matrix=world(),sim=createCitizensDemo(matrix,{seed:29});
   for(let number=1;number<=3;number++){
     const details={kind:'eat',startTick:number,deadlineTick:40};
@@ -979,7 +979,7 @@ test('a due appointment defers a new social offer and mid-action restore replays
     appointmentOf(restored.exportState()).requestId);
 });
 
-test('v11 restore rejects forged appointment lifecycles and reused executions atomically',()=>{
+test('v12 restore rejects forged appointment lifecycles and reused executions atomically',()=>{
   const matrix=world(),sim=createCitizensDemo(matrix,{seed:29});
   sim.scheduleAppointment('ada',{kind:'eat',startTick:1,deadlineTick:60});
   sim.scheduleAppointment('ada',{kind:'rest',startTick:2,deadlineTick:3});
@@ -2085,7 +2085,7 @@ test('v1 mid-action state migrates atomically and replays deletion and FIFO hand
   const a=restore(),b=restore();
   for(const copy of [a,b]){
     const migrated=copy.sim.exportState();
-    assert.equal(migrated.schemaVersion,11);
+    assert.equal(migrated.schemaVersion,12);
     assert.equal(migrated.actionSequence,1);
     assert.equal(migrated.stations.find(station=>station.kind==='rest').claim.executionId,
       migrated.residents.find(resident=>resident.id==='ada').activity.executionId);
@@ -2373,7 +2373,7 @@ test('deleting the last resident yields a valid paused zero-resident state',()=>
   assert.deepEqual(sim.resume(),after,'empty simulation cannot run');
 });
 
-test('v2 checkpoints migrate to v11 without changing active claims or Matrix objects',()=>{
+test('v2 checkpoints migrate to v12 without changing active claims or Matrix objects',()=>{
   const matrix=world(),sim=createCitizensDemo(matrix,{seed:31});
   sim.step();
   const saved=sim.exportState();
@@ -2394,7 +2394,7 @@ test('v2 checkpoints migrate to v11 without changing active claims or Matrix obj
   for(const station of saved.stations)delete station.interaction;
   const scene=structuredClone(matrix.scene);
   const migrated=CitizensSimulation.restore(matrix,saved).exportState();
-  assert.equal(migrated.schemaVersion,11);
+  assert.equal(migrated.schemaVersion,12);
   assert.deepEqual(migrated.stations,saved.stations.map(station=>
     ({...station,interaction:null})));
   assert.deepEqual(migrated.relationships,[{a:'ada',b:'bo',score:50,completed:[]}]);
@@ -2600,7 +2600,7 @@ const socialHistoryThrough=count=>{
   return {matrix,sim,completed};
 };
 
-test('v11 rejects an appointment receipt that reuses an ended social request sequence',()=>{
+test('v12 rejects an appointment receipt that reuses an ended social request sequence',()=>{
   const {matrix,sim,completed}=socialHistoryThrough(1);
   const clock=sim.snapshot().clockTick;
   sim.scheduleAppointment('ada',{
@@ -2772,6 +2772,171 @@ test('an accepted mid-conversation checkpoint replays one observed end after res
       (before.needs.social-2.4+35)*100)/100),
     'restored conversation grants exactly one social benefit');
   }
+});
+
+const blockedSocialTravel=()=>{
+  const matrix=world(),sim=createCitizensDemo(matrix,{seed:2});
+  const active=stepUntil(sim,state=>state.socialSession?.phase==='active'&&
+    state.socialSession.travelTicks>0,300);
+  const initiator=active.residents.find(item=>
+    item.id===active.socialSession.initiatorId);
+  const actor=matrix.requireObject(initiator.objectId).transform.position;
+  const blockId=spawn(matrix,'block',pose(actor.x,actor.z));
+  return {matrix,sim,blockId,active};
+};
+
+test('a temporary authored blockage retries one social session and earns only its converse receipt',()=>{
+  const {matrix,sim,blockId,active}=blockedSocialTravel();
+  const sessionId=active.socialSession.id;
+  const initialNeeds=active.residents.map(item=>item.needs.social);
+  const first=sim.step();
+  assert.equal(first.socialSession.id,sessionId);
+  assert.equal(first.socialSession.routeRetries,1);
+  assert.equal(first.socialSession.travelTicks,active.socialSession.travelTicks);
+  assert.deepEqual(first.relationships,active.relationships,
+    'a retry cannot grant a relationship benefit');
+  assert.ok(first.residents.every((resident,index)=>
+    resident.needs.social<initialNeeds[index]));
+  assert.ok(first.log.some(entry=>entry.event==='rerouted'&&
+    entry.message.includes('conversation route unavailable; retry 1/3')));
+  assert.deepEqual(sim.exportState(),first);
+  assert.equal(matrix.execute({requestId:'clear-social-block',op:'delete',
+    objectId:blockId}).ok,true);
+  const ended=stepUntil(sim,state=>state.socialEvents.some(event=>
+    event.event==='ended'&&event.id.startsWith(`${sessionId}-`)),80);
+  const receipt=ended.socialEvents.find(event=>
+    event.event==='ended'&&event.id.startsWith(`${sessionId}-`));
+  assert.equal(ended.socialSession,null);
+  assert.match(receipt.requestId,
+    new RegExp(`^citizens-2-social-${active.socialSession.executionId}-[0-9]+$`));
+  assert.deepEqual(ended.relationships[0].completed,[{
+    sessionId,requestId:receipt.requestId,tick:receipt.tick}]);
+  assert.equal(ended.relationships[0].score,55);
+  assert.ok(ended.residents.every((resident,index)=>
+    resident.needs.social>initialNeeds[index]));
+});
+
+test('a persistent authored blockage exhausts three social retries and releases both peers',()=>{
+  const {sim,active}=blockedSocialTravel();
+  const sessionId=active.socialSession.id;
+  for(let count=1;count<=3;count++){
+    const state=sim.step();
+    assert.equal(state.socialSession.id,sessionId);
+    assert.equal(state.socialSession.routeRetries,count);
+    assert.equal(state.socialSession.executionId,active.socialSession.executionId);
+    assert.deepEqual(state.relationships,active.relationships);
+    assert.deepEqual(sim.exportState(),state);
+  }
+  const failed=sim.step();
+  assert.equal(failed.socialSession,null);
+  assert.equal(failed.socialEvents.at(-1).event,'interrupted');
+  assert.ok(failed.socialEvents.at(-1).id.startsWith(`${sessionId}-`));
+  assert.ok(failed.residents.every(item=>item.socialSessionId===null));
+  assert.deepEqual(failed.relationships,active.relationships);
+  assert.ok(failed.log.some(entry=>entry.event==='failed'&&
+    entry.message.includes('conversation route unavailable after 3 retries')));
+  assert.deepEqual(sim.exportState(),failed);
+});
+
+test('a blocked social retry survives a saved v12 world and replays after its wall clears',()=>{
+  const {matrix,sim,blockId}=blockedSocialTravel();
+  sim.step();sim.step();
+  sim.pause();
+  const saved=sim.exportState(),scene=structuredClone(matrix.scene);
+  assert.equal(saved.socialSession.routeRetries,2);
+  const replayWorld=world();
+  assert.equal(replayWorld.execute({requestId:'load-social-route',op:'load',
+    scene}).ok,true);
+  const replay=CitizensSimulation.restore(replayWorld,saved);
+  assert.deepEqual(replay.exportState(),saved);
+  assert.deepEqual(replay.advance(),saved);
+  for(const current of [matrix,replayWorld])
+    assert.equal(current.execute({requestId:'clear-social-replay',op:'delete',
+      objectId:blockId}).ok,true);
+  sim.resume();replay.resume();
+  for(let i=0;i<80;i++){
+    assert.deepEqual(sim.advance(),replay.advance());
+    assert.deepEqual(matrix.scene,replayWorld.scene);
+    if(sim.snapshot().socialEvents.some(event=>event.event==='ended'&&
+      event.id.startsWith(`${saved.socialSession.id}-`)))break;
+  }
+  const after=replay.exportState();
+  assert.equal(after.socialSession,null);
+  assert.equal(after.relationships[0].score,55);
+  assert.equal(after.relationships[0].completed.length,1);
+});
+
+test('v11 social sessions migrate to a zero retry count without changing intent',()=>{
+  const matrix=world(),sim=createCitizensDemo(matrix,{seed:2});
+  const active=stepUntil(sim,state=>state.socialSession?.phase==='active'&&
+    state.socialSession.travelTicks>0,300);
+  const old=structuredClone(active),scene=structuredClone(matrix.scene);
+  old.schemaVersion=11;
+  delete old.socialSession.routeRetries;
+  const replayWorld=world();
+  assert.equal(replayWorld.execute({requestId:'load-v11-social',op:'load',
+    scene}).ok,true);
+  const restored=CitizensSimulation.restore(replayWorld,old);
+  assert.deepEqual(restored.exportState(),active);
+  assert.deepEqual(matrix.scene,scene);
+  for(let i=0;i<20;i++){
+    assert.deepEqual(restored.step(),sim.step());
+    assert.deepEqual(replayWorld.scene,matrix.scene);
+  }
+});
+
+test('v12 rejects missing, forged, or impossible social retry counts atomically',()=>{
+  const matrix=world(),sim=createCitizensDemo(matrix,{seed:2});
+  const active=stepUntil(sim,state=>state.socialSession?.phase==='active'&&
+    state.socialSession.travelTicks>0,300);
+  const scene=structuredClone(matrix.scene);
+  assert.equal(active.clockTick-active.socialSession.acceptedTick,1);
+  assert.equal(active.socialSession.travelTicks,1);
+  const variants=[
+    state=>{delete state.socialSession.routeRetries;},
+    state=>{state.socialSession.routeRetries=-1;},
+    state=>{state.socialSession.routeRetries=4;},
+    state=>{state.socialSession.routeRetries=1.5;},
+    state=>{state.socialSession.routeRetries='1';},
+    state=>{state.socialSession.routeRetries=1;},
+    state=>{state.socialSession.routeRetries=2;},
+    state=>{state.socialSession.extra=true;}
+  ];
+  for(const change of variants){
+    const invalid=structuredClone(active);change(invalid);
+    assert.throws(()=>CitizensSimulation.restore(matrix,invalid),/Invalid Citizens/);
+    assert.deepEqual(matrix.scene,scene);
+  }
+  const {matrix:offeredWorld,state}=socialOpportunity();
+  for(const resident of state.residents)resident.needs.social=0;
+  const offered=CitizensSimulation.restore(offeredWorld,state).step();
+  assert.equal(offered.socialSession.phase,'offered');
+  offered.socialSession.routeRetries=1;
+  assert.throws(()=>CitizensSimulation.restore(offeredWorld,offered),
+    /Invalid Citizens social route retries/);
+});
+
+test('an uncertain social movement receipt interrupts without retry or benefit',()=>{
+  const matrix=world(),sim=createCitizensDemo(matrix,{seed:2});
+  const active=stepUntil(sim,state=>state.socialSession?.phase==='active'&&
+    state.socialSession.travelTicks>0,300);
+  const original=matrix.execute.bind(matrix);
+  matrix.execute=(command,options)=>{
+    const receipt=original(command,options);
+    if(command.op==='set_transform'&&
+      command.requestId.startsWith(`citizens-2-social-${active.socialSession.executionId}-`))
+      return {...receipt,requestId:'uncertain-social-receipt'};
+    return receipt;
+  };
+  const after=sim.step();
+  assert.equal(after.socialSession,null);
+  assert.equal(after.socialEvents.at(-1).event,'interrupted');
+  assert.deepEqual(after.relationships,active.relationships);
+  assert.ok(!after.log.some(entry=>entry.tick===after.clockTick&&
+    entry.event==='rerouted'));
+  assert.ok(after.residents.every(item=>item.socialSessionId===null));
+  assert.ok(after.residents.every((resident,index)=>
+    resident.needs.social<active.residents[index].needs.social));
 });
 
 test('a forged converse outcome interrupts the session without granting social benefit',()=>{

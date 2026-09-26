@@ -4,7 +4,8 @@ import {ANCHOR_ID,INTERACTION_USE_MARGIN_METRES,MAX_OBJECTS,ROOM_ID,
   interactionWorldPoint,validInteractionDescriptor} from './protocol.js';
 import {checkedMove,planPath,segmentClear} from './citizens_navigation.js';
 
-const VERSION=11;
+const VERSION=12;
+const APPOINTMENT_SEQUENCE_VERSION=11;
 const APPOINTMENT_VERSION=10;
 const SOCIAL_NEEDS_VERSION=9;
 const EGRESS_VERSION=8;
@@ -913,10 +914,18 @@ function migrateV9(world,saved){
 function migrateV10(world,saved){
   validStateV10(world,saved);
   const state=clone(saved);
-  state.schemaVersion=VERSION;
+  state.schemaVersion=APPOINTMENT_SEQUENCE_VERSION;
   for(const resident of state.residents)
     resident.appointmentSequence=Math.max(0,...resident.appointments.map(item=>
       appointmentNumber(item.id)));
+  return state;
+}
+
+function migrateV11(world,saved){
+  validStateV11(world,saved);
+  const state=clone(saved);
+  state.schemaVersion=VERSION;
+  if(state.socialSession)state.socialSession.routeRetries=0;
   return state;
 }
 
@@ -925,7 +934,27 @@ function validStateV10(world,state){
 }
 
 function validStateV11(world,state){
-  return validAppointmentState(world,state,VERSION);
+  return validAppointmentState(world,state,APPOINTMENT_SEQUENCE_VERSION);
+}
+
+function validStateV12(world,state){
+  if(!state||state.schemaVersion!==VERSION)
+    throw Error('Invalid Citizens social route state');
+  const prior=clone(state);
+  prior.schemaVersion=APPOINTMENT_SEQUENCE_VERSION;
+  const session=state.socialSession;
+  if(session!==null&&session!==undefined){
+    if(!keys(session,['id','executionId','initiatorId','inviteeId','phase',
+      'startedTick','expiresTick','acceptedTick','travelTicks',
+      'remainingTicks','routeRetries'])||
+      !integer(session.routeRetries,0,MAX_ROUTE_RETRIES)||
+      session.phase==='offered'&&session.routeRetries!==0||
+      session.phase==='active'&&session.routeRetries+session.travelTicks>
+        state.clockTick-session.acceptedTick)
+      throw Error('Invalid Citizens social route retries');
+    delete prior.socialSession.routeRetries;
+  }
+  validStateV11(world,prior);
 }
 
 function validAppointmentState(world,state,version){
@@ -946,16 +975,17 @@ function validAppointmentState(world,state,version){
     const old=v9.residents[index];
     if(!keys(resident,['id','name','objectId','needs','preferences','activity',
       'cooldowns','lastOutcome','socialSessionId','routines','lastDecision',
-      'appointments',...(version===VERSION?['appointmentSequence']:[])])||
+      'appointments',...(version===APPOINTMENT_SEQUENCE_VERSION?['appointmentSequence']:[])])||
       !Array.isArray(resident.appointments)||
-      resident.appointments.length>(version===VERSION?2*MAX_APPOINTMENTS:
+      resident.appointments.length>(version===APPOINTMENT_SEQUENCE_VERSION?2*MAX_APPOINTMENTS:
         MAX_APPOINTMENTS)||
-      (version===VERSION&&!integer(resident.appointmentSequence,0,
+      (version===APPOINTMENT_SEQUENCE_VERSION&&!integer(resident.appointmentSequence,0,
         MAX_APPOINTMENT_SEQUENCE)))
       throw Error('Invalid Citizens appointment resident');
     const ids=new Set();
     let active=0,open=0,terminal=0;
-    const idLimit=version===VERSION?resident.appointmentSequence:MAX_APPOINTMENTS;
+    const idLimit=version===APPOINTMENT_SEQUENCE_VERSION?
+      resident.appointmentSequence:MAX_APPOINTMENTS;
     for(const appointment of resident.appointments){
       const idNumber=appointmentNumber(appointment?.id);
       if(!keys(appointment,['id','kind','startTick','deadlineTick','status',
@@ -968,7 +998,7 @@ function validAppointmentState(world,state,version){
           Math.min(appointment.startTick+APPOINTMENT_HORIZON,
             APPOINTMENT_LAST_DEADLINE))||
         !['pending','active','completed','missed',
-          ...(version===VERSION?['cancelled']:[])].includes(appointment.status))
+          ...(version===APPOINTMENT_SEQUENCE_VERSION?['cancelled']:[])].includes(appointment.status))
         throw Error('Invalid Citizens appointment');
       ids.add(appointment.id);
       const {status,executionId,resolvedTick,requestId,reason}=appointment;
@@ -1012,7 +1042,7 @@ function validAppointmentState(world,state,version){
           throw Error('Invalid completed Citizens appointment');
         completedSequences.add(sequence);
       }else if(status==='cancelled'){
-        if(version!==VERSION||executionId!==null||requestId!==null||
+        if(version!==APPOINTMENT_SEQUENCE_VERSION||executionId!==null||requestId!==null||
           reason!==APPOINTMENT_CANCEL_REASON||
           !integer(resolvedTick,0,Math.min(appointment.deadlineTick,
             state.clockTick)))
@@ -1024,11 +1054,11 @@ function validAppointmentState(world,state,version){
         reason!==APPOINTMENT_MISS_REASON)
         throw Error('Invalid missed Citizens appointment');
     }
-    if(active>1||version===VERSION&&
+    if(active>1||version===APPOINTMENT_SEQUENCE_VERSION&&
       (open>MAX_APPOINTMENTS||terminal>MAX_APPOINTMENTS))
       throw Error('Invalid Citizens appointment capacity');
     delete old.appointments;
-    if(version===VERSION)delete old.appointmentSequence;
+    if(version===APPOINTMENT_SEQUENCE_VERSION)delete old.appointmentSequence;
     const decision=resident.lastDecision;
     if(decision?.mode==='appointment'){
       const appointment=resident.appointments.find(item=>
@@ -1253,7 +1283,9 @@ export class CitizensSimulation {
     if(current?.schemaVersion===EGRESS_VERSION)current=migrateV8(world,current);
     if(current?.schemaVersion===SOCIAL_NEEDS_VERSION)current=migrateV9(world,current);
     if(current?.schemaVersion===APPOINTMENT_VERSION)current=migrateV10(world,current);
-    validStateV11(world,current);
+    if(current?.schemaVersion===APPOINTMENT_SEQUENCE_VERSION)
+      current=migrateV11(world,current);
+    validStateV12(world,current);
     this.world=world;
     this.state=clone(current);
     // Runtime-only baseline: the serialized scene supplies it again on restore.
@@ -1301,7 +1333,7 @@ export class CitizensSimulation {
       `${changes.startMinute}–${changes.endMinute} (${changes.priority}).`,160);
     next.log.push({tick:next.clockTick,residentId,event:'selected',message});
     if(next.log.length>MAX_LOG)next.log.shift();
-    validStateV11(this.world,next);
+    validStateV12(this.world,next);
     this.state=next;
     return this.snapshot();
   }
@@ -1318,7 +1350,7 @@ export class CitizensSimulation {
         this.observedTransforms.get(bound.objectId)))
         throw Error('A Citizens object moved or disappeared; review bindings first');
     }
-    validStateV11(this.world,this.state);
+    validStateV12(this.world,this.state);
   }
   validateAppointmentWindow(details){
     if(!keys(details,['kind','startTick','deadlineTick'])||
@@ -1367,7 +1399,7 @@ export class CitizensSimulation {
       `${details.startTick} through ${details.deadlineTick}.`,160);
     next.log.push({tick:next.clockTick,residentId,event:'selected',message});
     if(next.log.length>MAX_LOG)next.log.shift();
-    validStateV11(this.world,next);
+    validStateV12(this.world,next);
     this.state=next;
     return this.snapshot();
   }
@@ -1384,7 +1416,7 @@ export class CitizensSimulation {
       message:boundedPrefix(`${resident.name} revised ${id} to ${changes.kind} from minute `+
         `${changes.startTick} through ${changes.deadlineTick}.`,160)});
     if(next.log.length>MAX_LOG)next.log.shift();
-    validStateV11(this.world,next);
+    validStateV12(this.world,next);
     this.state=next;
     return this.snapshot();
   }
@@ -1402,7 +1434,7 @@ export class CitizensSimulation {
       message:boundedPrefix(`${resident.name} cancelled ${id} ${appointment.kind} from minute `+
         `${appointment.startTick} through ${appointment.deadlineTick}.`,160)});
     if(next.log.length>MAX_LOG)next.log.shift();
-    validStateV11(this.world,next);
+    validStateV12(this.world,next);
     this.state=next;
     return this.snapshot();
   }
@@ -1421,7 +1453,7 @@ export class CitizensSimulation {
     if(checkRoutes){
       if(this.world.scene!==this.observedScene)
         throw Error('The scene changed; review Citizens bindings before adding a station');
-      validStateV11(this.world,this.state);
+      validStateV12(this.world,this.state);
       for(const bound of [...this.state.residents,...this.state.stations]){
         const object=objectById(this.world,bound.objectId);
         if(!object||!sameTransform(object.transform,
@@ -1452,7 +1484,7 @@ export class CitizensSimulation {
       this.observedTransforms.set(station.objectId,
         clone(objectById(this.world,station.objectId).transform));
       this.log('','selected',`Reviewed ${station.id} station added to the shared world.`);
-      validStateV11(this.world,this.state);
+      validStateV12(this.world,this.state);
       return this.snapshot();
     }catch(error){
       this.state=previous;
@@ -1463,7 +1495,7 @@ export class CitizensSimulation {
   exportState(){
     this.reconcileWorld();
     if(this.invalidBindings.size)throw Error('Citizens binding is missing or incompatible');
-    validStateV11(this.world,this.state);
+    validStateV12(this.world,this.state);
     return this.snapshot();
   }
   reconcileWorld(){this.reconcileBindings();return this.snapshot();}
@@ -1837,7 +1869,7 @@ export class CitizensSimulation {
     const session={id,executionId,initiatorId:initiator.id,inviteeId:invitee.id,
       phase:'offered',startedTick:this.state.clockTick,
       expiresTick:this.state.clockTick+OFFER_TICKS,acceptedTick:null,
-      travelTicks:0,remainingTicks:SOCIAL_USE_TICKS};
+      travelTicks:0,remainingTicks:SOCIAL_USE_TICKS,routeRetries:0};
     initiator.socialSessionId=id;invitee.socialSessionId=id;
     this.state.socialSession=session;
     this.socialEvent(session,'initiated');
@@ -1845,6 +1877,16 @@ export class CitizensSimulation {
     this.log(initiator.id,'selected',
       `${initiator.name} chose conversation with ${invitee.name}: social ${round(initiator.needs.social)}, score ${choice.score} versus ${choice.alternative.priority} activity ${choice.alternative.score}; session ${id}.`);
     return true;
+  }
+  retrySocialRoute(session,initiator,reason){
+    if(session.routeRetries>=MAX_ROUTE_RETRIES){
+      this.finishSocial('interrupted',
+        `conversation route unavailable after ${MAX_ROUTE_RETRIES} retries: ${reason}`);
+      return;
+    }
+    session.routeRetries++;
+    this.log(initiator.id,'rerouted',
+      `${initiator.name}: conversation route unavailable; retry ${session.routeRetries}/${MAX_ROUTE_RETRIES}: ${reason}`);
   }
   progressSocial(){
     const session=this.state.socialSession;
@@ -1883,7 +1925,10 @@ export class CitizensSimulation {
     const approach=stationApproach(this.world,pair.initiator.objectId,
       {objectId:pair.invitee.objectId,kind:'converse'});
     if(!approach.ok){
-      this.finishSocial('interrupted',`conversation path unavailable: ${approach.reason}`);
+      if(approach.code==='no_path')
+        this.retrySocialRoute(session,pair.initiator,approach.reason);
+      else this.finishSocial('interrupted',
+        `conversation path unavailable: ${approach.reason}`);
       return true;
     }
     const goal=approach.target;
@@ -1893,7 +1938,10 @@ export class CitizensSimulation {
       }
       const receipt=this.requestMove(pair.initiator,goal,session.executionId,'social');
       if(!receipt.ok){
-        this.finishSocial('interrupted',`movement rejected: ${receipt.error}`);return true;
+        if(['no_path','start_blocked','goal_blocked','obstacle'].includes(receipt.code))
+          this.retrySocialRoute(session,pair.initiator,receipt.error);
+        else this.finishSocial('interrupted',`movement rejected: ${receipt.error}`);
+        return true;
       }
       session.travelTicks++;
       return true;
