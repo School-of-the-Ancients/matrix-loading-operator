@@ -88,12 +88,23 @@ test('v6 worlds gain bounded daily routines without changing saved claims or sce
     delete resident.lastDecision;
   }
   const restored=CitizensSimulation.restore(matrix,old).exportState();
-  assert.equal(restored.schemaVersion,7);
+  assert.equal(restored.schemaVersion,8);
   assert.equal(restored.clockSpeed,1);
   assert.deepEqual(restored.residents[0].routines.map(item=>item.id),
     ['morning-meal','morning-walk','daytime-walk','evening-rest']);
   assert.equal(restored.residents[0].lastDecision,null);
   assert.deepEqual(restored.stations,old.stations);
+  assert.deepEqual(matrix.scene,scene);
+});
+
+test('v7 virtual-day checkpoint migrates to v8 without changing its execution',()=>{
+  const matrix=world(),simulation=createCitizensDemo(matrix,{seed:17});
+  simulation.step();
+  const old=simulation.exportState(),scene=structuredClone(matrix.scene);
+  old.schemaVersion=7;
+  const migrated=CitizensSimulation.restore(matrix,old).exportState();
+  assert.equal(migrated.schemaVersion,8);
+  assert.deepEqual({...migrated,schemaVersion:7},old);
   assert.deepEqual(matrix.scene,scene);
 });
 
@@ -195,7 +206,7 @@ test('one accelerated virtual day has observed activities and no unbounded state
   assert.equal(matrix.scene.objects.length,4);
 });
 
-test('v7 rejects malformed clock, routine, and score trace without touching world',()=>{
+test('v8 rejects malformed clock, routine, and score trace without touching world',()=>{
   const matrix=world(),simulation=createCitizensDemo(matrix,{seed:29});
   simulation.step();
   const good=simulation.exportState(),scene=structuredClone(matrix.scene);
@@ -569,27 +580,33 @@ test('movement, finite use and observed completion produce visible changing need
   const initial=sim.snapshot().residents.map(resident=>resident.needs);
   const startPositions=matrix.scene.objects.filter(object=>object.assetId==='orb')
     .map(object=>structuredClone(object.transform.position));
-  let state;
-  for(let i=0;i<60;i++){
+  let state,adaRest=false,boEat=false,boMealIncreased=false;
+  for(let i=0;i<120;i++){
+    const hungerBefore=sim.snapshot().residents.find(item=>item.id==='bo').needs.hunger;
     state=sim.step();
     for(const station of state.stations){
       assert.ok(holder(station)===null||state.residents.some(resident=>
         resident.id===holder(station)&&resident.activity?.stationId===station.id&&
         resident.activity.executionId===station.claim.executionId));
     }
-    if(state.log.some(entry=>entry.event==='completed'&&entry.residentId==='ada'&&
-         entry.message.includes('rest'))&&
-       state.log.some(entry=>entry.event==='completed'&&entry.residentId==='bo'&&
-         entry.message.includes('eat')))break;
+    const current=state.log.filter(entry=>entry.tick===state.clockTick&&
+      entry.event==='completed');
+    adaRest ||= current.some(entry=>entry.residentId==='ada'&&
+      entry.message.includes('rest'));
+    if(current.some(entry=>entry.residentId==='bo'&&entry.message.includes('eat'))){
+      boEat=true;
+      boMealIncreased=state.residents.find(item=>item.id==='bo').needs.hunger>hungerBefore;
+    }
+    if(adaRest&&boEat)break;
   }
   const endPositions=matrix.scene.objects.filter(object=>object.assetId==='orb')
     .map(object=>object.transform.position);
   assert.notDeepEqual(endPositions,startPositions);
   assert.ok(state.log.some(entry=>entry.event==='arrived'&&entry.residentId==='ada'));
-  assert.ok(state.log.some(entry=>entry.event==='completed'&&entry.residentId==='ada'));
-  assert.ok(state.log.some(entry=>entry.event==='completed'&&entry.residentId==='bo'));
+  assert.equal(adaRest,true);
+  assert.equal(boEat,true);
   assert.ok(state.residents[0].needs.energy>initial[0].energy);
-  assert.ok(state.residents[1].needs.hunger>initial[1].hunger);
+  assert.equal(boMealIncreased,true,'Bo gained hunger only on the observed meal tick');
   assert.ok(state.residents.some(resident=>resident.needs.fun!==initial[
     state.residents.findIndex(item=>item.id===resident.id)].fun));
   assert.equal(matrix.undo.length,0,'simulation movement must not create authored Undo history');
@@ -611,6 +628,11 @@ test('the shared chair is released and a waiting resident eventually uses it',()
     entry.message.includes('rest')));
   assert.ok(state.log.some(entry=>entry.event==='completed'&&entry.residentId==='bo'&&
     entry.message.includes('rest')));
+  assert.equal(state.residents.find(resident=>resident.id==='bo').activity?.phase,'egress',
+    'the chair remains claimed until Bo leaves its approach');
+  assert.equal(holder(state.stations.find(station=>station.id==='chair')),'bo');
+  for(let tick=0;tick<20&&holder(state.stations.find(station=>station.id==='chair'));tick++)
+    state=sim.step();
   assert.equal(holder(state.stations.find(station=>station.id==='chair')),null);
 });
 
@@ -773,7 +795,7 @@ test('v1 mid-action state migrates atomically and replays deletion and FIFO hand
   const a=restore(),b=restore();
   for(const copy of [a,b]){
     const migrated=copy.sim.exportState();
-    assert.equal(migrated.schemaVersion,7);
+    assert.equal(migrated.schemaVersion,8);
     assert.equal(migrated.actionSequence,1);
     assert.equal(migrated.stations.find(station=>station.kind==='rest').claim.executionId,
       migrated.residents.find(resident=>resident.id==='ada').activity.executionId);
@@ -1061,7 +1083,7 @@ test('deleting the last resident yields a valid paused zero-resident state',()=>
   assert.deepEqual(sim.resume(),after,'empty simulation cannot run');
 });
 
-test('v2 checkpoints migrate to v7 without changing active claims or Matrix objects',()=>{
+test('v2 checkpoints migrate to v8 without changing active claims or Matrix objects',()=>{
   const matrix=world(),sim=createCitizensDemo(matrix,{seed:31});
   sim.step();
   const saved=sim.exportState();
@@ -1081,7 +1103,7 @@ test('v2 checkpoints migrate to v7 without changing active claims or Matrix obje
   for(const station of saved.stations)delete station.interaction;
   const scene=structuredClone(matrix.scene);
   const migrated=CitizensSimulation.restore(matrix,saved).exportState();
-  assert.equal(migrated.schemaVersion,7);
+  assert.equal(migrated.schemaVersion,8);
   assert.deepEqual(migrated.stations,saved.stations.map(station=>
     ({...station,interaction:null})));
   assert.deepEqual(migrated.relationships,[{a:'ada',b:'bo',score:50,completed:[]}]);
@@ -1182,7 +1204,7 @@ test('completed receipt history rolls at ten while relationship stays saturated'
 });
 
 test('fixed seed records decline, timeout and completion; only a receipt changes relationship',()=>{
-  const matrix=world(),sim=createCitizensDemo(matrix,{seed:1});
+  const matrix=world(),sim=createCitizensDemo(matrix,{seed:2});
   let previous=sim.snapshot();
   const allEvents=[];
   for(let i=0;i<500;i++){
@@ -1204,7 +1226,7 @@ test('fixed seed records decline, timeout and completion; only a receipt changes
   assert.deepEqual(previous.relationships[0].completed,ended.map(event=>({
     sessionId:event.id.slice(0,-`-ended-${event.tick}`.length),
     requestId:event.requestId,tick:event.tick})));
-  assert.ok(ended.every(event=>event.requestId.startsWith('citizens-1-social-')));
+  assert.ok(ended.every(event=>event.requestId.startsWith('citizens-2-social-')));
   assert.ok(previous.log.some(entry=>entry.event==='completed'&&
     entry.message.includes('Social ended')));
   assert.ok(previous.log.some(entry=>entry.event==='completed'&&

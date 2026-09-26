@@ -716,7 +716,7 @@ def validate_citizens_checkpoint(value, checked_scene):
         return type(item) in (int, float) and minimum <= item <= maximum and math.isfinite(item)
 
     require(type(value) is dict and type(value.get("schemaVersion")) is int and
-            value["schemaVersion"] in (1, 2, 3, 4, 5, 6, 7), "Unsupported Citizens schemaVersion")
+            value["schemaVersion"] in (1, 2, 3, 4, 5, 6, 7, 8), "Unsupported Citizens schemaVersion")
     version = value["schemaVersion"]
     state_fields = ("schemaVersion", "world", "seed", "rngState", "requestSequence",
                     "clockTick", "paused", "residents", "stations", "log")
@@ -803,9 +803,20 @@ def validate_citizens_checkpoint(value, checked_scene):
             shape(activity, activity_fields + (("executionId",) if version >= 2 else ()) +
                   (("routeRetries", "routeGeometryId") if version >= 5 else ()), "activity")
             require(activity["kind"] in ("rest", "eat", "explore") and
-                    activity["phase"] in ("travel", "use") and
+                    activity["phase"] in (("travel", "use", "egress") if version >= 8 else
+                                          ("travel", "use")) and
                     integer(activity["remainingTicks"], 0, 12) and
                     integer(activity["travelTicks"], 0, 60), "Invalid Citizens activity")
+            if activity["phase"] == "egress":
+                require(activity["kind"] in ("rest", "eat") and
+                        activity["remainingTicks"] == 0 and
+                        type(activity["target"]) is dict and
+                        set(activity["target"]) == {"x", "z"} and
+                        all(number(activity["target"][axis], -99.8, 99.8)
+                            for axis in ("x", "z")) and
+                        resident["lastOutcome"].startswith(
+                            f"Completed {activity['kind']} "),
+                        "Invalid Citizens egress activity")
             if version >= 5:
                 require(integer(activity["routeRetries"], 0, 3),
                         "Invalid Citizens route retry count")
@@ -817,7 +828,9 @@ def validate_citizens_checkpoint(value, checked_scene):
                         execution_id not in active_execution_ids,
                         "Invalid Citizens activity execution ID")
                 active_execution_ids.add(execution_id)
-            if activity["kind"] == "explore":
+            if activity["phase"] == "egress":
+                citizens_text(activity["stationId"], "Citizens activity station ID", limit=32)
+            elif activity["kind"] == "explore":
                 shape(activity["target"], ("x", "z"), "exploration target")
                 explore_limit = 100 if version >= 4 else 5
                 require(activity["stationId"] is None and
