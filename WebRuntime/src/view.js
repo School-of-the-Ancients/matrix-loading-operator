@@ -229,7 +229,7 @@ function setRoomContentVisible(view,visible){
 
 export class MatrixView {
   constructor(container,world,onSelection,getToken=()=>'',onAssetError=()=>{},onSceneEdit=()=>{},onRuntimeChange=()=>{},onVoiceStart=()=>{},onVoiceEnd=()=>{},onVoiceOutputToggle=()=>{},onVisualReview=()=>{},onNewChat=()=>{}){
-    this.world=world;this.onSelection=onSelection;this.getToken=getToken;this.onAssetError=onAssetError;this.onSceneEdit=onSceneEdit;this.onRuntimeChange=onRuntimeChange;this.onVoiceStart=onVoiceStart;this.onVoiceEnd=onVoiceEnd;this.onVoiceOutputToggle=onVoiceOutputToggle;this.onVisualReview=onVisualReview;this.onNewChat=onNewChat;this.onPanelAction=()=>{};this.onFrame=()=>{};
+    this.world=world;this.onSelection=onSelection;this.getToken=getToken;this.onAssetError=onAssetError;this.onSceneEdit=onSceneEdit;this.onRuntimeChange=onRuntimeChange;this.onVoiceStart=onVoiceStart;this.onVoiceEnd=onVoiceEnd;this.onVoiceOutputToggle=onVoiceOutputToggle;this.onVisualReview=onVisualReview;this.onNewChat=onNewChat;this.onPanelAction=()=>{};this.onFrame=()=>{};this.onAssetReadinessChange=()=>{};
     this.container=container;this.objectRoots=new Map();this.anchorRoots=new Map();this.planeOutlines=new Map();this.planeIds=new WeakMap();this.nextPlaneId=0;this.hitSource=null;this.reticleVisible=false;this.xrViewer=null;this.reticleAnchorId='';this.lastPlaneTime=0;
     this.modelCache=new Map();
     this.scene=new THREE.Scene();this.scene.background=new THREE.Color(0x0a1b29);
@@ -629,6 +629,8 @@ export class MatrixView {
     if(this.pointerGrab)this.world.resumePhysics?.(this.pointerGrab.objectId);
     this.grab=null;this.pointerGrab=null;
     for(const root of this.objectRoots.values()){
+      // A routine redraw rebuilds the same content-addressed model. Keep its
+      // measured navigation footprint; only physics needs a fresh instance.
       this.world.invalidatePhysicsAsset?.(root.userData.objectId);
       stopAnimatedAsset(root.userData.mixer,root.userData.model);
       root.parent?.remove(root);disposeGroup(root);
@@ -700,12 +702,20 @@ export class MatrixView {
       visual.add(model);root.userData.model=model;root.userData.mixer=mixer;
       root.userData.selectAnimation=select;root.userData.assetLoading=false;
       // Model and its named clips must instantiate successfully before this
-      // exact object can take part in a floor drop.
+      // exact object can take part in navigation or a floor drop.
       this.world.verifyPhysicsAsset?.(asset.assetId,source.measuredSize,objectId);
     }catch(error){
-      if(this.objectRoots.get(objectId)===root)this.world.invalidatePhysicsAsset?.(objectId,true);
+      if(this.objectRoots.get(objectId)===root){
+        const invalidate=this.world.invalidateRenderedAsset||this.world.invalidatePhysicsAsset;
+        invalidate?.call(this.world,objectId,true);
+      }
       root.userData.assetLoading=false;this.modelCache.delete(asset.assetId);
       this.onAssetError(`${asset.displayName}: ${error.message}`);
+    }finally{
+      // A GLB can finish after selection. Refresh readiness controls without
+      // rebuilding the scene (which would start another asynchronous load).
+      if(this.objectRoots.get(objectId)===root)
+        this.onAssetReadinessChange?.(objectId);
     }
   }
   highlight(){
