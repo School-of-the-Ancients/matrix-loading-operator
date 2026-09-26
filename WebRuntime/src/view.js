@@ -76,6 +76,7 @@ export function operatorPanel(){
   let pinLabel='PIN TO WALL',voiceLabel='VOICE ON',originLabel='ROOM ORIGIN UNKNOWN',conversationCount=0;
   let voiceInputLabel='HOLD TO SPEAK';
   let gameStatus='No game running.',worldInfo={objects:0,canConfirm:false,alignment:'No room scan'},worldWarning='';
+  let worldNotice={text:'',tone:'idle'};
   let cameraStatus='Camera not tested',cameraActive=false;
   let buttons=[];
   const paint=()=>{
@@ -100,6 +101,10 @@ export function operatorPanel(){
       const label=gameStatus.length>70?gameStatus.slice(0,67)+'…':gameStatus;
       ctx.fillText(label,55,235);
       ctx.fillStyle='#8bb8c2';ctx.fillText(`Conversation: ${conversationCount} recent turn${conversationCount===1?'':'s'}`,55,290);
+      if(worldNotice.text){
+        ctx.fillStyle=worldNotice.tone==='error'?'#ffad8d':worldNotice.tone==='pending'?'#dff7f8':'#75f4df';
+        ctx.font='bold 21px sans-serif';ctx.fillText(worldNotice.text,55,317);
+      }
       if(worldInfo.originUnavailable&&worldInfo.canRetryOrigin)
         button('retry-room-origin','RETRY SAVED ROOM ORIGIN',55,328,914,76,true);
       else if(worldInfo.canConfirm)button('confirm-room','OUTLINES ALIGN — ENABLE EDITING',55,328,914,76,true);
@@ -181,6 +186,7 @@ export function operatorPanel(){
   const setConversationCount=next=>{conversationCount=next;paint();};
   const setProposal=next=>{proposal=next;if(next)mode='proposal';else if(mode==='proposal')mode='chat';page=0;paint();};
   const setWorldInfo=next=>{if(JSON.stringify(worldInfo)!==JSON.stringify(next)){worldInfo=next;paint();}};
+  const setWorldNotice=(text,tone='idle')=>{worldNotice={text:String(text),tone};paint();};
   const setGameStatus=next=>{if(gameStatus!==next){gameStatus=next;paint();}};
   const setWarning=next=>{if(worldWarning!==next){worldWarning=next;paint();}};
   const setCameraStatus=(next,active)=>{if(cameraStatus!==next||cameraActive!==active){cameraStatus=next;cameraActive=active;paint();}};
@@ -199,7 +205,7 @@ export function operatorPanel(){
   const nextPage=()=>{page++;paint();};
   paint();
   return {group,mesh,setMessage,setPinLabel,setVoiceLabel,setOriginLabel,setConversationCount,
-    setProposal,setWorldInfo,setGameStatus,setWarning,setCameraStatus,setAgentStatus,setVoiceInputLabel,toggleWorld,toggleAgent,isAgentMode,openProposal,hit,nextPage};
+    setProposal,setWorldInfo,setWorldNotice,setGameStatus,setWarning,setCameraStatus,setAgentStatus,setVoiceInputLabel,toggleWorld,toggleAgent,isAgentMode,openProposal,hit,nextPage};
 }
 const v3=v=>new THREE.Vector3(v.x,v.y,v.z);
 const plain=v=>({x:Number(v.x.toFixed(3)),y:Number(v.y.toFixed(3)),z:Number(v.z.toFixed(3))});
@@ -441,6 +447,7 @@ export class MatrixView {
   setConversationCount(count){this.operatorPanel.setConversationCount(count);}
   setOperatorProposal(proposal){this.operatorPanel.setProposal(proposal);}
   setOperatorWorldInfo(info){this.operatorPanel.setWorldInfo(info);}
+  setOperatorWorldNotice(message,tone='idle'){this.operatorPanel.setWorldNotice(message,tone);}
   setOperatorGameStatus(status){this.operatorPanel.setGameStatus(status);}
   setOperatorWarning(warning){this.operatorPanel.setWarning(warning);}
   setOperatorCameraStatus(status,active){this.operatorPanel.setCameraStatus(status,active);}

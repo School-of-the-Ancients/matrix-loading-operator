@@ -27,7 +27,7 @@ and any command receipt. The combined branch includes that upstream fix.
 
 - Windows 11, Python 3.13.14: `python -m unittest discover -s ControlService
   -p test_*.py -q` — **638 passed**.
-- Node 24.16.0: `npm test` in `WebRuntime` — **124 passed**.
+- Node 24.16.0: `npm test` in `WebRuntime` — **125 passed**.
 - Vite 7.3.6: `npm run build` — passed.
 - `git diff --check` — passed.
 
@@ -134,4 +134,41 @@ catalog, **Restore world → Confirm restore** succeeded. The restored snapshot
 had the exact same object ID, authored y=`1.5`, `Flight` binding and restitution
 `0.2`; `physicsStates` was empty and no command was pending. This exercised the
 new revision-guarded restore exchange end to end. These were desktop checks;
-Quest Agent conversation, save, and reopen remain to be tested separately.
+the Quest browser checkpoint is exercised separately below.
+
+## Quest 3 Agent and browser checkpoint journey
+
+The wearer then used the isolated Agent-enabled combined service on port 18778
+through the USB ADB reverse tunnel. PC-local speech was configured, and the
+Codex Agent session reported `danger-full-access` with automatic approvals.
+The Quest client connected as a ready White Room. Via the in-world CODEX
+push-to-talk control, the wearer asked the Agent to load the registered Ice
+Dragon at `(0, 1.5, -2)`, scale `0.5`, and bind `Flight`. Spawn receipt
+`ba5c3f56af4d468eaf22c56cc5b136e7` and binding receipt
+`1add319e59df469c98dfb71cc04b5fa4` succeeded for object
+`ed6126a9282547b995e5724fceafe59e`. The wearer confirmed the Dragon
+appeared and Flight was visible.
+
+In the same Agent conversation, a voice follow-up moved that object along room
+X to `0.3` with successful receipt `92f2efd873704850a0179a6f48c8d149`.
+The ID and Flight binding stayed the same, and the wearer confirmed visible
+movement and continued animation. The wearer tapped **WORLD → SAVE WORLD**.
+The PC service wrote scene-only backups; `saveWorld()` creates those only after
+the Quest browser checkpoint write succeeds. The wearer could not tell from
+the WORLD panel whether the save had completed, exposing a feedback bug: the
+success message existed only in desktop `#feedback`. The branch now adds a
+dedicated visible WORLD notice for local save, PC backup outcome, and restore
+status. The new panel regression verifies that notice survives redraws;
+the notice itself still needs a wearer check on the updated bundle.
+
+The wearer closed and reopened Quest Browser at the **same** port 18778 URL
+and re-entered VR. A new runtime client ID exchanged the exact same Dragon ID,
+authored X=`0.3`, and `Flight` binding. The wearer confirmed the Dragon,
+animation, and Codex conversation returned. After reselecting/grabbing the
+Dragon, its live pose changed (including X=`0.704`); the same resumed Agent
+conversation moved that exact object back to room X=`0` with successful receipt
+`98e2ced73b894fd2816af4bde5815625`, keeping its current height, scale,
+and `Flight`. The wearer confirmed the visible move and animation. Selection
+was reacquired after reload; the browser checkpoint retained the earlier
+saved pose rather than subsequent edits. This run did not enable Quest physics
+on that Dragon; the separate port-18777 check above covers the VR floor drop.
