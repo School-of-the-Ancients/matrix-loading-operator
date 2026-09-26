@@ -1,0 +1,79 @@
+{
+  "schemaVersion": 1,
+  "testOrigin": "http://127.0.0.1:19861/web/",
+  "runtime": {
+    "schemaVersion": 1,
+    "client": "matrix-web",
+    "renderer": "threejs-webxr",
+    "presentation": "desktop"
+  },
+  "checkpointName": "procedural-bench-citizens",
+  "serviceRestarted": true,
+  "restoredAfterLiveClock": 32,
+  "restoredClock": 31,
+  "bench": {
+    "objectId": "00eda4c30bb148e3bc7da403b4b6c795",
+    "recipe": {
+      "schemaVersion": 1,
+      "generatorId": "curved-bench",
+      "generatorVersion": "1.0.0",
+      "sourceRevision": "curved-bench-v1",
+      "parameters": {
+        "lengthMeters": 2.2,
+        "depthMeters": 0.5,
+        "seatHeightMeters": 0.46,
+        "backHeightMeters": 0.45,
+        "arcDegrees": 90
+      },
+      "seed": 0,
+      "dependencies": []
+    },
+    "interaction": {
+      "schemaVersion": 2,
+      "interactionId": "bench-rest",
+      "kind": "rest",
+      "proceduralSource": {
+        "generatorVersion": "1.0.0",
+        "sourceRevision": "curved-bench-v1",
+        "generatorId": "curved-bench"
+      },
+      "requiredCapabilities": [
+        "static-virtual-floor",
+        "reviewed-procedural-geometry"
+      ],
+      "availability": [
+        "target-static",
+        "floor-aligned",
+        "generator-available"
+      ],
+      "approachPose": {
+        "z": -0.65,
+        "x": 0
+      },
+      "usePose": {
+        "z": 0.2,
+        "x": 0
+      },
+      "rangeMeters": 1,
+      "durationTicks": 7,
+      "capacity": 1,
+      "effect": {
+        "delta": 37,
+        "need": "energy"
+      }
+    },
+    "stationObjectId": "00eda4c30bb148e3bc7da403b4b6c795"
+  },
+  "residentObjectIds": [
+    "59d4c14d16164ad3b91e719ac272f5d5",
+    "b4d490828fd4423f9a12ad8ffd7f7393"
+  ],
+  "boEnergyAtMinute30": 12.5,
+  "boEnergyAtMinute31": 48.95,
+  "boLastOutcome": "Completed rest at minute 31",
+  "savedAndLiveEqual": true,
+  "browserConsoleErrors": [],
+  "webTests": "442/442",
+  "pcTests": "737/737",
+  "build": "passed"
+}
