@@ -1,6 +1,6 @@
 # Matrix implementation plan
 
-Updated September 26, 2026. **Start a small, persistent AI Citizens simulation using the existing Three.js/MatrixWorld code in an isolated desktop page.** This explicitly supersedes the earlier M4-first work queue. Keep every unfinished mode-specific M4 headset check open; wearer-dependent acceptance does not block independent simulation work. Complete a tested slice before expanding scope.
+Updated September 26, 2026. **Continue the small, persistent AI Citizens simulation in the existing Three.js/MatrixWorld world.** The isolated desktop fixture is followed by an opt-in `/web/` shared-world checkpoint candidate. This supersedes the earlier M4-first work queue. Keep every unfinished mode-specific M4 headset check open; wearer-dependent acceptance does not block independent simulation work. Complete a tested slice before expanding scope.
 
 [PRD](PRD.md) · [Project map](PROJECTS.md) · [School build plan](https://github.com/School-of-the-Ancients/school-of-the-ancients-roadmap/blob/main/BUILD_PLAN.md)
 
@@ -29,6 +29,12 @@ tags that `0cb8c23` checkpoint; it predates the Citizens candidate.
 
 The current implementation priority is the [AI Citizens roadmap #29](https://github.com/School-of-the-Ancients/matrix-loading-operator/issues/29),
 starting at `/web/citizens.html` with its own browser-local world and storage.
+The next candidate adds an explicit **Start here** control to the ordinary
+`/web/` desktop virtual room and persists its resident state with the same
+browser and PC world checkpoints as the scene. See the
+[shared-world runbook](Docs/Citizens-Shared-World.md). This is still a bounded
+two-resident fixture; it starts only on an empty virtual floor, and the
+isolated page remains useful for reproducible debugging.
 Reuse WebRuntime/MatrixWorld code without claiming integration into the live
 `/web/` Agent Portal world. Prove one visible resident whose
 needs change, who chooses an available activity, moves, interacts, and updates
@@ -130,7 +136,7 @@ Use [the existing Quest checklist](WebRuntime/QUEST3_ACCEPTANCE.md) and record o
 
 | Lane | Existing owners | Small next outcome, when selected |
 | --- | --- | --- |
-| AI Citizens — current priority | #29 with the needed slices of #13–#20 | One visible, autonomous desktop resident first; then at least two residents, one shared-object contention, pause, seed, inspection and save/resume. Reuse MatrixWorld identity, validation and receipts in an isolated browser world; main `/web/` integration remains future work. No new engine or full city/economy. |
+| AI Citizens — current priority | #29 with the needed slices of #13–#20 | The two-resident, seeded contention fixture now has an opt-in path in the main `/web/` world and versioned browser/PC checkpoints. Next bind selected existing furniture, finish cancellation and fair waiting, then add finite social outcomes. Keep a bounded world and do not claim headset budgets from desktop checks. |
 | Current Matrix | #44, #59, #28, #24 | Keep remaining M4 mode-specific checks and concrete M3 bridge gaps tracked independently; no second implementation stack. |
 | Shared lesson | #31, #32, #23 | Desktop M3 plus the School build plan; headset presentation follows in M4. No Citizens/Boulder prerequisite. |
 | Reusable runtime | #13, #25 | Extend only for a demonstrated missing interaction; reuse numeric components and existing receipts. |
@@ -167,4 +173,4 @@ One active Matrix implementation slice at a time. One independent School slice m
 
 Each PR states: user-visible result, reused files/contracts, excluded scope, tests actually run, device checks still pending, and the next step. Update this plan only when evidence changes the queue. Leave PRs open unless the user authorizes merging; do not close umbrella issues from a partial milestone.
 
-**Start prompt:** “Read AGENTS.md, PROJECTS.md, PRD.md, IMPLEMENTATION_PLAN.md and AI Citizens issue #29 with its linked issues. Check current `main`, open PRs, existing simulation code, and the Quest acceptance matrix. Continue the isolated `/web/citizens.html` desktop fixture with one visible resident choosing and performing activities from changing needs; then prove two residents contending for one shared object. Reuse MatrixWorld validation and receipts, with separate browser-local persistence, seeded scenarios, pause/save/resume, and a readable decision log. Exercise the actual browser and run relevant tests/builds. Preserve live scenes, PC credentials, the main `/web/` Agent Portal world, the Unity client and release checkpoints. Keep unfinished M4 wearer checks open and independent; do not expand into School, Matrix World, a new engine, or a full city/economy.”
+**Start prompt:** “Read AGENTS.md, PROJECTS.md, PRD.md, IMPLEMENTATION_PLAN.md and AI Citizens issues #29, #19 and #20. Check current `main`, open PRs, the shared-world Citizens runbook, existing simulation code, and the Quest acceptance matrix. Continue the tested two-resident `/web/` world slice by binding a selected existing chair/table without replacing the user's scene, then develop finite cancellation/fairness and social outcomes only through validated world actions and observed receipts. Preserve scene/Citizens checkpoint migration, seeded replay, and the isolated fixture. Exercise the actual browser and run relevant tests/builds. Preserve live scenes, PC credentials, the Unity client and release checkpoints. Keep unfinished M4 wearer checks open and independent; do not expand into School, Matrix World, a new engine, or a full city/economy.”

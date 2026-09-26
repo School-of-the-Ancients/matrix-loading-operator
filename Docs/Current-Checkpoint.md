@@ -1,5 +1,42 @@
 # Matrix Operator checkpoints
 
+## Shared-world Citizens checkpoint candidate (September 26, 2026)
+
+The `codex/citizens-world-checkpoints` branch builds on the open desktop fixture
+PR #100 and brings its two residents into the ordinary `/web/` Matrix world by
+explicit opt-in on an empty virtual floor. They use the page's existing
+`MatrixWorld`, view, bridge, browser world save, manual browser checkpoint, and
+named PC world checkpoint. Active Citizens use a validated version 3 world
+envelope; existing version 2 scene/game saves remain compatible. A staged
+restore checks resident/station IDs and reservations before replacing the
+active scene. Authored bound-object moves and active station transform owners
+cancel affected activity and pause the simulation. Missing bindings block
+invalid saves while retaining the last valid browser copy. AR entry cancels
+active reservations before the desktop simulation detaches.
+[Runbook and limits](Citizens-Shared-World.md).
+
+The combined WebRuntime suite passed **170/170**, the Vite build passed, and
+ControlService Python tests passed **647/647**. In Chrome **153.0.8010.53** on
+an isolated built service, 45 manual ticks showed both residents acting and
+four chair-contention log entries. Browser close/reopen matched the scene and
+Citizens state; a PC checkpoint restored minute 45 after the browser advanced
+to minute 46, then replay matched the earlier minute-46 scene and state. The
+named PC checkpoint also restored after a restart of the isolated service. A
+queued chair deletion paused Citizens and kept the previous valid browser save;
+the valid PC checkpoint then repaired that live scene. An active behavior on a
+reserved chair released its claim and blocked invalid persistence until Undo.
+[Browser evidence](../Validation/citizens-shared-world-evidence.json),
+[PC recovery evidence](../Validation/citizens-shared-world-recovery-restore-evidence.json),
+and [transform-owner evidence](../Validation/citizens-transform-owner-evidence.json)
+are recorded. No headset simulation or Quest performance budget is claimed.
+
+Next: review the stacked checkpoint PR and its parent PR #100, then bind
+resident activities to selected existing furniture in an authored world and
+complete #19's cancellation/fairness/social outcomes. The interaction receipt
+is still local to `MatrixWorld`; a general finite executor and shared
+multi-client simulation remain open. Preserve the independent M4 Quest wearer
+checks.
+
 ## AI Citizens desktop demo candidate (September 26, 2026)
 
 The `codex/ai-citizens-desktop-demo` branch adds an isolated

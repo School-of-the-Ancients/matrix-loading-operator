@@ -1,0 +1,17 @@
+{
+  "ok": true,
+  "queued": {
+    "status": 200,
+    "body": {
+      "commands": [
+        {
+          "op": "delete",
+          "objectId": "0ec6f8b587d14d2d9217fe03b86677dd",
+          "requestId": "1cfd82f9528245468fb16826bd60a9e4"
+        }
+      ]
+    }
+  },
+  "status": "deleted station stopped Citizens; prior browser checkpoint preserved",
+  "pageErrors": []
+}

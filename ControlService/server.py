@@ -465,6 +465,137 @@ def world_checkpoint_digest(world, dependencies):
     return hashlib.sha256(payload).hexdigest()
 
 
+def validate_citizens_checkpoint(value, checked_scene):
+    """Validate the bounded browser Citizens state against its saved world."""
+    def shape(item, fields, label):
+        require(type(item) is dict and set(item) == set(fields), f"Invalid Citizens {label}")
+
+    def citizens_text(item, field, empty=False, limit=128):
+        # JavaScript String.length counts UTF-16 code units, not Python code
+        # points. Reject unpaired surrogates here, before the UTF-8 digest/write.
+        require(isinstance(item, str) and (empty or bool(item)), f"Invalid {field}")
+        units = 0
+        for char in item:
+            code = ord(char)
+            require(code >= 32 and not 0xd800 <= code <= 0xdfff, f"Invalid {field}")
+            units += 2 if code > 0xffff else 1
+            require(units <= limit, f"Invalid {field}")
+        return item
+
+    def integer(item, minimum, maximum):
+        return type(item) is int and minimum <= item <= maximum
+
+    def number(item, minimum, maximum):
+        return type(item) in (int, float) and minimum <= item <= maximum and math.isfinite(item)
+
+    shape(value, ("schemaVersion", "world", "seed", "rngState", "requestSequence",
+                  "clockTick", "paused", "residents", "stations", "log"), "state")
+    require(type(value["schemaVersion"]) is int and value["schemaVersion"] == 1,
+            "Unsupported Citizens schemaVersion")
+    shape(value["world"], ("schemaVersion", "roomId"), "world binding")
+    require(type(value["world"]["schemaVersion"]) is int and
+            value["world"]["schemaVersion"] == checked_scene["schemaVersion"] and
+            value["world"]["roomId"] == checked_scene["roomId"],
+            "Citizens world binding does not match the saved scene")
+    require(integer(value["seed"], 1, 0xffffffff) and
+            integer(value["rngState"], 0, 0xffffffff) and
+            integer(value["requestSequence"], 0, 1000000000) and
+            integer(value["clockTick"], 0, 1000000000) and
+            type(value["paused"]) is bool, "Invalid Citizens clock or random state")
+    residents, stations, events = value["residents"], value["stations"], value["log"]
+    require(type(residents) is list and 1 <= len(residents) <= 4 and
+            type(stations) is list and len(stations) == 2 and
+            type(events) is list and len(events) <= 80, "Invalid Citizens list bounds")
+
+    scene_objects = {item["objectId"]: item for item in checked_scene["objects"]}
+    residents_by_id, stations_by_id, station_kinds, bound_objects = {}, {}, set(), set()
+    for resident in residents:
+        shape(resident, ("id", "name", "objectId", "needs", "preferences", "activity",
+                         "cooldowns", "lastOutcome"), "resident")
+        resident_id = citizens_text(resident["id"], "Citizens resident ID", limit=32)
+        citizens_text(resident["name"], "Citizens resident name", limit=40)
+        object_id = citizens_text(resident["objectId"], "Citizens resident object ID")
+        citizens_text(resident["lastOutcome"], "Citizens last outcome", empty=True, limit=160)
+        require(resident_id not in residents_by_id and object_id not in bound_objects,
+                "Duplicate Citizens resident binding")
+        obj = scene_objects.get(object_id)
+        require(obj is not None and obj["assetId"] == "orb" and obj["anchorId"] == "web-floor" and
+                "physics" not in obj and "component" not in obj and
+                not any(behavior["enabled"] and not behavior["paused"]
+                        for behavior in obj.get("behaviors", [])),
+                "Citizens resident object is missing or incompatible")
+        for field, minimum, maximum in (("needs", 0, 100), ("preferences", .2, 2)):
+            expected = ("hunger", "energy", "fun") if field == "needs" else ("rest", "eat", "explore")
+            shape(resident[field], expected, f"resident {field}")
+            require(all(number(resident[field][key], minimum, maximum) for key in expected),
+                    f"Invalid Citizens resident {field}")
+        shape(resident["cooldowns"], ("rest", "eat", "explore"), "resident cooldowns")
+        require(all(integer(resident["cooldowns"][key], 0, 1000000012)
+                    for key in ("rest", "eat", "explore")), "Invalid Citizens resident cooldowns")
+        activity = resident["activity"]
+        if activity is not None:
+            shape(activity, ("kind", "stationId", "phase", "remainingTicks", "travelTicks", "target"),
+                  "activity")
+            require(activity["kind"] in ("rest", "eat", "explore") and
+                    activity["phase"] in ("travel", "use") and
+                    integer(activity["remainingTicks"], 0, 12) and
+                    integer(activity["travelTicks"], 0, 60), "Invalid Citizens activity")
+            if activity["kind"] == "explore":
+                shape(activity["target"], ("x", "z"), "exploration target")
+                require(activity["stationId"] is None and
+                        all(number(activity["target"][axis], -5, 5) for axis in ("x", "z")),
+                        "Invalid Citizens exploration target")
+            else:
+                citizens_text(activity["stationId"], "Citizens activity station ID", limit=32)
+                require(activity["target"] is None, "Invalid Citizens activity target")
+        residents_by_id[resident_id] = resident
+        bound_objects.add(object_id)
+
+    for station in stations:
+        shape(station, ("id", "kind", "objectId", "capacity", "holder"), "station")
+        station_id = citizens_text(station["id"], "Citizens station ID", limit=32)
+        object_id = citizens_text(station["objectId"], "Citizens station object ID")
+        kind = station["kind"]
+        require(kind in ("rest", "eat") and kind not in station_kinds and
+                station_id not in stations_by_id and object_id not in bound_objects and
+                type(station["capacity"]) is int and station["capacity"] == 1,
+                "Invalid Citizens station or duplicate binding")
+        obj = scene_objects.get(object_id)
+        require(obj is not None and obj["assetId"] == ("chair" if kind == "rest" else "table") and
+                obj["anchorId"] == "web-floor" and "physics" not in obj and
+                obj.get("component", {}).get("status") != "running" and
+                not any(behavior["enabled"] and not behavior["paused"]
+                        for behavior in obj.get("behaviors", [])),
+                "Citizens station object is missing or incompatible")
+        holder = station["holder"]
+        require(holder is None or type(holder) is str and holder in residents_by_id,
+                "Invalid Citizens reservation holder")
+        stations_by_id[station_id] = station
+        station_kinds.add(kind)
+        bound_objects.add(object_id)
+
+    for resident_id, resident in residents_by_id.items():
+        activity = resident["activity"]
+        if activity is not None and activity["stationId"] is not None:
+            station = stations_by_id.get(activity["stationId"])
+            require(station is not None and station["kind"] == activity["kind"] and
+                    station["holder"] == resident_id, "Invalid Citizens reservation")
+    for station_id, station in stations_by_id.items():
+        if station["holder"] is not None:
+            activity = residents_by_id[station["holder"]]["activity"]
+            require(activity is not None and activity["stationId"] == station_id,
+                    "Invalid Citizens reservation")
+
+    for event in events:
+        shape(event, ("tick", "residentId", "event", "message"), "log entry")
+        resident_id = citizens_text(event["residentId"], "Citizens log resident ID", empty=True, limit=32)
+        citizens_text(event["message"], "Citizens log message", empty=True, limit=160)
+        require(integer(event["tick"], 0, value["clockTick"]) and
+                (not resident_id or resident_id in residents_by_id) and
+                event["event"] in ("selected", "blocked", "arrived", "completed", "failed",
+                                   "paused", "resumed"), "Invalid Citizens log entry")
+
+
 def loopback(host):
     if host.lower() == "localhost":
         return True
@@ -1649,8 +1780,10 @@ class State:
         return current
 
     def _checked_world_checkpoint(self, value, current):
-        require(type(value) is dict and set(value) == {"version", "scene", "game"} and
-                type(value["version"]) is int and value["version"] == 2,
+        require(type(value) is dict and type(value.get("version")) is int and
+                (value["version"] == 2 and set(value) == {"version", "scene", "game"} or
+                 value["version"] == 3 and set(value) == {"version", "scene", "game", "citizens"} and
+                 value["citizens"] is not None),
                 "Unsupported world checkpoint envelope")
         checked_scene = scene(value["scene"])
         require(checked_scene == value["scene"] and checked_scene["roomId"] == "web-virtual-room-v1" and
@@ -1661,6 +1794,8 @@ class State:
                         if key in current}
         snapshot({"scene": checked_scene, "assets": current["assets"], "anchors": current["anchors"],
                   **capabilities})
+        if value["version"] == 3:
+            validate_citizens_checkpoint(value["citizens"], checked_scene)
         supported = set(current.get("behaviorKinds", []))
         require(all(behavior["kind"] in supported for item in checked_scene["objects"]
                     for behavior in item.get("behaviors", [])),

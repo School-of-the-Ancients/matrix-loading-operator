@@ -1,0 +1,32 @@
+{
+  "ok": true,
+  "chromeVersion": "153.0.8010.53",
+  "origin": "http://127.0.0.1:19838",
+  "checkpoint": "CitizensSmoke1790414071489",
+  "tick": 45,
+  "residents": [
+    {
+      "id": "ada",
+      "needs": {
+        "hunger": 94.75,
+        "energy": 32.25,
+        "fun": 77.75
+      },
+      "lastOutcome": "Completed eat at minute 38"
+    },
+    {
+      "id": "bo",
+      "needs": {
+        "hunger": 64.75,
+        "energy": 41.25,
+        "fun": 96.75
+      },
+      "lastOutcome": "Completed explore at minute 33"
+    }
+  ],
+  "contention": 4,
+  "reopened": true,
+  "pcRestored": true,
+  "pcReplayMatchedAtTick46": true,
+  "pageErrors": []
+}
