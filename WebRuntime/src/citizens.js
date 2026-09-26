@@ -56,9 +56,9 @@ function validState(world,state){
     !integer(state.rngState,0,0xffffffff)||!integer(state.requestSequence,0,1000000000)||
     !integer(state.clockTick,0,1000000000)||typeof state.paused!=='boolean'||
     !Array.isArray(state.residents)||state.residents.length<1||state.residents.length>4||
-    !Array.isArray(state.stations)||state.stations.length<1||state.stations.length>8||
+    !Array.isArray(state.stations)||state.stations.length!==2||
     !Array.isArray(state.log)||state.log.length>MAX_LOG)throw Error('Invalid Citizens state');
-  const residentIds=new Set(),stationIds=new Set(),objectIds=new Set();
+  const residentIds=new Set(),stationIds=new Set(),stationKinds=new Set(),objectIds=new Set();
   for(const resident of state.residents){
     if(!keys(resident,['id','name','objectId','needs','preferences','activity','cooldowns','lastOutcome'])||
        !boundedText(resident.id,32)||!resident.id||residentIds.has(resident.id)||
@@ -76,7 +76,8 @@ function validState(world,state){
   for(const station of state.stations){
     if(!keys(station,['id','kind','objectId','capacity','holder'])||
        !boundedText(station.id,32)||!station.id||stationIds.has(station.id)||
-       !['rest','eat'].includes(station.kind)||!boundedText(station.objectId,128)||
+       !['rest','eat'].includes(station.kind)||stationKinds.has(station.kind)||
+       !boundedText(station.objectId,128)||
        objectIds.has(station.objectId)||station.capacity!==1||
        (station.holder!==null&&!residentIds.has(station.holder)))
       throw Error('Invalid Citizens station');
@@ -84,7 +85,7 @@ function validState(world,state){
     if(object?.assetId!==(station.kind==='rest'?'chair':'table')||
        object.anchorId!==ANCHOR_ID)
       throw Error('Citizens station object is missing or incompatible');
-    stationIds.add(station.id);objectIds.add(station.objectId);
+    stationIds.add(station.id);stationKinds.add(station.kind);objectIds.add(station.objectId);
   }
   for(const resident of state.residents){
     const action=resident.activity;

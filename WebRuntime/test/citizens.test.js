@@ -175,3 +175,13 @@ test('restore rejects corrupt reservation and wrong room without changing Matrix
   assert.deepEqual(matrix.scene,before);
   assert.equal(matrix.scene.objects.length,4);
 });
+
+test('restore rejects a checkpoint missing a required activity station',()=>{
+  const matrix=world();
+  const sim=createCitizensDemo(matrix,{seed:29});
+  const saved=sim.exportState();
+  saved.stations=saved.stations.filter(station=>station.kind!=='rest');
+  const before=structuredClone(matrix.scene);
+  assert.throws(()=>CitizensSimulation.restore(matrix,saved),/Invalid Citizens state/);
+  assert.deepEqual(matrix.scene,before);
+});
