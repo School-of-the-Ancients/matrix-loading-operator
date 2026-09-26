@@ -232,7 +232,7 @@ export class MatrixView {
     this.modelCache=new Map();
     this.scene=new THREE.Scene();this.scene.background=new THREE.Color(0x0a1b29);
     this.virtualFloorRoot=new THREE.Group();this.scene.add(this.virtualFloorRoot);
-    this.roomAnchor=null;this.roomAnchorPending=false;this.roomAnchorCreationFailed=false;this.roomAnchorPersistent=false;this.roomAnchorRestoreFailed=false;this.roomAnchorLocated=false;this.roomAnchorHandleAvailable=false;this.roomPoseMissingSince=0;
+    this.roomAnchor=null;this.roomAnchorPending=false;this.roomAnchorCreationFailed=false;this.roomAnchorPersistent=false;this.roomAnchorRestoredHandle=null;this.roomAnchorRestoreFailed=false;this.roomAnchorLocated=false;this.roomAnchorHandleAvailable=false;this.roomPoseMissingSince=0;
     const storedEyeHeight=Number(sessionStorage.getItem('matrix-web-eye-height'));
     this.measuredEyeHeight=storedEyeHeight>=.4&&storedEyeHeight<=2.5?storedEyeHeight:null;
     this.virtualFloorCalibrated=false;
@@ -338,7 +338,7 @@ export class MatrixView {
   }
   restoreRoomAnchor(session){
     if(!this.isAR)return;
-    this.roomAnchor=null;this.roomAnchorPending=false;this.roomAnchorPersistent=false;this.roomAnchorHandleAvailable=false;this.roomPoseMissingSince=0;
+    this.roomAnchor=null;this.roomAnchorPending=false;this.roomAnchorPersistent=false;this.roomAnchorRestoredHandle=null;this.roomAnchorHandleAvailable=false;this.roomPoseMissingSince=0;
     let handle;
     try{handle=localStorage.getItem(ROOM_ANCHOR_KEY);}
     catch(error){
@@ -349,6 +349,11 @@ export class MatrixView {
       // An old or PC-restored world cannot prove this handle belongs to it.
       // Keep the handle for the recovery archive, but never auto-restore it.
       this.markRoomOriginUnavailable('World origin is unknown. Archive and place it here or start empty.');
+      return;
+    }
+    if(this.world.originBinding==='ar'&&hasWorldToProtect(this.world)&&
+       handle&&this.world.originAnchorHandle!==handle){
+      this.markRoomOriginUnavailable('Saved world belongs to a different or unverified room anchor. Archive and place it here or start empty.');
       return;
     }
     this.roomAnchorHandleAvailable=!!handle;
@@ -368,7 +373,7 @@ export class MatrixView {
     catch(error){this.roomAnchorPending=false;if(this.isAR)this.markRoomOriginUnavailable(`Room anchor restore: ${error.message}`);return;}
     Promise.resolve(restored).then(anchor=>{
       if(!anchor?.anchorSpace)throw Error('Quest returned no room anchor space');
-      if(this.renderer.xr.getSession()===session){this.roomAnchor=anchor;this.roomAnchorPersistent=true;}
+      if(this.renderer.xr.getSession()===session){this.roomAnchor=anchor;this.roomAnchorPersistent=true;this.roomAnchorRestoredHandle=handle;}
     }).catch(error=>{
       // Never silently replace a saved physical origin with the current head
       // pose. A relocalization failure must leave prior objects hidden.
@@ -399,7 +404,7 @@ export class MatrixView {
   }
   startNewRoomOrigin(){
     if(!this.isAR||!this.world.spatial?.originUnavailable)throw Error('Room origin reset requires an unavailable AR origin');
-    this.roomAnchor=null;this.roomAnchorPending=false;this.roomAnchorPersistent=false;
+    this.roomAnchor=null;this.roomAnchorPending=false;this.roomAnchorPersistent=false;this.roomAnchorRestoredHandle=null;
     this.roomAnchorRestoreFailed=false;this.roomAnchorCreationFailed=false;this.roomAnchorLocated=false;this.roomAnchorHandleAvailable=false;this.roomPoseMissingSince=0;
     setRoomContentVisible(this,false);
   }
@@ -425,8 +430,9 @@ export class MatrixView {
           localStorage.setItem(ROOM_ANCHOR_KEY,handle);
           if(localStorage.getItem(ROOM_ANCHOR_KEY)!==handle)throw Error('Persistent room anchor handle could not be verified');
           this.roomAnchorPersistent=true;this.roomAnchorHandleAvailable=true;
-          const newlyBound=this.world.originBinding!=='ar';
+          const newlyBound=this.world.originBinding!=='ar'||this.world.originAnchorHandle!==handle;
           this.world.originBinding='ar';
+          this.world.originAnchorHandle=handle;
           if(newlyBound&&hasWorldToProtect(this.world))this.onRuntimeChange();
         }
       }
@@ -457,9 +463,13 @@ export class MatrixView {
     this.virtualFloorRoot.quaternion.set(x,y,z,w);
     this.roomAnchorLocated=true;
     this.virtualFloorCalibrated=true;
+    const newlyBound=!!this.roomAnchorRestoredHandle&&
+      (this.world.originBinding!=='ar'||this.world.originAnchorHandle!==this.roomAnchorRestoredHandle);
+    if(this.roomAnchorRestoredHandle)this.world.originAnchorHandle=this.roomAnchorRestoredHandle;
+    if(newlyBound)this.world.originBinding='ar';
     this.world.setOriginUnavailable(false);
     setRoomContentVisible(this,true);
-    if(wasUnavailable)this.onRuntimeChange();
+    if(wasUnavailable||newlyBound)this.onRuntimeChange();
   }
   onSessionEnd(){
     if(this.operatorVoiceController)this.releaseOperatorVoice(this.operatorVoiceController);
@@ -469,7 +479,7 @@ export class MatrixView {
     for(const ray of this.controllerRays)ray.visible=false;
     this.hitSource?.cancel();this.hitSource=null;this.reticle.visible=false;this.reticleVisible=false;this.reticleAnchorId='';
     this.xrViewer=null;this.planeIds=new WeakMap();this.nextPlaneId=0;this.clearPlanes();this.isAR=false;
-    this.roomAnchor=null;this.roomAnchorPending=false;this.roomAnchorPersistent=false;this.roomAnchorRestoreFailed=false;this.roomAnchorLocated=false;this.roomAnchorHandleAvailable=false;this.roomPoseMissingSince=0;
+    this.roomAnchor=null;this.roomAnchorPending=false;this.roomAnchorPersistent=false;this.roomAnchorRestoredHandle=null;this.roomAnchorRestoreFailed=false;this.roomAnchorLocated=false;this.roomAnchorHandleAvailable=false;this.roomPoseMissingSince=0;
     this.virtualFloorRoot.visible=true;this.virtualFloorRoot.position.set(0,0,0);this.virtualFloorRoot.quaternion.identity();this.virtualFloorCalibrated=false;
     this.world.leaveAR();this.sync();this.onRuntimeChange();
     document.getElementById('xr-overlay').style.display='none';document.getElementById('xr-exit').textContent='Exit AR';this.floor.visible=true;this.grid.visible=true;

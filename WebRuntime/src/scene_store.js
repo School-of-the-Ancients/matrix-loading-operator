@@ -24,7 +24,9 @@ export function storedWorld(world){
 // scene/game envelope is intentionally renderer-neutral and exact.
 export function storedBrowserWorld(world){
   world.markAROriginIfChanged();
-  return {...storedWorld(world),originBinding:world.originBinding};
+  return {...storedWorld(world),originBinding:world.originBinding,
+    ...(world.originBinding==='ar'&&world.originAnchorHandle?
+      {originAnchorHandle:world.originAnchorHandle}:{})};
 }
 
 export function saveStoredWorld(value,tabStorage,durableStorage){
@@ -99,6 +101,14 @@ export function restoreStoredWorld(world,value){
   const binding=value.originBinding===undefined?
     (value.scene.objects?.length||value.game!==null?'unknown':'virtual'):value.originBinding;
   if(!['virtual','ar','unknown'].includes(binding))throw Error('Invalid world origin binding');
+  const anchorHandle=value.originAnchorHandle??null;
+  if(anchorHandle!==null&&(binding!=='ar'||typeof anchorHandle!=='string'||!anchorHandle))
+    throw Error('Invalid world origin anchor handle');
+  if(world.spatial&&hasSavedWorldContent(value)&&binding==='unknown')
+    throw Error('Saved world has an unverified room origin; restore it in VR before rebasing');
+  if(world.spatial&&binding==='ar'&&hasSavedWorldContent(value)&&
+     (!anchorHandle||anchorHandle!==world.originAnchorHandle))
+    throw Error('Saved world belongs to a different or unverified room origin');
   // Validate both halves before changing the active world.
   const scene=world.spatial?{...structuredClone(value.scene),roomId:world.scene.roomId}:value.scene;
   world.validateScene(scene);
@@ -107,12 +117,17 @@ export function restoreStoredWorld(world,value){
   restoreStoredScene(world,value.scene);
   world.game=structuredClone(value.game);
   world.originBinding=world.spatial&&world.originBinding==='ar'?'ar':binding;
+  world.originAnchorHandle=world.spatial&&world.originBinding==='ar'&&binding!=='ar'?
+    world.originAnchorHandle:anchorHandle;
   world.undo=[];world.redo=[];
 }
 
-export function saveCheckpoint(scene,game,storage,originBinding){
+const hasSavedWorldContent=value=>value.scene.objects?.length>0||value.game!==null;
+
+export function saveCheckpoint(scene,game,storage,originBinding,originAnchorHandle){
   try{storage.setItem(CHECKPOINT_KEY,JSON.stringify({version:2,scene,game,
-    ...(originBinding?{originBinding}:{})}));return '';}
+    ...(originBinding?{originBinding}:{}),
+    ...(originBinding==='ar'&&originAnchorHandle?{originAnchorHandle}:{})}));return '';}
   catch(error){return `World checkpoint could not be saved: ${error.message}`;}
 }
 

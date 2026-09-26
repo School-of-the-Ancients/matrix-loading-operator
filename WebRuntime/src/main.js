@@ -483,7 +483,7 @@ async function saveWorld(){
     view.setOperatorWorldNotice('Save blocked: recover the room origin.','error');return;
   }
   const value=storedBrowserWorld(world);
-  const warning=saveCheckpoint(value.scene,value.game,localStorage,value.originBinding);
+  const warning=saveCheckpoint(value.scene,value.game,localStorage,value.originBinding,value.originAnchorHandle);
   if(warning){feedback(warning,true);view.setOperatorWorldNotice('Browser checkpoint failed.','error');return;}
   view.setOperatorWorldNotice('Saved in browser · saving PC scene backup…','pending');
   const name=`WebWorld_${new Date().toISOString().replace(/[-:T.Z]/g,'').slice(0,14)}`;
