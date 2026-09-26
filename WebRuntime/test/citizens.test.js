@@ -240,7 +240,7 @@ test('v1 mid-action state migrates atomically and replays deletion and FIFO hand
   const a=restore(),b=restore();
   for(const copy of [a,b]){
     const migrated=copy.sim.exportState();
-    assert.equal(migrated.schemaVersion,3);
+    assert.equal(migrated.schemaVersion,4);
     assert.equal(migrated.actionSequence,1);
     assert.equal(migrated.stations.find(station=>station.kind==='rest').claim.executionId,
       migrated.residents.find(resident=>resident.id==='ada').activity.executionId);
@@ -528,7 +528,7 @@ test('deleting the last resident yields a valid paused zero-resident state',()=>
   assert.deepEqual(sim.resume(),after,'empty simulation cannot run');
 });
 
-test('v2 checkpoints migrate to v3 without changing active claims or Matrix objects',()=>{
+test('v2 checkpoints migrate to v4 without changing active claims or Matrix objects',()=>{
   const matrix=world(),sim=createCitizensDemo(matrix,{seed:31});
   sim.step();
   const saved=sim.exportState();
@@ -538,12 +538,85 @@ test('v2 checkpoints migrate to v3 without changing active claims or Matrix obje
   for(const resident of saved.residents)delete resident.socialSessionId;
   const scene=structuredClone(matrix.scene);
   const migrated=CitizensSimulation.restore(matrix,saved).exportState();
-  assert.equal(migrated.schemaVersion,3);
+  assert.equal(migrated.schemaVersion,4);
   assert.deepEqual(migrated.stations,saved.stations);
-  assert.deepEqual(migrated.relationships,[{a:'ada',b:'bo',score:50}]);
+  assert.deepEqual(migrated.relationships,[{a:'ada',b:'bo',score:50,completed:[]}]);
   assert.equal(migrated.socialSession,null);
   assert.ok(migrated.nextSocialTick>=35);
   assert.deepEqual(matrix.scene,scene);
+});
+
+test('v3 social checkpoints migrate only when visible ended receipts explain the score',()=>{
+  const matrix=world(),sim=createCitizensDemo(matrix,{seed:2});
+  while(sim.snapshot().clockTick<90)sim.step();
+  const current=sim.exportState();
+  assert.equal(current.relationships[0].score,55);
+  const old=structuredClone(current);
+  old.schemaVersion=3;
+  for(const relation of old.relationships)delete relation.completed;
+  const scene=structuredClone(matrix.scene);
+  assert.deepEqual(CitizensSimulation.restore(matrix,old).exportState(),current);
+  assert.deepEqual(matrix.scene,scene);
+
+  const inflated=structuredClone(old);
+  inflated.relationships[0].score=60;
+  assert.throws(()=>CitizensSimulation.restore(matrix,inflated),
+    /Citizens v3 relationship history is incomplete or inconsistent/);
+  const missingReceipt=structuredClone(old);
+  missingReceipt.socialEvents=missingReceipt.socialEvents.filter(event=>
+    event.event!=='ended');
+  assert.throws(()=>CitizensSimulation.restore(matrix,missingReceipt),
+    /Citizens v3 relationship history is incomplete or inconsistent/);
+  const forgedScore=structuredClone(missingReceipt);
+  forgedScore.relationships[0].score=99;
+  assert.throws(()=>CitizensSimulation.restore(matrix,forgedScore),
+    /Citizens v3 relationship history is incomplete or inconsistent/);
+  assert.deepEqual(matrix.scene,scene);
+});
+
+test('v4 relationship ledger rejects forged scores, receipts, and event mismatches',()=>{
+  const matrix=world(),sim=createCitizensDemo(matrix,{seed:1});
+  for(let i=0;i<300;i++)sim.step();
+  const saved=sim.exportState(),scene=structuredClone(matrix.scene);
+  assert.equal(saved.relationships[0].completed.length,2);
+  const variants=[
+    state=>{state.relationships[0].score=65;},
+    state=>{state.relationships[0].completed.pop();},
+    state=>{state.relationships[0].completed[0].requestId='citizens-1-social-99-1';},
+    state=>{state.relationships[0].completed[0].tick++;},
+    state=>{state.relationships[0].completed.reverse();},
+    state=>{state.relationships[0].completed[1].sessionId=
+      state.relationships[0].completed[0].sessionId;},
+    state=>{state.socialEvents.find(event=>event.event==='ended').requestId=
+      'citizens-1-social-99-1';}
+  ];
+  for(const change of variants){
+    const broken=structuredClone(saved);change(broken);
+    assert.throws(()=>CitizensSimulation.restore(matrix,broken),/Invalid Citizens/);
+    assert.deepEqual(matrix.scene,scene);
+  }
+});
+
+test('completed receipt history rolls at ten while relationship stays saturated',()=>{
+  const matrix=world(),sim=createCitizensDemo(matrix,{seed:1});
+  const completed=[];
+  let lastSessionId='';
+  for(let i=0;i<1500&&completed.length<11;i++){
+    const state=sim.step(),record=state.relationships[0].completed.at(-1);
+    if(record&&record.sessionId!==lastSessionId){
+      completed.push(record);lastSessionId=record.sessionId;
+      if(completed.length===10)assert.equal(state.relationships[0].score,100);
+    }
+  }
+  assert.equal(completed.length,11);
+  const state=sim.exportState();
+  assert.equal(state.relationships[0].score,100);
+  assert.deepEqual(state.relationships[0].completed,completed.slice(-10));
+  assert.ok(state.socialEvents.filter(event=>event.event==='ended').every(event=>
+    state.relationships[0].completed.some(record=>
+      `${record.sessionId}-ended-${record.tick}`===event.id&&
+      record.requestId===event.requestId)));
+  assert.deepEqual(CitizensSimulation.restore(matrix,state).exportState(),state);
 });
 
 test('fixed seed records decline, timeout and completion; only a receipt changes relationship',()=>{
@@ -566,6 +639,9 @@ test('fixed seed records decline, timeout and completion; only a receipt changes
   const ended=allEvents.filter(event=>event.event==='ended');
   assert.equal(ended.length,2);
   assert.equal(previous.relationships[0].score,60);
+  assert.deepEqual(previous.relationships[0].completed,ended.map(event=>({
+    sessionId:event.id.slice(0,-`-ended-${event.tick}`.length),
+    requestId:event.requestId,tick:event.tick})));
   assert.ok(ended.every(event=>event.requestId.startsWith('citizens-1-social-')));
   assert.ok(previous.log.some(entry=>entry.event==='completed'&&
     entry.message.includes('Social ended')));
@@ -593,6 +669,10 @@ test('an accepted mid-conversation checkpoint replays one observed end after res
   const after=restored.exportState();
   assert.equal(after.socialEvents.filter(event=>event.event==='ended').length,1);
   assert.equal(after.relationships[0].score,55);
+  assert.deepEqual(after.relationships[0].completed,[{
+    sessionId:after.socialEvents.find(event=>event.event==='ended').id.split('-ended-')[0],
+    requestId:after.socialEvents.find(event=>event.event==='ended').requestId,
+    tick:after.socialEvents.find(event=>event.event==='ended').tick}]);
   assert.equal(after.socialSession,null);
   assert.ok(after.residents.every(resident=>resident.socialSessionId===null));
 });
@@ -666,7 +746,7 @@ test('explicit cancellation and scene replacement end a social session once',()=
   }
 });
 
-test('v3 restore rejects mismatched bilateral IDs, forged social events and unknown fields',()=>{
+test('v4 restore rejects mismatched bilateral IDs, forged social events and unknown fields',()=>{
   const matrix=world(),sim=createCitizensDemo(matrix,{seed:2});
   while(sim.snapshot().clockTick<77)sim.step();
   const saved=sim.exportState(),scene=structuredClone(matrix.scene);
@@ -676,6 +756,7 @@ test('v3 restore rejects mismatched bilateral IDs, forged social events and unkn
     state=>{state.socialSession.executionId=state.residents[0].activity?.executionId||0;},
     state=>{state.socialEvents[0].requestId='forged';},
     state=>{state.relationships[0].a='bo';},
+    state=>{state.relationships[0].score=55;},
     state=>{state.socialSession.extra=true;}
   ];
   for(const change of variants){
@@ -685,7 +766,7 @@ test('v3 restore rejects mismatched bilateral IDs, forged social events and unkn
   }
 });
 
-test('v3 checkpoint text accepts paired Unicode and rejects unpaired UTF-16 surrogates',()=>{
+test('v4 checkpoint text accepts paired Unicode and rejects unpaired UTF-16 surrogates',()=>{
   const matrix=world(),sim=createCitizensDemo(matrix,{seed:2});
   const saved=sim.exportState();
   const valid=structuredClone(saved);
@@ -699,6 +780,6 @@ test('v3 checkpoint text accepts paired Unicode and rejects unpaired UTF-16 surr
 
   const invalidId=structuredClone(saved);
   invalidId.residents[0].id='\udfff';
-  invalidId.relationships=[{a:'bo',b:'\udfff',score:50}];
+  invalidId.relationships=[{a:'bo',b:'\udfff',score:50,completed:[]}];
   assert.throws(()=>CitizensSimulation.restore(matrix,invalidId),/Invalid Citizens resident/);
 });

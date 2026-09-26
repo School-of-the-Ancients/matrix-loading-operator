@@ -16,12 +16,20 @@ POST /api/web/world/save
 
 Version 2 retains exactly `version`, `scene`, and `game` and loads as a world
 without Citizens. Version 3 requires exactly those fields plus a non-null
-`citizens` section. That section holds schema-1 resident and station IDs, needs,
-current finite activities, reservations, clock, seed/random state, and a bounded
-event log. The service validates residents and stations against stable object
-IDs and built-in orb/chair/table assets in the same scene. It rejects malformed
-state, duplicate or missing bindings, and stale reservations before writing or
-returning a checkpoint. Adding `citizens` to a version-2 file is invalid.
+`citizens` section. That section holds resident and station IDs, needs, current
+finite activities, reservations, clock, seed/random state, and bounded event
+history. The service validates residents and stations against stable object IDs
+and built-in orb/chair/table assets in the same scene. Nested Citizens v4 also
+requires a bounded per-pair completed-session receipt record; its relationship
+score must match that record, and retained `ended` events must name a recorded
+completion. Older nested v1/v2 shapes remain accepted. A v3 social file is
+accepted only while its retained completed events account for its relationship
+score; the browser then migrates it to v4. A
+historical browser receipt reference is checkpoint consistency evidence; the PC
+service does not re-execute that conversation or authenticate the browser's old
+events. Malformed state, missing bindings, and stale reservations are rejected
+before writing or returning a checkpoint. Adding `citizens` to a version-2 file
+is invalid.
 
 `GET /api/web/worlds` lists checkpoint names. `POST /api/web/world/load` with
 `{"name":"Demo"}` returns `{name, schemaVersion, world, dependencies, expectedRevision}`. The load

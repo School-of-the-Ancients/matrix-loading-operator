@@ -147,6 +147,132 @@ class WorldCheckpointTests(unittest.TestCase):
             resident["socialSessionId"] = "social-73-3"
         return world
 
+    def citizens_v4_completed_world(self):
+        world = self.citizens_v3_world()
+        state = world["citizens"]
+        state.update(schemaVersion=4, actionSequence=3, requestSequence=10,
+                     clockTick=15, nextSocialTick=39)
+        state["relationships"] = [{"a": "ada", "b": "bo", "score": 55,
+                                   "completed": [{"sessionId": "social-73-3",
+                                                  "requestId": "citizens-73-social-3-10",
+                                                  "tick": 15}]}]
+        state["socialEvents"] = [
+            {"id": f"social-73-3-{event}-{tick}", "event": event, "tick": tick,
+             "initiatorId": "ada", "inviteeId": "bo", "requestId": request_id}
+            for event, tick, request_id in (("initiated", 12, ""),
+                                            ("accepted", 13, ""),
+                                            ("ended", 15, "citizens-73-social-3-10"))]
+        return world
+
+    def test_citizens_v4_relationship_proof_roundtrip_and_v3_shape(self):
+        world = self.citizens_v4_completed_world()
+        self.assertTrue(self.state.save_world_checkpoint("RelationshipProof", world)["saved"])
+        loaded = self.state.load_world_checkpoint("RelationshipProof")["world"]
+        self.assertEqual(loaded["citizens"], world["citizens"])
+        self.assertEqual(loaded["citizens"]["relationships"][0]["score"], 55)
+
+        # The bounded event ring can evict old events while retaining the last
+        # ten completion records. A record is not required to be in that ring.
+        history_rolled = copy.deepcopy(world)
+        history_rolled["citizens"]["socialEvents"] = []
+        self.assertTrue(self.state.save_world_checkpoint("RolledEvents", history_rolled)["saved"])
+
+        saturated = copy.deepcopy(history_rolled)
+        state = saturated["citizens"]
+        state["actionSequence"] = 10
+        state["relationships"][0]["score"] = 100
+        state["relationships"][0]["completed"] = [
+            {"sessionId": f"social-73-{index}",
+             "requestId": f"citizens-73-social-{index}-{index}", "tick": index}
+            for index in range(1, 11)]
+        self.assertTrue(self.state.save_world_checkpoint("SaturatedRelation", saturated)["saved"])
+        self.assertEqual(self.state.load_world_checkpoint("SaturatedRelation")["world"]["citizens"],
+                         state)
+        overflow = copy.deepcopy(saturated)
+        overflow_state = overflow["citizens"]
+        overflow_state["actionSequence"] = 11
+        overflow_state["requestSequence"] = 11
+        overflow_state["relationships"][0]["completed"].append(
+            {"sessionId": "social-73-11", "requestId": "citizens-73-social-11-11", "tick": 11})
+        with self.assertRaisesRegex(APIError, "history is incomplete"):
+            self.state.save_world_checkpoint("SaturatedRelation", overflow)
+
+        older = self.citizens_v3_world()
+        self.assertTrue(self.state.save_world_checkpoint("ExactV3", older)["saved"])
+        self.assertEqual(self.state.load_world_checkpoint("ExactV3")["world"]["citizens"],
+                         older["citizens"])
+
+    def test_citizens_v4_rejects_forged_relationship_proofs_atomically(self):
+        world = self.citizens_v4_completed_world()
+        self.state.save_world_checkpoint("RelationshipProof", world)
+        path = self.scenes / "world_checkpoints" / "RelationshipProof.json"
+        original = path.read_bytes()
+        original_runtime = copy.deepcopy(self.state.latest)
+
+        def completion(item):
+            return item["citizens"]["relationships"][0]["completed"][0]
+
+        def relation(item):
+            return item["citizens"]["relationships"][0]
+
+        def duplicate_completion(item):
+            relation(item)["completed"].append(copy.deepcopy(completion(item)))
+            relation(item)["score"] = 60
+
+        def out_of_order(item):
+            state = item["citizens"]
+            state["actionSequence"] = 4
+            state["requestSequence"] = 11
+            state["clockTick"] = 16
+            relation(item)["score"] = 60
+            relation(item)["completed"].insert(0, {"sessionId": "social-73-4",
+                                                   "requestId": "citizens-73-social-4-11",
+                                                   "tick": 16})
+
+        cases = (
+            ("missing completion field", lambda item: relation(item).pop("completed")),
+            ("forged score", lambda item: relation(item).update(score=60)),
+            ("missing proof for retained end", lambda item: relation(item).update(
+                completed=[], score=50)),
+            ("noncanonical session", lambda item: completion(item).update(
+                sessionId="social-73-03")),
+            ("wrong seed in session", lambda item: completion(item).update(
+                sessionId="social-74-3")),
+            ("execution beyond action sequence", lambda item: completion(item).update(
+                sessionId="social-73-4")),
+            ("noncanonical request", lambda item: completion(item).update(
+                requestId="citizens-73-social-3-010")),
+            ("wrong request execution", lambda item: completion(item).update(
+                requestId="citizens-73-social-2-10")),
+            ("request beyond sequence", lambda item: completion(item).update(
+                requestId="citizens-73-social-3-11")),
+            ("future completion", lambda item: completion(item).update(tick=16)),
+            ("duplicate completion", duplicate_completion),
+            ("out of order completion", out_of_order),
+            ("retained end points elsewhere", lambda item: item["citizens"]["socialEvents"][-1].update(
+                requestId="citizens-73-social-3-9")),
+        )
+        for label, mutate in cases:
+            with self.subTest(label=label):
+                invalid = copy.deepcopy(world)
+                mutate(invalid)
+                with self.assertRaises(APIError) as rejected:
+                    self.state.save_world_checkpoint("RelationshipProof", invalid)
+                self.assertEqual(rejected.exception.status, 400)
+                self.assertEqual(path.read_bytes(), original)
+                self.assertEqual(self.state.latest, original_runtime)
+
+                document = json.loads(original)
+                mutate(document["world"])
+                document["payloadSha256"] = world_checkpoint_digest(
+                    document["world"], document["dependencies"])
+                path.write_text(json.dumps(document), encoding="utf-8")
+                with self.assertRaises(APIError) as rejected:
+                    self.state.load_world_checkpoint("RelationshipProof")
+                self.assertEqual(rejected.exception.status, 400)
+                self.assertEqual(self.state.latest, original_runtime)
+                path.write_bytes(original)
+
     def test_citizens_v3_social_roundtrip_and_older_shapes(self):
         world = self.citizens_v3_offered_world()
         self.assertTrue(self.state.save_world_checkpoint("SocialOffer", world)["saved"])
@@ -170,7 +296,7 @@ class WorldCheckpointTests(unittest.TestCase):
         for resident in state["residents"]:
             resident["socialSessionId"] = None
         state["requestSequence"] = 10
-        state["relationships"][0]["score"] = 52
+        state["relationships"][0]["score"] = 55
         state["socialEvents"].append({"id": "social-73-3-ended-13", "event": "ended",
                                       "tick": 13, "initiatorId": "ada", "inviteeId": "bo",
                                       "requestId": "citizens-73-social-3-10"})
@@ -203,6 +329,13 @@ class WorldCheckpointTests(unittest.TestCase):
         def active_without_acceptance(item):
             item["citizens"]["socialSession"].update(phase="active", expiresTick=84)
 
+        def forged_score_without_events(item):
+            item["citizens"]["socialEvents"] = []
+            item["citizens"]["relationships"][0]["score"] = 99
+
+        def truncated_completion_evidence(item):
+            item["citizens"]["relationships"][0]["score"] = 55
+
         cases = (
             ("orphan resident session", lambda item: item["citizens"]["residents"][0].update(
                 socialSessionId=None)),
@@ -220,6 +353,8 @@ class WorldCheckpointTests(unittest.TestCase):
             ("event from future", lambda item: item["citizens"]["socialEvents"][0].update(
                 tick=13)),
             ("duplicate event", duplicate_event),
+            ("forged v3 score without events", forged_score_without_events),
+            ("truncated v3 completion evidence", truncated_completion_evidence),
             ("bad event receipt", lambda item: item["citizens"]["socialEvents"][0].update(
                 requestId="citizens-73-social-3-9")),
             ("reversed pair", lambda item: item["citizens"]["relationships"][0].update(

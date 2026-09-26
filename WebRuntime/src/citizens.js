@@ -2,7 +2,8 @@
 // scene objects and validates every placement/move. No Agent Portal access.
 import {ANCHOR_ID,MAX_OBJECTS,ROOM_ID} from './protocol.js';
 
-const VERSION=3;
+const VERSION=4;
+const SOCIAL_VERSION=3;
 const RESERVATION_VERSION=2;
 const LEGACY_VERSION=1;
 const MOVE_METRES=.28;
@@ -12,6 +13,7 @@ const LEASE_TICKS=MAX_TRAVEL_TICKS+12;
 const MAX_WAIT_TICKS=96;
 const MAX_LOG=80;
 const MAX_SOCIAL_EVENTS=24;
+const MAX_COMPLETED_SOCIAL=10;
 const OFFER_TICKS=4;
 const ACTIVE_TICKS=MAX_TRAVEL_TICKS+12;
 const SOCIAL_USE_TICKS=3;
@@ -270,7 +272,7 @@ function validStateV2(world,state){
 function migrateV2(world,saved){
   validStateV2(world,saved);
   const state=clone(saved);
-  state.schemaVersion=VERSION;
+  state.schemaVersion=SOCIAL_VERSION;
   state.socialSession=null;
   state.socialEvents=[];
   state.nextSocialTick=Math.max(35,state.clockTick+SOCIAL_COOLDOWN_TICKS);
@@ -286,7 +288,7 @@ function validStateV3(world,state){
   if(!keys(state,['schemaVersion','world','seed','rngState','requestSequence',
     'actionSequence','clockTick','paused','residents','retiredResidentIds',
     'stations','log','socialSession','socialEvents','relationships','nextSocialTick'])||
-    state.schemaVersion!==VERSION||
+    state.schemaVersion!==SOCIAL_VERSION||
     !integer(state.nextSocialTick,0,1000000100)||
     !Array.isArray(state.socialEvents)||state.socialEvents.length>MAX_SOCIAL_EVENTS||
     !Array.isArray(state.relationships)||state.relationships.length>6)
@@ -382,6 +384,83 @@ function validStateV3(world,state){
     throw Error('Invalid Citizens social acceptance');
 }
 
+function socialCompletionFromEvent(state,event){
+  const match=event.id.match(/^social-([0-9]+)-([0-9]+)-ended-([0-9]+)$/);
+  return {sessionId:`social-${state.seed}-${Number(match[2])}`,
+    requestId:event.requestId,tick:event.tick};
+}
+
+function migrateV3(world,saved){
+  validStateV3(world,saved);
+  const state=clone(saved);
+  const relations=new Map(state.relationships.map(relation=>
+    [`${relation.a}\u0000${relation.b}`,relation]));
+  for(const relation of state.relationships)relation.completed=[];
+  for(const event of state.socialEvents){
+    if(event.event!=='ended')continue;
+    const [a,b]=[event.initiatorId,event.inviteeId].sort();
+    const relation=relations.get(`${a}\u0000${b}`);
+    if(!relation||relation.completed.length>=MAX_COMPLETED_SOCIAL)
+      throw Error('Citizens v3 relationship history is incomplete or inconsistent');
+    relation.completed.push(socialCompletionFromEvent(state,event));
+  }
+  for(const relation of state.relationships)
+    if(relation.score!==Math.min(100,50+5*relation.completed.length))
+      throw Error('Citizens v3 relationship history is incomplete or inconsistent');
+  state.schemaVersion=VERSION;
+  validStateV4(world,state);
+  return state;
+}
+
+function validStateV4(world,state){
+  if(!state||state.schemaVersion!==VERSION||!Array.isArray(state.relationships))
+    throw Error('Invalid Citizens completed social state');
+  const v3=clone(state);
+  v3.schemaVersion=SOCIAL_VERSION;
+  for(const relation of v3.relationships)if(relation&&typeof relation==='object')
+    delete relation.completed;
+  validStateV3(world,v3);
+  const bySession=new Map(),requestIds=new Set();
+  for(const relation of state.relationships){
+    if(!keys(relation,['a','b','score','completed'])||
+      !Array.isArray(relation.completed)||relation.completed.length>MAX_COMPLETED_SOCIAL||
+      relation.score!==Math.min(100,50+5*relation.completed.length))
+      throw Error('Invalid Citizens completed relationship');
+    let lastTick=-1,lastExecution=0,lastRequest=0;
+    for(const record of relation.completed){
+      const session=typeof record?.sessionId==='string'?
+        record.sessionId.match(/^social-([0-9]+)-([0-9]+)$/):null;
+      const request=typeof record?.requestId==='string'?
+        record.requestId.match(/^citizens-([0-9]+)-social-([0-9]+)-([0-9]+)$/):null;
+      const execution=Number(session?.[2]),sequence=Number(request?.[3]);
+      if(!keys(record,['sessionId','requestId','tick'])||
+        !boundedText(record.sessionId,32)||!boundedText(record.requestId,128)||
+        !session||!request||!integer(execution,1,state.actionSequence)||
+        !integer(sequence,1,state.requestSequence)||
+        record.sessionId!==`social-${state.seed}-${execution}`||
+        record.requestId!==`citizens-${state.seed}-social-${execution}-${sequence}`||
+        !integer(record.tick,1,state.clockTick)||record.tick<=lastTick||
+        execution<=lastExecution||sequence<=lastRequest||
+        record.sessionId===state.socialSession?.id||
+        bySession.has(record.sessionId)||requestIds.has(record.requestId))
+        throw Error('Invalid Citizens completed social receipt');
+      bySession.set(record.sessionId,{relation,record});
+      requestIds.add(record.requestId);
+      lastTick=record.tick;lastExecution=execution;lastRequest=sequence;
+    }
+  }
+  for(const event of state.socialEvents){
+    if(event.event!=='ended')continue;
+    const completion=socialCompletionFromEvent(state,event);
+    const match=bySession.get(completion.sessionId);
+    const [a,b]=[event.initiatorId,event.inviteeId].sort();
+    if(!match||match.relation.a!==a||match.relation.b!==b||
+      match.record.requestId!==completion.requestId||
+      match.record.tick!==completion.tick)
+      throw Error('Invalid Citizens completed social event');
+  }
+}
+
 function pose(x,z,scale=1){
   return {position:{x,y:0,z},rotation:{x:0,y:0,z:0},scale:{x:scale,y:scale,z:scale}};
 }
@@ -408,7 +487,7 @@ export function createCitizensDemo(world,{seed=1}={}){
     const state={schemaVersion:VERSION,world:{schemaVersion:1,roomId:world.scene.roomId},
       seed,rngState:seed,requestSequence:0,actionSequence:0,clockTick:0,paused:true,
       retiredResidentIds:[],socialSession:null,socialEvents:[],
-      relationships:[{a:'ada',b:'bo',score:50}],nextSocialTick:35,
+      relationships:[{a:'ada',b:'bo',score:50,completed:[]}],nextSocialTick:35,
       residents:[
         {id:'ada',name:'Ada',objectId:adaId,needs:{hunger:72,energy:20,fun:62},
           preferences:{rest:1.2,eat:.85,explore:.75},activity:null,
@@ -434,7 +513,8 @@ export class CitizensSimulation {
     let current=state;
     if(current?.schemaVersion===LEGACY_VERSION)current=migrateV1(world,current);
     if(current?.schemaVersion===RESERVATION_VERSION)current=migrateV2(world,current);
-    validStateV3(world,current);
+    if(current?.schemaVersion===SOCIAL_VERSION)current=migrateV3(world,current);
+    validStateV4(world,current);
     this.world=world;
     this.state=clone(current);
     // Runtime-only baseline: the serialized scene supplies it again on restore.
@@ -448,7 +528,7 @@ export class CitizensSimulation {
   exportState(){
     this.reconcileWorld();
     if(this.invalidBindings.size)throw Error('Citizens binding is missing or incompatible');
-    validStateV3(this.world,this.state);
+    validStateV4(this.world,this.state);
     return this.snapshot();
   }
   reconcileWorld(){this.reconcileBindings();return this.snapshot();}
@@ -690,11 +770,14 @@ export class CitizensSimulation {
     const [a,b]=[pair.initiator.id,pair.invitee.id].sort();
     let relation=this.state.relationships.find(item=>item.a===a&&item.b===b);
     if(!relation){
-      relation={a,b,score:50};this.state.relationships.push(relation);
+      relation={a,b,score:50,completed:[]};this.state.relationships.push(relation);
       this.state.relationships.sort((left,right)=>
         left.a<right.a?-1:left.a>right.a?1:left.b<right.b?-1:left.b>right.b?1:0);
     }
-    relation.score=clamp(relation.score+5);
+    relation.completed.push({sessionId:session.id,requestId:receipt.requestId,
+      tick:this.state.clockTick});
+    if(relation.completed.length>MAX_COMPLETED_SOCIAL)relation.completed.shift();
+    relation.score=Math.min(100,50+5*relation.completed.length);
     pair.initiator.needs.fun=clamp(pair.initiator.needs.fun+12);
     pair.invitee.needs.fun=clamp(pair.invitee.needs.fun+12);
     this.finishSocial('ended',`${pair.initiator.name} and ${pair.invitee.name} conversed`,

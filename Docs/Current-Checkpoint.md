@@ -6,15 +6,41 @@ Open [PR #103](https://github.com/School-of-the-Ancients/matrix-loading-operator
 (`codex/citizens-social-sessions`) extends the Citizens PR stack
 toward [#19](https://github.com/School-of-the-Ancients/matrix-loading-operator/issues/19).
 It keeps the outer Matrix world checkpoint envelope at version 3 and moves the
-nested Citizens state to schema version 3. Two available residents carry the
+nested Citizens state to schema version 4 after the relationship-evidence review fix. Two available residents carry the
 same stable social session ID. A saved random response produces an acceptance,
 decline, or unanswered invitation; offers and accepted sessions have explicit
 simulation-tick deadlines. An accepted initiator moves through `MatrixWorld`
 and must receive a matching in-range `converse` receipt before either fun or
 the pair's relationship score rises. Terminal outcomes and receipt references
 are visible in both Citizens inspectors and persist with browser and named PC
-world checkpoints. Nested v1/v2 saves migrate in the browser; the PC service
-continues to validate all three versions without rewriting older files.
+world checkpoints. V4 saves a bounded per-pair list of completed session and
+receipt IDs, derives relationship score from that list, and requires each
+retained `ended` event to match it. Nested v1/v2 saves migrate in the browser;
+v3 migrates only when its visible completed events account for its score.
+The PC service accepts exact v1–v4 shapes without rewriting older files.
+
+The PR #103 review found that v3 restore accepted an arbitrary score without
+a completed receipt. The v4 ledger keeps the last ten confirmed completions
+per pair and requires the displayed score and retained `ended` events to
+match. Browser and PC validation reject a forged v3 score such as 99 with no
+completed event. If an older v3 event ring has already discarded a completion
+needed to explain its score, restore reports incomplete history instead of
+silently granting a benefit; keep the old checkpoint for recovery or review.
+The PC service validates historical receipt references but cannot independently
+attest a past browser-only MatrixWorld action.
+
+The review fix passed **206/206** WebRuntime tests, **654/654** ControlService
+tests, and the Vite production build. The built `/web/` page on isolated port
+**19842** restored the earlier raw v3 named checkpoint `social-seed2-m112` at
+minute 112 with relationship 55. Saving it as `ledger-v4-restored` produced
+nested v4 with one completion record for `social-2-9` and receipt
+`citizens-2-social-9-80`; all four Matrix object IDs matched the old file.
+Browser reload retained minute 113 and the outcome, while v4 PC restore to
+minute 112 and the next step reproduced the earlier minute-113 resident and
+station state. Neither browser run reported a page error. See the [migration
+screenshot](../Validation/citizens-receipt-ledger-migration.png) and [structured
+evidence](../Validation/citizens-receipt-ledger-migration.json). The original
+isolated demo on port 19841 was left running unchanged.
 
 The fixed-seed fixture has one active bilateral session at a time. Deletion,
 authored movement, scene replacement, AR entry, Stop, and rejected interaction
