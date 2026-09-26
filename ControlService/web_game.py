@@ -168,15 +168,24 @@ def validate_saved_game(value, scene, snapshot):
                 for item in count_objectives}
     if state["objectiveProgress"] != progress or any(type(number) is not int for number in state["objectiveProgress"].values()):
         raise ValueError("Invalid saved game objective progress")
-    minimum = maximum = 0
-    for object_id in deliveries:
+    reachable = {0}
+    prefix_counts = {}
+    for index, object_id in enumerate(deliveries):
         role_id = role_by_object[object_id]["roleId"]
-        points = [rule["scorePoints"] for rule in spec["rules"] if rule["actorRoleId"] == role_id]
+        prefix_counts[role_id] = prefix_counts.get(role_id, 0) + 1
+        points = {rule["scorePoints"] for rule in spec["rules"] if rule["actorRoleId"] == role_id}
         if not points:
             raise ValueError("Invalid saved game score")
-        minimum += min(points)
-        maximum += max(points)
-    if not minimum <= state["score"] <= maximum:
+        reachable = {subtotal + award for subtotal in reachable for award in points
+                     if subtotal + award <= state["score"]}
+        if index < len(deliveries) - 1:
+            reachable = {subtotal for subtotal in reachable if not all(
+                subtotal >= item["targetPoints"] if item["kind"] == "score-at-least" else
+                prefix_counts.get(item["roleId"], 0) >= item["targetCount"]
+                for item in spec["objectives"])}
+        if not reachable:
+            raise ValueError("Invalid saved game score")
+    if state["score"] not in reachable:
         raise ValueError("Invalid saved game score")
     won = all(state["score"] >= item["targetPoints"] if item["kind"] == "score-at-least"
               else progress[item["roleId"]] >= item["targetCount"] for item in spec["objectives"])

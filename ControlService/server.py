@@ -1280,6 +1280,7 @@ class State:
             referenced.update(role["assetId"] for role in value["game"]["spec"]["roles"])
         available = {item["assetId"] for item in current["assets"]}
         require(referenced <= available, "World checkpoint asset is unavailable in the connected browser", 409)
+        browser_assets = {item["assetId"]: item for item in current["assets"]}
         try:
             catalog = ({item["assetId"]: item for item in self.web_assets.list()}
                        if any(asset_id.startswith("web:") for asset_id in referenced) else {})
@@ -1290,7 +1291,16 @@ class State:
                 entry = catalog.get(asset_id)
                 require(entry is not None, f"World asset {asset_id} is missing from the PC catalog", 409)
                 self.web_assets.file(entry["sha256"])
-                dependencies.append({"assetId": asset_id, "sha256": entry["sha256"]})
+                browser_entry = browser_assets[asset_id]
+                clips = [clip["name"] for clip in entry["geometry"].get("animationClips", [])]
+                require(browser_entry.get("spawnScale", 1) == entry.get("spawnScale", 1) and
+                        browser_entry.get("localBounds") == entry.get("localBounds") and
+                        browser_entry.get("animationClips", []) == clips,
+                        "Browser asset metadata is stale; refresh assets and retry", 409)
+                dependencies.append({"assetId": asset_id, "sha256": entry["sha256"],
+                                     "spawnScale": entry.get("spawnScale", 1),
+                                     "animationClips": clips,
+                                     **({"localBounds": entry["localBounds"]} if "localBounds" in entry else {})})
         except WebAssetError as error:
             raise APIError(409, f"World GLB is missing or corrupt: {error}. Restore the matching asset catalog and retry") from None
         return dependencies

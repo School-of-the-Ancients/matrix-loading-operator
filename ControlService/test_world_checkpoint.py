@@ -66,7 +66,8 @@ class WorldCheckpointTests(unittest.TestCase):
     def test_restart_restores_exact_ids_game_progress_component_and_animation(self):
         saved = self.state.save_world_checkpoint("Demo", self.world)
         self.assertEqual(saved["dependencies"],
-                         [{"assetId": self.asset["assetId"], "sha256": self.asset["sha256"]}])
+                         [{"assetId": self.asset["assetId"], "sha256": self.asset["sha256"],
+                           "spawnScale": 1, "animationClips": ["Flight"]}])
         path = self.scenes / "world_checkpoints" / "Demo.json"
         stored = json.loads(path.read_text(encoding="utf-8"))
         self.assertEqual(stored["schemaVersion"], 1)
@@ -98,6 +99,64 @@ class WorldCheckpointTests(unittest.TestCase):
         self.assertEqual(failure.exception.status, 409)
         self.assertEqual(self.state.latest, before)
         self.assertTrue((self.scenes / "world_checkpoints" / "Demo.json").is_file())
+
+    def test_changed_catalog_scale_or_bounds_rejects_the_same_glb(self):
+        self.state.save_world_checkpoint("Demo", self.world)
+        before = copy.deepcopy(self.state.latest)
+        source = self.root / "flight.glb"
+        self.state.web_assets.register(source, "Flight", spawn_scale=0.5)
+        with self.assertRaisesRegex(APIError, "metadata is stale"):
+            self.state.load_world_checkpoint("Demo")
+        refreshed = copy.deepcopy(self.snapshot)
+        refreshed["assets"][1]["spawnScale"] = 0.5
+        self.state.exchange({"clientId": "browser", "snapshot": refreshed, "results": []})
+        with self.assertRaisesRegex(APIError, "asset version changed"):
+            self.state.load_world_checkpoint("Demo")
+        bounds = {"center": {"x": 0, "y": 0.5, "z": 0},
+                  "size": {"x": 1, "y": 1, "z": 1}}
+        self.state.web_assets.register(source, "Flight", spawn_scale=1, local_bounds=bounds)
+        refreshed["assets"][1]["spawnScale"] = 1
+        refreshed["assets"][1]["localBounds"] = bounds
+        self.state.exchange({"clientId": "browser", "snapshot": refreshed, "results": []})
+        with self.assertRaisesRegex(APIError, "asset version changed"):
+            self.state.load_world_checkpoint("Demo")
+        self.assertEqual(self.state.latest["scene"], before["scene"])
+
+    def test_unreachable_score_cannot_be_saved_as_earned_progress(self):
+        world = copy.deepcopy(self.world)
+        world["scene"]["objects"].append({"objectId": "zone-2", "assetId": "pedestal",
+                                          "anchorId": "web-floor", "transform": copy.deepcopy(POSE)})
+        spec = world["game"]["spec"]
+        spec["roles"].append({"roleId": "other-zone", "kind": "delivery-zone",
+                              "assetId": "pedestal", "count": 1})
+        spec["rules"][0]["scorePoints"] = 2
+        spec["rules"].append({"event": "release-near", "actorRoleId": "flyers",
+                              "targetRoleId": "other-zone", "distanceMeters": 0.6,
+                              "scorePoints": 4})
+        world["game"]["bindings"]["other-zone"] = ["zone-2"]
+        world["game"]["state"]["score"] = 3
+        current = copy.deepcopy(self.snapshot)
+        current["scene"] = copy.deepcopy(world["scene"])
+        self.state.exchange({"clientId": "browser", "snapshot": current, "results": []})
+        with self.assertRaisesRegex(APIError, "score"):
+            self.state.save_world_checkpoint("Impossible", world)
+        world["game"]["state"]["score"] = 2
+        self.assertTrue(self.state.save_world_checkpoint("Possible", world)["saved"])
+
+    def test_repeated_or_post_win_deliveries_cannot_be_saved(self):
+        world = copy.deepcopy(self.world)
+        spec = world["game"]["spec"]
+        spec["objectives"] = [{"kind": "delivered-count", "roleId": "flyers", "targetCount": 1}]
+        progress = world["game"]["state"]
+        progress.update({"phase": "won", "score": 6,
+                         "deliveries": ["pickup-1", "pickup-2"],
+                         "objectiveProgress": {"flyers": 2}})
+        with self.assertRaisesRegex(APIError, "score"):
+            self.state.save_world_checkpoint("PostWin", world)
+        progress.update({"deliveries": ["pickup-1", "pickup-1"],
+                         "objectiveProgress": {"flyers": 1}})
+        with self.assertRaisesRegex(APIError, "deliveries"):
+            self.state.save_world_checkpoint("Repeated", world)
 
     def test_bad_progress_and_unsynced_scene_cannot_overwrite_checkpoint(self):
         self.state.save_world_checkpoint("Demo", self.world)

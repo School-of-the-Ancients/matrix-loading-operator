@@ -23,7 +23,7 @@ exchanging the new snapshot. A failed load leaves the current world untouched.
 Files live under the configured `--scenes` directory in
 `world_checkpoints/<name>.json`. The file has schema version 1, the browser's
 version 2 `{scene,game}` envelope, an external-asset dependency list containing
-full SHA-256 digests, and a SHA-256 payload checksum. The write is bounded to
+full SHA-256 digests and rendering scale/bounds/clip metadata, and a SHA-256 payload checksum. The write is bounded to
 1 MiB and uses a flushed, synced temporary file plus atomic replacement. This
 checksum detects accidental file changes; it is not a signature or encryption.
 
