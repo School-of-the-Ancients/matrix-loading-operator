@@ -29,6 +29,7 @@ export class CitizensPanel {
     this.recoverArmedCopy='';
     byId('citizens-start').addEventListener('click',()=>this.start());
     byId('citizens-bind-selected').addEventListener('click',()=>this.start('selected'));
+    byId('citizens-add-selected').addEventListener('click',()=>this.addStation());
     byId('citizens-toggle').addEventListener('click',()=>this.toggle());
     byId('citizens-step').addEventListener('click',()=>this.step());
     byId('citizens-stop').addEventListener('click',()=>this.stop());
@@ -174,6 +175,25 @@ export class CitizensPanel {
     }catch(error){this.onFeedback(`Citizens could not start: ${error.message}`,true);}
   }
 
+  addStation(){
+    const mutationBlocked=this.canMutate();
+    if(mutationBlocked){this.onFeedback(mutationBlocked,true);this.render();return;}
+    this.syncFromWorld();
+    const blocked=this.canStart('addition');
+    if(blocked||!this.simulation||this.error){
+      this.onFeedback(blocked||this.error||'Start Citizens before adding a station.',true);
+      this.render();return;
+    }
+    try{
+      const station=this.simulation.addSelectedStation(this.world.selection.objectId);
+      this.error='';this.commit();
+      this.onFeedback(`${station.stations.at(-1).id} is available in the existing Citizens world. Press Run to continue.`);
+    }catch(error){
+      this.onFeedback(`Citizens could not add the selected station: ${error.message}`,true);
+      this.render();
+    }
+  }
+
   toggle(){
     if(this.canMutate())return;
     this.syncFromWorld();
@@ -312,6 +332,9 @@ export class CitizensPanel {
         {stationId:station.id,executionId:waiter.executionId,position:index+1}));
     const blocked=this.canStart('fixture');
     const selectedBlocked=this.canStart('selected');
+    const additionBlocked=state?
+      this.canStart('addition')||this.simulation?.stationAdditionReadiness?.(
+        this.world.selection.objectId)||'':'Start Citizens before adding another station.';
     const mutationBlocked=this.canMutate();
     let recovery=null,recoveryError='';
     try{recovery=this.getRecovery();}
@@ -325,6 +348,10 @@ export class CitizensPanel {
     byId('citizens-start').disabled=!!state||!!this.world.citizens||!!blocked||!!mutationBlocked;
     byId('citizens-bind-selected').disabled=!!state||!!this.world.citizens||
       !!selectedBlocked||!!mutationBlocked;
+    byId('citizens-add-selected').disabled=!state||!!this.error||
+      !!additionBlocked||!!mutationBlocked;
+    byId('citizens-add-status').textContent=additionBlocked||
+      'Selected complementary station is eligible. Add verifies reachability before binding.';
     byId('citizens-selection-status').textContent=state?
       `Citizens uses ${state.stations.map(station=>station.id).join(' and ')||'no remaining station'} in this world.`:
       selectedBlocked||'Selected station is ready. Use it to add two residents without replacing the scene.';
