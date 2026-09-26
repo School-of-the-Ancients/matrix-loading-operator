@@ -54,6 +54,14 @@ export class MatrixBridge {
     catch(error){this.onUpdate({type:'connection',online:false,error:error.message});}
     finally{this.inFlight=false;}
   }
+  async sync(){
+    if(!this.running)throw Error('Operator connection is not started');
+    while(this.inFlight)await new Promise(resolve=>setTimeout(resolve,25));
+    this.inFlight=true;this.lastExchange=performance.now();
+    try{await this.exchange(this.getViewer());}
+    catch(error){this.onUpdate({type:'connection',online:false,error:error.message});throw error;}
+    finally{this.inFlight=false;}
+  }
   start(getViewer,getCapture=null) {
     this.getViewer=getViewer;this.getCapture=getCapture;this.running=true;this.tick(true);
     this.timer=setInterval(()=>this.tick(),650);

@@ -83,8 +83,12 @@
       <div class="row"><button id="refresh-assets">Refresh assets</button><span id="asset-count" class="asset-count">7 built-in</span></div>
       <p id="game-status" class="hint" role="status">No game running.</p>
       <div class="row"><button id="undo">Undo</button><button id="redo">Redo</button><button id="clear">Clear</button></div>
-      <div class="row"><input id="save-name" aria-label="Scene name" placeholder="Scene name" /><button id="save">Save</button></div>
-      <div class="row"><select id="saved-scenes" aria-label="Saved scenes"><option value="">Saved scenes</option></select><button id="restore">Restore</button></div>
+      <label for="world-save-name">PC world checkpoint · scene and game progress</label>
+      <div class="row"><input id="world-save-name" placeholder="World name" /><button id="save-pc-world">Save world</button></div>
+      <div class="row"><select id="pc-worlds" aria-label="PC world checkpoints"><option value="">PC world checkpoints</option></select><button id="restore-pc-world">Restore world</button></div>
+      <label for="save-name">Legacy PC scene-only backup</label>
+      <div class="row"><input id="save-name" placeholder="Scene name" /><button id="save">Save scene</button></div>
+      <div class="row"><select id="saved-scenes" aria-label="Saved scenes"><option value="">Saved scenes</option></select><button id="restore">Restore scene</button></div>
       <p id="feedback" role="status">Starting runtime…</p>
     </aside>
     <div class="xr-buttons" id="xr-buttons"></div>

@@ -39,7 +39,7 @@ from web_components import ComponentError, validate_attachment, validate_package
 from web_component_catalog import WebComponentCatalog
 from web_authoring import WebAuthoringJobs, WebAuthoringError
 from blender_authoring import BlenderAuthoringJobs, BlenderAuthoringError
-from web_game import GamePlanError, design_game, wants_game
+from web_game import GamePlanError, design_game, wants_game, validate_saved_game
 from content_service import ContentBridge, runtime_capabilities
 from content_catalog import ContentError
 from quest_connection import QuestConnection
@@ -457,6 +457,12 @@ def parse_json(raw):
         return json.loads(raw, parse_constant=invalid_constant)
     except (UnicodeError, ValueError, RecursionError):
         raise APIError(400, "Invalid JSON") from None
+
+
+def world_checkpoint_digest(world, dependencies):
+    payload = json.dumps({"world": world, "dependencies": dependencies}, ensure_ascii=False,
+                         sort_keys=True, allow_nan=False, separators=(",", ":")).encode("utf-8")
+    return hashlib.sha256(payload).hexdigest()
 
 
 def loopback(host):
@@ -1598,6 +1604,146 @@ class State:
         require(not target.is_symlink(), "Scene links are not supported")
         return target
 
+    def world_checkpoint_path(self, name):
+        self.path(name)  # Reuse the legacy name and reserved-device checks.
+        directory = self.directory / "world_checkpoints"
+        require(not directory.is_symlink(), "World checkpoint links are not supported")
+        target = directory / (name + ".json")
+        require(not target.is_symlink(), "World checkpoint links are not supported")
+        return target
+
+    def _world_checkpoint_ready(self):
+        self.expire()
+        require(self.online() and self.latest is not None, "Web runtime is offline; reconnect before using a world checkpoint", 409)
+        require(not self.pending and not self.content.busy(), "Wait for pending world commands before using a checkpoint", 409)
+        current = self.latest
+        require(current["scene"]["roomId"] == "web-virtual-room-v1" and
+                (current.get("roomContext") or {}).get("mode") == "white-room" and
+                (current.get("roomContext") or {}).get("state") == "ready" and
+                not current.get("readOnly"),
+                "Whole-world PC checkpoints require the desktop virtual room; leave AR or recover its origin first", 409)
+        return current
+
+    def _checked_world_checkpoint(self, value, current):
+        require(type(value) is dict and set(value) == {"version", "scene", "game"} and
+                type(value["version"]) is int and value["version"] == 2,
+                "Unsupported world checkpoint envelope")
+        checked_scene = scene(value["scene"])
+        require(checked_scene == value["scene"] and checked_scene["roomId"] == "web-virtual-room-v1" and
+                all(item["anchorId"] == "web-floor" for item in checked_scene["objects"]),
+                "World checkpoint contains unsupported scene data or session-local anchors")
+        capabilities = {key: current[key] for key in ("componentSchemaVersion", "animationSchemaVersion", "behaviorKinds")
+                        if key in current}
+        snapshot({"scene": checked_scene, "assets": current["assets"], "anchors": current["anchors"],
+                  **capabilities})
+        supported = set(current.get("behaviorKinds", []))
+        require(all(behavior["kind"] in supported for item in checked_scene["objects"]
+                    for behavior in item.get("behaviors", [])),
+                "Saved behaviors are unavailable in the connected browser", 409)
+        referenced = {item["assetId"] for item in checked_scene["objects"]}
+        try:
+            validate_saved_game(value["game"], checked_scene, current)
+        except (ValueError, TypeError, KeyError) as error:
+            raise APIError(400, str(error) or "Invalid saved game") from None
+        if value["game"] is not None:
+            referenced.update(role["assetId"] for role in value["game"]["spec"]["roles"])
+        available = {item["assetId"] for item in current["assets"]}
+        require(referenced <= available, "World checkpoint asset is unavailable in the connected browser", 409)
+        browser_assets = {item["assetId"]: item for item in current["assets"]}
+        try:
+            catalog = ({item["assetId"]: item for item in self.web_assets.list()}
+                       if any(asset_id.startswith("web:") for asset_id in referenced) else {})
+            dependencies = []
+            for asset_id in sorted(referenced):
+                if not asset_id.startswith("web:"):
+                    continue
+                entry = catalog.get(asset_id)
+                require(entry is not None, f"World asset {asset_id} is missing from the PC catalog", 409)
+                self.web_assets.file(entry["sha256"])
+                browser_entry = browser_assets[asset_id]
+                clips = [clip["name"] for clip in entry["geometry"].get("animationClips", [])]
+                require(browser_entry.get("spawnScale", 1) == entry.get("spawnScale", 1) and
+                        browser_entry.get("localBounds") == entry.get("localBounds") and
+                        browser_entry.get("animationClips", []) == clips,
+                        "Browser asset metadata is stale; refresh assets and retry", 409)
+                dependencies.append({"assetId": asset_id, "sha256": entry["sha256"],
+                                     "spawnScale": entry.get("spawnScale", 1),
+                                     "animationClips": clips,
+                                     **({"localBounds": entry["localBounds"]} if "localBounds" in entry else {})})
+        except WebAssetError as error:
+            raise APIError(409, f"World GLB is missing or corrupt: {error}. Restore the matching asset catalog and retry") from None
+        return dependencies
+
+    def save_world_checkpoint(self, name, world):
+        target = self.world_checkpoint_path(name)
+        with self.lock:
+            current = self._world_checkpoint_ready()
+            dependencies = self._checked_world_checkpoint(world, current)
+            require(world["scene"] == current["scene"],
+                    "Browser world changed since the last exchange; sync it and retry saving", 409)
+            saved_world = copy.deepcopy(world)
+            for item in saved_world["scene"]["objects"]:
+                if "component" in item:
+                    # Preserve the attachment configuration and status, not its elapsed-time phase.
+                    item["component"]["startedAtMs"] = 0
+            document = {"schemaVersion": 1, "world": saved_world,
+                        "dependencies": dependencies,
+                        "payloadSha256": world_checkpoint_digest(saved_world, dependencies)}
+            data = json.dumps(document, ensure_ascii=False, allow_nan=False, indent=2).encode("utf-8")
+            require(len(data) <= MAX_BODY, "World checkpoint exceeds save size limit", 413)
+            target.parent.mkdir(parents=True, exist_ok=True)
+            temporary = None
+            try:
+                with tempfile.NamedTemporaryFile(dir=target.parent, prefix=".saving-world-", delete=False) as handle:
+                    temporary = handle.name
+                    handle.write(data)
+                    handle.flush()
+                    os.fsync(handle.fileno())
+                os.replace(temporary, target)
+                temporary = None
+            finally:
+                if temporary is not None:
+                    os.unlink(temporary)
+            return {"name": name, "saved": True, "schemaVersion": 1, "dependencies": dependencies}
+
+    def load_world_checkpoint(self, name):
+        target = self.world_checkpoint_path(name)
+        require(target.is_file(), "World checkpoint not found", 404)
+        with target.open("rb") as handle:
+            data = handle.read(MAX_BODY + 1)
+        require(len(data) <= MAX_BODY, "World checkpoint exceeds size limit", 413)
+        document = parse_json(data)
+        require(type(document) is dict and set(document) ==
+                {"schemaVersion", "world", "dependencies", "payloadSha256"} and
+                type(document["schemaVersion"]) is int and document["schemaVersion"] == 1 and
+                type(document["payloadSha256"]) is str and
+                re.fullmatch(r"[0-9a-f]{64}", document["payloadSha256"]) is not None and
+                type(document["dependencies"]) is list,
+                "Unsupported or corrupt world checkpoint")
+        try:
+            digest = world_checkpoint_digest(document["world"], document["dependencies"])
+        except (TypeError, ValueError, RecursionError):
+            raise APIError(400, "Corrupt world checkpoint payload") from None
+        require(digest == document["payloadSha256"], "World checkpoint payload is corrupt")
+        with self.lock:
+            current = self._world_checkpoint_ready()
+            dependencies = self._checked_world_checkpoint(document["world"], current)
+            require(document["dependencies"] == dependencies,
+                    "World checkpoint asset version changed; restore the matching PC asset catalog", 409)
+            restored_world = copy.deepcopy(document["world"])
+            started_at_ms = int(time.time() * 1000)
+            for item in restored_world["scene"]["objects"]:
+                if item.get("component", {}).get("status") == "running":
+                    item["component"]["startedAtMs"] = started_at_ms
+            return {"name": name, "schemaVersion": 1, "world": restored_world,
+                    "dependencies": dependencies}
+
+    def world_checkpoints(self):
+        directory = self.directory / "world_checkpoints"
+        require(not directory.is_symlink(), "World checkpoint links are not supported")
+        return {"worlds": sorted(path.stem for path in directory.glob("*.json")
+                                 if NAME.fullmatch(path.stem) and path.is_file() and not path.is_symlink())}
+
     def save(self, name):
         target = self.path(name)
         with self.lock:
@@ -2219,6 +2365,8 @@ class Handler(BaseHTTPRequestHandler):
                 data = self.server.state.capture_status(include_image=True)
             elif path == "/api/scenes":
                 data = self.server.state.scenes()
+            elif path == "/api/web/worlds":
+                data = self.server.state.world_checkpoints()
             elif path == "/api/planner":
                 data = planner_status(self.server.state)
             elif path.startswith("/api/voice/"):
@@ -2292,6 +2440,12 @@ class Handler(BaseHTTPRequestHandler):
                 data = state.save(body.get("name"))
             elif path == "/api/load":
                 data = state.load(body.get("name"), body.get("requestId"))
+            elif path == "/api/web/world/save":
+                require(set(body) == {"name", "world"}, "World checkpoint needs name and world")
+                data = state.save_world_checkpoint(body["name"], body["world"])
+            elif path == "/api/web/world/load":
+                require(set(body) == {"name"}, "World checkpoint load needs a name")
+                data = state.load_world_checkpoint(body["name"])
             elif path == "/api/plan":
                 data = plan(state, body)
             elif path == "/api/capture":

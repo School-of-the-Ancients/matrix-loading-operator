@@ -98,6 +98,42 @@ test('score objectives reject impossible thresholds and inconsistent saved progr
   assert.equal(validSavedGame(altered,current.scene),null);
 });
 
+test('saved scores must equal a possible combination of rule awards',()=>{
+  const spec={...plan,roles:[
+    {roleId:'orbs',kind:'pickup',assetId:'orb',count:1},
+    {roleId:'near',kind:'delivery-zone',assetId:'pedestal',count:1},
+    {roleId:'far',kind:'delivery-zone',assetId:'table',count:1}],
+    rules:[
+      {event:'release-near',actorRoleId:'orbs',targetRoleId:'near',distanceMeters:.5,scorePoints:2},
+      {event:'release-near',actorRoleId:'orbs',targetRoleId:'far',distanceMeters:.5,scorePoints:4}],
+    objectives:[{kind:'score-at-least',targetPoints:3}]};
+  const current=world(),game=startGame(current,spec,viewer);
+  moveTo(current,game.bindings.orbs[0],game.bindings.near[0]);
+  assert.ok(deliverMovedObject(current,game.bindings.orbs[0]));
+  assert.equal(validSavedGame(game,current.scene),game);
+  const altered=structuredClone(game);
+  altered.state.score=3;altered.state.phase='won';
+  assert.equal(validSavedGame(altered,current.scene),null);
+  altered.state.score=4;
+  assert.equal(validSavedGame(altered,current.scene),altered);
+});
+
+test('saved progress cannot contain repeated or post-win deliveries',()=>{
+  const spec={...plan,objectives:[{kind:'delivered-count',roleId:'orbs',targetCount:1}]};
+  const current=world(),game=startGame(current,spec,viewer);
+  moveTo(current,game.bindings.orbs[0],game.bindings.station[0]);
+  assert.ok(deliverMovedObject(current,game.bindings.orbs[0]));
+  moveTo(current,game.bindings.orbs[1],game.bindings.station[0]);
+  assert.equal(deliverMovedObject(current,game.bindings.orbs[1]),null);
+  const altered=structuredClone(game);
+  altered.state.deliveries.push(game.bindings.orbs[1]);
+  altered.state.score=20;altered.state.objectiveProgress.orbs=2;
+  assert.equal(validSavedGame(altered,current.scene),null);
+  altered.state.deliveries=[game.bindings.orbs[0],game.bindings.orbs[0]];
+  altered.state.objectiveProgress.orbs=1;
+  assert.equal(validSavedGame(altered,current.scene),null);
+});
+
 test('invalid or unsupported plans leave the world intact',()=>{
   const current=world(),before=structuredClone(current.scene);
   assert.throws(()=>startGame(current,{...plan,roles:[{...plan.roles[0],assetId:'invented'},plan.roles[1]]},viewer),/unavailable/);
