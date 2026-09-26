@@ -716,8 +716,61 @@ def validate_citizens_checkpoint(value, checked_scene):
         return type(item) in (int, float) and minimum <= item <= maximum and math.isfinite(item)
 
     require(type(value) is dict and type(value.get("schemaVersion")) is int and
-            value["schemaVersion"] in (1, 2, 3, 4, 5, 6, 7, 8), "Unsupported Citizens schemaVersion")
+            value["schemaVersion"] in (1, 2, 3, 4, 5, 6, 7, 8, 9), "Unsupported Citizens schemaVersion")
     version = value["schemaVersion"]
+    if version == 9:
+        # V9 adds one need, one preference and a social choice trace. Project
+        # those fields away only after validating them, so every other shape
+        # still has to satisfy the exact V8 checkpoint contract below.
+        require(type(value.get("residents")) is list and
+                len(value["residents"]) <= 4 and
+                integer(value.get("clockTick"), 0, 1000000000),
+                "Invalid Citizens social choice state")
+        projected = copy.deepcopy(value)
+        projected["schemaVersion"] = 8
+        for resident, old_resident in zip(value["residents"], projected["residents"]):
+            require(type(resident) is dict, "Invalid Citizens social choice resident")
+            shape(resident.get("needs"), ("hunger", "energy", "fun", "social"),
+                  "resident needs")
+            shape(resident.get("preferences"),
+                  ("rest", "eat", "explore", "converse"), "resident preferences")
+            require(number(resident["needs"]["social"], 0, 100) and
+                    number(resident["preferences"]["converse"], .2, 2),
+                    "Invalid Citizens social need or preference")
+            del old_resident["needs"]["social"]
+            del old_resident["preferences"]["converse"]
+            decision = resident.get("lastDecision")
+            if type(decision) is not dict or decision.get("mode") != "social":
+                continue
+            shape(decision, ("tick", "mode", "roll", "selectedKind",
+                             "selectedRoutineId", "candidates"), "social decision")
+            require(integer(decision["tick"], 0, value["clockTick"]) and
+                    decision["roll"] is None and
+                    decision["selectedKind"] == "converse" and
+                    decision["selectedRoutineId"] is None and
+                    type(decision["candidates"]) is list and
+                    len(decision["candidates"]) == 1,
+                    "Invalid Citizens social decision")
+            candidate = decision["candidates"][0]
+            shape(candidate, ("kind", "routineId", "priority", "deficit",
+                              "preference", "travelMeters", "baseWeight",
+                              "availabilityFactor", "score"), "social candidate")
+            require(candidate["kind"] == "converse" and
+                    candidate["routineId"] is None and
+                    candidate["priority"] == "none" and
+                    number(candidate["deficit"], 0, 100) and
+                    number(candidate["preference"], .2, 2) and
+                    number(candidate["travelMeters"], 0, 1000) and
+                    number(candidate["baseWeight"], 0, 100) and
+                    candidate["baseWeight"] == 0 and
+                    number(candidate["availabilityFactor"], 0, 1) and
+                    candidate["availabilityFactor"] == 1 and
+                    number(candidate["score"], 0, 300) and
+                    candidate["score"] >= 35,
+                    "Invalid Citizens social candidate")
+            old_resident["lastDecision"] = None
+        validate_citizens_checkpoint(projected, checked_scene)
+        return
     state_fields = ("schemaVersion", "world", "seed", "rngState", "requestSequence",
                     "clockTick", "paused", "residents", "stations", "log")
     shape(value, state_fields + (("actionSequence", "retiredResidentIds") if version >= 2 else ()) +

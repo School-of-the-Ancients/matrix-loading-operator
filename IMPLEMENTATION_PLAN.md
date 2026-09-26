@@ -1,6 +1,6 @@
 # Matrix implementation plan
 
-Updated September 26, 2026. **Continue the small, persistent AI Citizens simulation in the existing Three.js/MatrixWorld world.** The isolated desktop fixture, opt-in `/web/` shared world, bounded route recovery and up to two reviewed static GLB interactions are the current stacked candidates. This supersedes the earlier M4-first work queue. Keep every unfinished mode-specific M4 headset check open; wearer-dependent acceptance does not block independent simulation work. Complete a tested slice before expanding scope.
+Updated September 26, 2026. **Continue the small, persistent AI Citizens simulation in the existing Three.js/MatrixWorld world.** The isolated desktop fixture, opt-in `/web/` shared world, bounded route recovery, up to two reviewed static GLB interactions, and need-driven conversation are the current stacked candidates. This supersedes the earlier M4-first work queue. Keep every unfinished mode-specific M4 headset check open; wearer-dependent acceptance does not block independent simulation work. Complete a tested slice before expanding scope.
 
 [PRD](PRD.md) · [Project map](PROJECTS.md) · [School build plan](https://github.com/School-of-the-Ancients/school-of-the-ancients-roadmap/blob/main/BUILD_PLAN.md)
 
@@ -145,6 +145,8 @@ browser reload retained the replay. WebRuntime passed **306/306**,
 ControlService **687/687**, and Vite built. The rejected unreachable
 second-station browser edit and broader #15/#17 behavior remain open;
 M4 wearer checks remain independent.
+
+The `codex/citizens-social-choice` candidate advances [#29](https://github.com/School-of-the-Ancients/matrix-loading-operator/issues/29) and a bounded part of [#17](https://github.com/School-of-the-Ancients/matrix-loading-operator/issues/17) by adding a persisted social need and conversation preference to both residents. At an eligible social opportunity, a free resident's conversation score competes with its legal individual activity; a reachable critical-hunger food choice takes precedence for either participant. An invitation alone gives no benefit. A completed session needs its exact Matrix converse receipt to raise both social needs and the relationship. Nested Citizens v9 migrates valid v1–v8 saves while the outer world stays v3. [The isolated browser replay](Validation/citizens-social-need-browser.json) migrated the earlier v6 two-GLB minute-1 checkpoint, showed Ada choose conversation at minute 78 with score 64.37 against 19.47, and observed the accepted session end at minute 91 with receipt `citizens-29-social-7-100`. Both social needs reached 76 and the relationship changed 50→55. Final-build named PC minute-78 and minute-91 checkpoints, browser reload, and restoring minute 78 followed by 13 Step actions reproduced byte-equivalent saved world JSON at minute 91; console errors were 0. WebRuntime **314/314**, ControlService **689/689**, and Vite build passed. Broader #17 scheduling, moving affordances, and M4 wearer checks remain open. The [runbook](Docs/Citizens-Shared-World.md) records the desktop path.
 
 No simulated resident gets the Operator's shell credentials
 or permission to run fleet jobs. Richer rigs, ComfyUI/Blender authoring, GOAP,
