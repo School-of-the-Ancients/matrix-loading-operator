@@ -27,7 +27,7 @@ and any command receipt. The combined branch includes that upstream fix.
 
 - Windows 11, Python 3.13.14: `python -m unittest discover -s ControlService
   -p test_*.py -q` — **638 passed**.
-- Node 24.16.0: `npm test` in `WebRuntime` — **125 passed**.
+- Node 24.16.0: `npm test` in `WebRuntime` — **126 passed**.
 - Vite 7.3.6: `npm run build` — passed.
 - `git diff --check` — passed.
 
@@ -172,3 +172,16 @@ and `Flight`. The wearer confirmed the visible move and animation. Selection
 was reacquired after reload; the browser checkpoint retained the earlier
 saved pose rather than subsequent edits. This run did not enable Quest physics
 on that Dragon; the separate port-18777 check above covers the VR floor drop.
+
+After the run, the wearer reported that CODEX page two repeatedly returned to
+page one within a few words, even when the Agent turn said Completed. The
+browser exchanges connection status about every 650 ms; that path called
+`setOperatorStatus`, whose shared page reset also affected the CODEX panel.
+The panel now resets a page only when its active content mode changes or a new
+Agent turn/approval/voice phase requires attention. Repeated background
+Operator messages and proposal cleanup leave the CODEX reading page in place.
+A regression exercises completed transcript paging across repeated status
+updates and continued transcript content. After reloading port 18778 in Quest
+VR, the wearer opened page two of a Completed CODEX reply and confirmed that it
+stayed visible for five seconds without pressing NEXT. The WORLD save notice
+still awaits a separate wearer check.
