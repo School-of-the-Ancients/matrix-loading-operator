@@ -23,6 +23,7 @@ export function storedWorld(world){
 // Keep browser-only origin provenance out of PC world checkpoints, whose
 // scene/game envelope is intentionally renderer-neutral and exact.
 export function storedBrowserWorld(world){
+  world.markAROriginIfChanged();
   return {...storedWorld(world),originBinding:world.originBinding};
 }
 

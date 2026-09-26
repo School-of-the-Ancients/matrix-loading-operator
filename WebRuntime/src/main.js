@@ -110,7 +110,8 @@ function updateWorldControls(){
   $('rebase-room-origin').textContent=performance.now()<roomResetArmedUntil&&roomRecoveryChoice==='rebase'?
     'Confirm archive and place here':'Archive and place world here';
   $('room-origin-status').textContent=!view.isAR?'Room origin status appears in AR.':
-    resetAvailable?'Saved world hidden. Retry, place it here explicitly, or archive and start empty.':
+    resetAvailable?canRetryOrigin?'Saved world hidden. Retry, place it here explicitly, or archive and start empty.':
+      'Saved world hidden. Archive and place it here or start empty.':
     originUnavailable?'Waiting for a tracked room anchor; editing is paused.':
     view.roomAnchorLocated?'Room origin tracked.':'Room origin has not been tracked yet.';
   let hasArchives=false;
