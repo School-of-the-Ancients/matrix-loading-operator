@@ -113,11 +113,21 @@ restored the two rendered GLBs, exact four object IDs, minute-123 Citizens
 state, chair claim and relationship 55 after the catalog returned; a further
 browser reload kept them. Focused scene-store tests passed **34/34**, the full
 WebRuntime suite **288/288**, ControlService **682/682**, and Vite built.
-Neither browser nor PC checkpoints contain GLB bytes. A bounded
-rejected-station browser edit and the minute-82 occupied-approach handoff
-remain useful #15/#19 follow-ups; [#17](https://github.com/School-of-the-Ancients/matrix-loading-operator/issues/17)
-virtual-day schedules are the next resident-autonomy layer after these
-runtime handoffs are stable.
+Neither browser nor PC checkpoints contain GLB bytes. The next
+[`codex/citizens-virtual-day` PR #112](https://github.com/School-of-the-Ancients/matrix-loading-operator/pull/112) implements a bounded first
+[#17](https://github.com/School-of-the-Ancients/matrix-loading-operator/issues/17)
+schedule layer on that world. Citizens v7 saves 1×/4×/16× clock speed,
+recurring daily rest/eat/explore windows and the latest score trace per
+resident. Idle choices use active windows, needs, preferences, distance,
+station availability and priority tiers. Existing finite actions and Matrix
+receipts remain the path to earned effects. [The isolated browser run](Validation/citizens-virtual-day-browser.json)
+restored the prior v6 two-GLB minute-1 world, crossed midnight at 16×, and
+saved/reloaded/restored a v7 day-two checkpoint at minute 1761 with the same
+four object IDs. WebRuntime passed **297/297**, ControlService **685/685**,
+and Vite built. This advances #17 without completing appointments, active
+interruptions, social-need scoring or schedule authoring. A bounded rejected
+second-station browser edit and the reproducible minute-82 occupied-approach
+handoff remain #15/#19 follow-ups; M4 wearer checks remain separate.
 
 No simulated resident gets the Operator's shell credentials
 or permission to run fleet jobs. Richer rigs, ComfyUI/Blender authoring, GOAP,

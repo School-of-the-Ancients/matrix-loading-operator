@@ -316,6 +316,159 @@ class WorldCheckpointTests(unittest.TestCase):
             self.assertEqual(self.state.load_world_checkpoint("TwoReviewedStations")
                              ["dependencies"], saved["dependencies"])
 
+    def citizens_v7_schedule_world(self):
+        world, _, _ = self.citizens_v6_glb_interaction_world()
+        state = world["citizens"]
+        state.update(schemaVersion=7, clockSpeed=4)
+        for station in state["stations"]:
+            station["approachMode"] = "selected"
+        for resident in state["residents"]:
+            resident["routines"] = [
+                {"id": "morning-rest", "kind": "rest", "priority": "high",
+                 "startMinute": 1380, "endMinute": 90, "baseWeight": 25,
+                 "stationId": "chair"},
+                {"id": "breakfast", "kind": "eat", "priority": "default",
+                 "startMinute": 30, "endMinute": 180, "baseWeight": 16,
+                 "stationId": "food"},
+                {"id": "wander", "kind": "explore", "priority": "low",
+                 "startMinute": 0, "endMinute": 1440, "baseWeight": 5,
+                 "stationId": None}]
+            resident["lastDecision"] = None
+        state["residents"][0]["lastDecision"] = {
+            "tick": 15, "mode": "routine", "roll": .375,
+            "selectedKind": "rest", "selectedRoutineId": "morning-rest",
+            "candidates": [{"kind": "rest", "routineId": "morning-rest",
+                            "priority": "high", "deficit": 75,
+                            "preference": 1.2, "travelMeters": 1.6,
+                            "baseWeight": 25, "availabilityFactor": 1,
+                            "score": 92.4}]}
+        return world
+
+    def test_citizens_v7_schedule_roundtrip_and_older_exact_shapes(self):
+        world = self.citizens_v7_schedule_world()
+        live_before = copy.deepcopy(self.state.latest)
+        self.assertTrue(self.state.save_world_checkpoint("ScheduledCitizens", world)["saved"])
+        restored = self.state.load_world_checkpoint("ScheduledCitizens")["world"]
+        self.assertEqual(restored["citizens"], world["citizens"])
+        self.assertEqual([item["objectId"] for item in restored["scene"]["objects"]],
+                         [item["objectId"] for item in world["scene"]["objects"]])
+        self.assertEqual(restored["citizens"]["clockSpeed"], 4)
+        self.assertEqual(restored["citizens"]["residents"][0]["routines"][0]
+                         ["startMinute"], 1380)
+        self.assertEqual(self.state.latest, live_before)
+
+        for mode, speed in (("needs", 1), ("idle", 16)):
+            with self.subTest(mode=mode):
+                candidate = copy.deepcopy(world)
+                candidate["citizens"]["clockSpeed"] = speed
+                decision = candidate["citizens"]["residents"][0]["lastDecision"]
+                decision.update(mode=mode, roll=None, selectedRoutineId=None,
+                                selectedKind="rest" if mode == "needs" else None)
+                decision["candidates"] = ([{
+                    **decision["candidates"][0], "routineId": None,
+                    "priority": "none"}] if mode == "needs" else [])
+                self.assertTrue(self.state.save_world_checkpoint(
+                    "ScheduledCitizens", candidate)["saved"])
+                actual = self.state.load_world_checkpoint("ScheduledCitizens")["world"]
+                self.assertEqual(actual["citizens"], candidate["citizens"])
+                self.assertEqual(self.state.latest, live_before)
+
+        older = copy.deepcopy(world)
+        older["citizens"]["schemaVersion"] = 6
+        with self.assertRaises(APIError):
+            self.state.save_world_checkpoint("ScheduledCitizens", older)
+
+    def test_citizens_v7_rejects_malformed_schedule_atomically(self):
+        world = self.citizens_v7_schedule_world()
+        self.assertTrue(self.state.save_world_checkpoint("ScheduledCitizens", world)["saved"])
+        path = self.scenes / "world_checkpoints" / "ScheduledCitizens.json"
+        original_bytes = path.read_bytes()
+        live_before = copy.deepcopy(self.state.latest)
+
+        def state(item):
+            return item["citizens"]
+
+        def ada(item):
+            return state(item)["residents"][0]
+
+        def routine(item):
+            return ada(item)["routines"][0]
+
+        def decision(item):
+            return ada(item)["lastDecision"]
+
+        def candidate(item):
+            return decision(item)["candidates"][0]
+
+        cases = (
+            ("missing clock speed", lambda item: state(item).pop("clockSpeed")),
+            ("boolean clock speed", lambda item: state(item).update(clockSpeed=True)),
+            ("unsupported clock speed", lambda item: state(item).update(clockSpeed=2)),
+            ("missing routines", lambda item: ada(item).pop("routines")),
+            ("duplicate routine ID", lambda item: ada(item)["routines"][1].update(id="morning-rest")),
+            ("unbounded routine ID", lambda item: routine(item).update(id="x" * 33)),
+            ("zero window", lambda item: routine(item).update(endMinute=1380)),
+            ("bad priority", lambda item: routine(item).update(priority="urgent")),
+            ("wrong station kind", lambda item: routine(item).update(stationId="food")),
+            ("invalid weight", lambda item: routine(item).update(baseWeight=float("inf"))),
+            ("too many routines", lambda item: ada(item)["routines"].extend(
+                copy.deepcopy(ada(item)["routines"][0]) for _ in range(4))),
+            ("future decision", lambda item: decision(item).update(tick=16)),
+            ("unknown chosen routine", lambda item: decision(item).update(selectedRoutineId="missing")),
+            ("needs mode with routine", lambda item: decision(item).update(mode="needs")),
+            ("invalid roll", lambda item: decision(item).update(roll=1)),
+            ("candidate wrong priority", lambda item: candidate(item).update(priority="low")),
+            ("candidate unbounded travel", lambda item: candidate(item).update(travelMeters=1001)),
+            ("candidate negative score", lambda item: candidate(item).update(score=-1)),
+        )
+        for label, mutate in cases:
+            with self.subTest(label=label):
+                invalid = copy.deepcopy(world)
+                mutate(invalid)
+                with self.assertRaises(APIError) as rejected:
+                    self.state.save_world_checkpoint("ScheduledCitizens", invalid)
+                self.assertEqual(rejected.exception.status, 400)
+                self.assertEqual(path.read_bytes(), original_bytes)
+                self.assertEqual(self.state.latest, live_before)
+
+        for label, mutate in cases[:3] + cases[4:5] + cases[12:13]:
+            with self.subTest(load=label):
+                document = json.loads(original_bytes)
+                mutate(document["world"])
+                document["payloadSha256"] = world_checkpoint_digest(
+                    document["world"], document["dependencies"])
+                path.write_text(json.dumps(document), encoding="utf-8")
+                with self.assertRaises(APIError) as rejected:
+                    self.state.load_world_checkpoint("ScheduledCitizens")
+                self.assertEqual(rejected.exception.status, 400)
+                self.assertEqual(self.state.latest, live_before)
+                path.write_bytes(original_bytes)
+
+    def test_citizens_v6_and_v7_selected_approach_mode_is_exact(self):
+        for version in (6, 7):
+            with self.subTest(version=version):
+                if version == 6:
+                    world, _, _ = self.citizens_v6_glb_interaction_world()
+                    for station in world["citizens"]["stations"]:
+                        station["approachMode"] = "selected"
+                else:
+                    world = self.citizens_v7_schedule_world()
+                live_before = copy.deepcopy(self.state.latest)
+                name = f"SelectedApproachV{version}"
+                self.assertTrue(self.state.save_world_checkpoint(name, world)["saved"])
+                self.assertEqual(self.state.load_world_checkpoint(name)["world"]["citizens"],
+                                 world["citizens"])
+                path = self.scenes / "world_checkpoints" / (name + ".json")
+                saved_bytes = path.read_bytes()
+                for invalid_mode in (None, "fixed", 1):
+                    invalid = copy.deepcopy(world)
+                    invalid["citizens"]["stations"][0]["approachMode"] = invalid_mode
+                    with self.subTest(invalid_mode=invalid_mode):
+                        with self.assertRaises(APIError):
+                            self.state.save_world_checkpoint(name, invalid)
+                        self.assertEqual(path.read_bytes(), saved_bytes)
+                        self.assertEqual(self.state.latest, live_before)
+
     def citizens_v4_authored_furniture_world(self, kind):
         world = self.citizens_v4_completed_world()
         state = world["citizens"]

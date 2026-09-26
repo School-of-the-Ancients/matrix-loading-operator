@@ -1,0 +1,77 @@
+{
+  "date": "2026-09-26",
+  "surface": "built ordinary /web/ desktop virtual room",
+  "branch": "codex/citizens-virtual-day",
+  "isolation": {
+    "loopbackPort": 19851,
+    "sceneDirectory": "work/citizens-virtual-day-state/scenes",
+    "assetDirectory": "work/citizens-virtual-day-catalog",
+    "sourceCheckpoint": "dual-stations-m1",
+    "sourceCheckpointSha256": "6f6c572360bda0e3d59a90be4d1b8acd7b5455c715e1731ddb469ead2eca94",
+    "earlierDemoPorts19849And19850Untouched": true
+  },
+  "source": {
+    "outerWorldVersion": 3,
+    "nestedCitizensVersion": 6,
+    "seed": 29,
+    "minute": 1,
+    "paused": true,
+    "sceneObjects": 4,
+    "stations": 2,
+    "residents": 2
+  },
+  "browserObservations": [
+    "The built /web/ page connected to the isolated PC service and restored the v6 minute-1 checkpoint through the two-click Restore world control. Both registered static GLBs rendered; the four Matrix object IDs and chair/food bindings remained. The page displayed nested Citizens v7 after migration with clock speed 1, the existing Ada chair claim/execution 1, and Bo's FIFO wait/execution 2.",
+    "Selecting 16x changed the visible and persisted clock speed. Running advanced sequential simulated minutes from 1 through midnight into day 2. At minute 753, the page showed the daytime-walk active window, need-driven rest/idle score traces, observed Bo eat completion at 746 and explore completion at 752, chair occupancy, and earlier completed social session receipts.",
+    "Paused at day 2 05:21, absolute minute 1761. Ada's last observed rest was minute 1759; Ada was going to eat with the food claim/execution 237. Bo selected evening-rest with score 127.87 and held the chair claim/execution 238. The inspector exposed the active overnight window and component scores. The relationship was 100/100 with a saved completed social event at minute 1690 referencing citizens-29-social-225-1538.",
+    "Saving named PC world checkpoint virtual-day-m1761 succeeded. A browser reload retained minute 1761, pause, 16x speed, both station claims/executions, both score traces, the relationship and the same four scene objects; the chair and food GLBs rendered again.",
+    "Step one minute advanced exactly to 1762 while paused. Restoring virtual-day-m1761 through the PC world control returned to 1761 and the previous needs/claims. The PC service reported zero pending commands and the browser error log was empty."
+  ],
+  "savedCheckpoint": {
+    "name": "virtual-day-m1761",
+    "sha256": "c1cd907adf0bf0a630862cc42136c5aaab1b467b8d0590076ddfb954b4572c24",
+    "outerEnvelopeVersion": 1,
+    "worldVersion": 3,
+    "citizensVersion": 7,
+    "minute": 1761,
+    "clockSpeed": 16,
+    "paused": true,
+    "seed": 29,
+    "objectIds": [
+      "821fc875805840c5b4d3dfa9e4b21d8b",
+      "7448c0018a8a45e1acf5d0a55aa7e561",
+      "48c153fafbb3405590749fabbd0630d8",
+      "3fc1c2b72653498a94baf423dc760e71"
+    ],
+    "assetIds": [
+      "web:citizens-demo-chair:fb5408949487",
+      "web:citizens-demo-food-table:53b79a6a6f7f",
+      "orb",
+      "orb"
+    ],
+    "residentCount": 2,
+    "stationCount": 2,
+    "routineIdsPerResident": ["morning-meal", "morning-walk", "daytime-walk", "evening-rest"],
+    "boundedLogEntries": 80,
+    "socialEvents": 24,
+    "relationshipScore": 100
+  },
+  "validation": {
+    "webRuntimeNodeTests": "297/297 passed",
+    "controlServicePythonTests": "685/685 passed",
+    "viteProductionBuild": "passed",
+    "jsToPcCheckpointParity": "routine, needs, idle, and full-day actual JS exports accepted by the PC validator",
+    "gitDiffCheck": "passed",
+    "browserConsoleErrors": 0
+  },
+  "screenshots": [
+    "citizens-virtual-day-browser.png",
+    "citizens-virtual-day-inspector.png"
+  ],
+  "limits": [
+    "The browser run sampled the visual state at selected times, including minute 753 and after rollover, rather than observing every minute. The 09:00 overlap, midnight edge, seeded frequency shift, and 1440 sequential-minute state bounds have focused Node coverage.",
+    "The selected GLBs are static, reviewed rest/eat props on the desktop virtual floor. The run does not validate moving/animated affordances, AR room alignment, or Quest wearer acceptance.",
+    "A separate earlier two-station run found the occupied chair approach can block FIFO handoff at minute 82; this virtual-day slice does not change that physical handoff rule.",
+    "The routine windows influence idle choices. Hard appointments, active-action interruption, social-need scoring, and broader issue 17 acceptance remain open."
+  ]
+}

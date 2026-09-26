@@ -26,11 +26,15 @@
         <p id="citizens-selection-status" class="hint" role="status">Select a built-in chair/table or a registered GLB with a reviewed interaction on the virtual floor.</p>
         <div class="row"><button id="citizens-add-selected" type="button" disabled>Add selected station</button></div>
         <p id="citizens-add-status" class="hint" role="status">Start Citizens with one station, then pause and select the complementary rest or eat station.</p>
-        <div class="row"><button id="citizens-toggle" type="button" disabled>Run</button><button id="citizens-step" type="button" disabled>Step</button><button id="citizens-stop" type="button" disabled>Stop Citizens</button></div>
+        <div class="row"><button id="citizens-toggle" type="button" disabled>Run</button><button id="citizens-step" type="button" disabled>Step one minute</button><button id="citizens-stop" type="button" disabled>Stop Citizens</button></div>
+        <label for="citizens-speed">Simulated minutes per half-second</label>
+        <select id="citizens-speed" disabled><option value="1">1×</option><option value="4">4×</option><option value="16">16×</option></select>
+        <p class="hint">The clock advances only while this tab is visible and Citizens is running. Reloading or returning from a hidden tab does not skip missed minutes.</p>
         <div class="row"><button id="citizens-recover" type="button" aria-describedby="citizens-recovery-status" disabled>Restore before deletion</button></div>
         <p id="citizens-recovery-status" class="hint" role="status">No pre-deletion browser copy is available. This does not use the manual Save world checkpoint.</p>
         <p id="citizens-status" class="hint" role="status">No Citizens in this world.</p>
         <h3>Residents</h3><ul id="citizens-residents" class="citizens-list"></ul>
+        <h3>Routine decisions</h3><ul id="citizens-routines" class="citizens-list"></ul>
         <h3>Shared objects</h3><ul id="citizens-stations" class="citizens-list"></ul>
         <h3>Social interaction</h3>
         <p id="citizens-social-status" class="hint">No active social session yet.</p>
