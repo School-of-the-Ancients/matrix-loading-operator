@@ -24,7 +24,8 @@
     "result": "Citizens uses chair and food in this world; both replacement stations bound at minute 1; no TypeError",
     "checkpoint": "citizens-zero-station-recovered",
     "reload": "After browser reload, both replacement stations and minute 1 resident state were restored",
-    "pcRestore": "After advancing to minute 29, Restore world returned the same object IDs and minute 1 resident state"
+    "pcRestore": "After advancing to minute 29, Restore world returned the same object IDs and minute 1 resident state",
+    "serviceRestart": "Stopped only the isolated port 19860 ControlService, restarted it with the same scenes directory, reopened the built browser at minute 29, then restored the named PC checkpoint to minute 1 with the same replacement station IDs and resident needs"
   },
   "replayedActivity": {
     "minute": 29,
