@@ -71,6 +71,8 @@ class WorldCheckpointTests(unittest.TestCase):
                                        ("citizen-table", "table", 1)):
             pose = copy.deepcopy(POSE)
             pose["position"]["x"] = x
+            if asset_id == "orb":
+                pose["scale"] = {"x": .7, "y": .7, "z": .7}
             world["scene"]["objects"].append({"objectId": object_id, "assetId": asset_id,
                                                 "anchorId": "web-floor", "transform": pose})
         active = copy.deepcopy(self.snapshot)
@@ -163,6 +165,136 @@ class WorldCheckpointTests(unittest.TestCase):
                                             ("accepted", 13, ""),
                                             ("ended", 15, "citizens-73-social-3-10"))]
         return world
+
+    def citizens_v4_authored_furniture_world(self, kind):
+        world = self.citizens_v4_completed_world()
+        state = world["citizens"]
+        selected = next(station for station in state["stations"] if station["kind"] == kind)
+        state["stations"] = [selected]
+        selected_id = f"authored-{kind}-resource"
+        selected_object = next(item for item in world["scene"]["objects"]
+                               if item["objectId"] == selected["objectId"])
+        selected_object["objectId"] = selected_id
+        selected_object["transform"]["position"].update(x=3.25, z=-3.5)
+        selected_object["transform"]["rotation"]["y"] = 35
+        selected["objectId"] = selected_id
+        # The other furniture and these wall/GLB objects remain ordinary
+        # authored scene content; no checkpoint field stores UI selection.
+        wall = {"objectId": "authored-wall", "assetId": "wall", "anchorId": "web-floor",
+                "transform": copy.deepcopy(POSE)}
+        wall["transform"]["position"].update(x=-3, z=1)
+        world["scene"]["objects"].append(wall)
+        for item in world["scene"]["objects"]:
+            item.pop("component", None)
+        active = copy.deepcopy(self.state.latest)
+        active["scene"] = copy.deepcopy(world["scene"])
+        active["assets"].append({"assetId": "wall", "displayName": "Wall"})
+        self.state.exchange({"clientId": "browser", "snapshot": active, "results": []})
+        return world, selected_id
+
+    def test_citizens_v4_selected_authored_furniture_checkpoint_roundtrip(self):
+        for kind in ("rest", "eat"):
+            with self.subTest(kind=kind):
+                world, selected_id = self.citizens_v4_authored_furniture_world(kind)
+                before_runtime = copy.deepcopy(self.state.latest)
+                self.assertTrue(self.state.save_world_checkpoint("AuthoredFurniture", world)["saved"])
+                loaded = self.state.load_world_checkpoint("AuthoredFurniture")["world"]
+                self.assertEqual(loaded, world)
+                self.assertEqual(loaded["citizens"]["stations"],
+                                 [{"id": "chair" if kind == "rest" else "food", "kind": kind,
+                                   "objectId": selected_id, "capacity": 1,
+                                   "claim": None, "waiters": []}])
+                self.assertIn("authored-wall", {item["objectId"] for item in loaded["scene"]["objects"]})
+                self.assertIn("pickup-1", {item["objectId"] for item in loaded["scene"]["objects"]})
+                self.assertEqual(self.state.latest, before_runtime)
+
+    def test_citizens_v4_exploration_target_uses_bounded_world_coordinates(self):
+        world, _ = self.citizens_v4_authored_furniture_world("rest")
+        state = world["citizens"]
+        state["actionSequence"] = 4
+        state["residents"][0]["activity"] = {
+            "kind": "explore", "stationId": None, "phase": "travel",
+            "remainingTicks": 1, "travelTicks": 0,
+            "target": {"x": 51.25, "z": -3.5}, "executionId": 4}
+        self.assertTrue(self.state.save_world_checkpoint("FarExplore", world)["saved"])
+        self.assertEqual(self.state.load_world_checkpoint("FarExplore")["world"], world)
+
+        outside_floor = copy.deepcopy(world)
+        outside_floor["citizens"]["residents"][0]["activity"]["target"]["x"] = 100.01
+        with self.assertRaisesRegex(APIError, "Invalid Citizens exploration target"):
+            self.state.save_world_checkpoint("FarExplore", outside_floor)
+
+        old = self.citizens_v3_world()
+        old["citizens"]["actionSequence"] = 4
+        old["citizens"]["residents"][0]["activity"] = copy.deepcopy(
+            state["residents"][0]["activity"])
+        with self.assertRaisesRegex(APIError, "Invalid Citizens exploration target"):
+            self.state.save_world_checkpoint("OldFarExplore", old)
+
+    def test_citizens_v4_rejects_resized_or_elevated_resident(self):
+        world, _ = self.citizens_v4_authored_furniture_world("rest")
+        self.assertTrue(self.state.save_world_checkpoint("SizedResident", world)["saved"])
+        path = self.scenes / "world_checkpoints" / "SizedResident.json"
+        original = path.read_bytes()
+        for field, value in (("scale", 1), ("height", 1)):
+            with self.subTest(field=field):
+                invalid = copy.deepcopy(world)
+                resident = next(item for item in invalid["scene"]["objects"]
+                                if item["objectId"] == "citizen-ada")
+                if field == "scale":
+                    resident["transform"]["scale"]["x"] = value
+                else:
+                    resident["transform"]["position"]["y"] = value
+                with self.assertRaisesRegex(APIError, "unsupported size or height"):
+                    self.state.save_world_checkpoint("SizedResident", invalid)
+                self.assertEqual(path.read_bytes(), original)
+
+                document = json.loads(original)
+                saved_resident = next(item for item in document["world"]["scene"]["objects"]
+                                      if item["objectId"] == "citizen-ada")
+                saved_resident["transform"]["scale" if field == "scale" else "position"]["x" if field == "scale" else "y"] = value
+                document["payloadSha256"] = world_checkpoint_digest(
+                    document["world"], document["dependencies"])
+                path.write_text(json.dumps(document), encoding="utf-8")
+                with self.assertRaisesRegex(APIError, "unsupported size or height"):
+                    self.state.load_world_checkpoint("SizedResident")
+                path.write_bytes(original)
+
+    def test_citizens_v4_authored_furniture_missing_or_incompatible_rejected_atomically(self):
+        world, selected_id = self.citizens_v4_authored_furniture_world("rest")
+        self.state.save_world_checkpoint("AuthoredFurniture", world)
+        path = self.scenes / "world_checkpoints" / "AuthoredFurniture.json"
+        original = path.read_bytes()
+        original_runtime = copy.deepcopy(self.state.latest)
+
+        def remove_selected(item):
+            item["scene"]["objects"] = [obj for obj in item["scene"]["objects"]
+                                        if obj["objectId"] != selected_id]
+
+        def make_incompatible(item):
+            selected = next(obj for obj in item["scene"]["objects"]
+                            if obj["objectId"] == selected_id)
+            selected["assetId"] = "wall"
+
+        for label, mutate in (("missing selected chair", remove_selected),
+                              ("incompatible selected chair", make_incompatible)):
+            with self.subTest(label=label):
+                invalid = copy.deepcopy(world)
+                mutate(invalid)
+                with self.assertRaisesRegex(APIError, "Citizens station object is missing or incompatible"):
+                    self.state.save_world_checkpoint("AuthoredFurniture", invalid)
+                self.assertEqual(path.read_bytes(), original)
+                self.assertEqual(self.state.latest, original_runtime)
+
+                document = json.loads(original)
+                mutate(document["world"])
+                document["payloadSha256"] = world_checkpoint_digest(
+                    document["world"], document["dependencies"])
+                path.write_text(json.dumps(document), encoding="utf-8")
+                with self.assertRaisesRegex(APIError, "Citizens station object is missing or incompatible"):
+                    self.state.load_world_checkpoint("AuthoredFurniture")
+                self.assertEqual(self.state.latest, original_runtime)
+                path.write_bytes(original)
 
     def test_citizens_v4_relationship_proof_roundtrip_and_v3_shape(self):
         world = self.citizens_v4_completed_world()

@@ -1,13 +1,31 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {MatrixWorld} from '../src/protocol.js';
-import {CitizensSimulation,createCitizensDemo} from '../src/citizens.js';
+import {CitizensSimulation,citizensFurnitureReadiness,
+  createCitizensDemo,createCitizensWithSelectedFurniture} from '../src/citizens.js';
+import {segmentClear} from '../src/citizens_navigation.js';
 
 const world=()=>{
   let sequence=0;
   return new MatrixWorld(()=>`citizen-object-${++sequence}`);
 };
 const holder=station=>station.claim?.residentId??null;
+const pose=(x,z,yaw=0,scale=1)=>({position:{x,y:0,z},
+  rotation:{x:0,y:yaw,z:0},scale:{x:scale,y:scale,z:scale}});
+const spawn=(matrix,assetId,transform)=>{
+  const receipt=matrix.execute({requestId:`authored-${assetId}-${matrix.scene.objects.length}`,
+    op:'spawn',assetId,anchorId:'web-floor',transform});
+  assert.equal(receipt.ok,true);
+  return receipt.objectId;
+};
+const stepUntil=(sim,predicate,limit=600)=>{
+  for(let i=0;i<limit;i++){
+    const state=sim.snapshot();
+    if(predicate(state))return state;
+    sim.step();
+  }
+  throw Error(`Expected Citizens state was not reached within ${limit} ticks`);
+};
 
 test('demo creates two resident markers and shared stations from Matrix receipts',()=>{
   const matrix=world();
@@ -35,6 +53,201 @@ test('a failed setup receipt rolls back earlier demo objects',()=>{
   assert.throws(()=>createCitizensDemo(matrix,{seed:7}),/spawn failed/);
   assert.equal(matrix.scene.objects.length,0);
   assert.equal(matrix.undo.length,0);
+});
+
+test('selected authored table stays in the scene and its stable ID survives save and restore',()=>{
+  const matrix=world();
+  const tableId=spawn(matrix,'table',pose(1,-2,45));
+  const blockId=spawn(matrix,'block',pose(4,3));
+  matrix.setSelection(tableId,{x:1,y:0,z:-2});
+  const authored=structuredClone(matrix.scene.objects);
+  assert.equal(citizensFurnitureReadiness(matrix,tableId),'');
+  const sim=createCitizensWithSelectedFurniture(matrix,{seed:7,objectId:tableId});
+  assert.deepEqual(matrix.scene.objects.slice(0,2),authored);
+  assert.equal(matrix.selection.objectId,tableId);
+  assert.equal(matrix.scene.objects.length,4);
+  assert.deepEqual(sim.snapshot().stations,[{id:'food',kind:'eat',objectId:tableId,
+    capacity:1,claim:null,waiters:[]}]);
+  assert.equal(matrix.scene.objects[1].objectId,blockId);
+  const startIds=sim.snapshot().residents.map(resident=>resident.objectId);
+  stepUntil(sim,state=>state.log.some(entry=>entry.event==='completed'&&
+    entry.message.includes('eat')),100);
+  const saved=sim.exportState(),scene=structuredClone(matrix.scene);
+  const restoredWorld=world();
+  assert.equal(restoredWorld.execute({requestId:'restore-authored-furniture',
+    op:'load',scene}).ok,true);
+  const restored=CitizensSimulation.restore(restoredWorld,saved);
+  assert.deepEqual(restored.exportState(),saved);
+  assert.deepEqual(restored.snapshot().residents.map(resident=>resident.objectId),startIds);
+  assert.equal(restored.snapshot().stations[0].objectId,tableId);
+  for(let i=0;i<16;i++){
+    assert.deepEqual(restored.step(),sim.step());
+    assert.deepEqual(restoredWorld.scene,matrix.scene);
+  }
+});
+
+test('selected chair residents detour around an authored wall before an observed rest',()=>{
+  const matrix=world();
+  const chairId=spawn(matrix,'chair',pose(0,0));
+  const wallId=spawn(matrix,'wall',pose(-.9,0,90));
+  assert.equal(citizensFurnitureReadiness(matrix,chairId),'');
+  const sim=createCitizensWithSelectedFurniture(matrix,{seed:3,objectId:chairId});
+  const adaId=sim.snapshot().residents.find(resident=>resident.id==='ada').objectId;
+  const wall={id:wallId,cx:-.9,cz:0,halfX:1,halfZ:.06,yawRadians:Math.PI/2};
+  let before=structuredClone(matrix.requireObject(adaId).transform.position);
+  let detour=0,completed=false;
+  for(let i=0;i<80;i++){
+    const state=sim.step(),after=matrix.requireObject(adaId).transform.position;
+    assert.equal(segmentClear(before,after,[wall],.18),true);
+    detour=Math.max(detour,Math.abs(after.z));
+    before=structuredClone(after);
+    if(state.log.some(entry=>entry.residentId==='ada'&&entry.event==='completed'&&
+      entry.message.includes('rest'))){completed=true;break;}
+  }
+  assert.equal(completed,true,'Ada must complete the selected chair interaction');
+  assert.ok(detour>1.15,'the observed route must clear the wall end');
+  assert.equal(sim.snapshot().stations[0].objectId,chairId);
+});
+
+test('selected furniture readiness rejects unsupported, moving and unknown scene geometry',()=>{
+  const matrix=world();
+  const chairId=spawn(matrix,'chair',pose(0,0));
+  const wallId=spawn(matrix,'wall',pose(4,0));
+  const authored=structuredClone(matrix.scene);
+  assert.match(citizensFurnitureReadiness(matrix,''),/Select an existing chair/);
+  assert.match(citizensFurnitureReadiness(matrix,wallId),/chair or table/);
+  matrix.game={active:true};
+  assert.match(citizensFurnitureReadiness(matrix,chairId),/active game/);
+  matrix.game=null;
+  matrix.requireObject(chairId).physics={kind:'gravity-floor'};
+  assert.match(citizensFurnitureReadiness(matrix,chairId),/moving or has physics/);
+  delete matrix.requireObject(chairId).physics;
+  matrix.requireObject(chairId).transform.position.y=2;
+  assert.match(citizensFurnitureReadiness(matrix,chairId),/floor-aligned/);
+  assert.throws(()=>createCitizensWithSelectedFurniture(matrix,{seed:3,objectId:chairId}),
+    /floor-aligned/);
+  matrix.requireObject(chairId).transform.position.y=0;
+  matrix.scene.objects.push({...structuredClone(matrix.requireObject(wallId)),
+    objectId:'unknown-geometry',assetId:'web:unknown'});
+  assert.match(citizensFurnitureReadiness(matrix,chairId),/measured bounds/);
+  assert.throws(()=>createCitizensWithSelectedFurniture(matrix,{seed:3,objectId:chairId}),
+    /measured bounds/);
+  matrix.scene.objects.pop();
+  assert.deepEqual(matrix.scene,authored);
+});
+
+test('failed selected setup removes only its own orbs and restores the authored selection',()=>{
+  const matrix=world();
+  const chairId=spawn(matrix,'chair',pose(0,0));
+  const earlierOrbId=spawn(matrix,'orb',pose(5,5));
+  matrix.setSelection(chairId,{x:0,y:0,z:0});
+  const authored=structuredClone(matrix.scene.objects);
+  const execute=matrix.execute.bind(matrix);
+  let unrelatedId='';
+  matrix.execute=(command,options)=>{
+    const result=execute(command,options);
+    if(command.requestId==='citizens-11-selected-bo'){
+      unrelatedId=execute({requestId:'concurrent-unrelated-orb',op:'spawn',
+        assetId:'orb',anchorId:'web-floor',transform:pose(5,-5,.0,.7)},
+      {recordHistory:false}).objectId;
+      return {...result,ok:false,error:'injected failure'};
+    }
+    return result;
+  };
+  assert.throws(()=>createCitizensWithSelectedFurniture(matrix,{seed:11,objectId:chairId}),
+    /spawn failed/);
+  assert.deepEqual(matrix.scene.objects.slice(0,2),authored);
+  assert.equal(matrix.selection.objectId,chairId);
+  assert.equal(matrix.requireObject(earlierOrbId).assetId,'orb');
+  assert.equal(matrix.requireObject(unrelatedId).assetId,'orb');
+  assert.deepEqual(matrix.scene.objects.map(item=>item.objectId),
+    [...authored.map(item=>item.objectId),unrelatedId]);
+});
+
+test('failed selected setup restores authored undo and redo history after complete rollback',()=>{
+  const matrix=world();
+  const chairId=spawn(matrix,'chair',pose(0,0));
+  spawn(matrix,'block',pose(4,0));
+  assert.equal(matrix.execute({requestId:'authored-undo',op:'undo'}).ok,true);
+  matrix.setSelection(chairId,{x:0,y:0,z:0});
+  const scene=structuredClone(matrix.scene);
+  const undo=structuredClone(matrix.undo),redo=structuredClone(matrix.redo);
+  const execute=matrix.execute.bind(matrix);
+  matrix.execute=(command,options)=>{
+    const receipt=execute(command,options);
+    return command.requestId==='citizens-13-selected-bo'?{
+      ...receipt,ok:false,error:'injected failure'}:receipt;
+  };
+  assert.throws(()=>createCitizensWithSelectedFurniture(matrix,{seed:13,objectId:chairId}),
+    /spawn failed/);
+  assert.deepEqual(matrix.scene,scene);
+  assert.deepEqual(matrix.undo,undo);
+  assert.deepEqual(matrix.redo,redo);
+  assert.equal(matrix.selection.objectId,chairId);
+});
+
+test('a setup orb with a mismatched observed pose is removed on failed start',()=>{
+  const matrix=world();
+  const chairId=spawn(matrix,'chair',pose(0,0));
+  const authored=structuredClone(matrix.scene);
+  const execute=matrix.execute.bind(matrix);
+  matrix.execute=(command,options)=>{
+    const receipt=execute(command,options);
+    if(command.requestId==='citizens-19-selected-ada')
+      matrix.requireObject(receipt.objectId).transform.position.x+=.4;
+    return receipt;
+  };
+  assert.throws(()=>createCitizensWithSelectedFurniture(matrix,{seed:19,objectId:chairId}),
+    /spawn failed/);
+  assert.deepEqual(matrix.scene,authored);
+});
+
+test('resized resident is incompatible with fixed navigation clearance on resume and restore',()=>{
+  const matrix=world(),sim=createCitizensDemo(matrix,{seed:23});
+  const saved=sim.exportState();
+  const ada=matrix.requireObject(saved.residents[0].objectId);
+  ada.transform.scale={x:10,y:10,z:10};
+  assert.equal(sim.resume().paused,true);
+  assert.throws(()=>sim.exportState(),/binding is missing or incompatible/);
+  assert.throws(()=>CitizensSimulation.restore(matrix,saved),
+    /resident object is missing or incompatible/);
+});
+
+test('selected furniture far from the origin keeps exploration local and replayable',()=>{
+  const matrix=world();
+  const chairId=spawn(matrix,'chair',pose(50,0));
+  const sim=createCitizensWithSelectedFurniture(matrix,{seed:5,objectId:chairId});
+  let explored=false;
+  for(let i=0;i<300;i++){
+    const state=sim.step();
+    for(const resident of state.residents){
+      if(resident.activity?.kind==='explore')
+        assert.ok(resident.activity.target.x>40&&resident.activity.target.x<60);
+    }
+    if(state.log.some(entry=>entry.event==='completed'&&
+      entry.message.includes('explore'))){explored=true;break;}
+  }
+  assert.equal(explored,true,'a distant resident must complete local exploration');
+  const saved=sim.exportState(),scene=structuredClone(matrix.scene);
+  const restoredWorld=world();
+  assert.equal(restoredWorld.execute({requestId:'restore-distant-scene',
+    op:'load',scene}).ok,true);
+  assert.deepEqual(CitizensSimulation.restore(restoredWorld,saved).exportState(),saved);
+});
+
+test('an enclosed authored chair fails before spawning residents',()=>{
+  const matrix=world();
+  const chairId=spawn(matrix,'chair',pose(0,0));
+  spawn(matrix,'wall',pose(0,-.8));
+  spawn(matrix,'wall',pose(0,.8));
+  spawn(matrix,'wall',pose(-.8,0,90));
+  spawn(matrix,'wall',pose(.8,0,90));
+  const authored=structuredClone(matrix.scene);
+  assert.equal(citizensFurnitureReadiness(matrix,chairId),'',
+    'readiness performs cheap checks; explicit start searches routes');
+  assert.throws(()=>createCitizensWithSelectedFurniture(matrix,{seed:29,objectId:chairId}),
+    /Citizens cannot start here:.*(route|clear|Destination|No )/i);
+  assert.deepEqual(matrix.scene,authored);
 });
 
 test('movement, finite use and observed completion produce visible changing needs',()=>{
@@ -548,7 +761,7 @@ test('v2 checkpoints migrate to v4 without changing active claims or Matrix obje
 
 test('v3 social checkpoints migrate only when visible ended receipts explain the score',()=>{
   const matrix=world(),sim=createCitizensDemo(matrix,{seed:2});
-  while(sim.snapshot().clockTick<90)sim.step();
+  stepUntil(sim,state=>state.relationships[0].completed.length===1,300);
   const current=sim.exportState();
   assert.equal(current.relationships[0].score,55);
   const old=structuredClone(current);
@@ -576,7 +789,7 @@ test('v3 social checkpoints migrate only when visible ended receipts explain the
 
 test('v4 relationship ledger rejects forged scores, receipts, and event mismatches',()=>{
   const matrix=world(),sim=createCitizensDemo(matrix,{seed:1});
-  for(let i=0;i<300;i++)sim.step();
+  stepUntil(sim,state=>state.relationships[0].completed.length===2,600);
   const saved=sim.exportState(),scene=structuredClone(matrix.scene);
   assert.equal(saved.relationships[0].completed.length,2);
   const variants=[
@@ -601,7 +814,7 @@ test('completed receipt history rolls at ten while relationship stays saturated'
   const matrix=world(),sim=createCitizensDemo(matrix,{seed:1});
   const completed=[];
   let lastSessionId='';
-  for(let i=0;i<1500&&completed.length<11;i++){
+  for(let i=0;i<2500&&completed.length<11;i++){
     const state=sim.step(),record=state.relationships[0].completed.at(-1);
     if(record&&record.sessionId!==lastSessionId){
       completed.push(record);lastSessionId=record.sessionId;
@@ -623,9 +836,9 @@ test('fixed seed records decline, timeout and completion; only a receipt changes
   const matrix=world(),sim=createCitizensDemo(matrix,{seed:1});
   let previous=sim.snapshot();
   const allEvents=[];
-  for(let i=0;i<300;i++){
+  for(let i=0;i<500;i++){
     const state=sim.step();
-    if(state.socialEvents.length>previous.socialEvents.length)
+    if(state.socialEvents.at(-1)?.id!==previous.socialEvents.at(-1)?.id)
       allEvents.push(state.socialEvents.at(-1));
     const changed=state.relationships[0].score!==previous.relationships[0].score;
     assert.equal(changed,state.socialEvents.at(-1)?.event==='ended'&&
@@ -637,8 +850,8 @@ test('fixed seed records decline, timeout and completion; only a receipt changes
   assert.ok(allEvents.some(event=>event.event==='timed_out'));
   assert.ok(allEvents.some(event=>event.event==='accepted'));
   const ended=allEvents.filter(event=>event.event==='ended');
-  assert.equal(ended.length,2);
-  assert.equal(previous.relationships[0].score,60);
+  assert.ok(ended.length>=2);
+  assert.equal(previous.relationships[0].score,50+5*ended.length);
   assert.deepEqual(previous.relationships[0].completed,ended.map(event=>({
     sessionId:event.id.slice(0,-`-ended-${event.tick}`.length),
     requestId:event.requestId,tick:event.tick})));
@@ -653,7 +866,8 @@ test('fixed seed records decline, timeout and completion; only a receipt changes
 
 test('an accepted mid-conversation checkpoint replays one observed end after restore',()=>{
   const matrix=world(),sim=createCitizensDemo(matrix,{seed:2});
-  while(sim.snapshot().clockTick<80)sim.step();
+  stepUntil(sim,state=>state.socialSession?.phase==='active'&&
+    state.socialSession.travelTicks>0,300);
   assert.equal(sim.snapshot().socialSession?.phase,'active');
   assert.ok(sim.snapshot().socialSession.travelTicks>0);
   sim.pause();
@@ -679,7 +893,7 @@ test('an accepted mid-conversation checkpoint replays one observed end after res
 
 test('a forged converse outcome interrupts the session without granting social benefit',()=>{
   const matrix=world(),sim=createCitizensDemo(matrix,{seed:2});
-  while(sim.snapshot().clockTick<77)sim.step();
+  stepUntil(sim,state=>state.socialSession?.phase==='active',300);
   assert.equal(sim.snapshot().socialSession?.phase,'active');
   const original=matrix.execute.bind(matrix);
   matrix.execute=(command,options)=>{
@@ -701,7 +915,7 @@ test('authored movement and deletion cancel both participants atomically',()=>{
   for(const mutation of ['move','delete']){
     const matrix=world(),sim=createCitizensDemo(matrix,{seed:2});
     sim.resume();
-    while(sim.snapshot().clockTick<77)sim.step();
+    stepUntil(sim,state=>state.socialSession?.phase==='active',300);
     const session=sim.snapshot().socialSession;
     const invitee=sim.snapshot().residents.find(item=>item.id===session.inviteeId);
     if(mutation==='move'){
@@ -725,7 +939,7 @@ test('authored movement and deletion cancel both participants atomically',()=>{
 test('explicit cancellation and scene replacement end a social session once',()=>{
   for(const mode of ['stop','replace']){
     const matrix=world(),sim=createCitizensDemo(matrix,{seed:2});
-    while(sim.snapshot().clockTick<77)sim.step();
+    stepUntil(sim,state=>state.socialSession?.phase==='active',300);
     const before=sim.snapshot();
     let after;
     if(mode==='stop'){
@@ -748,7 +962,7 @@ test('explicit cancellation and scene replacement end a social session once',()=
 
 test('v4 restore rejects mismatched bilateral IDs, forged social events and unknown fields',()=>{
   const matrix=world(),sim=createCitizensDemo(matrix,{seed:2});
-  while(sim.snapshot().clockTick<77)sim.step();
+  stepUntil(sim,state=>state.socialSession?.phase==='active',300);
   const saved=sim.exportState(),scene=structuredClone(matrix.scene);
   const variants=[
     state=>{state.residents[0].socialSessionId='other-session';},
