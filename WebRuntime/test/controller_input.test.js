@@ -32,6 +32,57 @@ test('controller ray ends on the Operator panel and remains visible over it',()=
   assert.equal(ray.scale.z,1);
 });
 
+test('thumbstick click recalls a pinned Operator, then hides and shows it once per press',()=>{
+  const view=Object.create(MatrixView.prototype);
+  const buttons=Array.from({length:4},()=>({pressed:false}));
+  const session={inputSources:[{gamepad:{mapping:'xr-standard',buttons}}]};
+  view.renderer={xr:{getSession:()=>session}};
+  const labels=[];
+  view.operatorPanel={group:{visible:true},setPinLabel:label=>labels.push(label)};
+  view.operatorMount={kind:'world'};view.operatorThumbstickHeld=false;view.isAR=false;
+  let positioned=0;view.positionOperatorPanel=()=>positioned++;
+
+  const press=()=>{buttons[3].pressed=true;view.updateOperatorShortcut();};
+  const release=()=>{buttons[3].pressed=false;view.updateOperatorShortcut();};
+  press();
+  assert.equal(view.operatorPanel.group.visible,true);
+  assert.equal(view.operatorMount.kind,'head');
+  assert.equal(labels.at(-1),'PIN HERE');
+  assert.equal(positioned,1);
+  view.updateOperatorShortcut();
+  assert.equal(view.operatorPanel.group.visible,true,'holding the button does not hide the recalled panel');
+  release();press();
+  assert.equal(view.operatorPanel.group.visible,false);
+  release();press();
+  assert.equal(view.operatorPanel.group.visible,true);
+  assert.equal(view.operatorMount.kind,'head');
+  assert.equal(positioned,2);
+});
+
+test('unsupported XR inputs do not accidentally toggle the Operator',()=>{
+  const view=Object.create(MatrixView.prototype);
+  const pressed={pressed:true};
+  const session={inputSources:[{gamepad:{mapping:'',buttons:[null,null,null,pressed]}}]};
+  view.renderer={xr:{getSession:()=>session}};
+  view.operatorPanel={group:{visible:true}};view.operatorMount={kind:'head'};
+  view.operatorThumbstickHeld=false;
+  view.updateOperatorShortcut();
+  assert.equal(view.operatorPanel.group.visible,true);
+  assert.equal(view.operatorThumbstickHeld,false);
+});
+
+test('the in-world HIDE control clears the panel without selecting the scene',()=>{
+  const {controller,panel}=controllerAndPanel();
+  panel.mesh.updateWorldMatrix(true,false);
+  const view=Object.create(MatrixView.prototype);
+  view.grab=null;view.raycaster=new THREE.Raycaster();
+  view.operatorPanel={...panel,hit:()=> 'hide-panel'};
+  view.selectFromRay=()=>{throw Error('The panel action must not select the scene');};
+  view.onPanelAction=()=>{throw Error('HIDE must stay a local panel action');};
+  view.selectFromController(controller);
+  assert.equal(view.operatorPanel.group.visible,false);
+});
+
 function selectableFirefly(){
   const scene=new THREE.Scene();
   const controller=new THREE.Group();controller.position.set(0,1,0);scene.add(controller);
