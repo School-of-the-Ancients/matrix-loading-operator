@@ -1,0 +1,72 @@
+{
+  "date": "2026-09-26",
+  "surface": "ordinary /web/ desktop virtual room",
+  "branch": "codex/citizens-catalog-recovery",
+  "isolation": {
+    "loopbackPort": 19850,
+    "sceneDirectory": "work/citizens-catalog-recovery-demo-state/scenes",
+    "assetDirectory": "work/citizens-catalog-recovery-demo-catalog",
+    "sourceCheckpoint": "dual-stations-m123",
+    "earlierDemoPort19849Untouched": true
+  },
+  "baseline": {
+    "browserObjects": 4,
+    "objectIds": [
+      "821fc875805840c5b4d3dfa9e4b21d8b",
+      "7448c0018a8a45e1acf5d0a55aa7e561",
+      "48c153fafbb3405590749fabbd0630d8",
+      "3fc1c2b72653498a94baf423dc760e71"
+    ],
+    "assetIds": [
+      "web:citizens-demo-chair:fb5408949487",
+      "web:citizens-demo-food-table:53b79a6a6f7f",
+      "orb",
+      "orb"
+    ],
+    "citizensMinute": 123,
+    "seed": 29,
+    "chairClaimedBy": "Ada",
+    "latestSocialEvent": "social-29-9-ended-96",
+    "relationshipScore": 55,
+    "twoStaticGlbsRendered": true,
+    "servicePendingCommands": 0,
+    "checkpointSha256": "74c5c17c49b744eae21d085c9a3b6a4ef10836cfd78f761f45fbb33a57f8ba84"
+  },
+  "outageProcedure": [
+    "Navigated the isolated browser tab to about:blank, leaving its same-origin browser storage in the tab/profile.",
+    "Renamed only the isolated catalog's manifest.json to manifest.offline; both SHA-named GLB files stayed in place. GET /api/web/assets reported zero entries.",
+    "Reopened /web/ on the same origin with the saved world present. The final built page named both absent web: asset IDs, showed zero active objects while recovery waited, disabled Citizens/world checkpoint controls, and withheld PC exchange.",
+    "The page refused a Create proposal action with 'Finish saved-world recovery before planning scene changes.' The PC state became offline after its lease but still held the prior four-object snapshot; it did not receive an empty startup scene. The named PC checkpoint hash was unchanged."
+  ],
+  "recovery": {
+    "catalogAction": "Restored the isolated manifest.json and clicked Refresh assets; catalog listed two entries.",
+    "browserObjects": 4,
+    "sameObjectIdsAsBaseline": true,
+    "twoStaticGlbsRendered": true,
+    "citizensMinute": 123,
+    "seed": 29,
+    "ada": "using rest, execution 13, energy 20, last completed rest at minute 112",
+    "bo": "choosing, energy 0, last completed eat at minute 121",
+    "chairClaimedBy": "Ada",
+    "foodAvailable": true,
+    "latestSocialEvent": "social-29-9-ended-96",
+    "relationshipScore": 55,
+    "servicePendingCommands": 0,
+    "checkpointHashUnchanged": true,
+    "secondBrowserReloadKeptTheSameCitizensState": true,
+    "browserConsoleErrors": 0
+  },
+  "validation": {
+    "webRuntimeTests": "288/288 passed",
+    "controlServiceTests": "682/682 passed",
+    "viteBuild": "passed",
+    "gitDiffCheck": "passed",
+    "bridgeReplayTest": "A pending command with an uncertain pre-reload outcome is rejected on the first successful recovery exchange; later commands execute normally."
+  },
+  "limits": [
+    "Browser storage bytes were not inspected directly in the browser tool; restoration without a PC restore and the scene-store tests establish the recovery behavior.",
+    "The browser run used a temporarily absent catalog manifest for two static GLBs, not an asset download, network outage, animated station, or Quest headset.",
+    "The stale-command rejection is covered by the bridge test; this browser run had zero pending PC commands during recovery.",
+    "The occupied chair approach observed at minute 82 in the earlier dual-station run and Quest wearer checks remain open."
+  ]
+}

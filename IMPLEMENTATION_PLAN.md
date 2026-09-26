@@ -100,6 +100,25 @@ retries during the browser run; later observed need and social outcomes still
 completed. Simultaneous multi-resource acquisition, animated or moving
 interactions, social-session route recovery, full #15 acceptance, and Quest
 wear checks remain open.
+
+The `codex/citizens-catalog-recovery` candidate addresses a restart gap
+for those authored GLBs. If the browser's newest saved world references a
+`web:` asset absent from the current catalog, `/web/` keeps that save pending,
+reports the missing IDs, and waits for the matching catalog before ordinary
+scene/game/Citizens validation. It does not substitute an older or empty world
+or rewrite the saved copy while waiting. It also rejects old queued commands
+on the first exchange after recovery so an uncertain pre-reload effect cannot
+be applied twice. [An isolated browser catalog-outage/recovery run](Validation/citizens-catalog-recovery-browser.json)
+restored the two rendered GLBs, exact four object IDs, minute-123 Citizens
+state, chair claim and relationship 55 after the catalog returned; a further
+browser reload kept them. Focused scene-store tests passed **34/34**, the full
+WebRuntime suite **288/288**, ControlService **682/682**, and Vite built.
+Neither browser nor PC checkpoints contain GLB bytes. A bounded
+rejected-station browser edit and the minute-82 occupied-approach handoff
+remain useful #15/#19 follow-ups; [#17](https://github.com/School-of-the-Ancients/matrix-loading-operator/issues/17)
+virtual-day schedules are the next resident-autonomy layer after these
+runtime handoffs are stable.
+
 No simulated resident gets the Operator's shell credentials
 or permission to run fleet jobs. Richer rigs, ComfyUI/Blender authoring, GOAP,
 general behavior programs, and an LLM call per frame are not prerequisites.
