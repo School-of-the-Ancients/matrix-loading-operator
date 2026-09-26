@@ -29,9 +29,9 @@ export function base64Bytes(bytes){
 }
 
 export class VoiceRecorder {
-  constructor(){this.active=false;this.chunks=[];}
+  constructor(){this.active=false;this.stopping=false;this.chunks=[];}
   async start(){
-    if(this.active)throw Error('Already recording');
+    if(this.active||this.stopping)throw Error('Already recording');
     if(!navigator.mediaDevices?.getUserMedia)throw Error('This browser cannot use the microphone');
     const stream=await navigator.mediaDevices.getUserMedia({audio:{channelCount:1,echoCancellation:true,noiseSuppression:true}});
     try{
@@ -52,9 +52,13 @@ export class VoiceRecorder {
   }
   async stop(){
     if(!this.active)throw Error('Voice recording was not started');
-    this.active=false;this.processor.disconnect();this.source.disconnect();this.mute.disconnect();
-    this.stream.getTracks().forEach(track=>track.stop());
-    const rate=this.context.sampleRate;await this.context.close();
-    return base64Bytes(pcmWav(this.chunks,rate));
+    this.active=false;this.stopping=true;
+    const rate=this.context.sampleRate,chunks=this.chunks;
+    try{
+      this.processor.disconnect();this.source.disconnect();this.mute.disconnect();
+      this.stream.getTracks().forEach(track=>track.stop());
+      await this.context.close();return base64Bytes(pcmWav(chunks,rate));
+    }
+    finally{this.stopping=false;}
   }
 }
