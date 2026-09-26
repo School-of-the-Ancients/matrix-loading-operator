@@ -30,6 +30,25 @@ def succeeded(plan, snapshot):
 
 
 class ScaleExperimentTests(unittest.TestCase):
+    def test_normalized_event_requires_acknowledged_transform_and_uses_catalog_bounds(self):
+        snapshot = fixture()
+        snapshot["assets"][0]["localBounds"] = {"center": {"x": 0, "y": .5, "z": 0},
+                                                 "size": {"x": 1, "y": 1, "z": 1}}
+        planned = experiment.plan(intent(), snapshot)
+        request = succeeded(planned, snapshot)
+        request["requestId"] = "configure-1"
+        event = experiment.observed_event(request, session_id="pair-1")
+        self.assertEqual(event["eventId"], "pair-1:configure-1:observed")
+        self.assertEqual(event["type"], "experiment.block-scale.observed")
+        self.assertEqual(event["mathematicalVolumeRatio"], 24)
+        self.assertAlmostEqual(event["baselineBoundingVolumeCubicMeters"], .024)
+        self.assertAlmostEqual(event["boundingVolumeCubicMeters"], .576)
+        self.assertEqual(event["localDimensionsMeters"], planned["commands"][0]["transform"]["scale"])
+        self.assertEqual(event["dimensionSource"], "catalog-local-bounds")
+        self.assertFalse(event["physicalMeasurement"])
+        request["status"] = "ready"
+        self.assertIsNone(experiment.observed_event(request, session_id="pair-1"))
+
     def test_descriptor_is_detached_and_discloses_units_scope_limits_and_authority(self):
         value = experiment.descriptor()
         self.assertEqual(value["supportedRoomModes"], ["white-room"])

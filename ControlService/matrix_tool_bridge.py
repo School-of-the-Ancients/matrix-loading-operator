@@ -114,6 +114,18 @@ def component_status(url: str, token: str, request_id: str) -> dict:
     return _request_json(url[:-6] + "/component-actions/" + request_id, token)
 
 
+def scale_block(url: str, token: str, value: dict) -> dict:
+    if not url.endswith("/scene"):
+        raise ValueError("Invalid Matrix tool bridge URL")
+    return _request_json(url[:-6] + "/scale", token, value)
+
+
+def scale_status(url: str, token: str, request_id: str) -> dict:
+    if not url.endswith("/scene") or not re.fullmatch(r"[0-9a-f]{32}", request_id):
+        raise ValueError("Invalid Matrix scale receipt request")
+    return _request_json(url[:-6] + "/scales/" + request_id, token)
+
+
 def scene_summary(state) -> dict:
     with state.lock:
         state.expire()
@@ -204,6 +216,12 @@ class _Handler(BaseHTTPRequestHandler):
             except Exception as error:
                 self._send_json(getattr(error, "status", 500),
                                 {"error": str(error) if hasattr(error, "status") else "Matrix tool failed"})
+        elif re.fullmatch(r"/scales/[0-9a-f]{32}", self.path):
+            try:
+                self._send_json(200, self.server.state.agent_scale_status(self.path.rsplit("/", 1)[1]))
+            except Exception as error:
+                self._send_json(getattr(error, "status", 500),
+                                {"error": str(error) if hasattr(error, "status") else "Matrix tool failed"})
         elif self.path.startswith("/components?"):
             try:
                 query = urllib.parse.parse_qs(self.path[12:], strict_parsing=True)
@@ -231,7 +249,7 @@ class _Handler(BaseHTTPRequestHandler):
     def do_POST(self):
         if not self._authorized():
             return
-        if self.path not in ("/move", "/spawn", "/bind-animation", "/register-glb", "/publish-component", "/component-action"):
+        if self.path not in ("/move", "/spawn", "/bind-animation", "/register-glb", "/publish-component", "/component-action", "/scale"):
             self.send_error(404)
             return
         try:
@@ -244,6 +262,8 @@ class _Handler(BaseHTTPRequestHandler):
             value = json.loads(self.rfile.read(length))
             if self.path == "/register-glb":
                 result = self.server.state.agent_register_glb(value)
+            elif self.path == "/scale":
+                result = self.server.state.agent_scale(value)
             elif self.path == "/publish-component":
                 result = self.server.state.agent_publish_component(value)
             elif self.path == "/component-action":

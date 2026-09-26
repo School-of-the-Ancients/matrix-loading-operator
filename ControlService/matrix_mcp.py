@@ -8,7 +8,7 @@ from mcp.types import ToolAnnotations
 from matrix_tool_bridge import (animation_status, bind_animation, component_action, component_status,
                                 list_assets, list_components,
                                 move_object, move_status, publish_component, read_scene, register_glb,
-                                spawn_asset, spawn_status)
+                                scale_block, scale_status, spawn_asset, spawn_status)
 
 
 server = FastMCP("matrix-webxr")
@@ -47,6 +47,47 @@ def matrix_move_object(room_id: str, scene_revision: int, object_id: str,
 def matrix_move_status(request_id: str) -> dict:
     """Read the runtime receipt for a Matrix move. Never retry a queued move."""
     return move_status(os.environ["MATRIX_CONTROL_URL"], os.environ["MATRIX_CONTROL_TOKEN"], request_id)
+
+
+@server.tool(annotations=ToolAnnotations(readOnlyHint=False, destructiveHint=False,
+                                         idempotentHint=False, openWorldHint=False))
+def matrix_scale_block(room_id: str, scene_revision: int, object_id: str,
+                       factors: dict[str, float], baseline_request_id: str | None = None) -> dict:
+    """Propose X/Y/Z factors for a built-in block in the Matrix Web virtual room.
+
+    Read the current room/revision with matrix_scene_summary. Each factor must
+    be 0.25–4 relative to a captured baseline. The proposal awaits owner review
+    and Apply on /clients; this tool never applies it. Supply a confirmed prior
+    request ID to keep its original baseline. Use matrix_scale_status to read
+    the acknowledged dimensions and mathematical volume ratio. No physical
+    volume or physics measurement is claimed.
+    """
+    value = {"room_id": room_id, "scene_revision": scene_revision,
+             "object_id": object_id, "factors": factors}
+    if baseline_request_id is not None:
+        value["baseline_request_id"] = baseline_request_id
+    return scale_block(os.environ["MATRIX_CONTROL_URL"], os.environ["MATRIX_CONTROL_TOKEN"], value)
+
+
+@server.tool(annotations=ToolAnnotations(readOnlyHint=False, destructiveHint=False,
+                                         idempotentHint=False, openWorldHint=False))
+def matrix_reset_block_scale(room_id: str, scene_revision: int, object_id: str,
+                             baseline_request_id: str) -> dict:
+    """Propose restoring a block to the baseline of a confirmed scale request.
+
+    Owner review and Apply on /clients is still required. The request chain is
+    process-local; after restart, explicitly capture a new baseline.
+    """
+    return scale_block(os.environ["MATRIX_CONTROL_URL"], os.environ["MATRIX_CONTROL_TOKEN"],
+                       {"room_id": room_id, "scene_revision": scene_revision,
+                        "object_id": object_id, "action": "reset",
+                        "baseline_request_id": baseline_request_id})
+
+
+@server.tool(annotations=ToolAnnotations(readOnlyHint=True))
+def matrix_scale_status(request_id: str) -> dict:
+    """Read one reviewed scale request and its normalized observed event."""
+    return scale_status(os.environ["MATRIX_CONTROL_URL"], os.environ["MATRIX_CONTROL_TOKEN"], request_id)
 
 
 @server.tool(annotations=ToolAnnotations(readOnlyHint=False, destructiveHint=False,

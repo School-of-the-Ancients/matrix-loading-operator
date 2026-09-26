@@ -34,6 +34,26 @@
         </div>
         <div id="agent-transcript" class="agent-transcript" aria-live="polite">Connect to start a Codex conversation.</div>
       </section>
+      <section class="scale-panel" aria-labelledby="scale-heading">
+        <div class="panel-title"><span id="scale-heading">BLOCK SCALE LAB</span><span>Desktop · built-in block</span></div>
+        <p id="scale-discovery" class="hint">Checking the Matrix experiment capability…</p>
+        <div class="row"><a href="/clients" target="_blank" rel="noopener">Open /clients for pairing and Apply</a></div>
+        <label for="scale-code">One-use pairing code</label>
+        <div class="row"><input id="scale-code" type="password" autocomplete="off" placeholder="Code from /clients" /><button id="scale-pair">Pair</button></div>
+        <label for="scale-target">Built-in block</label>
+        <select id="scale-target"><option value="">Choose a built-in block</option></select>
+        <p class="hint">Create a block with World Operator, then select it here or click it in the Three.js view. The same object stays selected across both controls.</p>
+        <div class="scale-factors">
+          <label for="scale-x">X factor<input id="scale-x" type="number" min="0.25" max="4" step="0.25" value="2" /></label>
+          <label for="scale-y">Y factor<input id="scale-y" type="number" min="0.25" max="4" step="0.25" value="3" /></label>
+          <label for="scale-z">Z factor<input id="scale-z" type="number" min="0.25" max="4" step="0.25" value="4" /></label>
+        </div>
+        <label class="check-label"><input id="scale-new-baseline" type="checkbox" /> Capture the current block as a new baseline</label>
+        <div class="row"><button id="scale-configure" class="primary" disabled>Propose scale</button><button id="scale-reset" disabled>Propose reset</button><button id="scale-cancel" disabled>Cancel request</button></div>
+        <p id="scale-status" role="status">Pair to start. Each proposal needs owner review on /clients.</p>
+        <pre id="scale-proposal"></pre>
+        <pre id="scale-observation">No confirmed scale observation yet.</pre>
+      </section>
       <div class="separator"></div>
       <label for="mode">Planner</label>
       <select id="mode"><option value="offline-rules">Offline commands</option><option value="codex-cli">Codex AI on PC</option></select>
@@ -73,6 +93,7 @@
     </aside>
     <div class="xr-buttons" id="xr-buttons"></div>
     <div class="view-label" id="view-label">DESKTOP · VIRTUAL ROOM</div>
+    <div id="scale-viewport-hint" class="scale-viewport-hint hidden"></div>
     <div class="xr-overlay" id="xr-overlay" style="display:none"><button id="xr-voice">Tap to speak</button><span id="xr-voice-status">Operator ready</span><button id="xr-exit">Exit AR</button></div>
   </div>
   <script type="module" src="/src/main.js"></script>

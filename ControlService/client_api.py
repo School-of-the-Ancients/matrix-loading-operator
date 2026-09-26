@@ -175,8 +175,11 @@ class ClientAPI:
                   ("requestId", "correlationId", "runtimeSessionId", "sequence", "status", "proposal", "commandIds", "receipts", "observed", "error")}
         if request.get("experiment"):
             fields["experiment"] = copy.deepcopy(request["experiment"])
-            fields["experiment"]["observation"] = scale_experiment.observation(request)
-            fields["experiment"]["observationState"] = "confirmed" if fields["experiment"]["observation"] is not None else "unconfirmed" if request["status"] == "succeeded" else "not-confirmed"
+            observed = scale_experiment.observation(request)
+            fields["experiment"]["observation"] = observed
+            fields["experiment"]["observationState"] = "confirmed" if observed is not None else "unconfirmed" if request["status"] == "succeeded" else "not-confirmed"
+            if observed is not None:
+                fields["experimentEvent"] = scale_experiment.observed_event(request, observed, session["sessionId"])
         return envelope(sessionId=session["sessionId"], requiresApply=request["status"] == "ready", **fields)
 
     def get_request(self, session, request_id):

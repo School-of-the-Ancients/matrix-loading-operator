@@ -101,10 +101,11 @@ class AgentSessionTests(unittest.TestCase):
             executable = Path(folder) / "codex.exe"
             executable.write_bytes(b"MZ test")
             bridge = SimpleNamespace(url="http://127.0.0.1:1234/scene", token="PC-only")
-            prompted_tools = {"matrix_move_object", "matrix_register_glb", "matrix_spawn_asset",
+            prompted_tools = {"matrix_move_object", "matrix_scale_block", "matrix_reset_block_scale",
+                              "matrix_register_glb", "matrix_spawn_asset",
                               "matrix_bind_animation", "matrix_publish_component", "matrix_attach_component",
                               "matrix_stop_component", "matrix_remove_component"}
-            for policy, expected_count in (("on-request", 8), ("never", 0)):
+            for policy, expected_count in (("on-request", 10), ("never", 0)):
                 with self.subTest(policy=policy), patch("agent_session.AppServerTransport") as transport:
                     config = CodexConfig(str(executable), agent_sandbox="danger-full-access",
                                          agent_approval_policy=policy)
@@ -219,6 +220,20 @@ class AgentSessionTests(unittest.TestCase):
         self.assertEqual(safe["action"], "using_tool")
         self.assertTrue(safe["reviewable"])
         self.assertNotIn("secret", str(safe))
+
+    def test_scale_tool_approval_describes_only_reviewed_proposal(self):
+        params = {"serverName": "matrix_webxr", "mode": "form",
+                  "message": 'Allow the matrix_webxr MCP server to run tool "matrix_scale_block"?',
+                  "_meta": {"codex_approval_kind": "mcp_tool_call", "tool_params": {
+                      "room_id": "web-virtual-room-v1", "scene_revision": 4,
+                      "object_id": "block-1", "factors": {"x": 2, "y": 3, "z": 4}}}}
+        summary, reviewable = _mcp_approval_description(params)
+        self.assertTrue(reviewable)
+        self.assertIn("owner must still review and Apply", summary)
+        self.assertIn("X=2, Y=3, Z=4", summary)
+        unsafe = {**params, "_meta": {**params["_meta"], "tool_params": {
+            **params["_meta"]["tool_params"], "factors": {"x": 5, "y": 3, "z": 4}}}}
+        self.assertFalse(_mcp_approval_description(unsafe)[1])
 
 
 if __name__ == "__main__":
