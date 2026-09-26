@@ -30,18 +30,25 @@ def matrix_scene_summary() -> dict:
 @server.tool(annotations=ToolAnnotations(readOnlyHint=False, destructiveHint=False,
                                          idempotentHint=False, openWorldHint=False))
 def matrix_move_object(room_id: str, scene_revision: int, object_id: str,
-                       expected_asset_id: str, position: dict[str, float]) -> dict:
-    """Move one existing virtual-floor object after native approval.
+                       expected_asset_id: str, position: dict[str, float],
+                       rotation: dict[str, float] | None = None) -> dict:
+    """Move or turn one existing virtual-floor object after native approval.
 
     Use current room_id and scene_revision from Matrix context or
-    matrix_scene_summary. The asset ID must match the object. The runtime must
-    acknowledge the command; queued or unconfirmed does not mean moved. This
-    first move tool does not operate on physical AR surfaces.
+    matrix_scene_summary. Position is the target in room metres. Optional
+    rotation is a complete x/y/z Euler-degrees target; omitted rotation keeps
+    the current orientation. The asset ID must match the object. The runtime
+    must acknowledge and show the whole requested transform; queued or
+    unconfirmed does not mean changed. This tool does not operate on physical
+    AR surfaces.
     """
+    value = {"room_id": room_id, "scene_revision": scene_revision,
+             "object_id": object_id, "expected_asset_id": expected_asset_id,
+             "position": position}
+    if rotation is not None:
+        value["rotation"] = rotation
     return move_object(os.environ["MATRIX_CONTROL_URL"], os.environ["MATRIX_CONTROL_TOKEN"],
-                       {"room_id": room_id, "scene_revision": scene_revision,
-                        "object_id": object_id, "expected_asset_id": expected_asset_id,
-                        "position": position})
+                       value)
 
 
 @server.tool(annotations=ToolAnnotations(readOnlyHint=True))

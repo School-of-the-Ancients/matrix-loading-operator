@@ -1137,9 +1137,9 @@ class State:
             return {"commands": copy.deepcopy(checked)}
 
     def agent_move(self, value):
-        """Queue one virtual-floor move through the normal Matrix command path."""
-        require(isinstance(value, dict) and set(value) ==
-                {"room_id", "scene_revision", "object_id", "expected_asset_id", "position"},
+        """Queue one virtual-floor position or rotation edit through the normal command path."""
+        required = {"room_id", "scene_revision", "object_id", "expected_asset_id", "position"}
+        require(isinstance(value, dict) and required <= set(value) <= required | {"rotation"},
                 "Invalid Matrix move request")
         room_id = text(value["room_id"], "room_id")
         object_id = text(value["object_id"], "object_id")
@@ -1149,6 +1149,11 @@ class State:
         require(isinstance(value["position"], dict) and set(value["position"]) == {"x", "y", "z"},
                 "Invalid Matrix move position")
         position = vector(value["position"], "position")
+        rotation = None
+        if "rotation" in value:
+            require(isinstance(value["rotation"], dict) and set(value["rotation"]) == {"x", "y", "z"},
+                    "Invalid Matrix move rotation")
+            rotation = vector(value["rotation"], "rotation")
         with self.lock:
             self.expire()
             require(self.online() and self.latest is not None, self.room_unavailable_message(), 409)
@@ -1164,11 +1169,13 @@ class State:
                     "The requested virtual-floor object is no longer available", 409)
             transform = copy.deepcopy(item["transform"])
             transform["position"] = position
+            if rotation is not None:
+                transform["rotation"] = rotation
             queued = self.queue([{"op": "set_transform", "objectId": object_id,
                                   "transform": transform}])["commands"][0]
             request_id = queued["requestId"]
             self.agent_move_ids[request_id] = {"roomId": room_id, "objectId": object_id,
-                                               "position": position}
+                                               "assetId": asset_id, "transform": transform}
             while len(self.agent_move_ids) > 64:
                 self.agent_move_ids.popitem(last=False)
             return self.agent_move_status(request_id)
@@ -1189,7 +1196,8 @@ class State:
                 observed = self.latest and self.latest["scene"]["roomId"] == issued["roomId"] and next(
                     (item for item in self.latest["scene"]["objects"]
                      if item["objectId"] == issued["objectId"] and
-                     item["transform"]["position"] == issued["position"]), None)
+                     item["assetId"] == issued["assetId"] and item["anchorId"] == "web-floor" and
+                     item["transform"] == issued["transform"]), None)
                 result["status"] = "succeeded" if observed else "unconfirmed"
             elif "outcome unknown" in receipt["error"]:
                 result["status"] = "unconfirmed"

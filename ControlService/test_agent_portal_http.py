@@ -154,7 +154,7 @@ class AgentPortalHTTPTests(unittest.TestCase):
         self.assertEqual(self.post("/api/agent/turn", body)[0], 200)
         sent = self.state.agent_portal._backend.sent_texts[-1]
         self.assertIn("User request:\nPut this over there", sent)
-        self.assertIn("matrix_move_object supports an existing virtual-floor object", sent)
+        self.assertIn("matrix_move_object sets position and optional bounded Euler rotation", sent)
         self.assertIn("Published numeric Matrix components can be attached", sent)
         self.assertIn("matrix_spawn_asset", sent)
         self.assertIn("build a reusable WebXR capability", sent)
