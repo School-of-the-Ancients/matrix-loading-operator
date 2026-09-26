@@ -2,6 +2,19 @@
 
 The [#20](https://github.com/School-of-the-Ancients/matrix-loading-operator/issues/20) shared-world slice builds on the isolated [Citizens desktop fixture](Citizens-Desktop-Demo.md). The ordinary `/web/` page has an opt-in **AI Citizens** panel. It runs the same two-resident simulation through the page's existing `MatrixWorld`, `MatrixView`, and `MatrixBridge`. **Start here** creates the original chair/table/two-orb fixture only on an empty desktop virtual floor. The selected-furniture candidate described below instead keeps an existing scene and binds one selected built-in chair or table while adding two orb residents. The Agent Portal is not used for resident decisions or given to residents. The [#19](https://github.com/School-of-the-Ancients/matrix-loading-operator/issues/19) candidate adds the finite social session described below to the reservation lifecycle.
 
+The live-revisions candidate lets a finite **Offline commands** proposal edit
+an unrelated selected scene object while residents continue moving. Turn off
+**Automatically apply safe scene requests** if you want to inspect the exact
+command before pressing **Apply proposal**. An edit aimed at a resident becomes
+stale when its observed pose changes. A queued resident edit is checked again
+by the browser before execution; later commands in the same reviewed batch are
+skipped if a prior command fails. AI, visual review, voice, and game planning
+check all resident poses through Apply; pause Citizens for those paths because
+implicit actor dependencies can change before browser execution.
+The runtime also checks the current measured obstacle line before a resident
+can receive a station-use benefit. See the [isolated browser record](../Validation/citizens-live-revisions-browser.json)
+and [current checkpoint](Current-Checkpoint.md) for the verified scope.
+
 ## Try it safely
 
 From the repository root, build and use an isolated ControlService port and scene directory:
@@ -60,7 +73,7 @@ At this earlier checkpoint, the start flow was still a fixed two-resident, two-s
 
 The first edit that removes a bound resident or station also stores the complete prior browser world in a separate **pre-deletion recovery** slot before normal autosave. This covers Delete, Clear, and scene Load. If that backup cannot be verified, both autosave copies stay at their previous values and the page reports the failure. The Citizens panel shows the backup minute and offers **Restore** with a second confirming click; restore validates the full saved world before replacement. After the restored world is saved durably and verified, the slot clears so a later deletion can capture a fresh copy. The manual **Save world** checkpoint is separate and untouched. Scene **Undo** alone can return an object without restoring its retired Citizens binding; use the pre-deletion restore to recover both. Until restored, the slot keeps the first pre-deletion copy, even if the reduced world advances or another object is removed.
 
-Named PC world restore pauses Citizens before loading, blocks its timer and browser autosave while the service exchange is pending, and writes the accepted or rolled-back world after the exchange settles. A delayed rejection regression checks that the staged world never reaches browser storage. Pause Citizens before asking the Operator to generate or apply a scene or game plan. Running residents move the scene every half-second, which can change the revision during planning and cause a guarded 409 rejection. Resume after applying the plan. This concurrency limit remains open; the demo's autonomous runtime itself does not need a planner request per tick.
+Named PC world restore pauses Citizens before loading, blocks its timer and browser autosave while the service exchange is pending, and writes the accepted or rolled-back world after the exchange settles. A delayed rejection regression checks that the staged world never reaches browser storage. At this earlier reservation-lifecycle checkpoint, Operators had to pause Citizens before any scene or game proposal because every resident move advanced the scene revision. The live-revisions candidate above narrows that restriction for finite offline edits to unrelated objects. Its AI, image, voice, and game planning paths remain strict; the demo's autonomous runtime itself does not need a planner request per tick.
 
 WebRuntime tests passed **190/190**, the Vite production build passed, and ControlService tests passed **650/650**. Chrome **153.0.8010.53** exercised the built `/web/` page on isolated service port **19839**. At seed 17 and tick 1, Ada claimed the chair and Bo had the first FIFO ticket. A real `/api/command` deletion retired Ada; Bo inherited that same execution ticket, reached the chair, and completed rest at tick 17. Browser close/reopen retained the exact Citizens and scene state. A named PC checkpoint restored it after an extra tick, and stepping replayed the same state. A real chair deletion left Bo and the food station, and the edited state saved as another named PC checkpoint. A second Chrome run deleted Ada and the chair while **Run** was active: Citizens stayed unpaused, Bo completed rest at tick 18, and the clock continued to tick 21 after chair removal. Neither run reported a page error. See the [queue screenshot](../Validation/citizens-reservations-queue.png), [survivor screenshot](../Validation/citizens-reservations-survivor.png), [checkpoint/browser evidence](../Validation/citizens-reservations-browser-evidence.json), and [running deletion evidence](../Validation/citizens-reservations-running-evidence.json).
 

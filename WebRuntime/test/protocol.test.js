@@ -52,6 +52,116 @@ test('local observed movement validates and receipts without filling authored Un
   assert.equal(world.undo.length,beforeUndo);
 });
 
+test('queued resident edits reject a changed pose before mutating any targeted operation',()=>{
+  const world=new MatrixWorld(()=> 'resident-1');
+  assert.equal(world.execute(command('spawn','spawn',
+    {assetId:'orb',anchorId:ANCHOR_ID,transform:pose()})).ok,true);
+  const expectedTransform=structuredClone(world.requireObject('resident-1').transform);
+  assert.equal(world.execute(command('simulation-move','set_transform',
+    {objectId:'resident-1',transform:pose(.25)}),{recordHistory:false}).ok,true);
+  const scene=structuredClone(world.scene),selection=structuredClone(world.selection);
+  const undo=structuredClone(world.undo),redo=structuredClone(world.redo);
+  const generation=world.authoredGeneration;
+  const behavior={kind:'rotate',enabled:true,paused:false,axis:'y',
+    speedDegreesPerSecond:30,amplitudeMeters:0,frequencyHz:.5};
+  const packageDefinition={schemaVersion:1,name:'Drift',outputs:{
+    'position.x':{op:'const',value:0}}};
+  for(const [op,payload] of [
+    ['set_transform',{transform:pose(1)}],['set_behavior',{behavior}],
+    ['remove_behavior',{behaviorKind:'all'}],
+    ['attach_component',{componentId:'webcomp:drift:0123456789ab',
+      targetObjectId:'station-1',package:packageDefinition}],
+    ['stop_component',{}],['remove_component',{}],
+    ['bind_animation',{loopClip:null,selectClip:null}],
+    ['set_physics',{physics:{schemaVersion:1,kind:'gravity-floor',
+      collider:'rendered-bounds-box',restitution:0}}],['remove_physics',{}],
+    ['delete',{}],['duplicate',{}],['select',{}]
+  ]){
+    const result=world.execute(command(`stale-${op}`,op,
+      {objectId:'resident-1',expectedTransform,...payload}));
+    assert.equal(result.ok,false,op);
+    assert.match(result.error,/transform changed since command was queued/,op);
+    assert.deepEqual(world.scene,scene,op);
+    assert.deepEqual(world.selection,selection,op);
+    assert.deepEqual(world.undo,undo,op);
+    assert.deepEqual(world.redo,redo,op);
+    assert.equal(world.authoredGeneration,generation,op);
+  }
+  assert.equal(world.execute(command('fresh-select','select',
+    {objectId:'resident-1',expectedTransform:pose(.25)})).ok,true);
+});
+
+test('expectedTransform accepts only the exact finite target-operation shape',()=>{
+  const world=new MatrixWorld(()=> 'resident-1');
+  assert.equal(world.execute(command('spawn','spawn',
+    {assetId:'orb',anchorId:ANCHOR_ID,transform:pose()})).ok,true);
+  const scene=structuredClone(world.scene);
+  for(const expectedTransform of [null,
+    {...pose(),extra:1},
+    {...pose(),position:{...pose().position,extra:1}},
+    {...pose(),position:{x:NaN,y:0,z:-2}}]){
+    const rejected=world.execute(command('invalid-shape','set_transform',
+      {objectId:'resident-1',expectedTransform,transform:pose(1)}));
+    assert.equal(rejected.ok,false);
+    assert.match(rejected.error,/Invalid expectedTransform/);
+    assert.deepEqual(world.scene,scene);
+  }
+  const unsupported=world.execute(command('unsupported','clear',
+    {expectedTransform:pose()}));
+  assert.equal(unsupported.ok,false);
+  assert.match(unsupported.error,/Invalid expectedTransform/);
+  assert.deepEqual(world.scene,scene);
+});
+
+test('expectedTargetTransform is an exact finite attach_component-only precondition',()=>{
+  let n=0;const world=new MatrixWorld(()=>`object-${++n}`);
+  const host=world.execute(command('host','spawn',
+    {assetId:'block',anchorId:ANCHOR_ID,transform:pose(4)}));
+  const target=world.execute(command('target','spawn',
+    {assetId:'orb',anchorId:ANCHOR_ID,transform:pose()}));
+  const attach={objectId:host.objectId,targetObjectId:target.objectId,
+    componentId:'webcomp:drift:0123456789ab',
+    package:{schemaVersion:1,name:'Drift',outputs:{
+      'position.x':{op:'const',value:0}}}};
+  const scene=structuredClone(world.scene);
+  for(const expectedTargetTransform of [null,{...pose(),extra:1},
+    {...pose(),position:{...pose().position,extra:1}},
+    {...pose(),position:{x:Infinity,y:0,z:-2}}]){
+    const result=world.execute(command('invalid-target-pose','attach_component',
+      {...attach,expectedTargetTransform}));
+    assert.equal(result.ok,false);
+    assert.match(result.error,/Invalid expectedTargetTransform/);
+    assert.deepEqual(world.scene,scene);
+  }
+  const unsupported=world.execute(command('wrong-op','set_transform',
+    {objectId:host.objectId,transform:pose(5),expectedTargetTransform:pose()}));
+  assert.equal(unsupported.ok,false);
+  assert.match(unsupported.error,/Invalid expectedTargetTransform/);
+  assert.deepEqual(world.scene,scene);
+  assert.equal(world.execute(command('current-target-pose','attach_component',
+    {...attach,expectedTargetTransform:pose()})).ok,true);
+});
+
+test('a resident with an active transform owner is omitted from Citizens observation',()=>{
+  const world=new MatrixWorld(()=> 'resident-1');
+  assert.equal(world.execute(command('spawn','spawn',
+    {assetId:'orb',anchorId:ANCHOR_ID,transform:pose()}),{recordHistory:false}).ok,true);
+  world.citizens={residents:[{objectId:'resident-1'}]};
+  const before=world.snapshot();
+  assert.deepEqual(before.citizensObservation.residentObjectIds,['resident-1']);
+  const behavior={kind:'rotate',enabled:true,paused:false,axis:'y',
+    speedDegreesPerSecond:30,amplitudeMeters:0,frequencyHz:.5};
+  assert.equal(world.execute(command('operator-behavior','set_behavior',
+    {objectId:'resident-1',behavior})).ok,true);
+  const after=world.snapshot();
+  assert.equal(after.citizensObservation,undefined);
+  assert.deepEqual(after.scene.objects[0].behaviors,[behavior]);
+  assert.notEqual(world.authoredGeneration,before.citizensObservation.authoredGeneration);
+  assert.equal(world.execute(command('pause-behavior','set_behavior',
+    {objectId:'resident-1',behavior:{...behavior,paused:true}})).ok,true);
+  assert.deepEqual(world.snapshot().citizensObservation.residentObjectIds,['resident-1']);
+});
+
 test('an unrecorded mutation invalidates stale redo history',()=>{
   const world=new MatrixWorld(()=> 'resident-1');
   const spawn=world.execute(command('spawn','spawn',
@@ -94,6 +204,180 @@ test('an advertised finite interaction returns an in-range observed outcome',()=
     {actorObjectId:actor.objectId,targetObjectId:chair.objectId,kind:'rest'}));
   assert.match(rejected.error,/out of interaction range/);
   assert.equal(rejected.outcome,undefined);
+});
+
+test('an inserted wall blocks an otherwise in-range interaction until it moves away',()=>{
+  let n=0;const world=new MatrixWorld(()=>`object-${++n}`);
+  const chair=world.execute(command('chair','spawn',
+    {assetId:'chair',anchorId:ANCHOR_ID,transform:pose(0,0,-2)}));
+  const actor=world.execute(command('actor','spawn',
+    {assetId:'orb',anchorId:ANCHOR_ID,transform:pose(0,0,-1.4)}));
+  assert.equal(chair.ok,true);assert.equal(actor.ok,true);
+  const wallTransform=pose(0,0,-1.7);
+  wallTransform.scale={x:.5,y:.5,z:.5};
+  const wall=world.execute(command('wall','spawn',
+    {assetId:'wall',anchorId:ANCHOR_ID,transform:wallTransform}));
+  assert.equal(wall.ok,true);
+  const interact=requestId=>world.execute(command(requestId,'interact',
+    {actorObjectId:actor.objectId,targetObjectId:chair.objectId,kind:'rest'}));
+  const blocked=interact('blocked-rest');
+  assert.equal(blocked.ok,false);
+  assert.match(blocked.error,/use point is occluded/);
+  assert.equal(blocked.outcome,undefined);
+  const shifted=structuredClone(wallTransform);
+  shifted.position.x=3;
+  assert.equal(world.execute(command('move-wall','set_transform',
+    {objectId:wall.objectId,transform:shifted})).ok,true);
+  const clear=interact('clear-rest');
+  assert.equal(clear.ok,true);
+  assert.equal(clear.outcome.targetObjectId,chair.objectId);
+});
+
+test('a remote rotating block does not block interaction, but a nearby one is uncertain',()=>{
+  let n=0;const world=new MatrixWorld(()=>`object-${++n}`);
+  const chair=world.execute(command('chair','spawn',
+    {assetId:'chair',anchorId:ANCHOR_ID,transform:pose(0,0,-2)}));
+  const actor=world.execute(command('actor','spawn',
+    {assetId:'orb',anchorId:ANCHOR_ID,transform:pose(0,0,-1.4)}));
+  const block=world.execute(command('block','spawn',
+    {assetId:'block',anchorId:ANCHOR_ID,transform:pose(50,0,50)}));
+  assert.equal(block.ok,true);
+  const rotate={kind:'rotate',enabled:true,paused:false,axis:'y',
+    speedDegreesPerSecond:30,amplitudeMeters:0,frequencyHz:.5};
+  assert.equal(world.execute(command('rotate-block','set_behavior',
+    {objectId:block.objectId,behavior:rotate})).ok,true);
+  const use=requestId=>world.execute(command(requestId,'interact',
+    {actorObjectId:actor.objectId,targetObjectId:chair.objectId,kind:'rest'}));
+  assert.equal(use('remote-rotating-block').ok,true);
+  assert.equal(world.execute(command('move-rotating-block','set_transform',
+    {objectId:block.objectId,transform:pose(0,0,-1.7)})).ok,true);
+  assert.match(use('near-rotating-block').error,/clearance is unavailable/);
+});
+
+test('a remote unmeasured GLB does not block interaction, but a nearby one does',()=>{
+  let n=0;const world=new MatrixWorld(()=>`object-${++n}`);
+  const sha='a'.repeat(64);
+  const asset={assetId:'web:unmeasured-glb',displayName:'Unmeasured GLB',
+    description:'Validated on load without catalog bounds.',spawnScale:1,
+    sha256:sha,byteLength:1024,url:`/api/web/assets/${sha}.glb`};
+  world.registerAssets([asset]);
+  const chair=world.execute(command('chair','spawn',
+    {assetId:'chair',anchorId:ANCHOR_ID,transform:pose(0,0,-2)}));
+  const actor=world.execute(command('actor','spawn',
+    {assetId:'orb',anchorId:ANCHOR_ID,transform:pose(0,0,-1.4)}));
+  const glb=world.execute(command('glb','spawn',
+    {assetId:asset.assetId,anchorId:ANCHOR_ID,transform:pose(50,0,50)}));
+  assert.equal(glb.ok,true);
+  const use=requestId=>world.execute(command(requestId,'interact',
+    {actorObjectId:actor.objectId,targetObjectId:chair.objectId,kind:'rest'}));
+  assert.equal(use('remote-unmeasured-glb').ok,true);
+  assert.equal(world.execute(command('move-unmeasured-glb','set_transform',
+    {objectId:glb.objectId,transform:pose(0,0,-1.7)})).ok,true);
+  assert.match(use('near-unmeasured-glb').error,/clearance is unavailable/);
+});
+
+test('a GLB with an off-center export pivot blocks at its recentered rendered pose',()=>{
+  let n=0;const world=new MatrixWorld(()=>`object-${++n}`);
+  const sha='b'.repeat(64);
+  const asset={assetId:'web:off-center-glb',displayName:'Offset GLB',
+    description:'The browser recenters this model at its object transform.',
+    spawnScale:1,localBounds:{center:{x:10,y:.5,z:0},
+      size:{x:.4,y:1,z:.2}},sha256:sha,byteLength:1024,
+    url:`/api/web/assets/${sha}.glb`};
+  world.registerAssets([asset]);
+  const chair=world.execute(command('chair','spawn',
+    {assetId:'chair',anchorId:ANCHOR_ID,transform:pose(0,0,-2)}));
+  const actor=world.execute(command('actor','spawn',
+    {assetId:'orb',anchorId:ANCHOR_ID,transform:pose(0,0,-1.4)}));
+  const glb=world.execute(command('offset-glb','spawn',
+    {assetId:asset.assetId,anchorId:ANCHOR_ID,transform:pose(0,0,-1.7)}));
+  assert.equal(glb.ok,true);
+  const blocked=world.execute(command('rest-by-offset-glb','interact',
+    {actorObjectId:actor.objectId,targetObjectId:chair.objectId,kind:'rest'}));
+  assert.equal(blocked.ok,false);
+  assert.match(blocked.error,/use point is occluded/);
+  assert.equal(blocked.outcome,undefined);
+});
+
+test('a bound looping GLB is uncertain near use but irrelevant when remote',()=>{
+  let n=0;const world=new MatrixWorld(()=>`object-${++n}`);
+  const sha='c'.repeat(64);
+  const asset={assetId:'web:looping-glb',displayName:'Looping GLB',
+    description:'Animated geometry with measured static bounds.',spawnScale:1,
+    localBounds:{center:{x:0,y:.5,z:0},size:{x:.5,y:1,z:.2}},
+    geometry:{animationClips:[{name:'Loop',durationSeconds:1}]},
+    sha256:sha,byteLength:1024,url:`/api/web/assets/${sha}.glb`};
+  world.registerAssets([asset]);
+  const chair=world.execute(command('chair','spawn',
+    {assetId:'chair',anchorId:ANCHOR_ID,transform:pose(0,0,-2)}));
+  const actor=world.execute(command('actor','spawn',
+    {assetId:'orb',anchorId:ANCHOR_ID,transform:pose(0,0,-1.4)}));
+  const glb=world.execute(command('looping-glb','spawn',
+    {assetId:asset.assetId,anchorId:ANCHOR_ID,transform:pose(50,0,50)}));
+  assert.equal(world.execute(command('bind-loop','bind_animation',
+    {objectId:glb.objectId,loopClip:'Loop',selectClip:null})).ok,true);
+  const use=requestId=>world.execute(command(requestId,'interact',
+    {actorObjectId:actor.objectId,targetObjectId:chair.objectId,kind:'rest'}));
+  assert.equal(use('remote-looping-glb').ok,true);
+  assert.equal(world.execute(command('move-looping-glb','set_transform',
+    {objectId:glb.objectId,transform:pose(0,0,-1.7)})).ok,true);
+  assert.match(use('near-looping-glb').error,/clearance is unavailable/);
+});
+
+test('an unmeasured looping GLB is uncertain near use but irrelevant when remote',()=>{
+  let n=0;const world=new MatrixWorld(()=>`object-${++n}`);
+  const sha='d'.repeat(64);
+  const asset={assetId:'web:unmeasured-looping-glb',displayName:'Unmeasured looping GLB',
+    description:'Animated geometry without saved bounds.',spawnScale:1,
+    geometry:{animationClips:[{name:'Idle',durationSeconds:1}]},
+    sha256:sha,byteLength:1024,url:`/api/web/assets/${sha}.glb`};
+  world.registerAssets([asset]);
+  const chair=world.execute(command('chair','spawn',
+    {assetId:'chair',anchorId:ANCHOR_ID,transform:pose(0,0,-2)}));
+  const actor=world.execute(command('actor','spawn',
+    {assetId:'orb',anchorId:ANCHOR_ID,transform:pose(0,0,-1.4)}));
+  const glb=world.execute(command('looping-glb','spawn',
+    {assetId:asset.assetId,anchorId:ANCHOR_ID,transform:pose(50,0,50)}));
+  assert.equal(world.execute(command('bind-loop','bind_animation',
+    {objectId:glb.objectId,loopClip:'Idle',selectClip:null})).ok,true);
+  const use=requestId=>world.execute(command(requestId,'interact',
+    {actorObjectId:actor.objectId,targetObjectId:chair.objectId,kind:'rest'}));
+  assert.equal(use('remote-unmeasured-loop').ok,true);
+  assert.equal(world.execute(command('move-unmeasured-loop','set_transform',
+    {objectId:glb.objectId,transform:pose(0,0,-1.7)})).ok,true);
+  assert.match(use('near-unmeasured-loop').error,/clearance is unavailable/);
+});
+
+test('active actor or target transform owner cannot produce a finite use receipt',()=>{
+  let n=0;const world=new MatrixWorld(()=>`object-${++n}`);
+  const chair=world.execute(command('chair','spawn',
+    {assetId:'chair',anchorId:ANCHOR_ID,transform:pose(0,0,-2)}));
+  const actor=world.execute(command('actor','spawn',
+    {assetId:'orb',anchorId:ANCHOR_ID,transform:pose(0,0,-1.4)}));
+  const use=requestId=>world.execute(command(requestId,'interact',
+    {actorObjectId:actor.objectId,targetObjectId:chair.objectId,kind:'rest'}));
+  const rotate={kind:'rotate',enabled:true,paused:false,axis:'y',
+    speedDegreesPerSecond:30,amplitudeMeters:0,frequencyHz:.5};
+  assert.equal(world.execute(command('move-chair','set_behavior',
+    {objectId:chair.objectId,behavior:rotate})).ok,true);
+  assert.match(use('active-chair').error,/another transform owner/);
+  assert.equal(world.execute(command('pause-chair','set_behavior',
+    {objectId:chair.objectId,behavior:{...rotate,paused:true}})).ok,true);
+  assert.equal(use('paused-chair').ok,true);
+  const packageDefinition={schemaVersion:1,name:'Move chair',
+    outputs:{'position.x':{op:'const',value:10}}};
+  assert.equal(world.execute(command('attach-chair','attach_component',
+    {objectId:chair.objectId,componentId:'webcomp:test:012345abcdef',
+      targetObjectId:actor.objectId,package:packageDefinition})).ok,true);
+  assert.match(use('component-chair').error,/another transform owner/);
+  assert.equal(world.execute(command('stop-chair','stop_component',
+    {objectId:chair.objectId})).ok,true);
+  assert.equal(world.execute(command('move-actor','set_behavior',
+    {objectId:actor.objectId,behavior:rotate})).ok,true);
+  assert.match(use('active-actor').error,/another transform owner/);
+  assert.equal(world.execute(command('pause-actor','set_behavior',
+    {objectId:actor.objectId,behavior:{...rotate,paused:true}})).ok,true);
+  assert.equal(use('paused-actor-and-chair').ok,true);
 });
 
 test('converse requires a bounded session ID and an observed in-range resident pair',()=>{

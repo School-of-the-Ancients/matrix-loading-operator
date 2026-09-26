@@ -411,9 +411,13 @@ class CodexPlannerHttpTests(unittest.TestCase):
         self.assertEqual(self.state.latest, before)
         code, queued = self.request("/api/apply_plan", {"planId": response["planId"]})
         self.assertEqual(code, 200, queued)
-        self.assertEqual([{key: value for key, value in item.items() if key != "requestId"}
+        self.assertEqual([{key: value for key, value in item.items()
+                           if key not in {"requestId", "requiresSuccessOf"}}
                           for item in queued["commands"]], output["proposal"]["commands"])
         self.assertEqual(len({item["requestId"] for item in queued["commands"]}), 4)
+        self.assertNotIn("requiresSuccessOf", queued["commands"][0])
+        for predecessor, successor in zip(queued["commands"], queued["commands"][1:]):
+            self.assertEqual(successor["requiresSuccessOf"], predecessor["requestId"])
         self.assertEqual(self.state.latest, before)
         self.plan_codex.assert_called_once()
 

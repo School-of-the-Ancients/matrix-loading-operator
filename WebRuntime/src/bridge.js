@@ -1,3 +1,6 @@
+const validRequestId=value=>typeof value==='string'&&value.length>0&&
+  value.length<=128&&!/[\x00-\x1f]/.test(value);
+
 export class MatrixBridge {
   constructor(world, getToken, onUpdate) {
     this.world=world; this.getToken=getToken; this.onUpdate=onUpdate;
@@ -32,10 +35,24 @@ export class MatrixBridge {
     for(const result of sent)this.receipts.delete(result.requestId);
     if(this.captureReceipt===sentCapture)this.captureReceipt=null;
     let changed=false;
+    const completed=new Map(sent.map(result=>[result.requestId,result]));
     for(const command of data.commands||[]) {
       if(this.receipts.has(command.requestId))continue;
-      const result=this.world.execute(command);
+      let result;
+      if(Object.hasOwn(command,'requiresSuccessOf')){
+        const predecessor=command.requiresSuccessOf;
+        if(!validRequestId(predecessor)||predecessor===command.requestId)
+          result={requestId:command.requestId,ok:false,error:'Invalid requiresSuccessOf precondition',objectId:''};
+        else if(!completed.get(predecessor)?.ok)
+          result={requestId:command.requestId,ok:false,
+            error:`Skipped because prerequisite command ${predecessor} did not succeed`,objectId:''};
+        else {
+          const {requiresSuccessOf,...operation}=command;
+          result=this.world.execute(operation);
+        }
+      }else result=this.world.execute(command);
       this.receipts.set(command.requestId,result); changed=changed||result.ok;
+      completed.set(command.requestId,result);
       this.onUpdate({type:'receipt',result});
     }
     if(changed)this.onUpdate({type:'scene'});
