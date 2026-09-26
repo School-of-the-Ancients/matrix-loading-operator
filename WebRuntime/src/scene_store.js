@@ -272,4 +272,5 @@ export function restoreStoredScene(world,scene){
   // Keep both the active and suspended virtual-room selections valid.
   world.selection={anchorId:'web-floor',objectId:'',position:{x:0,y:0,z:-2}};
   if(world.virtualScene)world.virtualScene.selection=structuredClone(world.selection);
+  world.markAuthoredSceneChange?.();
 }

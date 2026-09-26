@@ -376,14 +376,51 @@ def snapshot(value):
         require(room and room["mode"] == "ar" and room["state"] != "ready",
                 "Read-only recovery requires an unavailable AR room")
         result["readOnly"] = True
+    observation = value.get("citizensObservation")
+    if observation is not None:
+        require(type(observation) is dict and set(observation) ==
+                {"residentObjectIds", "authoredGeneration"}, "Invalid Citizens observation")
+        ids = observation["residentObjectIds"]
+        generation = observation["authoredGeneration"]
+        require(result["scene"]["roomId"] == "web-virtual-room-v1" and
+                room is not None and room["mode"] == "white-room" and room["state"] == "ready" and
+                not read_only, "Citizens observations require the ready desktop virtual room")
+        require(type(ids) is list and len(ids) <= 4 and
+                all(type(object_id) is str and object_id for object_id in ids) and
+                ids == sorted(set(ids)), "Invalid Citizens resident IDs")
+        require(type(generation) is int and 0 <= generation <= 9007199254740991,
+                "Invalid Citizens authored generation")
+        objects = {item["objectId"]: item for item in result["scene"]["objects"]}
+        require(all(objects.get(object_id, {}).get("assetId") == "orb" and
+                    objects[object_id]["anchorId"] == "web-floor" and
+                    "component" not in objects[object_id] and
+                    "physics" not in objects[object_id] and
+                    not any(behavior["enabled"] and not behavior["paused"]
+                            for behavior in objects[object_id].get("behaviors", []))
+                    for object_id in ids), "Citizens observation references an incompatible resident")
+        result["citizensObservation"] = {"residentObjectIds": ids[:],
+                                         "authoredGeneration": generation}
     return result
 
 
-def scene_revision_data(value):
+def scene_revision_data(value, *, include_observed_motion=False):
     # Voice captures head/controller pose at recording start. Movement isn't a scene edit.
     if value is None:
         return None
     result = {key: item for key, item in value.items() if key not in ("viewer", "pointing", "physicsStates")}
+    observation = result.get("citizensObservation")
+    if observation is not None and not include_observed_motion:
+        residents = set(observation["residentObjectIds"])
+        # Local Citizens receipts update X/Z only. Keep the full pose in latest,
+        # captures, and planner context; only the broad authored revision omits
+        # these two observed coordinates. The authored generation still changes
+        # whenever a user or Operator explicitly edits a resident.
+        scene_data = result["scene"]
+        result["scene"] = {**scene_data, "objects": [
+            {**item, "transform": {**item["transform"], "position": {
+                **item["transform"]["position"], "x": 0, "z": 0}}}
+            if item["objectId"] in residents else item
+            for item in scene_data["objects"]]}
     # Browser planes refine their poses and polygons while the wearer moves. Their
     # session-local IDs identify the same targets; the browser checks current fit
     # again when it executes a command. Do not stale a proposal for pose jitter.
@@ -396,7 +433,35 @@ def scene_revision_data(value):
     return result
 
 
-def command(value):
+def resident_motion_dependencies(value, commands=None, *, strict=False):
+    """Capture only the observed actor poses a proposal actually depends on."""
+    observation = value.get("citizensObservation") or {}
+    residents = set(observation.get("residentObjectIds", []))
+    if not strict:
+        references = {value.get("selection", {}).get("objectId")}
+        for item in commands or []:
+            references.update((item.get("objectId"), item.get("targetObjectId")))
+        residents &= references
+    objects = {item["objectId"]: item for item in value["scene"]["objects"]}
+    return {object_id: copy.deepcopy(objects[object_id]["transform"])
+            for object_id in sorted(residents)}
+
+
+def resident_motion_current(value, dependencies):
+    if value is None:
+        return False
+    objects = {item["objectId"]: item for item in value["scene"]["objects"]}
+    return all(objects.get(object_id, {}).get("transform") == transform
+               for object_id, transform in dependencies.items())
+
+
+RESIDENT_PRECONDITION_OPS = {"set_transform", "set_behavior", "remove_behavior",
+                             "delete", "duplicate", "select", "attach_component",
+                             "stop_component", "remove_component", "bind_animation",
+                             "set_physics", "remove_physics"}
+
+
+def command(value, *, allow_precondition=False):
     require(isinstance(value, dict), "Invalid command")
     op = value.get("op")
     require(isinstance(op, str) and op in OPS, "Unknown command op")
@@ -414,6 +479,10 @@ def command(value):
         allowed |= {"anchorId", "transform", "placement"}
     if op == "set_transform":
         allowed |= {"anchorId", "placement"}
+    if allow_precondition and op in RESIDENT_PRECONDITION_OPS:
+        allowed.add("expectedTransform")
+    if allow_precondition and op == "attach_component":
+        allowed.add("expectedTargetTransform")
     require(not (set(value) - allowed), "Unexpected command fields")
     require(required <= set(value), "Missing command fields")
     result = {"op": op}
@@ -422,6 +491,10 @@ def command(value):
             result[key] = text(value[key], key, empty=key == "anchorId")
     if "transform" in value:
         result["transform"] = transform(value["transform"])
+    if "expectedTransform" in value:
+        result["expectedTransform"] = transform(value["expectedTransform"])
+    if "expectedTargetTransform" in value:
+        result["expectedTargetTransform"] = transform(value["expectedTargetTransform"])
     if "placement" in value:
         require(value["placement"] == "surface", "Unknown placement mode")
         result["placement"] = "surface"
@@ -1297,7 +1370,8 @@ class State:
                 status, error = capture["status"], capture["error"]
             if status in ("pending", "ready"):
                 if (not self.online() or self.client_id != capture["clientId"] or self.revision != capture["revision"]
-                        or self.latest is None or self.latest.get("readOnly") or self.pending):
+                        or self.latest is None or self.latest.get("readOnly") or self.pending or
+                        not resident_motion_current(self.latest, capture.get("motionDependencies", {}))):
                     status, error = "stale", "Runtime, scene, or selection changed. Capture the current view again."
                 elif status == "ready" and age > scene_capture.CAPTURE_MAX_AGE:
                     status, error = "stale", "Image is older than 30 seconds. Capture the current view again."
@@ -1327,7 +1401,8 @@ class State:
                     "Wait two seconds between captures", 429)
             self.last_capture_request = self.clock()
             self.capture = {"captureId": uuid.uuid4().hex, "clientId": self.client_id,
-                            "revision": self.revision, "requested": self.clock(), "status": "pending", "mode": mode}
+                            "revision": self.revision, "requested": self.clock(), "status": "pending", "mode": mode,
+                            "motionDependencies": resident_motion_dependencies(self.latest, strict=True)}
             self.voice_capture_id = None
             return self.capture_status()
 
@@ -1351,7 +1426,8 @@ class State:
             require(type(value.get("ok")) is bool, "Invalid capture result status")
             require(value["ok"], text(value.get("error") or "Runtime could not capture this view", "capture error", limit=2048), 409)
             captured = snapshot(value.get("snapshot"))
-            require(scene_revision_data(captured) == scene_revision_data(self.latest),
+            require(scene_revision_data(captured, include_observed_motion=True) ==
+                    scene_revision_data(self.latest, include_observed_motion=True),
                     "Image and scene snapshot do not match; capture again", 409)
             validated = scene_capture.image(value)
             require((validated["source"] in {"quest_camera_composite", "webxr_camera_pair"}) == (capture.get("mode") == "mixed"),
@@ -1393,10 +1469,10 @@ class State:
             self.voice_capture_id = body["captureId"]
             return self.capture_status()
 
-    def queue(self, raw_commands):
+    def queue(self, raw_commands, *, ordered=False):
         require(isinstance(raw_commands, list) and 0 < len(raw_commands) <= MAX_BATCH,
                 f"Expected 1-{MAX_BATCH} commands")
-        checked = [command(item) for item in raw_commands]
+        checked = [command(item, allow_precondition=True) for item in raw_commands]
         physics_targets = [item["objectId"] for item in checked
                            if item["op"] in {"set_physics", "remove_physics"}]
         if physics_targets:
@@ -1534,9 +1610,17 @@ class State:
                 require(projected_count <= MAX_PHYSICS_BODIES,
                         "Scene physics body limit reached", 409)
             require(len(self.pending) + len(checked) <= MAX_PENDING, "Command queue full", 409)
+            previous_request_id = None
             for item in checked:
                 item["requestId"] = uuid.uuid4().hex
+                if ordered and previous_request_id is not None:
+                    # Only the reviewed Apply path supplies ordered=True. The
+                    # planner and raw command endpoint cannot choose or forge
+                    # predecessor receipts. A later command must not run if an
+                    # earlier effect in the same proposal failed in the browser.
+                    item["requiresSuccessOf"] = previous_request_id
                 self.pending[item["requestId"]] = item
+                previous_request_id = item["requestId"]
             self.revision += 1
             return {"commands": copy.deepcopy(checked)}
 
@@ -2187,6 +2271,7 @@ class State:
             saved.pop("viewer", None)
             saved.pop("pointing", None)
             saved.pop("physicsStates", None)  # Solver pose, velocity and contacts are transient.
+            saved.pop("citizensObservation", None)  # Runtime motion/authoring marker is not a scene document.
             saved.pop("roomContext", None)
             saved.pop("readOnly", None)
             saved.pop("behaviorKinds", None)  # Capability belongs to the connected player, not the save.
@@ -2248,6 +2333,14 @@ class State:
         return {"scenes": sorted(p.stem for p in self.directory.glob("*.json")
                                  if NAME.fullmatch(p.stem) and p.is_file() and not p.is_symlink())}
 
+    def proposal_is_current(self, proposal):
+        """Caller holds lock; broad edits and plan-specific observed poses must match."""
+        return (self.online() and self.latest is not None and
+                proposal["clientId"] == self.client_id and
+                proposal["revision"] == self.revision and
+                self.clock() <= proposal["expires"] and
+                resident_motion_current(self.latest, proposal.get("motionDependencies", {})))
+
     def apply_plan(self, plan_id):
         text(plan_id, "planId")
         with self.lock:
@@ -2255,15 +2348,14 @@ class State:
             proposal = self.proposals.pop(plan_id, None)
             require(proposal is not None, "Proposal expired or already applied; create a new proposal", 409)
             require(self.online() and not self.pending, "Runtime must be connected with no pending commands", 409)
-            require(proposal["clientId"] == self.client_id and proposal["revision"] == self.revision
-                    and self.clock() <= proposal["expires"],
+            require(self.proposal_is_current(proposal),
                     "Scene or selection changed; create a new proposal", 409)
             commands = proposal["commands"]
             if commands[0]["op"] == "save_scene":
                 return self.save(commands[0]["name"])
             if commands[0]["op"] == "load_scene":
                 return self.load(commands[0]["name"])
-            return self.queue(commands)
+            return self.queue(commands, ordered=True)
 
 
 def wants_blender_asset(prompt):
@@ -2337,6 +2429,7 @@ def plan(state, body, request_context=None, content_stage=0, progress=None, canc
         require(mode == "codex-cli", "Choose Codex AI on the PC to build a game", 422)
         require(screenshot is None, "Create the game separately from visual review", 422)
         check_cancelled()
+        game_scene_at_request = scene_revision_data(current, include_observed_motion=True)
         if prior_turns:
             current["conversation"] = prior_turns
         try:
@@ -2347,7 +2440,10 @@ def plan(state, body, request_context=None, content_stage=0, progress=None, canc
         with state.lock:
             state.expire()
             require(state.online() and state.client_id == client_id and state.revision == revision
-                    and not state.pending, "Scene changed during game planning; try again", 409)
+                    and not state.pending and
+                    game_scene_at_request ==
+                    scene_revision_data(state.latest, include_observed_motion=True),
+                    "Scene changed during game planning; try again", 409)
         if game["kind"] == "unsupported":
             return {"status": "needs_clarification", "requiresApply": False,
                     "commands": [], "summary": game["summary"]}
@@ -2449,13 +2545,47 @@ def plan(state, body, request_context=None, content_stage=0, progress=None, canc
         checked = [command(item) for item in values]
         require(all(item["op"] not in {"load", "confirm_room"} for item in checked),
                 "Planner cannot invent a scene document or confirm physical alignment", 502)
+    # The finite offline grammar can name a selected object or an explicit
+    # command target. An AI/visual/voice proposal can depend on any actor pose,
+    # including references not visible in its final command shape. Keep those
+    # strict until the planner has a trusted dependency contract.
+    independent_offline = (proposed.get("mode") == "offline-rules" and
+                           screenshot is None and not experiment and
+                           all(item["op"] in {"spawn", "select", "duplicate", "delete",
+                                               "set_transform", "set_behavior", "remove_behavior"}
+                               for item in checked))
+    motion_dependencies = resident_motion_dependencies(current, checked,
+                                                       strict=not independent_offline)
+    # A resident may move after Apply but before the browser receives the
+    # queued command. Carry the captured pose into the runtime command so the
+    # executor can return a failed receipt instead of editing a later pose.
+    # Planner output cannot provide or override this server-derived condition.
+    expected_poses = copy.deepcopy(motion_dependencies)
+    for item in checked:
+        object_id = item.get("objectId")
+        if item["op"] in RESIDENT_PRECONDITION_OPS and object_id in expected_poses:
+            item["expectedTransform"] = copy.deepcopy(expected_poses[object_id])
+            if item["op"] == "set_transform":
+                # Commands are delivered in order. The desktop virtual floor
+                # preserves this validated transform exactly, so a subsequent
+                # command must expect the pose produced by this one.
+                expected_poses[object_id] = copy.deepcopy(item["transform"])
+        if item["op"] == "attach_component" and item["targetObjectId"] in expected_poses:
+            # The component may bind a static source to a moving resident.
+            # Its target pose is a dependency even when objectId is unrelated.
+            item["expectedTargetTransform"] = copy.deepcopy(expected_poses[item["targetObjectId"]])
     with state.lock:
         state.expire()
         require(state.online() and state.client_id == client_id and state.revision == revision
                 and not state.pending, "Scene changed during planning; try again", 409)
+        candidate = {"clientId": client_id, "revision": revision,
+                     "expires": state.clock() + 120,
+                     "commands": copy.deepcopy(checked),
+                     "motionDependencies": motion_dependencies}
+        require(state.proposal_is_current(candidate),
+                "Resident pose changed during planning; try again", 409)
         plan_id = uuid.uuid4().hex
-        state.proposals[plan_id] = {"clientId": client_id, "revision": revision,
-                                    "expires": state.clock() + 120, "commands": copy.deepcopy(checked)}
+        state.proposals[plan_id] = candidate
         while len(state.proposals) > 16:
             state.proposals.popitem(last=False)
     result = {**proposed, "commands": checked, "planId": plan_id, "requiresApply": True}
@@ -2515,15 +2645,15 @@ def voice_status(state, job_id=None):
         require(job is not None, "Voice request not found", 404)
         if job["public"]["phase"] == "ready" and "gamePlan" in job["public"]:
             if (not state.online() or state.client_id != job["clientId"] or state.revision != job["revision"]
-                    or state.clock() > job.get("gameExpires", 0)):
+                    or state.clock() > job.get("gameExpires", 0) or
+                    not resident_motion_current(state.latest, job.get("motionDependencies", {}))):
                 job["public"].update(phase="error", requiresApply=False,
                                      error="World changed or game proposal expired. Speak again.")
         elif job["public"]["phase"] == "ready" and job["public"].get("planId") not in state.proposals:
             job["public"].update(phase="finished", requiresApply=False)
         if job["public"]["phase"] == "ready" and "gamePlan" not in job["public"]:
             proposal = state.proposals[job["public"]["planId"]]
-            if (not state.online() or state.client_id != job["clientId"] or state.revision != job["revision"]
-                    or state.clock() > proposal["expires"]):
+            if not state.proposal_is_current(proposal):
                 state.proposals.pop(job["public"]["planId"], None)
                 job["public"].update(phase="error", requiresApply=False, error="Scene or selection changed, or proposal expired. Speak again.")
         return copy.deepcopy(job["public"])
@@ -2553,7 +2683,8 @@ def start_voice(state, body):
         state.expire()
         require(state.online() and state.client_id == client_id, "Voice client is not connected", 409)
         require(not state.pending, "Wait for queued commands before speaking", 409)
-        require(scene_revision_data(captured) == scene_revision_data(state.latest),
+        require(scene_revision_data(captured, include_observed_motion=True) ==
+                scene_revision_data(state.latest, include_observed_motion=True),
                 "Scene or selection changed while recording; point and speak again", 409)
         voice_capture_id = state.voice_capture_id
         voice_screenshot = None
@@ -2565,7 +2696,9 @@ def start_voice(state, body):
         public = {"jobId": job_id, "phase": "transcribing", "transcript": "", "requiresApply": False}
         if voice_screenshot is not None:
             public["screenshot"] = {key: value for key, value in voice_screenshot.items() if key != "dataBase64"}
-        job = {"public": public, "clientId": client_id, "revision": state.revision, "cancelled": False}
+        job = {"public": public, "clientId": client_id, "revision": state.revision,
+               "motionDependencies": resident_motion_dependencies(captured, strict=True),
+               "cancelled": False}
         state.voice_jobs[job_id] = job
         while len(state.voice_jobs) > 4:
             _, old = state.voice_jobs.popitem(last=False)

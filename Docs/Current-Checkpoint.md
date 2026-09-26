@@ -1,5 +1,54 @@
 # Matrix Operator checkpoints
 
+## Live Citizens revisions and interaction clearance candidate (September 26, 2026)
+
+The `codex/citizens-live-revisions` branch builds on the selected-furniture
+[PR #104](https://github.com/School-of-the-Ancients/matrix-loading-operator/pull/104)
+for a narrow [#13A](https://github.com/School-of-the-Ancients/matrix-loading-operator/issues/13)
+and [#15](https://github.com/School-of-the-Ancients/matrix-loading-operator/issues/15)
+slice. The ordinary `/web/` runtime advertises its active Citizens orb IDs and
+an authored scene generation in the PC snapshot. The PC service retains the
+latest full poses but excludes only those residents' observed X/Z motion from
+the broad scene revision. Browser reload, explicit scene edits, selection and
+room changes still advance proposal freshness. The service validates the
+observation marker and derives proposal dependencies itself: a finite offline
+edit to an unrelated object may survive resident motion, while a proposal
+targeting or selecting a resident becomes stale if that actor moves. A queued
+command aimed at a resident also carries its reviewed transform; the browser
+rejects the command if the resident moves before execution. A reviewed command
+batch skips successors with failed receipts when a predecessor fails. AI, image, voice,
+game, capture, and other implicit whole-scene paths keep full-pose freshness
+checks through Apply. Legacy scene-only saves omit the transient marker.
+
+At station use, Citizens checks the current line to the target against measured
+obstacles, and `MatrixWorld.interact` independently refuses an occluded
+receipt. A changed wall cannot yield an unobserved need benefit. This is a
+bounded built-in virtual-floor check, not a general geometry-version or
+affordance system.
+
+The built browser on isolated port **19844** ran two residents while an offline
+pedestal move waited under review from minute 550 to 583. Apply returned the
+matching runtime receipt and changed its X position from 3 to 2.8. A second
+proposal aimed at moving Ada was rejected before dispatch. After a named PC
+checkpoint and browser reload, stepping minute 947 to 948 produced the same
+Bo energy change before and after PC restore. In a separate step from that
+checkpoint, a wall inserted between Ada and the chair caused a visible failed
+use at minute 956, no energy gain, and handoff of the chair claim to Bo. The
+clean checkpoint was restored afterward, with five objects and Citizens paused
+at minute 947. The browser reported no errors. [Structured browser evidence](../Validation/citizens-live-revisions-browser.json)
+records IDs and outcomes. The final WebRuntime suite passed **241/241**,
+ControlService passed **672/672**, and Vite built. The final rebuilt page
+reloaded the five-object saved world, stepped from minute 947 to 948, restored
+the named PC checkpoint to minute 947, and reported no browser console errors.
+
+Still open: general navigation geometry readiness/versioning and moving-target
+route invalidation, versioned object affordances, broader motion ownership,
+AI proposals that safely declare narrow spatial dependencies, and Quest wearer
+checks. An AI command inferred from a resident pose can still become stale
+between Apply and browser execution if the command does not target that
+resident; pause Citizens for those paths. This desktop result does not complete
+#13A or #15.
+
 ## Selected existing Citizens furniture candidate (September 26, 2026)
 
 Open [PR #104](https://github.com/School-of-the-Ancients/matrix-loading-operator/pull/104)
