@@ -470,6 +470,18 @@ def validate_citizens_checkpoint(value, checked_scene):
     def shape(item, fields, label):
         require(type(item) is dict and set(item) == set(fields), f"Invalid Citizens {label}")
 
+    def citizens_text(item, field, empty=False, limit=128):
+        # JavaScript String.length counts UTF-16 code units, not Python code
+        # points. Reject unpaired surrogates here, before the UTF-8 digest/write.
+        require(isinstance(item, str) and (empty or bool(item)), f"Invalid {field}")
+        units = 0
+        for char in item:
+            code = ord(char)
+            require(code >= 32 and not 0xd800 <= code <= 0xdfff, f"Invalid {field}")
+            units += 2 if code > 0xffff else 1
+            require(units <= limit, f"Invalid {field}")
+        return item
+
     def integer(item, minimum, maximum):
         return type(item) is int and minimum <= item <= maximum
 
@@ -500,15 +512,17 @@ def validate_citizens_checkpoint(value, checked_scene):
     for resident in residents:
         shape(resident, ("id", "name", "objectId", "needs", "preferences", "activity",
                          "cooldowns", "lastOutcome"), "resident")
-        resident_id = text(resident["id"], "Citizens resident ID", limit=32)
-        text(resident["name"], "Citizens resident name", limit=40)
-        object_id = text(resident["objectId"], "Citizens resident object ID")
-        text(resident["lastOutcome"], "Citizens last outcome", empty=True, limit=160)
+        resident_id = citizens_text(resident["id"], "Citizens resident ID", limit=32)
+        citizens_text(resident["name"], "Citizens resident name", limit=40)
+        object_id = citizens_text(resident["objectId"], "Citizens resident object ID")
+        citizens_text(resident["lastOutcome"], "Citizens last outcome", empty=True, limit=160)
         require(resident_id not in residents_by_id and object_id not in bound_objects,
                 "Duplicate Citizens resident binding")
         obj = scene_objects.get(object_id)
         require(obj is not None and obj["assetId"] == "orb" and obj["anchorId"] == "web-floor" and
-                "physics" not in obj and "component" not in obj,
+                "physics" not in obj and "component" not in obj and
+                not any(behavior["enabled"] and not behavior["paused"]
+                        for behavior in obj.get("behaviors", [])),
                 "Citizens resident object is missing or incompatible")
         for field, minimum, maximum in (("needs", 0, 100), ("preferences", .2, 2)):
             expected = ("hunger", "energy", "fun") if field == "needs" else ("rest", "eat", "explore")
@@ -532,15 +546,15 @@ def validate_citizens_checkpoint(value, checked_scene):
                         all(number(activity["target"][axis], -5, 5) for axis in ("x", "z")),
                         "Invalid Citizens exploration target")
             else:
-                text(activity["stationId"], "Citizens activity station ID", limit=32)
+                citizens_text(activity["stationId"], "Citizens activity station ID", limit=32)
                 require(activity["target"] is None, "Invalid Citizens activity target")
         residents_by_id[resident_id] = resident
         bound_objects.add(object_id)
 
     for station in stations:
         shape(station, ("id", "kind", "objectId", "capacity", "holder"), "station")
-        station_id = text(station["id"], "Citizens station ID", limit=32)
-        object_id = text(station["objectId"], "Citizens station object ID")
+        station_id = citizens_text(station["id"], "Citizens station ID", limit=32)
+        object_id = citizens_text(station["objectId"], "Citizens station object ID")
         kind = station["kind"]
         require(kind in ("rest", "eat") and kind not in station_kinds and
                 station_id not in stations_by_id and object_id not in bound_objects and
@@ -548,7 +562,10 @@ def validate_citizens_checkpoint(value, checked_scene):
                 "Invalid Citizens station or duplicate binding")
         obj = scene_objects.get(object_id)
         require(obj is not None and obj["assetId"] == ("chair" if kind == "rest" else "table") and
-                obj["anchorId"] == "web-floor",
+                obj["anchorId"] == "web-floor" and "physics" not in obj and
+                obj.get("component", {}).get("status") != "running" and
+                not any(behavior["enabled"] and not behavior["paused"]
+                        for behavior in obj.get("behaviors", [])),
                 "Citizens station object is missing or incompatible")
         holder = station["holder"]
         require(holder is None or type(holder) is str and holder in residents_by_id,
@@ -571,8 +588,8 @@ def validate_citizens_checkpoint(value, checked_scene):
 
     for event in events:
         shape(event, ("tick", "residentId", "event", "message"), "log entry")
-        resident_id = text(event["residentId"], "Citizens log resident ID", empty=True, limit=32)
-        text(event["message"], "Citizens log message", empty=True, limit=160)
+        resident_id = citizens_text(event["residentId"], "Citizens log resident ID", empty=True, limit=32)
+        citizens_text(event["message"], "Citizens log message", empty=True, limit=160)
         require(integer(event["tick"], 0, value["clockTick"]) and
                 (not resident_id or resident_id in residents_by_id) and
                 event["event"] in ("selected", "blocked", "arrived", "completed", "failed",

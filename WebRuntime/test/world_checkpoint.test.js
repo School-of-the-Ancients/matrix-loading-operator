@@ -69,6 +69,23 @@ test('PC restore clears Citizens on success and rolls them back on failed exchan
   assert.deepEqual(storedWorld(world),checkpoint);
 });
 
+test('PC restore can repair a missing Citizens chair and still roll back a failed exchange',async()=>{
+  const world=new MatrixWorld(()=>crypto.randomUUID().replaceAll('-',''));
+  const simulation=createCitizensDemo(world,{seed:47});
+  world.citizens=simulation.snapshot();
+  const checkpoint=storedWorld(world);
+  const chairId=world.citizens.stations.find(station=>station.kind==='rest').objectId;
+  assert.equal(world.execute({requestId:'external-delete',op:'delete',objectId:chairId}).ok,true);
+  const invalidScene=structuredClone(world.scene),invalidCitizens=structuredClone(world.citizens);
+  assert.throws(()=>storedWorld(world),/missing or incompatible/);
+  await assert.rejects(applyPCWorld(world,checkpoint,async()=>{throw Error('exchange rejected');}),
+    /exchange rejected/);
+  assert.deepEqual(world.scene,invalidScene);
+  assert.deepEqual(world.citizens,invalidCitizens);
+  await applyPCWorld(world,checkpoint,async()=>{});
+  assert.deepEqual(storedWorld(world),checkpoint);
+});
+
 test('invalid PC checkpoint cannot replace a browser world',async()=>{
   const world=current(),before=storedWorld(world),missing=saved();
   missing.scene.objects[0].assetId='web:missing';

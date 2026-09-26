@@ -22,6 +22,11 @@ const sameTransform=(a,b)=>a&&b&&['position','rotation','scale'].every(part=>
   ['x','y','z'].every(axis=>a[part]?.[axis]===b[part]?.[axis]));
 const objectById=(world,id)=>world.scene.objects.find(object=>object.objectId===id);
 const positionOf=(world,id)=>objectById(world,id)?.transform?.position;
+// Running components and behaviors can move the rendered object without
+// changing its authored transform. Citizens must not navigate to that stale pose.
+const hasActiveTransformOwner=object=>!!(object?.physics||
+  object?.component?.status==='running'||
+  object?.behaviors?.some(behavior=>behavior.enabled&&!behavior.paused));
 
 function assertWorld(world){
   if(!world||typeof world.execute!=='function'||world.scene?.schemaVersion!==1||
@@ -71,7 +76,8 @@ function validState(world,state){
          integer(resident.cooldowns[key],0,1000000012))||
        !boundedText(resident.lastOutcome,160))throw Error('Invalid Citizens resident');
     const object=objectById(world,resident.objectId);
-    if(object?.assetId!=='orb'||object.anchorId!==ANCHOR_ID||object.physics||object.component)
+    if(object?.assetId!=='orb'||object.anchorId!==ANCHOR_ID||object.component||
+       hasActiveTransformOwner(object))
       throw Error('Citizens resident object is missing or incompatible');
     residentIds.add(resident.id);objectIds.add(resident.objectId);
   }
@@ -85,7 +91,7 @@ function validState(world,state){
       throw Error('Invalid Citizens station');
     const object=objectById(world,station.objectId);
     if(object?.assetId!==(station.kind==='rest'?'chair':'table')||
-       object.anchorId!==ANCHOR_ID)
+       object.anchorId!==ANCHOR_ID||hasActiveTransformOwner(object))
       throw Error('Citizens station object is missing or incompatible');
     stationIds.add(station.id);stationKinds.add(station.kind);objectIds.add(station.objectId);
   }
@@ -190,8 +196,10 @@ export class CitizensSimulation {
       ...this.state.stations.map(station=>['station',station])]){
       const object=objectById(this.world,bound.objectId);
       const compatible=kind==='resident'
-        ?object?.assetId==='orb'&&object.anchorId===ANCHOR_ID&&!object.physics&&!object.component
-        :object?.assetId===(bound.kind==='rest'?'chair':'table')&&object.anchorId===ANCHOR_ID;
+        ?object?.assetId==='orb'&&object.anchorId===ANCHOR_ID&&!object.component&&
+          !hasActiveTransformOwner(object)
+        :object?.assetId===(bound.kind==='rest'?'chair':'table')&&
+          object.anchorId===ANCHOR_ID&&!hasActiveTransformOwner(object);
       if(!compatible){
         if(!this.invalidBindings.has(bound.objectId)){
           this.interruptBinding(kind,bound,`${bound.name||bound.id} is missing or incompatible`);
@@ -259,7 +267,7 @@ export class CitizensSimulation {
   requestMove(resident,target){
     const object=objectById(this.world,resident.objectId);
     if(!object||object.anchorId!==ANCHOR_ID)return {ok:false,error:'resident object is missing'};
-    if(object.physics||object.component||object.behaviors?.some(behavior=>behavior.enabled&&!behavior.paused))
+    if(object.component||hasActiveTransformOwner(object))
       return {ok:false,error:'resident transform is owned by another runtime capability'};
     const current=object.transform.position;
     const gap=distance(current,target);

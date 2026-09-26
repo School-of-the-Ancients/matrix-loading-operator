@@ -9,20 +9,25 @@ explicit opt-in on an empty virtual floor. They use the page's existing
 named PC world checkpoint. Active Citizens use a validated version 3 world
 envelope; existing version 2 scene/game saves remain compatible. A staged
 restore checks resident/station IDs and reservations before replacing the
-active scene. Authored bound-object moves cancel affected activity and pause
-the simulation; missing bindings block invalid saves while retaining the last
-valid browser copy. [Runbook and limits](Citizens-Shared-World.md).
+active scene. Authored bound-object moves and active station transform owners
+cancel affected activity and pause the simulation. Missing bindings block
+invalid saves while retaining the last valid browser copy. AR entry cancels
+active reservations before the desktop simulation detaches.
+[Runbook and limits](Citizens-Shared-World.md).
 
-The combined WebRuntime suite passed **165/165**, the Vite build passed, and
-ControlService Python tests passed **645/645**. In Chrome **153.0.8010.53** on
+The combined WebRuntime suite passed **170/170**, the Vite build passed, and
+ControlService Python tests passed **647/647**. In Chrome **153.0.8010.53** on
 an isolated built service, 45 manual ticks showed both residents acting and
 four chair-contention log entries. Browser close/reopen matched the scene and
 Citizens state; a PC checkpoint restored minute 45 after the browser advanced
 to minute 46, then replay matched the earlier minute-46 scene and state. The
 named PC checkpoint also restored after a restart of the isolated service. A
-queued chair deletion paused Citizens and kept the previous
-valid browser save. [Browser evidence](../Validation/citizens-shared-world-evidence.json)
-and [recovery evidence](../Validation/citizens-shared-world-edit-evidence.json)
+queued chair deletion paused Citizens and kept the previous valid browser save;
+the valid PC checkpoint then repaired that live scene. An active behavior on a
+reserved chair released its claim and blocked invalid persistence until Undo.
+[Browser evidence](../Validation/citizens-shared-world-evidence.json),
+[PC recovery evidence](../Validation/citizens-shared-world-recovery-restore-evidence.json),
+and [transform-owner evidence](../Validation/citizens-transform-owner-evidence.json)
 are recorded. No headset simulation or Quest performance budget is claimed.
 
 Next: review the stacked checkpoint PR and its parent PR #100, then bind

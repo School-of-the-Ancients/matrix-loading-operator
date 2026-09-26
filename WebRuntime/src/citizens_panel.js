@@ -34,6 +34,11 @@ export class CitizensPanel {
     if(this.world.spatial){
       if(this.simulation){
         this.simulation.pause();
+        // The AR session can move virtual-floor objects while this simulation
+        // has no live transform baseline. Cancel intentions before detaching it.
+        for(const resident of this.simulation.state.residents)
+          if(resident.activity)this.simulation.fail(resident,
+            'entering AR cancelled the current activity');
         this.world.citizens=this.simulation.snapshot();
         this.boundState=this.world.citizens;
         this.simulation=null;
@@ -64,7 +69,7 @@ export class CitizensPanel {
           this.onFeedback('Citizens paused after an external world edit. Inspect the log before resuming.');
         }
         this.error=this.simulation.invalidBindings.size?
-          'A Citizens object is missing or incompatible. Undo the edit, or stop Citizens to keep the edited scene. The last valid browser save was kept.':'';
+          'A Citizens object is missing or incompatible. Undo the edit, restore a valid PC world, or stop Citizens to keep the edited scene. The last valid browser save was kept.':'';
       }catch(error){
         this.simulation.pause();
         this.world.citizens=this.simulation.snapshot();
@@ -152,7 +157,7 @@ export class CitizensPanel {
     if(performance.now()>this.stopArmedUntil)byId('citizens-stop').textContent='Stop Citizens';
     byId('citizens-status').textContent=this.error||(
       state?`${state.paused?'Paused':'Running'} · minute ${state.clockTick} · seed ${state.seed}`:
-        this.world.citizens?'Citizens state needs recovery. Undo the edit or stop Citizens.':
+        this.world.citizens?'Citizens state needs recovery. Undo the edit, restore a valid PC world, or stop Citizens.':
           blocked||'No Citizens in this world. Start a seeded scenario on this empty virtual floor.');
     byId('citizens-toggle').textContent=state?.paused?'Run':'Pause';
     const cards=[];

@@ -216,6 +216,68 @@ test('an authored station move cancels the holder before an interaction complete
     entry.message.includes('chair was moved externally')));
 });
 
+test('a running station component cancels its reservation and cannot be checkpointed',()=>{
+  const matrix=world(),sim=createCitizensDemo(matrix,{seed:17});
+  const before=sim.step();
+  const chair=before.stations.find(station=>station.kind==='rest');
+  const bo=before.residents.find(resident=>resident.id==='bo');
+  const energy=before.residents.find(resident=>resident.id==='ada').needs.energy;
+  const drift={schemaVersion:1,name:'Drift',outputs:{
+    'position.x':{op:'add',args:[{op:'self',path:'position.x'},{op:'const',value:1}]}}};
+  assert.equal(matrix.execute({requestId:'move-chair-component',op:'attach_component',
+    objectId:chair.objectId,targetObjectId:bo.objectId,
+    componentId:'webcomp:drift:0123456789ab',package:drift}).ok,true);
+  const after=sim.reconcileWorld();
+  assert.equal(after.paused,true);
+  assert.equal(after.clockTick,before.clockTick);
+  assert.equal(after.stations.find(station=>station.kind==='rest').holder,null);
+  assert.equal(after.residents.find(resident=>resident.id==='ada').activity,null);
+  assert.equal(after.residents.find(resident=>resident.id==='ada').needs.energy,energy);
+  assert.throws(()=>sim.exportState(),/binding is missing or incompatible/);
+  assert.throws(()=>CitizensSimulation.restore(matrix,before),/station object is missing or incompatible/);
+  assert.equal(matrix.execute({requestId:'stop-chair-component',op:'stop_component',
+    objectId:chair.objectId}).ok,true);
+  sim.reconcileWorld();
+  assert.equal(sim.exportState().stations.find(station=>station.kind==='rest').holder,null,
+    'a stopped component is no longer moving the visible station');
+});
+
+test('an active station behavior interrupts its holder while a paused behavior does not',()=>{
+  const matrix=world(),sim=createCitizensDemo(matrix,{seed:17});
+  const chair=sim.snapshot().stations.find(station=>station.kind==='rest');
+  const bob={kind:'bob',enabled:true,paused:true,axis:'y',speedDegreesPerSecond:0,
+    amplitudeMeters:.2,frequencyHz:1};
+  assert.equal(matrix.execute({requestId:'paused-chair-bob',op:'set_behavior',
+    objectId:chair.objectId,behavior:bob}).ok,true);
+  const paused=sim.snapshot();
+  assert.deepEqual(sim.reconcileWorld(),paused);
+  const before=sim.step();
+  assert.equal(before.stations.find(station=>station.kind==='rest').holder,'ada');
+  assert.equal(matrix.execute({requestId:'run-chair-bob',op:'set_behavior',
+    objectId:chair.objectId,behavior:{...bob,paused:false}}).ok,true);
+  const after=sim.reconcileWorld();
+  assert.equal(after.paused,true);
+  assert.equal(after.clockTick,before.clockTick);
+  assert.equal(after.stations.find(station=>station.kind==='rest').holder,null);
+  assert.equal(after.residents.find(resident=>resident.id==='ada').activity,null);
+  assert.throws(()=>sim.exportState(),/binding is missing or incompatible/);
+});
+
+test('an active resident behavior releases its station before further movement',()=>{
+  const matrix=world(),sim=createCitizensDemo(matrix,{seed:17});
+  const before=sim.step(),ada=before.residents.find(resident=>resident.id==='ada');
+  const bob={kind:'bob',enabled:true,paused:false,axis:'y',speedDegreesPerSecond:0,
+    amplitudeMeters:.2,frequencyHz:1};
+  assert.equal(matrix.execute({requestId:'run-ada-bob',op:'set_behavior',
+    objectId:ada.objectId,behavior:bob}).ok,true);
+  const after=sim.reconcileWorld();
+  assert.equal(after.paused,true);
+  assert.equal(after.clockTick,before.clockTick);
+  assert.equal(after.residents.find(resident=>resident.id==='ada').activity,null);
+  assert.equal(after.stations.find(station=>station.kind==='rest').holder,null);
+  assert.equal(after.residents.find(resident=>resident.id==='ada').needs.energy,ada.needs.energy);
+});
+
 test('restore rejects corrupt reservation and wrong room without changing Matrix scene',()=>{
   const matrix=world();
   const sim=createCitizensDemo(matrix,{seed:4});

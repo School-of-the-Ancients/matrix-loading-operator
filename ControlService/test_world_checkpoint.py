@@ -167,6 +167,103 @@ class WorldCheckpointTests(unittest.TestCase):
             self.state.load_world_checkpoint("Citizens")
         self.assertEqual(self.state.latest, before_runtime)
 
+    def test_citizens_strings_use_utf16_limits_and_reject_surrogates_before_digest(self):
+        world = self.citizens_world()
+        face = "\U0001f642"
+        world["citizens"]["residents"][0]["name"] = face * 20  # 40 UTF-16 units.
+        world["citizens"]["residents"][0]["lastOutcome"] = face * 80
+        world["citizens"]["log"][0]["message"] = face * 80
+        self.assertTrue(self.state.save_world_checkpoint("UnicodeCitizens", world)["saved"])
+        path = self.scenes / "world_checkpoints" / "UnicodeCitizens.json"
+        before_bytes = path.read_bytes()
+        before_runtime = copy.deepcopy(self.state.latest)
+        cases = (
+            ("astral name over 40 units", lambda item: item["citizens"]["residents"][0].update(
+                name=face * 21)),
+            ("astral outcome over 160 units", lambda item: item["citizens"]["residents"][0].update(
+                lastOutcome=face * 81)),
+            ("astral log over 160 units", lambda item: item["citizens"]["log"][0].update(
+                message=face * 81)),
+            ("lone high surrogate", lambda item: item["citizens"]["residents"][0].update(
+                name="\ud800")),
+            ("lone low surrogate", lambda item: item["citizens"]["log"][0].update(
+                message="\udfff")),
+        )
+        for label, mutate in cases:
+            with self.subTest(label=label):
+                invalid = copy.deepcopy(world)
+                mutate(invalid)
+                with patch("server.world_checkpoint_digest", side_effect=AssertionError("digest called")) as digest:
+                    with self.assertRaisesRegex(APIError, "Invalid Citizens"):
+                        self.state.save_world_checkpoint("UnicodeCitizens", invalid)
+                    digest.assert_not_called()
+                self.assertEqual(path.read_bytes(), before_bytes)
+                self.assertEqual(self.state.latest, before_runtime)
+
+    def test_citizens_bound_motion_owner_rejects_save_and_load(self):
+        world = self.citizens_world()
+        self.state.save_world_checkpoint("Citizens", world)
+        path = self.scenes / "world_checkpoints" / "Citizens.json"
+        before_bytes = path.read_bytes()
+        before_runtime = copy.deepcopy(self.state.latest)
+
+        def chair(item):
+            return next(obj for obj in item["scene"]["objects"]
+                        if obj["objectId"] == "citizen-chair")
+
+        def resident(item):
+            return next(obj for obj in item["scene"]["objects"]
+                        if obj["objectId"] == "citizen-ada")
+
+        moving = {"kind": "bob", "enabled": True, "paused": False,
+                  "axis": "y", "speedDegreesPerSecond": 30,
+                  "amplitudeMeters": .05, "frequencyHz": .5}
+
+        def running_component(item):
+            chair(item)["component"] = copy.deepcopy(self.world["scene"]["objects"][2]["component"])
+
+        def active_behavior(item):
+            chair(item)["behaviors"] = [copy.deepcopy(moving)]
+
+        def resident_behavior(item):
+            resident(item)["behaviors"] = [copy.deepcopy(moving)]
+
+        cases = (("running station component", running_component, "station"),
+                 ("active station behavior", active_behavior, "station"),
+                 ("active resident behavior", resident_behavior, "resident"))
+        for label, mutate, kind in cases:
+            with self.subTest(label=label):
+                invalid = copy.deepcopy(world)
+                mutate(invalid)
+                with self.assertRaisesRegex(APIError, f"Citizens {kind} object is missing or incompatible"):
+                    self.state.save_world_checkpoint("Citizens", invalid)
+                self.assertEqual(path.read_bytes(), before_bytes)
+                self.assertEqual(self.state.latest, before_runtime)
+
+                document = json.loads(before_bytes)
+                mutate(document["world"])
+                document["payloadSha256"] = world_checkpoint_digest(
+                    document["world"], document["dependencies"])
+                path.write_text(json.dumps(document), encoding="utf-8")
+                with self.assertRaisesRegex(APIError, f"Citizens {kind} object is missing or incompatible"):
+                    self.state.load_world_checkpoint("Citizens")
+                self.assertEqual(self.state.latest, before_runtime)
+                path.write_bytes(before_bytes)
+
+        for label, mutate in (("stopped component", lambda item: chair(item).update(
+                component={**copy.deepcopy(self.world["scene"]["objects"][2]["component"]),
+                           "status": "stopped"})),
+                              ("paused behavior", lambda item: chair(item).update(
+                                  behaviors=[{**moving, "paused": True}]))):
+            with self.subTest(label=label):
+                inactive = copy.deepcopy(world)
+                mutate(inactive)
+                current = copy.deepcopy(before_runtime)
+                current["scene"] = copy.deepcopy(inactive["scene"])
+                self.state.exchange({"clientId": "browser", "snapshot": current, "results": []})
+                self.assertTrue(self.state.save_world_checkpoint(
+                    "InactiveStation", inactive)["saved"])
+
     def test_restart_restores_exact_ids_game_progress_component_and_animation(self):
         saved = self.state.save_world_checkpoint("Demo", self.world)
         self.assertEqual(saved["dependencies"],
