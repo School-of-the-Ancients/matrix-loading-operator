@@ -35,3 +35,74 @@ test('Codex panel shows voice phases and returns to the first page for new feedb
     else globalThis.document=previousDocument;
   }
 });
+
+test('completed Codex transcript stays on its page through background Operator updates',()=>{
+  const drawn=[];
+  const context={
+    fillRect(){},strokeRect(){},
+    fillText(value){drawn.push(String(value));},
+    measureText(value){return {width:String(value).length*14};},
+  };
+  const previousDocument=globalThis.document;
+  globalThis.document={createElement:kind=>{
+    assert.equal(kind,'canvas');return {width:0,height:0,getContext:()=>context};
+  }};
+  try{
+    const panel=operatorPanel();panel.toggleAgent();
+    const longContent=Array(220).fill('conversation').join(' ');
+    const agent={activity:'Completed',content:longContent,pending:false,
+      approvalReviewable:false,active:false,connected:true,voiceStatus:'',latestTurnId:'turn-one'};
+    panel.setAgentStatus(agent);
+    panel.nextPage();
+    assert.ok(drawn.some(text=>text.startsWith('Page 2/')));
+    for(let poll=0;poll<3;poll++){
+      drawn.length=0;
+      panel.setMessage('Operator connected. Aim at the panel and hold trigger.');
+      panel.setProposal(null);
+      panel.setAgentStatus({...agent,content:`${longContent} ${'more '.repeat(poll+1)}`});
+      assert.ok(drawn.some(text=>text.startsWith('Page 2/')),
+        'background exchange and transcript redraw must not return to page one');
+    }
+    drawn.length=0;
+    panel.setAgentStatus({...agent,latestTurnId:'turn-two'});
+    assert.ok(drawn.some(text=>text.startsWith('Page 1/')),
+      'a new Codex turn should reveal its first page');
+  }finally{
+    if(previousDocument===undefined)delete globalThis.document;
+    else globalThis.document=previousDocument;
+  }
+});
+
+test('WORLD page keeps checkpoint feedback visible through ordinary redraws',()=>{
+  const drawn=[];
+  const context={
+    fillRect(){},strokeRect(){},
+    fillText(text,x,y){drawn.push({text:String(text),y,color:this.fillStyle});},
+    measureText(text){return {width:String(text).length*14};},
+  };
+  const previousDocument=globalThis.document;
+  globalThis.document={createElement:kind=>{
+    assert.equal(kind,'canvas');return {width:0,height:0,getContext:()=>context};
+  }};
+  try{
+    const panel=operatorPanel();panel.toggleWorld();
+    const notice=()=>drawn.find(item=>item.y===317);
+    panel.setWorldNotice('Saved in browser · saving PC scene backup…','pending');
+    assert.deepEqual(notice(),{text:'Saved in browser · saving PC scene backup…',y:317,color:'#dff7f8'});
+    drawn.length=0;
+    panel.setWorldInfo({objects:2,alignment:'Virtual room',canConfirm:false});
+    assert.equal(notice().text,'Saved in browser · saving PC scene backup…');
+    drawn.length=0;
+    panel.setMessage('Operator connected');
+    assert.equal(notice().text,'Saved in browser · saving PC scene backup…');
+    drawn.length=0;
+    panel.setWorldNotice('Saved in browser · PC scene backup failed.','error');
+    assert.deepEqual(notice(),{text:'Saved in browser · PC scene backup failed.',y:317,color:'#ffad8d'});
+    drawn.length=0;
+    panel.setWorldNotice('Browser world checkpoint restored.');
+    assert.deepEqual(notice(),{text:'Browser world checkpoint restored.',y:317,color:'#75f4df'});
+  }finally{
+    if(previousDocument===undefined)delete globalThis.document;
+    else globalThis.document=previousDocument;
+  }
+});

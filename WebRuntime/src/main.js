@@ -477,29 +477,50 @@ async function confirmRoom(){
   if(result)view.setOperatorStatus('Room alignment confirmation queued. Wait for the runtime receipt.');
 }
 async function saveWorld(){
-  if(world.spatial?.originUnavailable){feedback('Recover the saved room origin before replacing a world checkpoint.',true);return;}
+  if(world.spatial?.originUnavailable){
+    feedback('Recover the saved room origin before replacing a world checkpoint.',true);
+    view.setOperatorWorldNotice('Save blocked: recover the room origin.','error');return;
+  }
   const value=storedWorld(world);
   const warning=saveCheckpoint(value.scene,value.game,localStorage);
-  if(warning){feedback(warning,true);return;}
+  if(warning){feedback(warning,true);view.setOperatorWorldNotice('Browser checkpoint failed.','error');return;}
+  view.setOperatorWorldNotice('Saved in browser · saving PC scene backup…','pending');
   const name=`WebWorld_${new Date().toISOString().replace(/[-:T.Z]/g,'').slice(0,14)}`;
-  try{await bridge.request('/api/save',{name});feedback(`World checkpoint saved in this browser. Scene-only PC backup: ${name}.`);refreshScenes();}
-  catch(error){feedback(`World checkpoint saved in this browser. PC scene backup failed: ${error.message}`,true);}
+  try{
+    await bridge.request('/api/save',{name});
+    view.setOperatorWorldNotice('Saved in browser · PC scene backup saved.');
+    feedback(`World checkpoint saved in this browser. Scene-only PC backup: ${name}.`);refreshScenes();
+  }catch(error){
+    view.setOperatorWorldNotice('Saved in browser · PC scene backup failed.','error');
+    feedback(`World checkpoint saved in this browser. PC scene backup failed: ${error.message}`,true);
+  }
 }
 function restoreWorld(){
-  if(world.spatial?.originUnavailable){feedback('Recover the saved room origin before restoring a checkpoint.',true);return;}
+  if(world.spatial?.originUnavailable){
+    feedback('Recover the saved room origin before restoring a checkpoint.',true);
+    view.setOperatorWorldNotice('Restore blocked: recover the room origin.','error');return;
+  }
   const checkpoint=loadCheckpoint(localStorage);
-  if(!checkpoint){feedback('No manual world checkpoint is saved in this browser.',true);return;}
+  if(!checkpoint){
+    feedback('No manual world checkpoint is saved in this browser.',true);
+    view.setOperatorWorldNotice('No browser checkpoint to restore.','error');return;
+  }
   if(performance.now()>=restoreArmedUntil){
     restoreArmedUntil=performance.now()+10000;updateWorldControls();
-    feedback('Tap Confirm Restore within ten seconds to replace the current scene.');return;
+    feedback('Tap Confirm Restore within ten seconds to replace the current scene.');
+    view.setOperatorWorldNotice('Tap CONFIRM RESTORE within 10 seconds.','pending');return;
   }
   restoreArmedUntil=0;
   try{
     restoreStoredWorld(world,checkpoint);
     discardProposal();
     renderScene();feedback('World checkpoint restored in this browser.');
+    view.setOperatorWorldNotice('Browser world checkpoint restored.');
     view.setOperatorStatus('World checkpoint restored.');
-  }catch(error){feedback(`Checkpoint could not be restored: ${error.message}`,true);}
+  }catch(error){
+    feedback(`Checkpoint could not be restored: ${error.message}`,true);
+    view.setOperatorWorldNotice('Browser checkpoint restore failed.','error');
+  }
 }
 async function savePCWorld(){
   const name=$('world-save-name').value.trim();

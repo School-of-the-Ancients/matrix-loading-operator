@@ -83,6 +83,68 @@ test('version 2 saves and restores scene, bindings, score and win progress toget
   assert.equal(reopened.game.state.phase,'won');
 });
 
+test('animated GLB physics saves authored state but needs a new verified run after restart or AR',()=>{
+  const tab=storage(),durable=storage(),sha='f'.repeat(64);
+  const asset={assetId:`web:restored-drop:${sha.slice(0,12)}`,displayName:'Animated drop',
+    description:'Imported animated GLB',spawnScale:1,sha256:sha,byteLength:1024,
+    url:`/api/web/assets/${sha}.glb`,geometry:{animationClips:[
+      {name:'Flight',durationSeconds:1},{name:'Frost Burst',durationSeconds:1}]}};
+  const transform={position:{x:0,y:2,z:-2},rotation:{x:0,y:0,z:0},
+    scale:{x:1,y:1,z:1}};
+  const animation={loopClip:'Flight',selectClip:'Frost Burst'};
+  const physics={schemaVersion:1,kind:'gravity-floor',collider:'rendered-bounds-box',
+    restitution:0};
+  const measuredSize={x:1,y:1,z:1},objectId='restored-drop';
+  const setPhysics=(world,requestId)=>world.execute({requestId,op:'set_physics',
+    objectId,physics});
+  const original=new MatrixWorld(()=>objectId);
+  original.registerAssets([asset]);
+  assert.equal(original.execute({requestId:'spawn',op:'spawn',assetId:asset.assetId,
+    anchorId:'web-floor',transform}).ok,true);
+  assert.equal(original.execute({requestId:'animate',op:'bind_animation',objectId,
+    ...animation}).ok,true);
+  assert.equal(original.verifyPhysicsAsset(asset.assetId,measuredSize,objectId),true);
+  assert.equal(setPhysics(original,'first-run').ok,true);
+  for(let frame=0;frame<90;frame++)original.advancePhysics(1/60);
+  assert.equal(original.physicsState(objectId).status,'settled');
+  assert.equal(original.physicsState(objectId).position.y,0);
+  assert.equal(original.scene.objects[0].transform.position.y,2);
+
+  assert.equal(saveStoredWorld(storedWorld(original),tab,durable),'');
+  const saved=JSON.parse(durable.getItem(WORLD_KEY));
+  assert.equal(saved.scene.objects[0].objectId,objectId);
+  assert.deepEqual(saved.scene.objects[0].animation,animation);
+  assert.deepEqual(saved.scene.objects[0].physics,physics);
+  assert.equal(saved.scene.objects[0].transform.position.y,2);
+  assert.equal(Object.hasOwn(saved,'physicsStates'),false);
+
+  const reopened=new MatrixWorld();
+  reopened.registerAssets([asset]); // Startup registers the catalog before restoring its objects.
+  const restored=restoreBestStoredWorld(reopened,loadStoredWorld(storage(),durable),durable);
+  assert.equal(restored.state,'restored');
+  assert.deepEqual(reopened.scene,saved.scene);
+  assert.deepEqual(reopened.snapshot().physicsStates,[]);
+  assert.match(setPhysics(reopened,'before-verification').error,/verified/);
+  reopened.advancePhysics(1);
+  assert.equal(reopened.physicsState(objectId),null);
+  assert.equal(reopened.scene.objects[0].transform.position.y,2);
+
+  assert.equal(reopened.verifyPhysicsAsset(asset.assetId,measuredSize,objectId),true);
+  assert.equal(setPhysics(reopened,'second-run').ok,true);
+  assert.equal(reopened.physicsState(objectId).executionId,'second-run');
+  for(let frame=0;frame<90;frame++)reopened.advancePhysics(1/60);
+  assert.equal(reopened.physicsState(objectId).status,'settled');
+
+  reopened.enterAR();
+  assert.deepEqual(reopened.snapshot().physicsStates,[]);
+  assert.match(setPhysics(reopened,'in-ar').error,/white room/);
+  reopened.leaveAR();
+  assert.deepEqual(reopened.scene.objects[0].animation,animation);
+  assert.deepEqual(reopened.scene.objects[0].physics,physics);
+  assert.equal(reopened.physicsState(objectId),null);
+  assert.match(setPhysics(reopened,'after-ar').error,/verified/);
+});
+
 test('scene-only saves migrate without replacing Matrix object IDs',()=>{
   const tab=storage(),durable=storage(),original=new MatrixWorld(()=> 'kept-id');
   original.execute({requestId:'spawn',op:'spawn',assetId:'orb',anchorId:'web-floor',transform:pose});
