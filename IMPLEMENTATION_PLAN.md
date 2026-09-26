@@ -43,8 +43,9 @@ The current [#19](https://github.com/School-of-the-Ancients/matrix-loading-opera
 candidate strengthens capacity-one reservation lifecycles with execution identities,
 bounded leases, deterministic fair waiting, and cleanup after actor or resource
 removal. Surviving residents continue in Chrome after live deletion, and
-versioned browser/PC saves restore the same event order. The stacked social
-candidate adds a bounded two-resident invitation, seeded accept/decline/timeout
+versioned browser/PC saves restore the same event order. Stacked
+[PR #103](https://github.com/School-of-the-Ancients/matrix-loading-operator/pull/103)
+adds a bounded two-resident invitation, seeded accept/decline/timeout
 outcomes, and a relationship change only after a checked MatrixWorld receipt.
 Binding to selected existing furniture and obstacle-aware navigation remain
 separate [#15](https://github.com/School-of-the-Ancients/matrix-loading-operator/issues/15)

@@ -22,7 +22,7 @@ The usual browser world save carries a version 3 envelope when Citizens is activ
 
 An authored move of a bound resident or station cancels the affected activity or wait, releases its claim, and pauses Citizens. A running station component or active transform behavior also invalidates that binding, so the simulation cannot grant a need benefit at a stale visual position. An incompatible remaining binding blocks invalid browser/PC checkpoint writes; the previous valid browser copy remains available. Undo the edit, restore a valid named PC world checkpoint, or use **Stop Citizens** to keep the edited scene without simulation bindings. Entering AR pauses this desktop simulation and cancels active activities, claims, and queued waits before any AR edits; it remains paused after returning. No Quest simulation acceptance is claimed. Room-origin recovery archives preserve the version 3 virtual world state.
 
-## Bilateral social session candidate (#19)
+## Bilateral social session candidate ([PR #103](https://github.com/School-of-the-Ancients/matrix-loading-operator/pull/103), #19)
 
 The outer scene/game/Citizens world envelope remains version 3. The nested Citizens state is now **`schemaVersion: 3`**. Valid nested v1 and v2 states migrate on browser restore; the PC service accepts all three exact shapes without rewriting an older checkpoint file. V3 adds one bounded active session, matching session IDs on both residents, a bounded event list, a pairwise relationship score, and the next invitation tick. The `/web/` and isolated inspectors show the offer, accepted session, explicit terminal outcome, receipt ID for an observed completion, and relationship score.
 

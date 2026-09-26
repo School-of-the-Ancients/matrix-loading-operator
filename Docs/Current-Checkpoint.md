@@ -2,7 +2,8 @@
 
 ## Bilateral Citizens social session candidate (September 26, 2026)
 
-The `codex/citizens-social-sessions` branch extends the open Citizens PR stack
+Open [PR #103](https://github.com/School-of-the-Ancients/matrix-loading-operator/pull/103)
+(`codex/citizens-social-sessions`) extends the Citizens PR stack
 toward [#19](https://github.com/School-of-the-Ancients/matrix-loading-operator/issues/19).
 It keeps the outer Matrix world checkpoint envelope at version 3 and moves the
 nested Citizens state to schema version 3. Two available residents carry the
