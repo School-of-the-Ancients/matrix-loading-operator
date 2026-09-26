@@ -8,6 +8,8 @@ In the [isolated built `/web/` browser replay](../Validation/citizens-social-nee
 
 This remains a bounded desktop simulation with two residents and reviewed static stations. Broader [#17](https://github.com/School-of-the-Ancients/matrix-loading-operator/issues/17) appointments and interruptible schedules, general [#15](https://github.com/School-of-the-Ancients/matrix-loading-operator/issues/15) moving affordances, and the independent [M4 Quest wearer checks](../WebRuntime/QUEST3_ACCEPTANCE.md) remain open. See the [shared-world runbook](Citizens-Shared-World.md) for setup and replay.
 
+Next useful slice: expose a paused-only editor for the existing bounded resident routine windows and priorities in `/web/`, then verify an edited window changes the next idle choice and survives browser and named PC restore without replacing residents, claims, or Matrix object IDs. Appointment deadlines and interruption policy can follow as separate #17 work.
+
 ## Citizens occupied-chair handoff candidate (September 26, 2026)
 
 Open review: [PR #113](https://github.com/School-of-the-Ancients/matrix-loading-operator/pull/113), stacked on open PR #112.
