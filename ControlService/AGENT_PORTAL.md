@@ -1,8 +1,10 @@
 # Matrix Agent Portal gateway
 
-Issue #59 tracks the WebXR Agent Portal. The PC gateway will connect `/web/` to a
+Issue #59 tracks the WebXR Agent Portal. The PC gateway connects `/web/` to a
 persistent Codex conversation without sending Codex or MCP credentials to the
-browser. The Unity `/` client remains separate.
+browser. The original Unity `/` client remains separate. Start with the
+[repository project map](../PROJECTS.md) and [Web runtime guide](../WebRuntime/README.md)
+for the current product path.
 
 ## Integration decision
 

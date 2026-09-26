@@ -1,6 +1,50 @@
 # Matrix Operator checkpoints
 
-## Quest 3 live catalog and AI review (September 24, 2026)
+## Current Matrix Web snapshot (September 26, 2026)
+
+The current generalized Matrix runtime is the [Three.js/WebXR client](../WebRuntime/README.md)
+at `/web/`, backed by the PC-local ControlService and Codex Agent Portal. The
+[project map](../PROJECTS.md) separates it from the supported original Unity
+apps, Matrix World, and AI Citizens. At this snapshot, `main` contained the
+merged Web stack through [PR #95](https://github.com/School-of-the-Ancients/matrix-loading-operator/pull/95)
+at commit `d367f767`. The earlier
+[v0.6.0-preview.1 release](https://github.com/School-of-the-Ancients/matrix-loading-operator/releases/tag/v0.6.0-preview.1)
+freezes commit `add6e299`; it predates the final merges and is a preserved
+working checkpoint, not this complete source snapshot.
+
+The merged Web stack includes Blender/GLB registration and animation, a
+persistent Codex conversation in the Operator panel, bounded numeric
+components, browser world checkpoints, PC whole-world checkpoints, the
+reviewed Block Scale Lab, bounded vertical drops for eligible imported GLBs,
+typed position/rotation edits to an existing virtual-floor object. [The
+implementation plan](../IMPLEMENTATION_PLAN.md) and [Quest acceptance
+matrix](../WebRuntime/QUEST3_ACCEPTANCE.md) track remaining gates. This is not
+a general rigid-body system or a validated physical-floor collider.
+
+On the merged tree, **643 ControlService Python tests**, **126 WebRuntime Node
+tests**, and the Vite build passed. [The #95 desktop runtime
+check](../Validation/WebRuntime-Typed-Rotation-2026-09-26.md) obtained
+successful spawn, Flight binding, and rotation receipts for the same Ice
+Dragon while its position, scale, asset ID and animation bindings were
+preserved. A separate [Quest VR Agent
+journey](../Validation/WebRuntime-Physics-Checkpoint-Integration-2026-09-25.md#quest-3-agent-and-browser-checkpoint-journey)
+confirmed voice-driven Dragon spawn/Flight, follow-up movement, browser save,
+reopen, and continued conversation. After the CODEX paging fix, the wearer
+confirmed page two of a Completed reply stayed visible. On the merged tree, a
+separate [Quest VR rotation follow-up](../Validation/WebRuntime-Typed-Rotation-2026-09-26.md#quest-vr-agent-follow-up)
+returned a successful typed move receipt and the wearer saw the Dragon turn
+while Flight continued. The wearer also saw the WORLD save notice on that
+merged Quest VR build; the PC scene-only backup appeared. Complete AR
+mode-specific acceptance remains a separate wearer check. No CI checks are
+configured for this repository's PR stack.
+
+## Historical Unity checkpoints
+
+The dated entries below describe earlier native Unity source, APKs, scenes and
+device runs. Their use of “current” reflects the date of each original entry.
+Use a matching source/APK/PC-service release when reproducing them.
+
+### Quest 3 live catalog and AI review (September 24, 2026)
 
 The virtual Quest app and native Matrix AR app both built as ARM64 APKs with 457
 Unity core checks each and were installed on a real Quest 3. The native AR app
@@ -22,13 +66,15 @@ and three virtual JPEGs in `Validation/` separate observed results from gaps.
 The ComfyUI connector currently has no enabled worker or reviewed 360-degree
 workflow in this service; a flat generated image is not yet a VR skybox.
 
-## 4616 miniature world source candidate (September 24, 2026)
+### 4616 miniature world source candidate (September 24, 2026)
 
 The `codex/4616-miniature-world` branch adds 16 original miniature props to the seven bundled assets, bounded two-waypoint motion, and saved selection toggles for the lamp and chest. The Operator discovers the new IDs, bounds, behavior kinds and compatible interactions. The existing reviewed Apply, receipt, Undo and schema-1 save paths remain authoritative. The [inventory and repeatable demo](4616-Miniature-World.md) give the exact scope.
 
 An isolated Windows player and PC service passed 27 end-to-end checks, including one real Codex proposal that did not execute until reviewed Apply. A final post-polish player run passed 24 checks. The Desktop and virtual Quest Unity builds each passed 457 core checks; PC source passed 479 Python tests. [Exact validation](../Validation/miniature-world-validation.json) is separate from headset evidence. ADB found no connected device. The native room-AR build stopped during official Meta XR AIBlocks import when Bee received `Access is denied`, before application compilation and APK output. Do not treat the virtual Quest APK as AR acceptance. This candidate needs the native build and intended Quest/table rehearsal before the September 29 demo.
 
-## Current candidate: Quest 3 capture and content catalogs
+<a id="current-candidate-quest-3-capture-and-content-catalogs"></a>
+
+### Historical Unity candidate: Quest 3 capture and content catalogs
 
 Branch **`codex/quest3-capture-content-catalogs`**, based on merged checkpoint
 **`67e3ffe`**. The candidate adds an explicit Quest 3 physical-camera capture path,
@@ -83,7 +129,7 @@ Static packs do not add arbitrary scripts, downloaded animation clips or runtime
 skyboxes. After an app restart, explicitly reinstall the matching pack before
 restoring a saved scene that uses it; verified cached bytes can be reused.
 
-## Historical: rendered scene feedback before this candidate
+### Historical: rendered scene feedback before this candidate
 
 Previous increment: **[Rendered scene feedback](Visual-Feedback.md)** for issue [#8](https://github.com/School-of-the-Ancients/matrix-loading-operator/issues/8), on `codex/rendered-scene-feedback` from merged `main` commit `80cf846`. Explicit PC capture/preview and typed/next-voice image inclusion are implemented with a matching snapshot/session/revision, bounded JPEG transfer, truthful AR disclosure, supported Codex model checks, read-only image reviews, and existing reviewed edits/undo. The isolated actual graphical Windows player passed **83 checks**, including three real Codex turns, two image attachments, exact edit/undo/save/clear/restore and visible behavior phases. **323 Python tests** and the Operator interaction suite pass. See [validation](../Validation/visual-feedback-validation.json) for final build counts, artifacts, and remaining acceptance.
 
@@ -117,7 +163,7 @@ Checkpoint: **2026-09-20 16:07:37 America/Denver**. The wearer confirmed **“it
 
 Git recovery tag: `checkpoint/2026-09-20-160737` on `codex/quest-pro-ai-validation`, tracked by [PR #5](https://github.com/School-of-the-Ancients/matrix-loading-operator/pull/5). This file and the confirmation record are part of that checkpoint commit. Implementation and earlier synchronization were already published through `bc97027`.
 
-## Earlier white-room checkpoint scene and files
+### Earlier white-room checkpoint scene and files
 
 - PC save: `MatrixCheckpoint_20260920_160737`, containing **40 objects**. It was saved through the running service, read back and SHA-256 checked. This is the scene at checkpoint time; subsequent edits are separate.
 - Save SHA-256: `272134C61FE6F7D9F6684EAB7A3AC3BA42B70664489BCBF39315BFBB5FB8658D`. The live viewer pose is excluded from the save.
@@ -125,7 +171,7 @@ Git recovery tag: `checkpoint/2026-09-20-160737` on `codex/quest-pro-ai-validati
 - Desktop full clone: `Desktop/Game Design/Matrix Loading Operator`. Unity Hub source copies: `Matrix White Room Quest` and `Matrix White Room Desktop` in the same folder. Their separate source/prefab/scene state is preserved in the local checkpoint archive.
 - Local archive: sibling `outputs/checkpoints/MatrixCheckpoint_20260920_160737/`. It includes a Git bundle, built players, PC saves, Unity Hub source exports, preserved Desktop-local Unity assets and a SHA-256 inventory. Builds and personal scenes remain local; credentials, Unity caches and vendor packages are excluded.
 
-## Working behavior and evidence
+### Working behavior and evidence
 
 The real Codex CLI planner uses existing ChatGPT sign-in on the PC. It receives scene state, prefab geometry/orientation, selection and tracked anchor-relative viewpoint, then composes arrangements using the seven bundled prefabs. Requests are reviewed in the Operator before Apply. The offline mode remains a separate finite parser.
 
@@ -133,7 +179,7 @@ The exact table/two-chair request and a room made from wall pieces passed **93 c
 
 Installed Quest package: `com.matt.matrixoperator.whiteroom`. APK: `Builds/WhiteRoomQuest/MatrixOperator.apk`, 53,838,926 bytes, SHA-256 `5CFBD0F64763392F9F4EC120CF8AC0358A20E84B19302DD59761021E42C1ADED`. Both generated build targets use Unity **6000.6.0f1**. See the composition reports in `Validation` for exact execution evidence.
 
-## Recover the earlier white-room checkpoint
+### Recover the earlier white-room checkpoint
 
 1. Use this tagged checkout, or clone `source.bundle` from the local archive and check out the tag. Do not overwrite later work without checking its Git state.
 2. If port 8765 is not already serving this project, run `./Start-CodexControlService.ps1` from the chosen full checkout. Keep credentials in Codex's existing PC login; no API-key substitute is required.

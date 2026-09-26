@@ -2,43 +2,61 @@
 
 > **Repo map:** this repository contains several Matrix generations/tracks. Before making architectural changes, read **[PROJECTS.md](PROJECTS.md)**. Coding agents should also read **[AGENTS.md](AGENTS.md)**. New generalized runtime work defaults to the Three.js/WebXR + Codex Agent Portal track unless the controlling issue says otherwise.
 
+Matrix lets an Operator create and change spatial scenes by voice or text. The current generalized client is **[Matrix Web](WebRuntime/README.md)**: a Three.js scene on desktop and a WebXR White Room or passthrough AR scene in Quest Browser. A PC-local [ControlService](ControlService/README.md) connects that client to a persistent Codex Agent Portal, asset and component catalogs, validated scene commands, and runtime receipts. The original Unity apps remain supported for their own builds and content packs.
 
-Build and edit scenes by typing or speaking: **“Put an orb here. Make it larger. Float it above the table.”** Review the proposed changes, apply them, then use Undo or save the scene for later.
+| Track | Use it for | Entry point |
+| --- | --- | --- |
+| **Matrix Web — current default** | Blender/GLB creation, animation, reusable components, virtual-floor physics, Agent-driven scene edits, browser/Quest AR and VR | [`/web/`](WebRuntime/README.md) |
+| **Matrix Unity — original** | Native Quest/desktop builds, MRUK room AR, Unity prefabs and AssetBundles, historical coursework scenes | [Unity quick start](#desktop-quick-start) |
+| **Matrix World** | Persistent geospatial worlds such as Matrix Boulder and future Earth-aligned overlays | [Project map](PROJECTS.md#3-matrix-world) |
+| **AI Citizens** | Character embodiment, planning, memory and social simulation | [Project map](PROJECTS.md#4-ai-citizens--character-body) |
 
-Matrix runs as a **Windows virtual room**, a **Quest virtual room**, or **room-aware Quest AR**. A Python service on your PC connects the app to the browser Operator and an optional AI provider. Compatible prefab packs add props to an installed app without rebuilding its APK.
+Matrix is an independent spatial runtime. [School of the Ancients](https://github.com/School-of-the-Ancients/school-of-the-ancients-roadmap) is a separate product that may later use Matrix through a versioned API; mentors, lessons and learner records belong to School. See [PROJECTS.md](PROJECTS.md#6-school-of-the-ancients-is-a-separate-product) for ownership and routing.
 
-**New experimental client:** [Matrix Web Runtime](WebRuntime/README.md) runs the same Operator scene schema through Three.js/WebXR. It keeps Unity as a supported native runtime, adds a content-addressed GLB catalog for browser hot loading, and can ask Codex on the PC to design a bounded 3D object that Blender exports for live import. On Quest 3 Browser, aligned room planes, AR objects, a wall-pinned Operator panel, and a spoken request that created and imported a robot have been observed. The virtual floor now uses the measured AR floor height, and the wearer confirmed the robot and other objects appear near the floor rather than head height. After a full Quest Browser close and reopen, the robot and Kestrel ship returned in the same physical spots from the browser's saved scene and persistent room origin. A virtual-only capture from the live Quest Browser let Codex review the rendered scene. VR alignment, spoken reply playback, reboot and tracking-loss recovery still need headset validation.
+**[Releases](https://github.com/School-of-the-Ancients/matrix-loading-operator/releases)** · **[Current checkpoint and evidence](Docs/Current-Checkpoint.md)** · **[Product requirements](PRD.md)** · **[Implementation plan](IMPLEMENTATION_PLAN.md)** · **[Issues](https://github.com/School-of-the-Ancients/matrix-loading-operator/issues)**
 
-**[Download a version](https://github.com/School-of-the-Ancients/matrix-loading-operator/releases)** · **[Latest validated checkpoint](Docs/Current-Checkpoint.md)** · **[Content library guide](Docs/Content-Library-User-Guide.md)** · **[Issues](https://github.com/School-of-the-Ancients/matrix-loading-operator/issues)**
+## Start Matrix Web
 
-Matrix Operator remains an independent creative and spatial runtime. The planned [School of the Ancients integration](https://github.com/School-of-the-Ancients/school-of-the-ancients-roadmap) connects the separate learning product through a versioned API: School owns mentors, lessons and learner records; Matrix owns scenes, content and observed actions. See the [product plan](https://github.com/School-of-the-Ancients/school-of-the-ancients-roadmap/blob/main/PRD.md), [API proposal](https://github.com/School-of-the-Ancients/school-of-the-ancients-roadmap/blob/main/API-CONTRACT.md), and [organization Kanban](https://github.com/orgs/School-of-the-Ancients/projects/1). These are implementation plans, not newly shipped runtime features.
+Requirements: Python 3.10+, Node.js `^20.19.0 || >=22.12.0` with npm (the supported Vite ranges), and a PC-local Codex CLI signed in with ChatGPT for the Agent Portal. Install the optional Matrix MCP Python dependency in the same Python environment as the service. From a fresh checkout on Windows:
 
-These instructions describe this source checkout. Historical releases have different capabilities: use the APK and PC service from the **same release**, and read its included instructions. The [version guide](Docs/Versions-And-Submissions.md) maps preserved builds to their features.
+```powershell
+git clone https://github.com/School-of-the-Ancients/matrix-loading-operator.git
+Set-Location matrix-loading-operator
+python -m pip install -r ControlService/requirements-agent-mcp.txt
+Set-Location WebRuntime
+npm.cmd ci
+npm.cmd run build
+Set-Location ..
+.\Start-CodexControlService.ps1
+```
 
-![Unity-rendered gallery of the seven bundled props: chair, table, wall, pedestal, block, orb and column](Validation/white-room-preview.png)
+Open **http://127.0.0.1:8765/web/** on the PC. Select **CODEX** and connect to start or resume the PC Agent conversation. The launcher defaults to workspace-write access with reviewed approvals; the PC owner can choose `-AgentSandbox danger-full-access -AgentApprovals automatic` before launching. The headset displays the effective mode but cannot raise its own access. For local headset voice input, run `./Setup-LocalSpeech.ps1` once before starting the service. [Agent and runtime details](WebRuntime/README.md#operator-in-ar-or-vr) explain selection, review, receipts and limits.
 
-*An arranged Unity Editor preview. The app starts with an empty scene.*
+For Quest Browser over an authorized USB debugging connection, run `adb reverse tcp:8765 tcp:8765` on the PC, then open **http://127.0.0.1:8765/web/** in the headset. Enter VR for the White Room or AR for passthrough. Quest Browser data at that exact origin holds the browser world checkpoint; use **WORLD → SAVE WORLD** for an explicit save. The PC backup made by that in-world action is scene-only. [Web save and restore](WebRuntime/README.md#save-and-restore) describes the separate PC whole-world checkpoint.
+
+Current Web capabilities include validated Blender/GLB registration and import, Flight/selection animation clips, bounded numeric components, [bounded vertical drops for eligible imported GLBs](Docs/Web-Floor-Physics.md), and typed position/rotation changes to an existing virtual-floor object. These use the current scene revision and browser runtime receipts. Physical AR surface placement still requires room alignment, and virtual-floor physics does not provide general rigid-body or object-to-object collisions. [Quest acceptance](WebRuntime/QUEST3_ACCEPTANCE.md) separates wearer observations from desktop checks; the [typed rotation validation](Validation/WebRuntime-Typed-Rotation-2026-09-26.md) includes a Quest VR voice follow-up and receipt, with AR still untested for that tool.
 
 ## Find the right guide
 
 | I want to… | Start here |
 | --- | --- |
-| Try it without a headset | [Desktop quick start](#desktop-quick-start) |
-| Place objects in my real room | [Quest AR quick start](#quest-ar-quick-start), then [room setup and controls](Docs/Room-AR.md) |
-| Use the fully virtual Quest app | [White-room build and controls](Docs/White-Room.md#quest-pro-build-and-controls) |
-| Speak instead of typing | [Voice setup below](#use-voice-and-choose-an-ai-model), then [voice and model controls](Docs/Voice-And-Codex-Controls.md) |
-| See what a prefab looks like and install it | [Browse, preview and use a prefab](#browse-preview-and-use-a-prefab) |
-| Bring in Unity Asset Store content | [Import walkthrough](Docs/Content-Library-User-Guide.md#bring-in-a-new-unity-asset-store-prop) and [pack exporter](Docs/Content-Packs.md) |
-| Open the current Unity project to prepare assets | [Desktop content workshop](Docs/Desktop-Unity-Hub.md) |
-| Add a catalog or ComfyUI workflow | [Provider configuration](Docs/Content-Catalogs.md) |
-| Let AI inspect the current view | [Capture how-to](#show-the-ai-a-scene-capture) and [visual feedback guide](Docs/Visual-Feedback.md) |
-| Animate, save or restore my scene | [First scene walkthrough](#make-your-first-scene), [behaviors](Docs/Runtime-Behaviors.md) and [save/restore](#save-clear-and-restore) |
-| Build a miniature tabletop village | [4616 miniature world demo](Docs/4616-Miniature-World.md) |
-| Freeze a build for coursework | [Versions and submission snapshots](Docs/Versions-And-Submissions.md#freeze-each-submission) |
-| Develop or connect another AI provider | [Development](#development), [AI integration](Docs/AI-Integration.md) and [PC API](ControlService/README.md) |
-| Connect an independent local application | [Client API v1 pairing, optional AI scene requests, review and receipts](Docs/Client-API-v1.md) |
+| Use the current desktop or Quest browser client | [Matrix Web runtime](WebRuntime/README.md) |
+| Create and animate a GLB, or use Blender MCP through the PC Agent | [Blender authoring tiers](WebRuntime/BLENDER_AUTHORING_TIERS.md), [asset workflow](WebRuntime/README.md#blender-assets) |
+| Save a Web scene and game | [Web save and restore](WebRuntime/README.md#save-and-restore), [PC checkpoints](ControlService/WORLD_CHECKPOINTS.md) |
+| Inspect current Web headset evidence and open gaps | [Quest acceptance](WebRuntime/QUEST3_ACCEPTANCE.md), [current checkpoint](Docs/Current-Checkpoint.md) |
+| Work on a Unity desktop or Quest app | [Original Unity quick start](#desktop-quick-start), [Unity AR](#quest-ar-quick-start), [content packs](Docs/Content-Packs.md) |
+| Connect an independent local application | [Client API v1](Docs/Client-API-v1.md) |
+| Choose a project track or implementation owner | [Project map](PROJECTS.md), [agent instructions](AGENTS.md) |
 
-## Desktop quick start
+## Original Unity client
+
+The guides below describe the original Unity Matrix Operator at `/` and its native desktop/Quest apps. They remain valid for matching Unity-era source, APK and PC service versions; they are separate from the current `/web/` workflow. For historical release capability, use the [version guide](Docs/Versions-And-Submissions.md).
+
+![Unity-rendered gallery of the seven bundled props: chair, table, wall, pedestal, block, orb and column](Validation/white-room-preview.png)
+
+*An arranged Unity Editor preview. The Unity app starts with an empty scene.*
+
+### Desktop quick start
 
 For a source build, install **Unity 6000.6.0f1** and **Python 3.10+**. Quest builds also need Unity's Android Build Support, SDK/NDK and OpenJDK. The basic PC service uses Python's standard library; voice has a separate setup step.
 
@@ -68,7 +86,7 @@ Hold the right mouse button and use **WASD** to move the desktop camera; **Q/E**
 
 Build scripts accept `-UnityEditor '<full path to Unity.exe>'` if your installation is elsewhere. Close the generated project's Editor before batch-building it.
 
-## Quest AR quick start
+### Quest AR quick start
 
 This connection walkthrough supports **Quest Pro and Quest 3** with developer mode enabled, a USB data cable, an awake headset and authorized USB debugging. Quest Pro has the recorded room-placement and content-pack walkthrough; **Quest 3 camera-composite validation still needs hardware testing**. The USB helper currently rejects Quest 3S, even though the candidate camera code targets 3/3S; its connection-helper support remains to be added.
 
@@ -106,7 +124,7 @@ Only one runtime owns a service connection: quit the desktop player or other Mat
 
 The default port is **8765**. If using another port, the service, app URL and USB forwarding must all match. An APK update preserves app data, including a previous `control.json` URL. See [troubleshooting](#troubleshooting) and the full [room AR runbook](Docs/Room-AR.md).
 
-## Use voice and choose an AI model
+### Use voice and choose an AI model
 
 The Codex provider uses the native Codex CLI's existing **ChatGPT sign-in** on the PC. Install/sign in to that CLI first; the launcher checks its login state. Credentials do not need to be pasted into the Operator.
 
@@ -133,7 +151,7 @@ On the first voice attempt, accept microphone permission, release the trigger, t
 
 See [voice controls](Docs/Voice-And-Codex-Controls.md) for cancellation, tracking and model selection, and [AR controls](Docs/Room-AR.md#controls-in-room-ar) for spawning, nudging, resizing and room reload.
 
-## Make your first scene
+### Make your first scene
 
 Start with a selected floor/table point and, in AR, confirmed room alignment. Use one request at a time: **create → review → Apply → wait for confirmation**.
 
@@ -149,7 +167,7 @@ Start with a selected floor/table point and, in AR, confirmed room alignment. Us
 
 Rotate and Bob are built-in configurable behaviors. They are not downloaded animation clips or a physics simulation. See [behavior controls and limits](Docs/Runtime-Behaviors.md).
 
-### Save, clear and restore
+#### Save, clear and restore
 
 1. Wait for pending edits to finish. Under **Save and restore**, enter a new name such as `MyFirstRoom` and choose **Save current scene**.
 2. After the save is confirmed, choose **Clear scene**.
@@ -159,7 +177,7 @@ Alternatively, request **“Save scene as MyFirstRoom”**, **“Clear the scene
 
 AR restores require the same room and compatible anchors. An updated player automatically reloads exact saved content packs from its verified device cache when you restore after an app restart. The PC service must remain reachable; the upstream content provider can be offline. Missing, corrupt or incompatible cached content produces an error and preserves the current scene. See [cached restore](Docs/Content-Packs.md#restore-after-restarting-the-app) and [room recovery](Docs/Room-AR.md#missing-anchors-and-recovery).
 
-## Browse, preview and use a prefab
+### Browse, preview and use a prefab
 
 Open the [Content library](http://127.0.0.1:8765/content#prefabBrowser) on the **same service as your runtime**. Substitute your service's port if it differs.
 
@@ -171,7 +189,7 @@ Open the [Content library](http://127.0.0.1:8765/content#prefabBrowser) on the *
 
 The [content library user guide](Docs/Content-Library-User-Guide.md) includes a complete sci-fi beacon walkthrough, restart/restore steps and AI examples.
 
-### Can I import anything from the Unity Asset Store?
+#### Can I import anything from the Unity Asset Store?
 
 The current loader supports **static mesh prefabs with supported materials and simple colliders**. Prepare them in Unity, export a platform-specific pack, configure its catalog, then install it in Matrix. Exact Unity version **6000.6.0f1** and target platform must match the player.
 
@@ -197,7 +215,7 @@ Changing a status does not perform those actions. **Installed / ready** is a sep
 
 For a single asset in a fixed Unity scene, direct Unity authoring is simpler. Matrix's preparation pays off when you reuse the installed app to compose many scenes with new packs, reviewed AI edits, Undo and save/restore.
 
-### How does the AI know what it can use?
+#### How does the AI know what it can use?
 
 Each proposal receives the connected app's prefab IDs, measured geometry, selection, room context and advertised behavior capabilities. The PC supplies [planner instructions and capability contracts](ControlService/ai_adapter.py); users do not need to paste a separate guide into every request.
 
@@ -205,7 +223,7 @@ The PC content library also searches Poly Haven's public models, HDRIs and textu
 
 **Generate with ComfyUI** is a separate, explicitly approved workflow in the library. Its image goes to the PC cache; it does not automatically create a headset background or 3D environment. Catalog categories such as animations, sounds and behaviors organize resources, and do not imply those runtime loaders exist. See [content and AI usage](Docs/Content-Library-User-Guide.md#what-can-i-ask-the-ai-to-do).
 
-## Show the AI a scene capture
+### Show the AI a scene capture
 
 1. In **Scene preview**, choose an available image source and **Capture current view**.
 2. Inspect the preview and select an explicitly listed image-capable AI model.
@@ -216,7 +234,7 @@ Capturing alone does not call AI. Captures expire after 30 seconds and after rel
 
 On **Quest Pro**, the capture contains virtual objects and visible room outlines, without physical passthrough pixels. The **Quest 3/3S** AR camera-composite path is implemented as a candidate, but permission, alignment, image quality and performance remain hardware-unverified. Physical depth/occlusion is not implemented. See [visual feedback](Docs/Visual-Feedback.md) for supported modes and evidence.
 
-## Troubleshooting
+### Troubleshooting
 
 | Symptom | What to check |
 | --- | --- |
@@ -237,24 +255,31 @@ For a configured LAN connection instead of USB forwarding, see the [PC connectio
 
 | Location | Purpose |
 | --- | --- |
+| `WebRuntime/` | Current Three.js/WebXR client, HTML surfaces, world persistence, interactions and Node tests |
+| `ControlService/` | Shared PC service, Agent Portal, Matrix tools, validation, catalogs and Python tests |
 | `Assets/Sandbox/Runtime/` | Unity state, command execution, room adapters, capture and content loading |
 | `Assets/Sandbox/Editor/` | Scene generation, pack export, preview rendering and validation |
-| `ControlService/` | Python service, browser Operator/library, provider integrations and tests |
 | `Docs/` | User guides, architecture and milestone notes |
 | `Validation/` | Validation runners and sanitized evidence |
 
-Build scripts stage isolated projects in `.white-room-fixture/` and `.room-ar-fixture/`. Change the repository's source and regenerate; edits only in generated projects do not flow back. Builds, local scenes, caches, credentials and raw room captures are excluded from Git.
+Unity build scripts stage isolated projects in `.white-room-fixture/` and `.room-ar-fixture/`. Change the repository's source and regenerate; edits only in generated projects do not flow back. Builds, local scenes, caches, credentials and raw room captures are excluded from Git.
 
 Run PC checks from the repository root:
 
 ```powershell
 python -m unittest discover -s ControlService -v
+Set-Location WebRuntime
+npm test
+npm run build
+Set-Location ..
+
+# Original Unity Operator page checks:
 node ControlService/test_operator_panel.js
 node ControlService/test_content_panel.js
 ```
 
-Build scripts run Unity checks. PC tests and compilation do not establish headset alignment, input or rendering. See the [current checkpoint](Docs/Current-Checkpoint.md), [spatial/content validation](Validation/Spatial-Content-Validation.md) and [Quest prefab walkthrough](Validation/content-headset-walkthrough.json) for automated results and wearer observations. Validation runners offering `--run` can invoke AI or edit a scene; read their guide before using that mode.
+Build scripts run Unity checks. PC tests and compilation do not establish headset alignment, input or rendering. See the [Web Quest acceptance matrix](WebRuntime/QUEST3_ACCEPTANCE.md) and [current checkpoint](Docs/Current-Checkpoint.md) for mode-specific evidence; [spatial/content validation](Validation/Spatial-Content-Validation.md) and the [Quest prefab walkthrough](Validation/content-headset-walkthrough.json) record earlier Unity work. Validation runners offering `--run` can invoke AI or edit a scene; read their guide before using that mode.
 
-Further reading: [architecture](Docs/AI/UnityProjectContext.md), [runtime editing](Docs/Runtime-Editing.md), [learning-session prototype](Docs/Learning-Sessions.md), [progress history](Docs/Progress-Log.md) and [submission release checklist](Docs/Versions-And-Submissions.md#freeze-each-submission).
+Further reading: [project map](PROJECTS.md), [Web runtime](WebRuntime/README.md), [Agent Portal](ControlService/AGENT_PORTAL.md), [implementation plan](IMPLEMENTATION_PLAN.md), [original Unity architecture](Docs/AI/UnityProjectContext.md), [progress history](Docs/Progress-Log.md) and [submission release checklist](Docs/Versions-And-Submissions.md#freeze-each-submission).
 
 Authored code uses the [MIT license](LICENSE). Unity, Meta and imported content retain their respective licenses; preserve asset attribution and distribution terms when publishing packs.

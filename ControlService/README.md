@@ -1,5 +1,14 @@
 # PC control and scene service
 
+ControlService is shared by the [current Three.js/WebXR Matrix](../WebRuntime/README.md)
+at `/web/` and the [original Unity Operator](../README.md#original-unity-client)
+at `/`. This guide retains the original Unity/client API details below. For
+PC-local Codex sessions, approvals and headset Agent behavior, start with the
+[Agent Portal guide](AGENT_PORTAL.md). For Web world persistence, use
+[whole-world checkpoints](WORLD_CHECKPOINTS.md) and the [Web runtime
+guide](../WebRuntime/README.md#save-and-restore). The [project map](../PROJECTS.md)
+defines which track owns new work.
+
 Rendered image feedback is documented in [Visual Feedback](../Docs/Visual-Feedback.md). The Operator's explicit capture/preview controls attach one bounded JPEG to a typed request or the next voice request. `POST /api/capture` requests it, `GET /api/capture` retrieves the authenticated preview, and `/api/plan` accepts its `captureId`. `POST /api/capture/voice` selects or clears a one-shot voice attachment. Images stay outside saved scenes and normal state polling. Codex requires an explicitly known image-capable model; compatible HTTP providers require the explicit `SANDBOX_AI_SUPPORTS_IMAGES=true` capability setting. Unsupported images produce an error, never a text-only fallback.
 
 Requires Python 3.10 or later. Uses only the standard library; no packages need installing. Run from this directory:
