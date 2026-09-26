@@ -1,10 +1,18 @@
 # Matrix implementation plan
 
-Updated September 25, 2026. **Start at M0. Complete a small step before expanding scope.**
+Updated September 25, 2026. **Start at M0 in the desktop browser. Complete a small step before expanding scope.**
 
 [PRD](PRD.md) · [Project map](PROJECTS.md) · [School build plan](https://github.com/School-of-the-Ancients/school-of-the-ancients-roadmap/blob/main/BUILD_PLAN.md)
 
 This is the current work-selection guide, not a replacement for detailed issue acceptance. Existing issue histories, source links, and validation remain intact. A step can finish without closing its broader umbrella issue. No GitHub board statuses are changed by this document.
+
+## Delivery decision — desktop first, immersive UI later
+
+The user reports that Matrix partly works but its current AR/VR UI is poor. The chosen response is **not** to redesign the headset UI first: finish the core workflow in the ordinary desktop browser, then adapt its controls and presentation for VR/AR.
+
+M0–M3 use the existing `/web/` Three.js application with mouse/keyboard and normal HTML controls, without entering an immersive session. Keep the same world, agent, assets, validation and persistence; do not build a separate desktop engine. Fix desktop usability where it blocks the workflow. Voice is optional for desktop acceptance.
+
+“Get everything working” means a reliable create → revise → interact → save/reopen loop and one reusable experiment, not every catalog, citizen, city or future feature. Existing XR paths and safety checks stay intact; immersive UI redesign and fresh headset acceptance move to M4. Desktop passes do not close outstanding headset criteria in the parent issues.
 
 ## Reviewed baseline — do not rebuild it
 
@@ -21,35 +29,35 @@ Snapshot: Matrix main [`509a72a`](https://github.com/School-of-the-Ancients/matr
 
 PR descriptions and [WebRuntime documentation](WebRuntime/README.md) are evidence references, not tests rerun during this planning review. Refresh main/open PRs before coding.
 
-## M0 — Validate the current build, fix only observed blockers
+## M0 — Validate the desktop browser workflow, fix observed blockers
 
 **Owners:** [#44](https://github.com/School-of-the-Ancients/matrix-loading-operator/issues/44), [#59](https://github.com/School-of-the-Ancients/matrix-loading-operator/issues/59), release evidence [#24](https://github.com/School-of-the-Ancients/matrix-loading-operator/issues/24).
 
-Use an isolated service port and disposable browser profile/origin. Do not clear the user's live scene or anchors. Run the current automated suites, then test: same agent conversation through a follow-up and reopen; selected-object move; Approve/Deny/Stop; registered asset spawn and clip selection; browser world/game restore. Test desktop first, then Quest AR; record VR entry separately because the earlier AR success did not establish VR readiness.
+Use an isolated service port and disposable desktop browser profile/origin. Do not clear the user's live scene or anchors. Run the current automated suites, then test `/web/` without an immersive session: same agent conversation through a follow-up and reopen; mouse selection and object move; readable activity and Approve/Deny/Stop; registered asset spawn and clip selection; browser world/game restore. Text input must be sufficient.
 
-Extend [the existing Quest checklist](WebRuntime/QUEST3_ACCEPTANCE.md), rather than making another test framework. Camera access is optional and cannot block non-camera creation. A provider outage can block live-agent acceptance while deterministic/runtime tests continue; record the blocker rather than faking completion.
+Fix only demonstrated browser workflow or runtime blockers. Do not redesign in-world panels, controller mappings, passthrough or room setup here. A provider outage can block live-agent acceptance while deterministic/runtime tests continue; record the blocker rather than faking completion.
 
-**Exit:** exact source/CLI/browser/device versions, receipts and wearer observations are recorded for the tested path; failures get small fixes under the existing owners. Do not require every camera, legacy Unity, or future research checklist to pass.
+**Exit:** exact source/CLI/browser versions, actual desktop interaction and receipts are recorded for the tested path. No headset is required. Preserve existing automated XR regressions; new wearer observations and immersive usability acceptance belong to M4, not this gate.
 
-## M1 — Finish one real Blender-to-Matrix conversation
+## M1 — Finish one real Blender-to-Matrix conversation on desktop
 
-**Owners:** #59 and [#28](https://github.com/School-of-the-Ancients/matrix-loading-operator/issues/28). Depends on the relevant M0 portal/receipt checks, not optional camera acceptance.
+**Owners:** #59 and [#28](https://github.com/School-of-the-Ancients/matrix-loading-operator/issues/28). Depends on the relevant M0 desktop portal/receipt checks, not headset or camera acceptance.
 
 Reuse configured Blender tools, a dedicated scratch scene, the existing authoring/catalog path and Matrix MCP. Start with one non-primitive static asset; named animations can use the current contract afterward. Demonstrate create → follow-up revision → export → validate → register → place in the same agent conversation. Preserve `.blend`/authoring source outside the runtime catalog. Replacing an already placed asset must explicitly preserve or replace its object identity; do not silently duplicate it.
 
-Make approval handling usable with the smallest change: exact review for understood operations, or a visible PC handoff for broad code execution. Do not summarize arbitrary Python as a harmless one-click action, bypass native approval, or build a general policy engine. Keep the primitive blueprint fallback. Local Blender scripting is a valid separate path; only an actual tool trace establishes Blender MCP acceptance.
+Make approval handling usable on the PC with the smallest change: exact review for understood operations, or a visible PC handoff for broad code execution. Do not summarize arbitrary Python as a harmless one-click action, bypass native approval, or build a general policy engine. XR-specific approval presentation waits for M4. Keep the primitive blueprint fallback. Local Blender scripting is a valid separate path; only an actual tool trace establishes Blender MCP acceptance.
 
-**Exit:** one real end-to-end trace, revision, registered asset, acknowledged placement, and final visual check. A generated file or an interrupted authoring turn alone is not done. See [authoring tiers](WebRuntime/BLENDER_AUTHORING_TIERS.md); its old “portal not implemented” wording must be reconciled with the newer merged PRs when editing that guide.
+**Exit:** one real end-to-end desktop trace, revision, registered asset, acknowledged placement, and final browser visual check. A generated file or an interrupted authoring turn alone is not done. See [authoring tiers](WebRuntime/BLENDER_AUTHORING_TIERS.md); its old “portal not implemented” wording must be reconciled with the newer merged PRs when editing that guide.
 
 ## M2 — Save and restore the whole supported experience
 
-**Owners:** #44 and #24. Reuse existing state and files; no new database.
+**Owners:** #44 and #24. Reuse existing state and files; no new database. Desktop browser and PC-service restart are the acceptance target.
 
 First inventory the current browser world envelope, manual checkpoint, PC scene save, asset references and component/animation bindings. Browser scene/game restore already exists; PC scene-only backups do not preserve game progress. Add only the missing versioned whole-experience PC checkpoint/export and matching restore, using existing validation and atomic-file patterns.
 
-Keep world data separate from agent chat and School records. Save configuration, not animation playback phase or transient device streams. Preserve existing saves with an explicit compatibility path. Missing content, an interrupted write, or unavailable room origin must preserve the old state and report recovery options. Physical-plane objects keep their honest session-local restriction until separately supported.
+Keep world data separate from agent chat and School records. Save configuration, not animation playback phase or transient device streams. Preserve existing saves with an explicit compatibility path. Missing content, an interrupted write, or unavailable room origin must preserve the old state and report recovery options. Physical-plane objects keep their honest session-local restriction until separately supported; do not remove these guards to simplify desktop work.
 
-**Exit:** save a supported object/game/component configuration, restart browser and PC service, restore exact IDs and progress, and reject a missing/corrupt dependency without silently replacing the world. This is one local recovery path, not multi-user synchronization.
+**Exit:** save a supported object/game/component configuration, restart browser and PC service, restore exact IDs and progress, and reject a missing/corrupt dependency without silently replacing the world. This is one local recovery path, not multi-user synchronization. Physical-room relocalization is separately tested in M4.
 
 ## M3 — One reusable HTML + Three.js experiment
 
@@ -57,19 +65,29 @@ Keep world data separate from agent chat and School records. Save configuration,
 
 Use the existing scale experiment as the first case. Inspect both existing implementations before choosing the owner of its state and math. Keep one tested calculation/operation implementation; HTML, the Three.js view, and agent actions consume it. A short configuration object and ordinary code module are enough. Do not build a universal experience-package standard or require WebMCP.
 
-Prove set dimensions → observe exact volume/ratio → reset in the browser. Add the supported WebXR presentation and normalized observed events. Surface switching retains identity/state; simultaneous separate devices are out of scope. Reuse the limited client API for School; do not expose the privileged coding agent to the lesson application. M3 can start independently of rich Blender authoring using built-in blocks.
+Prove set dimensions → observe exact volume/ratio → reset in the desktop browser, with normalized observed events. HTML/3D view switching retains identity/state; simultaneous separate devices are out of scope. Reuse the limited client API for School; do not expose the privileged coding agent to the lesson application. M3 can start independently of rich Blender authoring using built-in blocks. Immersive presentation is M4, not an M3 acceptance requirement.
 
 **Exit:** equivalent HTML/3D/tool inputs yield equivalent results, one save/resume works, and School can consume observations through its existing bridge. Scale mathematics is not measured physical volume or a physics simulation.
+
+## M4 — Adapt the working experience for VR, then AR
+
+**Owners:** #44/#59 for immersive UI, [#22](https://github.com/School-of-the-Ancients/matrix-loading-operator/issues/22) for room behavior and #24 for evidence. School headset integration remains #23.
+
+After the desktop loop is reliable, improve the existing headset presentation rather than rebuilding the backend. Start with the same virtual scene in VR: readable conversation/status, reliable controller selection, discoverable input, usable approvals/Stop, and a panel that can be brought into view, moved or hidden. Then test AR-specific placement, contrast against the room, tracking/origin recovery and avoiding unnecessary obstruction. Do not assume one successful mode proves the other.
+
+Use [the existing Quest checklist](WebRuntime/QUEST3_ACCEPTANCE.md) and record observed usability problems before choosing a larger UI library or redesign. Preserve meaningful approvals: operations requiring detailed PC review stay an explicit handoff, not an automatic approval. No new agent session, asset pipeline or world state owner.
+
+**Exit:** the wearer can complete the same supported select → request → review → revise → interact → save/reopen flow with readable controls and predictable targeting. Record actual VR and AR evidence separately, including failures/unavailable features and source/browser/device versions. Camera capture remains optional. Desktop screenshots or tests alone cannot establish immersive comfort or usability.
 
 ## Next and later — keep the existing backlog
 
 | Lane | Existing owners | Small next outcome, when selected |
 | --- | --- | --- |
-| Current Matrix | #44, #59, #28, #24 | M0–M2; no second implementation stack. |
-| Shared lesson | #31, #32, #23 | M3 plus the School build plan; no Citizens/Boulder prerequisite. |
+| Current Matrix | #44, #59, #28, #24 | M0–M2 on desktop; no second implementation stack. |
+| Shared lesson | #31, #32, #23 | Desktop M3 plus the School build plan; headset presentation follows in M4. No Citizens/Boulder prerequisite. |
 | Reusable runtime | #13, #25 | Extend only for a demonstrated missing interaction; reuse numeric components and existing receipts. |
 | Content and visual feedback | #9, #8 | One additional provider or same-session capture loop after the basic creation path works. |
-| Spatial/device work | #22, #26 | Test required room capabilities; physical-camera support remains optional. |
+| Immersive UI and spatial/device work | #44, #59, #22, #26 | M4 after the desktop loop; physical-camera support remains optional. |
 | Character and Citizens | #14–#20, #29 | One finite character interaction first, then a small routine/needs loop. GOAP, memory, social behavior and model selectors are separate increments. |
 | Persistent geography | #38 | Reuse Boulder prototype findings; evaluate one small Web world view and coordinate mapping before a port or city expansion. |
 | Alternative realtime agent | #62 | Reuse the existing session backend; add one provider only for a concrete unmet need. |
@@ -101,4 +119,4 @@ One active Matrix implementation slice at a time. One independent School slice m
 
 Each PR states: user-visible result, reused files/contracts, excluded scope, tests actually run, device checks still pending, and the next step. Update this plan only when evidence changes the queue. Leave PRs open unless the user authorizes merging; do not close umbrella issues from a partial milestone.
 
-**Start prompt:** “Read AGENTS.md, PROJECTS.md, PRD.md and IMPLEMENTATION_PLAN.md. Check current main and open PRs. Work only on M0: validate the existing Web Matrix/Agent Portal and fix demonstrated blockers in small PRs. Preserve live scenes, credentials and old builds. Report automated, desktop and actual Quest evidence separately; do not implement later steps or merge automatically.”
+**Start prompt:** “Read AGENTS.md, PROJECTS.md, PRD.md and IMPLEMENTATION_PLAN.md. Check current main and open PRs. Work only on M0 in the ordinary desktop `/web/` browser: validate the existing Matrix/Agent Portal with mouse/keyboard and fix demonstrated blockers in small PRs. Preserve live scenes, credentials, XR paths and old builds. Do not redesign AR/VR UI or require a headset for this step. Report actual desktop evidence and retain untested headset criteria for M4; do not implement later steps or merge automatically.”
