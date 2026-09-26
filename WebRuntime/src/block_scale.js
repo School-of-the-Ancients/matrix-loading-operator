@@ -48,8 +48,13 @@ export function confirmedScaleEvent(outcome){
 export function scaleEvidence(outcome){
   const event=confirmedScaleEvent(outcome);
   if(!event)return null;
+  const snapshot=outcome.observed?.snapshot;
+  const object=snapshot?.scene?.objects?.find(item=>item.objectId===event.objectId);
+  if(snapshot?.scene?.roomId!==event.roomId||object?.assetId!==event.assetId||
+     object?.anchorId!==event.anchorId||!sameTransform(object?.transform,object?.transform))
+    return null;
   return {version:1,event,roomId:event.roomId,objectId:event.objectId,
-    transform:structuredClone(outcome.experiment.expectedTransform)};
+    transform:structuredClone(object.transform)};
 }
 
 function sameTransform(left,right){

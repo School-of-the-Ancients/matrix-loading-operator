@@ -74,7 +74,8 @@ test('only a confirmed receipt yields an event, and saved block identity preserv
   const updated={...structuredClone(transform),scale:{x:2,y:3,z:4}};
   assert.equal(world.execute({requestId:'spawn-1',op:'spawn',assetId:'block',anchorId:'web-floor',transform:updated}).ok,true);
   const outcome={status:'succeeded',requestId:'configure-1',experiment:{observationState:'confirmed',
-    observation:{physicalMeasurement:false},expectedTransform:updated},experimentEvent:{schemaVersion:1,
+    observation:{physicalMeasurement:false},expectedTransform:updated},
+    observed:{snapshot:{scene:structuredClone(world.scene)}},experimentEvent:{schemaVersion:1,
       type:'experiment.block-scale.observed',requestId:'configure-1',roomId:world.scene.roomId,
       objectId:'block-1',assetId:'block',anchorId:'web-floor',
       source:'acknowledged-runtime-transform',physicalMeasurement:false,
@@ -99,6 +100,30 @@ test('only a confirmed receipt yields an event, and saved block identity preserv
   assert.equal(matchingScaleEvidence(world,{...evidence,event:{...evidence.event,anchorId:'other'}}),false);
   const malformed={...evidence,event:{...evidence.event,relativeFactors:undefined}};
   assert.equal(matchingScaleEvidence(world,malformed),false);
+});
+
+test('scale evidence stores the acknowledged transform, including accepted rounding',()=>{
+  const world=new MatrixWorld(()=> 'block-1');
+  const observed={...structuredClone(transform),scale:{x:2.000001,y:3,z:4}};
+  const proposed={...structuredClone(transform),scale:{x:2,y:3,z:4}};
+  assert.equal(world.execute({requestId:'spawn-1',op:'spawn',assetId:'block',
+    anchorId:'web-floor',transform:observed}).ok,true);
+  const event={schemaVersion:1,type:'experiment.block-scale.observed',
+    requestId:'configure-1',roomId:world.scene.roomId,objectId:'block-1',
+    assetId:'block',anchorId:'web-floor',source:'acknowledged-runtime-transform',
+    physicalMeasurement:false,revision:8,action:'configure',
+    relativeFactors:{x:2.000001,y:3,z:4},
+    localDimensionsMeters:{x:2.000001,y:3,z:4},
+    boundingVolumeCubicMeters:24.000012,dimensionSource:'catalog-local-bounds',
+    mathematicalVolumeRatio:24.000012};
+  const outcome={status:'succeeded',requestId:'configure-1',
+    experiment:{observationState:'confirmed',observation:{physicalMeasurement:false},
+      expectedTransform:proposed},
+    observed:{snapshot:{scene:structuredClone(world.scene)}},experimentEvent:event};
+  const evidence=scaleEvidence(outcome);
+  assert.deepEqual(evidence.transform,observed);
+  assert.equal(matchingScaleEvidence(world,evidence),true);
+  assert.equal(scaleEvidence({...outcome,observed:null}),null);
 });
 
 test('corrupt saved scale evidence cannot abort Block Scale Lab construction',async()=>{
