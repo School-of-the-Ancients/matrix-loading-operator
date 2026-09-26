@@ -41,17 +41,17 @@ Matrix origin on port 18767 and release `v0.6.0-preview.1` are unchanged.
 
 ## Quest retest
 
-On the corrected port 18772 bundle, the wearer confirmed AR entry again, but
-VR still returned to the browser. A temporary Quest Browser diagnostic showed
-`requestSession('immersive-vr')` granted an opaque session and then received
+Before the left controller was paired again, the wearer confirmed AR entry on
+the corrected port 18772 bundle, but VR still returned to the browser. A
+temporary Quest Browser diagnostic showed `requestSession('immersive-vr')`
+granted an opaque session and then received
 the native `end` event about 30–40 ms later, including on a fresh page before
 AR. The diagnostic did not observe Matrix calling `session.end()` for the
 tested failure. Quest displayed **“left controller not connected”** and the
 wearer reported that pressing a button did not reconnect it. The headset log
-showed the left interaction profile unavailable and the right present. This
-run cannot establish whether the remaining VR failure is the app, Quest
-Browser, or the headset input state. Retest after Quest Home recognizes the
-left controller or another supported input route.
+showed the left interaction profile unavailable and the right present. That
+run cannot establish whether the VR failure came from the app, Quest Browser,
+or the headset input state.
 
 After a headset reconnect, a read-only controller log enumerated and tracked
 only the right controller. The wearer also reported that the left controller
@@ -59,5 +59,14 @@ remained disconnected in Quest Home despite a fresh battery. No new VR attempt
 occurred in that log window; this observation does not establish the cause of
 the earlier session exit.
 
-VR entry, floor height, voice, and the complete M4 workflow remain unverified
-on this branch. No room imagery or conversation content was retained.
+The wearer subsequently paired the left controller again. On the same port
+18772 page, they completed **enter VR → exit VR → enter AR → exit AR → enter VR
+→ exit VR**. A read-only Quest Browser check confirmed that page was running
+the current `index-B_6S6Mfy.js` build. This verifies the original same-page
+transition on Quest after controller recovery. The wearer also confirmed that
+the VR floor matches their real floor. This does not isolate whether the
+earlier failure came from the controller state, Quest Browser, or the previous
+Matrix session code.
+
+Voice in VR and the complete M4 workflow remain unverified on this branch. No
+room imagery or conversation content was retained.
