@@ -3,7 +3,7 @@
 // ControlService/server.py and Assets/Sandbox/Runtime/SandboxWorld.cs.
 import {footprintInsideBoundary} from './spatial.js';
 import {validateAttachment,validatePackage} from './components.js';
-import {advanceFloorBody,createFloorBody,publicPhysicsState,validPhysicsConfig} from './physics_floor.js';
+import {advanceFloorBody,createFloorBody,publicPhysicsState,validPhysicsConfig,validRenderedPhysicsSize} from './physics_floor.js';
 export const ROOM_ID = 'web-virtual-room-v1';
 export const ANCHOR_ID = 'web-floor';
 export const MAX_OBJECTS = 100;
@@ -27,14 +27,11 @@ const validBehavior = b => b && ['rotate','bob'].includes(b.kind) && typeof b.en
 const sameVector=(a,b)=>a&&b&&['x','y','z'].every(axis=>a[axis]===b[axis]);
 const sameTransform=(a,b)=>a&&b&&['position','rotation','scale'].every(key=>sameVector(a[key],b[key]));
 const samePhysics=(a,b)=>a&&b&&['schemaVersion','kind','collider','restitution'].every(key=>a[key]===b[key]);
-const physicsAssetSignature=asset=>JSON.stringify([asset?.sha256,asset?.spawnScale,
+const physicsAssetSignature=asset=>JSON.stringify([asset?.sha256,asset?.url,asset?.spawnScale,
   ...['center','size'].flatMap(group=>['x','y','z'].map(axis=>asset?.localBounds?.[group]?.[axis]))]);
-const physicsCatalogBounds=asset=>{
-  const bounds=asset?.localBounds;
-  return !!asset?.url&&asset.assetId?.startsWith('web:')&&bounds&&
-    ['x','y','z'].every(axis=>finite(bounds.center?.[axis],-20,20)&&
-      finite(bounds.size?.[axis],.001,20));
-};
+const renderedAssetSignature=asset=>JSON.stringify([physicsAssetSignature(asset),asset?.geometry?.animationClips]);
+const physicsRegisteredGlb=asset=>!!asset?.url&&asset.assetId?.startsWith('web:')&&
+  /^[0-9a-f]{64}$/.test(asset.sha256||'')&&finite(asset.spawnScale,.01,20);
 const validAnimationBinding=(binding,asset,allowEmpty=false)=>{
   if(!binding||typeof binding!=='object'||Array.isArray(binding)||
      Object.keys(binding).sort().join(',')!=='loopClip,selectClip')return false;
@@ -86,26 +83,32 @@ export class MatrixWorld {
         throw Error('Invalid web asset animation metadata');
       ids.add(entry.assetId);checked.push(clone(entry));
     }
+    const previous=new Map(this.externalAssets.map(asset=>[asset.assetId,asset]));
     this.externalAssets=checked;
-    for(const [objectId,signature] of this.physicsVerification){
+    const changed=checked.filter(asset=>renderedAssetSignature(asset)!==
+      renderedAssetSignature(previous.get(asset.assetId))).map(asset=>asset.assetId);
+    for(const [objectId,verification] of this.physicsVerification){
       const object=this.scene.objects.find(item=>item.objectId===objectId);
-      if(!object||physicsAssetSignature(this.asset(object.assetId))!==signature)
+      if(!object||physicsAssetSignature(this.asset(object.assetId))!==verification.signature)
         this.invalidatePhysicsAsset(objectId,true);
     }
     for(const [id,body] of this.physicsBodies){
-      if(!physicsCatalogBounds(this.asset(body.assetId)))this.physicsBodies.delete(id);
+      if(!physicsRegisteredGlb(this.asset(body.assetId)))this.physicsBodies.delete(id);
     }
+    return changed;
   }
   asset(id){return ASSETS.find(a=>a.assetId===id)||this.externalAssets.find(a=>a.assetId===id);}
   verifyPhysicsAsset(assetId,measuredSize,objectId){
+    this.ensurePhysicsScene();
     const asset=this.asset(assetId);
     const object=this.scene.objects.find(item=>item.objectId===objectId);
     const bounds=asset?.localBounds;
-    const verified=!!object&&object.assetId===assetId&&!!physicsCatalogBounds(asset)&&!!measuredSize&&
-      ['x','y','z'].every(axis=>finite(measuredSize[axis],.001,20)&&
-        Math.abs(measuredSize[axis]-bounds.size[axis])<=.02);
+    const verified=!!object&&object.assetId===assetId&&physicsRegisteredGlb(asset)&&
+      validRenderedPhysicsSize(measuredSize)&&
+      (!bounds||['x','y','z'].every(axis=>Math.abs(measuredSize[axis]-bounds.size[axis])<=.02));
     if(verified){
-      this.physicsVerification.set(objectId,physicsAssetSignature(asset));
+      this.physicsVerification.set(objectId,{signature:physicsAssetSignature(asset),
+        measuredSize:clone(measuredSize)});
       const body=this.physicsBodies.get(objectId);
       if(body)this.setPhysicsPause(body,'model',false);
     }
@@ -123,8 +126,10 @@ export class MatrixWorld {
     return true;
   }
   physicsAssetVerified(object){
-    return this.physicsVerification.get(object.objectId)===
-      physicsAssetSignature(this.asset(object.assetId));
+    this.ensurePhysicsScene();
+    const verification=this.physicsVerification.get(object.objectId);
+    return verification?.signature===physicsAssetSignature(this.asset(object.assetId))&&
+      validRenderedPhysicsSize(verification.measuredSize);
   }
   setPhysicsPause(body,reason,enabled){
     body.pauseReasons ||= [];
@@ -142,8 +147,8 @@ export class MatrixWorld {
   }
   assertPhysicsEligible(object,transform=object.transform,{verified=false}={}){
     const asset=this.asset(object.assetId);
-    if(object.anchorId!==ANCHOR_ID||!physicsCatalogBounds(asset))
-      throw Error('Physics requires a measured imported GLB on the virtual floor');
+    if(object.anchorId!==ANCHOR_ID||!physicsRegisteredGlb(asset))
+      throw Error('Physics requires an imported GLB on the virtual floor');
     if(!validPhysicsConfig(object.physics))throw Error('Invalid physics configuration');
     if(!validTransform(transform)||!finite(transform.position.y,0,5)||
        Math.abs(transform.rotation.x)>.01||Math.abs(transform.rotation.z)>.01)
@@ -163,14 +168,15 @@ export class MatrixWorld {
   }
   startPhysics(object,executionId){
     this.ensurePhysicsScene();
-    this.physicsBodies.set(object.objectId,createFloorBody(object,this.asset(object.assetId),executionId));
+    const measuredSize=this.physicsVerification.get(object.objectId)?.measuredSize;
+    this.physicsBodies.set(object.objectId,createFloorBody(object,this.asset(object.assetId),executionId,measuredSize));
   }
   physicsState(objectId){
     this.ensurePhysicsScene();
     const body=this.physicsBodies.get(objectId);
     const object=this.scene.objects.find(item=>item.objectId===objectId);
     if(!body||!object||!object.physics||body.assetId!==object.assetId||
-       body.anchorId!==object.anchorId||!physicsCatalogBounds(this.asset(body.assetId))||
+       body.anchorId!==object.anchorId||!physicsRegisteredGlb(this.asset(body.assetId))||
        !sameTransform(body.authoredTransform,object.transform)||
        !samePhysics(body.physics,object.physics)){
       this.physicsBodies.delete(objectId);return null;

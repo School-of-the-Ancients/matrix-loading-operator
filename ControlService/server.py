@@ -134,12 +134,15 @@ def physics_config(value):
     require(type(value) is dict and set(value) ==
             {"schemaVersion", "kind", "collider", "restitution"}, "Invalid physics configuration")
     require(type(value["schemaVersion"]) is int and value["schemaVersion"] == 1 and
-            value["kind"] == "gravity-floor" and value["collider"] == "catalog-bounds-box",
+            value["kind"] == "gravity-floor" and
+            value["collider"] in ("rendered-bounds-box", "catalog-bounds-box"),
             "Unsupported physics configuration")
     restitution = value["restitution"]
     require(type(restitution) in (int, float) and math.isfinite(restitution) and
             0 <= restitution <= .75, "Physics restitution must be 0-0.75")
-    return {"schemaVersion": 1, "kind": "gravity-floor", "collider": "catalog-bounds-box",
+    # Existing schema-1 saves used the catalog name for the same renderer-aligned
+    # floor proxy. Canonicalize it as scenes and snapshots pass through here.
+    return {"schemaVersion": 1, "kind": "gravity-floor", "collider": "rendered-bounds-box",
             "restitution": restitution}
 
 
@@ -345,9 +348,8 @@ def snapshot(value):
             if "physics" not in item:
                 continue
             asset = next((asset for asset in result["assets"] if asset["assetId"] == item["assetId"]), None)
-            require(item["assetId"].startswith("web:") and asset is not None and
-                    asset.get("localBounds") is not None,
-                    "Physics requires a registered Web GLB with measured bounds")
+            require(item["assetId"].startswith("web:") and asset is not None,
+                    "Physics requires a registered Web GLB")
         viewer = validate_viewer(value.get("viewer"), {a["anchorId"] for a in result["anchors"]})
         pointing = validate_pointing(value.get("pointing"),
                                      {a["anchorId"]: a for a in result["anchors"]},
@@ -623,22 +625,25 @@ def require_physics_eligible(obj, assets, registered_assets, pose=None):
     require(obj is not None and obj["anchorId"] == "web-floor" and
             obj["assetId"].startswith("web:") and "component" not in obj and
             not any(behavior["enabled"] for behavior in obj.get("behaviors", [])),
-            "Physics requires a virtual-floor Web GLB without another motion writer", 409)
+            "Physics requires a virtual-floor Web GLB without a competing transform writer", 409)
     asset = next((asset for asset in assets if asset["assetId"] == obj["assetId"]), None)
     registered = next((asset for asset in registered_assets
                        if asset["assetId"] == obj["assetId"]), None)
+    digest = registered.get("sha256") if registered else None
     require(asset is not None and registered is not None and
-            asset.get("localBounds") is not None and
-            asset["localBounds"] == registered.get("localBounds") and
+            isinstance(digest, str) and re.fullmatch(r"[0-9a-f]{64}", digest) and
+            re.fullmatch(r"web:[a-z0-9][a-z0-9-]{0,39}:[0-9a-f]{12}", obj["assetId"]) and
+            obj["assetId"].endswith(":" + digest[:12]) and
+            registered.get("url") == f"/api/web/assets/{digest}.glb" and
             asset.get("spawnScale", 1) == registered.get("spawnScale", 1),
-            "Physics requires the current registered GLB and measured bounds", 409)
+            "Physics requires the current registered GLB identity and scale", 409)
     transform_value = obj["transform"] if pose is None else pose
     require(abs(transform_value["rotation"]["x"]) <= .01 and
             abs(transform_value["rotation"]["z"]) <= .01 and
             0 <= transform_value["position"]["y"] <= 5,
             "Physics needs an upright start 0-5 metres above the virtual floor", 409)
-    # GLB loading subtracts its measured bounds.min.y, so root-local Y=0 is
-    # the rendered bounds bottom even when the raw catalog bounds start elsewhere.
+    # GLB loading subtracts its rendered bounds.min.y, so root-local Y=0 is
+    # the model bottom even when the raw export pivot starts elsewhere.
 
 
 class State:
@@ -1321,7 +1326,7 @@ class State:
             require(type(restitution) in (int, float) and math.isfinite(restitution) and
                     0 <= restitution <= .75, "Restitution must be 0–0.75")
             configuration = {"schemaVersion": 1, "kind": "gravity-floor",
-                             "collider": "catalog-bounds-box", "restitution": restitution}
+                             "collider": "rendered-bounds-box", "restitution": restitution}
         else:
             configuration = None
         with self.lock:
@@ -1342,26 +1347,13 @@ class State:
                     obj["anchorId"] == "web-floor" and asset_id.startswith("web:"),
                     "Physics object is no longer available on the virtual floor", 409)
             if action == "set":
-                registered = next((asset for asset in self.web_assets.list()
-                                   if asset.get("assetId") == asset_id), None)
-                catalog_asset = next((asset for asset in current["assets"]
-                                      if asset["assetId"] == asset_id), None)
-                require(registered is not None and registered.get("localBounds") and
-                        catalog_asset is not None and
-                        catalog_asset.get("localBounds") == registered["localBounds"] and
-                        catalog_asset.get("spawnScale", 1) == registered.get("spawnScale", 1),
-                        "Current registered GLB bounds are unavailable; reload the asset catalog", 409)
+                registry = self.web_assets.list()
+                require_physics_eligible(obj, current["assets"], registry)
+                registered = next(asset for asset in registry if asset["assetId"] == asset_id)
                 try:
                     self.web_assets.file(registered["sha256"])
                 except WebAssetError as error:
                     raise APIError(409, str(error)) from None
-                pose = obj["transform"]
-                require(0 <= pose["position"]["y"] <= 5 and
-                        abs(pose["rotation"]["x"]) <= .01 and
-                        abs(pose["rotation"]["z"]) <= .01 and
-                        not obj.get("component") and
-                        not any(behavior.get("enabled") for behavior in obj.get("behaviors", [])),
-                        "Floor physics needs an upright GLB within 5 m and no competing transform writer", 409)
                 require(sum("physics" in item for item in current["scene"]["objects"]
                             if item["objectId"] != object_id) < 16,
                         "Floor physics body limit reached", 409)

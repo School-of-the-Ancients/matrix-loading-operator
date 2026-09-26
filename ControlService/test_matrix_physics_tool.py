@@ -16,10 +16,8 @@ from test_web_assets import animated_glb
 POSE = {"position": {"x": 0, "y": 2, "z": -2},
         "rotation": {"x": 0, "y": 0, "z": 0},
         "scale": {"x": 1, "y": 1, "z": 1}}
-BOUNDS = {"center": {"x": 0, "y": .5, "z": 0},
-          "size": {"x": 1, "y": 1, "z": 1}}
 PHYSICS = {"schemaVersion": 1, "kind": "gravity-floor",
-           "collider": "catalog-bounds-box", "restitution": .5}
+           "collider": "rendered-bounds-box", "restitution": .5}
 
 
 class MatrixPhysicsToolTests(unittest.TestCase):
@@ -30,12 +28,13 @@ class MatrixPhysicsToolTests(unittest.TestCase):
         self.state = State(root / "state", web_assets_directory=root / "assets")
         source = root / "drop.glb"
         source.write_bytes(animated_glb())
-        self.asset = self.state.web_assets.register(source, "Drop Model", local_bounds=BOUNDS)
+        self.asset = self.state.web_assets.register(source, "Drop Model")
+        self.assertNotIn("localBounds", self.asset)
         self.room = {"scene": {"schemaVersion": 1, "roomId": "web-virtual-room-v1",
                                "objects": [{"objectId": "drop-1", "assetId": self.asset["assetId"],
                                             "anchorId": "web-floor", "transform": POSE}]},
                      "assets": [{"assetId": self.asset["assetId"], "displayName": "Drop Model",
-                                 "spawnScale": 1, "localBounds": BOUNDS}],
+                                 "spawnScale": 1}],
                      "anchors": [{"anchorId": "web-floor", "displayName": "Virtual floor"}],
                      "physicsSchemaVersion": 1,
                      "roomContext": {"mode": "white-room", "state": "ready",
@@ -99,6 +98,10 @@ class MatrixPhysicsToolTests(unittest.TestCase):
             with self.assertRaises(APIError):
                 self.state.agent_physics_action(value)
         self.assertFalse(self.state.pending)
+        self.state.latest["assets"][0]["spawnScale"] = 2
+        with self.assertRaisesRegex(APIError, "identity and scale"):
+            self.state.agent_physics_action(self.request())
+        self.state.latest["assets"][0]["spawnScale"] = 1
         self.state.latest["roomContext"]["mode"] = "ar"
         with self.assertRaisesRegex(APIError, "White Room"):
             self.state.agent_physics_action(self.request())

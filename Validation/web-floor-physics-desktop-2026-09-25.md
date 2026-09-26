@@ -2,11 +2,12 @@
 
 ## Source and automated checks
 
-- Base: `f63d517` (`codex/m3-scale-contract`, PR #92). Validation ran on the
-  uncommitted physics branch before this evidence note was added.
+- Base: `codex/m3-scale-contract` (PR #92). The initial physics commit was
+  `0fb8081`; the renderer-measured follow-up was validated before its commit.
 - Windows 11, Python 3.13.14: `python -m unittest discover -s ControlService
   -p 'test_*.py' -q` — 626 tests passed.
-- Node 24.16.0: `npm test` in `WebRuntime` — 99 tests passed.
+- Node 24.16.0: `npm test` in `WebRuntime` — 103 tests passed after the
+  renderer-measured and review fixes.
 - `npm run build` in `WebRuntime` — Vite 7.3.6 build passed.
 - `git diff --check` — passed.
 
@@ -17,8 +18,9 @@ The normal Matrix service and scene at port 18765 were not touched.
 
 1. Measured the actual Clockwork Firefly GLB via Three.js `GLTFLoader`. Its
    raw bounds center is approximately `(0, 1.1314, -0.0035)` metres and size
-   `(2.4554, 1.0769, 2.4211)` metres. Registered those bounds in the scratch
-   catalog. This asset verifies the off-center GLB pivot case.
+   `(2.4554, 1.0769, 2.4211)` metres. The first scratch catalog carried the
+   measured size. This asset verifies the off-center GLB pivot case; the later
+   trace uses no catalog bounds.
 2. Spawned `web:clockwork-firefly-physics:15c42ffb780f` at authored
    `(0, 2, -2)` and scale `0.3`; receipt `a4d510ea...` succeeded. The real
    GLB was visible above the virtual floor in the desktop browser.
@@ -40,11 +42,20 @@ The normal Matrix service and scene at port 18765 were not touched.
    `97ab4bf8...` succeeded. The same ID, transform, clips, and config were
    restored; `physicsStates` was empty. The browser rendered the GLB at its
    authored height after the restart.
+7. After the renderer-measured follow-up, used a separate scratch catalog with
+   the existing versioned Clockwork Firefly and Ice Dragon IDs and **no**
+   `localBounds` on either entry. The Firefly spawned above the floor
+   (`20059680...`) and settled with six contacts after `set_physics`
+   (`f9a16510...`). Refreshed the catalog in the browser, spawned the Ice
+   Dragon (`02d66fc...`) above the floor, and observed its `set_physics`
+   receipt (`70221440...`) settle at y=0 with four contacts. Both real GLBs
+   were visible on the floor together. Binding the Dragon's Flight loop and
+   Frost Burst selection clip (`8c4ce1d...`) preserved its physics state.
 
 ## Evidence limits
 
 This was a desktop White Room test. No Quest wearer test, AR physics, physical
 floor collision, object-to-object collision, or general rigid-body behavior
-was established. Existing Web GLB catalog entries without accurate
-`localBounds` need reviewed registration with measured bounds before this
-physics action can be used on them.
+was established. The first trace registered the Firefly with bounds; the
+follow-up used the existing Dragon and Firefly asset IDs without catalog
+`localBounds`. The normal port-18765 service and live scene were not changed.

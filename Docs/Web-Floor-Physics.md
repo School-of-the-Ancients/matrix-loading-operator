@@ -7,12 +7,13 @@ with other objects, tumble, or use a general rigid-body engine.
 
 ## Use
 
-1. Register a GLB with finite `localBounds` that match its rendered rest-pose
-   dimensions. The browser loads the GLB and checks the actual X/Y/Z size
-   against those catalog bounds. A missing or mismatched bound leaves the model
-   renderable but ineligible for physics. Existing catalog entries without
-   `localBounds` need measured bounds added through the reviewed registration
-   path before they can use this capability.
+1. Register a self-contained GLB through the existing validator and catalog.
+   The browser loads its exact versioned asset, measures its rendered rest-pose
+   X/Y/Z dimensions, and verifies the actual instance before allowing physics.
+   A missing or failed model load cannot start a drop. Catalog `localBounds`
+   are optional for this White Room drop; existing Dragon and Firefly entries
+   do not need to be re-registered. Measured catalog bounds are still needed
+   for physical support-surface placement.
 2. Spawn or move that GLB to a height from 0 to 5 metres in the White Room.
    Keep it upright and remove attached numeric components and enabled Rotate/Bob
    behaviors. Named GLB animation clips may remain bound to the visual child.
@@ -27,11 +28,11 @@ with other objects, tumble, or use a general rigid-body engine.
    position, vertical velocity, contact count, and approximate impact speed.
    `matrix_remove_physics` stops the run and removes its saved configuration.
 
-The solver allows at most 16 configured bodies. It uses the GLB's measured
-rest-pose box as a contact proxy; imported models are centered horizontally and
-floor-aligned by the existing loader. Animation can change the visible shape
-without changing that proxy. Repeated input, pause/resume, and rebound are
-bounded by fixed 1/60-second steps and a frame-time cap.
+The solver allows at most 16 configured bodies. It uses the GLB's rendered
+rest-pose box as an approximate contact proxy; imported models are centered
+horizontally and floor-aligned by the existing loader. Animation can change the
+visible shape without changing that proxy. Repeated input, pause/resume, and
+rebound are bounded by fixed 1/60-second steps and a frame-time cap.
 
 ## State and ownership
 

@@ -545,6 +545,16 @@ export class MatrixView {
     }
     this.highlight();
   }
+  refreshAssets(changedAssetIds){
+    if(!changedAssetIds?.length)return false;
+    const changed=new Set(changedAssetIds);
+    for(const id of changed)this.modelCache.delete(id);
+    if(!this.world.scene.objects.some(object=>changed.has(object.assetId)))return false;
+    // Rebuild loaded instances against the new catalog metadata or GLB bytes.
+    // loadExternal() re-verifies the exact rendered object after instantiation.
+    this.sync();
+    return true;
+  }
   async loadExternal(asset,root,visual,objectId){
     try{
       let pending=this.modelCache.get(asset.assetId);
@@ -903,8 +913,9 @@ export class MatrixView {
           }
         }
       }
+      const held=this.grab?.objectId===object.objectId||this.pointerGrab?.objectId===object.objectId;
       const physics=!this.isAR&&this.world.physicsState?.(object.objectId);
-      if(physics&&component?.status!=='running')root.position.y=physics.position.y;
+      if(physics&&!held&&component?.status!=='running')root.position.y=physics.position.y;
       const visual=root.userData.visual;visual.position.y=0;visual.rotation.set(0,0,0);
       for(const behavior of root.userData.behaviors){if(!behavior.enabled)continue;const t=behavior.paused?0:time/1000;
         if(behavior.kind==='bob')visual.position.y+=(1-Math.cos(2*Math.PI*behavior.frequencyHz*t))*.5*behavior.amplitudeMeters;

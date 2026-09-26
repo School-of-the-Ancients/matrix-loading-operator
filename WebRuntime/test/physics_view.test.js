@@ -2,6 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import * as THREE from 'three';
 import {MatrixView} from '../src/view.js';
+import {beginGrab} from '../src/grab.js';
 
 const object={objectId:'block-1',assetId:'block',anchorId:'web-floor',
   transform:{position:{x:0,y:2,z:-2},rotation:{x:0,y:0,z:0},scale:{x:1,y:1,z:1}}};
@@ -49,6 +50,39 @@ test('a desktop frame steps floor physics once and keeps GLB clip playback indep
   assert.equal(root.position.y,1.5);
   assert.equal(root.userData.visual.position.y,0);
   assert.equal(view.world.scene.objects[0].transform.position.y,2);
+});
+
+test('a paused floor drop does not overwrite pointer or XR grab movement',()=>{
+  const {view,root}=frameView();
+  root.position.y=.6;
+  view.pointerGrab={objectId:'block-1',root};
+  view.animate(1000,null);
+  assert.equal(root.position.y,.6);
+  view.pointerGrab=null;
+  const controller=new THREE.Group();
+  view.scene.add(controller,root);
+  view.scene.updateMatrixWorld(true);
+  view.grab={...beginGrab(controller,root),objectId:'block-1'};
+  controller.position.y=.4;
+  view.animate(2000,null);
+  assert.ok(Math.abs(root.position.y-1)<1e-9,'controller movement stays visible while physics is paused');
+  view.grab=null;
+  view.animate(3000,null);
+  assert.equal(root.position.y,1.5,'solver pose resumes after release');
+});
+
+test('catalog refresh clears changed GLB cache and rebuilds its rendered instance once',()=>{
+  const view=Object.create(MatrixView.prototype);
+  view.world={scene:{objects:[{objectId:'model-1',assetId:'web:model'}]}};
+  view.modelCache=new Map([['web:model',Promise.resolve({})],['web:other',Promise.resolve({})]]);
+  let rebuilds=0;view.sync=()=>{rebuilds++;};
+  assert.equal(view.refreshAssets([]),false);
+  assert.equal(view.refreshAssets(['web:other']),false);
+  assert.equal(rebuilds,0);
+  assert.equal(view.modelCache.has('web:other'),false);
+  assert.equal(view.refreshAssets(['web:model']),true);
+  assert.equal(view.modelCache.has('web:model'),false);
+  assert.equal(rebuilds,1);
 });
 
 test('an AR frame does not step or render a floor-drop pose',()=>{

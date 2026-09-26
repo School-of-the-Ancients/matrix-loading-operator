@@ -10,25 +10,30 @@ const finite = value => typeof value === 'number' && Number.isFinite(value);
 const exact = (value, keys) => value && typeof value === 'object' && !Array.isArray(value) &&
   Object.keys(value).length === keys.length && keys.every(key => Object.hasOwn(value, key));
 
+export function validRenderedPhysicsSize(size) {
+  return exact(size, ['x', 'y', 'z']) &&
+    ['x', 'y', 'z'].every(axis => finite(size[axis]) && size[axis] >= .001 && size[axis] <= 20);
+}
+
 export function validPhysicsConfig(value) {
   return exact(value, ['schemaVersion', 'kind', 'collider', 'restitution']) &&
     value.schemaVersion === 1 && value.kind === 'gravity-floor' &&
-    value.collider === 'catalog-bounds-box' && finite(value.restitution) &&
+    ['rendered-bounds-box', 'catalog-bounds-box'].includes(value.collider) && finite(value.restitution) &&
     value.restitution >= 0 && value.restitution <= .75;
 }
 
-export function physicsFloorY(asset, transform) {
-  const bounds = asset?.localBounds;
-  if (!bounds || !finite(bounds.center?.y) || !finite(bounds.size?.y) || bounds.size.y <= 0 ||
-      !finite(asset.spawnScale) || !finite(transform?.scale?.y))
-    throw Error('Physics needs measured catalog bounds');
+export function physicsFloorY(asset, transform, measuredSize) {
+  if (!validRenderedPhysicsSize(measuredSize) ||
+      !finite(asset?.spawnScale) || asset.spawnScale <= 0 ||
+      !finite(transform?.scale?.y) || transform.scale.y <= 0)
+    throw Error('Physics needs finite measured rendered bounds');
   // loadExternal() floor-aligns every GLB before adding it under the object
   // root, so the rendered box bottom is root-local Y=0 regardless of export pivot.
   return 0;
 }
 
-export function createFloorBody(object, asset, executionId) {
-  const floorY = physicsFloorY(asset, object.transform);
+export function createFloorBody(object, asset, executionId, measuredSize) {
+  const floorY = physicsFloorY(asset, object.transform, measuredSize);
   const position = structuredClone(object.transform.position);
   position.y = Math.max(position.y, floorY);
   return {objectId: object.objectId, executionId, status: 'falling', position,

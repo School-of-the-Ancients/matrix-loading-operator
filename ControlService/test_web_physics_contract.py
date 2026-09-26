@@ -1,5 +1,6 @@
 """Web gravity-floor schema, authority, and observed-state boundaries."""
 import copy
+import hashlib
 import json
 from pathlib import Path
 import tempfile
@@ -7,18 +8,18 @@ import unittest
 
 from server import (APIError, MAX_PHYSICS_BODIES, State, command, physics_config,
                     scene, snapshot)
+from test_web_assets import glb
 
 
 PHYSICS = {"schemaVersion": 1, "kind": "gravity-floor",
-           "collider": "catalog-bounds-box", "restitution": .25}
+           "collider": "rendered-bounds-box", "restitution": .25}
 POSE = {"position": {"x": 0, "y": 2, "z": -2},
         "rotation": {"x": 0, "y": 0, "z": 0},
         "scale": {"x": 1, "y": 1, "z": 1}}
-BOUNDS = {"center": {"x": 0, "y": .5, "z": 0},
-          "size": {"x": 1, "y": 1, "z": 1}}
-ASSET_ID = "web:physics-fixture:0123456789ab"
+GLB_BYTES = glb()
+ASSET_ID = "web:physics-fixture:" + hashlib.sha256(GLB_BYTES).hexdigest()[:12]
 ASSET = {"assetId": ASSET_ID, "displayName": "Physics fixture",
-         "localBounds": BOUNDS, "spawnScale": 1}
+         "spawnScale": 1}
 CONTACT = {"index": 1, "surface": "web-floor", "impactSpeedMps": 4.2,
            "approximate": True}
 
@@ -46,8 +47,10 @@ def snapshot_value(objects=None, mode="white-room", physics_capability=True):
 
 def state_with_asset(directory, value):
     state = State(directory, web_assets_directory=Path(directory) / "web-assets")
-    state.web_assets.root.mkdir(parents=True, exist_ok=True)
-    (state.web_assets.root / "manifest.json").write_text(json.dumps([ASSET]), encoding="utf-8")
+    source = Path(directory) / "physics-fixture.glb"
+    source.write_bytes(GLB_BYTES)
+    registered = state.web_assets.register(source, "Physics fixture")
+    assert registered["assetId"] == ASSET_ID and "localBounds" not in registered
     state.exchange({"clientId": "web-physics-test", "snapshot": value})
     return state
 
@@ -55,6 +58,11 @@ def state_with_asset(directory, value):
 class WebPhysicsContractTests(unittest.TestCase):
     def test_exact_physics_config_and_scene_budget(self):
         self.assertEqual(physics_config(PHYSICS), PHYSICS)
+        legacy = {**PHYSICS, "collider": "catalog-bounds-box"}
+        self.assertEqual(physics_config(legacy), PHYSICS)
+        self.assertEqual(scene({"schemaVersion": 1, "roomId": "web-virtual-room-v1",
+                                "objects": [object_value(physics=True) | {"physics": legacy}]})
+                         ["objects"][0]["physics"], PHYSICS)
         self.assertEqual(command({"op": "set_physics", "objectId": "glb-0",
                                   "physics": PHYSICS})["physics"], PHYSICS)
         self.assertEqual(command({"op": "remove_physics", "objectId": "glb-0"}),
@@ -123,10 +131,12 @@ class WebPhysicsContractTests(unittest.TestCase):
         with self.assertRaisesRegex(APIError, "duplicate"):
             snapshot(value)
 
-    def test_queue_requires_registered_bounded_glb_and_white_room(self):
+    def test_queue_requires_registered_glb_identity_and_current_scale_not_bounds(self):
         with tempfile.TemporaryDirectory() as directory:
             value = snapshot_value()
             state = state_with_asset(directory, value)
+            registered = state.web_assets.list()
+            self.assertNotIn("localBounds", registered[0])
             op = {"op": "set_physics", "objectId": "glb-0", "physics": PHYSICS}
             saved_revision = state.revision
             state.web_assets.root.joinpath("manifest.json").write_text("[]", encoding="utf-8")
@@ -134,7 +144,11 @@ class WebPhysicsContractTests(unittest.TestCase):
                 state.queue([op])
             self.assertEqual(state.revision, saved_revision)
             self.assertFalse(state.pending)
-            state.web_assets.root.joinpath("manifest.json").write_text(json.dumps([ASSET]), encoding="utf-8")
+            state.web_assets.register(Path(directory) / "physics-fixture.glb", "Physics fixture")
+            state.latest["assets"][0]["spawnScale"] = 2
+            with self.assertRaisesRegex(APIError, "identity and scale"):
+                state.queue([op])
+            state.latest["assets"][0]["spawnScale"] = 1
             queued = state.queue([op])["commands"][0]
             self.assertEqual(queued["op"], "set_physics")
             self.assertEqual(queued["physics"], PHYSICS)
