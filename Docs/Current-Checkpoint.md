@@ -2,7 +2,7 @@
 
 ## Citizens due-appointment handoff candidate (September 26, 2026)
 
-Open review: `codex/citizens-due-appointment`, stacked on open [PR #120](https://github.com/School-of-the-Ancients/matrix-loading-operator/pull/120).
+Open review: [PR #121](https://github.com/School-of-the-Ancients/matrix-loading-operator/pull/121), stacked on open [PR #120](https://github.com/School-of-the-Ancients/matrix-loading-operator/pull/120).
 
 The same two-resident desktop `/web/` world now considers a due rest or eat appointment while a resident is traveling for an optional activity or waiting in its station's FIFO queue. A matching station trip adopts its existing execution ID, claim or ticket; a different goal releases the optional execution only after the due target is reachable, off cooldown, and any claimed station can hand off safely. Critical hunger still has food precedence. Use, egress, social sessions, and appointment-linked executions stay committed. Selection and release give no need reward; the exact Matrix interaction receipt remains the completion boundary. The nested Citizens schema stays v11 and the outer whole-world checkpoint stays v3. This advances [#17](https://github.com/School-of-the-Ancients/matrix-loading-operator/issues/17) without promising that every deadline is feasible.
 
