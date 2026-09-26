@@ -530,7 +530,7 @@ async function restorePCWorld(){
     await bridge.sync();
     const data=await bridge.request('/api/web/world/load',{name});
     if(world.spatial||pendingWorld)throw Error('The browser left the ready desktop virtual room');
-    await applyPCWorld(world,data.world,()=>bridge.sync());
+    await bridge.withExclusiveExchange(()=>applyPCWorld(world,data.world,()=>bridge.sync(data.expectedRevision)));
     discardProposal();renderScene();
     feedback(`PC world checkpoint restored: ${name}. Object IDs and game progress are active.`);
   }catch(error){renderScene();feedback(`PC world checkpoint could not be restored: ${error.message}`,true);}

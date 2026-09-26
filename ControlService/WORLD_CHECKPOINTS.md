@@ -14,11 +14,16 @@ POST /api/web/world/save
 ```
 
 `GET /api/web/worlds` lists checkpoint names. `POST /api/web/world/load` with
-`{"name":"Demo"}` returns `{name, schemaVersion, world, dependencies}`. The load
+`{"name":"Demo"}` returns `{name, schemaVersion, world, dependencies, expectedRevision}`. The load
 call validates and returns the world; it does not issue a runtime command or
 replace the browser's active scene. The browser must run its existing
 `restoreStoredWorld(world, response.world)` validation before rendering and
 exchanging the new snapshot. A failed load leaves the current world untouched.
+The browser finishes any in-flight exchange and pauses periodic exchanges before
+staging the saved world. The restore exchange sends `expectedRevision` as `worldRestoreExpectedRevision`.
+The service accepts the staged world only if the same browser still holds the
+lease, the scene revision is unchanged, and no command has been queued. A
+conflict keeps the previous browser world and pending command for a retry.
 
 Files live under the configured `--scenes` directory in
 `world_checkpoints/<name>.json`. The file has schema version 1, the browser's
