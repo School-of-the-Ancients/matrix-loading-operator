@@ -13,6 +13,7 @@ export async function applyPCWorld(world,saved,sync){
   try{await sync();}
   catch(error){
     world.scene=previous.world.scene;world.game=previous.world.game;
+    world.citizens=previous.world.citizens??null;
     world.originBinding=previous.originBinding;
     world.originAnchorHandle=previous.originAnchorHandle;
     world.selection=previous.selection;world.undo=previous.undo;world.redo=previous.redo;

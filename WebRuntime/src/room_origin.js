@@ -5,7 +5,7 @@ export const ROOM_ARCHIVES_KEY='matrix-web-room-archives-v1';
 const MAX_ARCHIVES=3;
 
 export function hasWorldToProtect(world){
-  return world.scene.objects.length>0||world.game!==null;
+  return world.scene.objects.length>0||world.game!==null||world.citizens!=null;
 }
 
 export function roomArchives(storage){
@@ -16,7 +16,10 @@ export function roomArchives(storage){
   catch{throw Error('Room recovery archive is invalid; export it before resetting the room');}
   if(!Array.isArray(archives)||archives.length>MAX_ARCHIVES||
      !archives.every(item=>item?.version===1&&typeof item.archiveId==='string'&&
-       item.world?.version===2&&item.world.scene&&Object.hasOwn(item.world,'game')))
+       item.world?.scene&&Object.hasOwn(item.world,'game')&&
+       (item.world.version===2&&!Object.hasOwn(item.world,'citizens')||
+        item.world.version===3&&item.world.citizens!==null&&
+          typeof item.world.citizens==='object'&&!Array.isArray(item.world.citizens))))
     throw Error('Room recovery archive is invalid; export it before resetting the room');
   return archives;
 }
@@ -44,6 +47,7 @@ function archiveAndStartRoom(world,storage,keepWorld){
     world.scene.objects=[];
     if(world.virtualScene)world.virtualScene.scene.objects=[];
     world.game=null;
+    world.citizens=null;
   }
   world.originBinding=keepWorld?'ar':'virtual';
   world.originAnchorHandle=null;

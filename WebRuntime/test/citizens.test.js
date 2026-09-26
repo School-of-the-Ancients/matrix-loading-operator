@@ -101,6 +101,8 @@ test('fixed seed and serialized mid-action state resume without duplicate spawn'
   assert.equal(restoredWorld.execute({requestId:'load',op:'load',scene:savedScene}).ok,true);
   const restored=CitizensSimulation.restore(restoredWorld,saved);
   assert.deepEqual(restored.exportState(),saved);
+  assert.deepEqual(restored.reconcileWorld(),saved,
+    'restoring a bound scene must establish its observed transform baseline');
   assert.equal(restoredWorld.scene.objects.length,4);
   for(let i=0;i<18;i++){
     assert.deepEqual(first.step(),restored.step());
@@ -154,11 +156,64 @@ test('removing a reserved station cancels the activity and invalidates restore',
   const after=sim.step();
   assert.equal(after.stations.find(station=>station.id==='chair').holder,null);
   assert.equal(after.residents[0].activity,null);
-  assert.ok(after.residents[0].needs.energy<beforeEnergy);
-  assert.ok(after.log.some(entry=>entry.event==='failed'&&entry.message.includes('target')));
+  assert.equal(after.residents[0].needs.energy,beforeEnergy);
+  assert.equal(after.clockTick,before.clockTick,'an invalid binding stops the next tick');
+  assert.equal(after.paused,true);
+  assert.ok(after.log.some(entry=>entry.event==='failed'&&entry.message.includes('missing')));
+  assert.throws(()=>sim.exportState(),/binding is missing or incompatible/);
   const scene=structuredClone(matrix.scene);
   assert.throws(()=>CitizensSimulation.restore(matrix,before),/missing or incompatible/);
   assert.deepEqual(matrix.scene,scene,'rejected restore must not change the world');
+});
+
+test('own movement is observed without falsely interrupting a running simulation',()=>{
+  const matrix=world(),sim=createCitizensDemo(matrix,{seed:17});
+  sim.resume();
+  const afterMove=sim.advance();
+  assert.equal(afterMove.paused,false);
+  assert.deepEqual(sim.reconcileWorld(),afterMove);
+  assert.equal(sim.advance().clockTick,2);
+  assert.equal(sim.snapshot().paused,false);
+});
+
+test('an authored resident move cancels its activity and releases its station',()=>{
+  const matrix=world(),sim=createCitizensDemo(matrix,{seed:17});
+  sim.resume();
+  const before=sim.advance();
+  const ada=before.residents.find(resident=>resident.id==='ada');
+  assert.equal(ada.activity.kind,'rest');
+  const transform=structuredClone(matrix.requireObject(ada.objectId).transform);
+  transform.position.x+=.8;
+  assert.equal(matrix.execute({requestId:'author-move-ada',op:'set_transform',
+    objectId:ada.objectId,transform}).ok,true);
+  const after=sim.reconcileWorld();
+  assert.equal(after.paused,true);
+  assert.equal(after.clockTick,before.clockTick);
+  assert.equal(after.residents.find(resident=>resident.id==='ada').activity,null);
+  assert.equal(after.residents.find(resident=>resident.id==='ada').needs.energy,ada.needs.energy);
+  assert.equal(after.stations.find(station=>station.kind==='rest').holder,null);
+  assert.equal(after.residents.find(resident=>resident.id==='bo').activity.kind,'eat');
+  assert.ok(after.log.some(entry=>entry.event==='failed'&&entry.residentId==='ada'&&
+    entry.message.includes('moved externally')));
+  assert.deepEqual(sim.advance(),after,'the paused timer must not resume on its own');
+});
+
+test('an authored station move cancels the holder before an interaction completes',()=>{
+  const matrix=world(),sim=createCitizensDemo(matrix,{seed:17});
+  sim.resume();
+  const before=sim.advance();
+  const chair=before.stations.find(station=>station.kind==='rest');
+  const transform=structuredClone(matrix.requireObject(chair.objectId).transform);
+  transform.position.z+=1;
+  assert.equal(matrix.execute({requestId:'author-move-chair',op:'set_transform',
+    objectId:chair.objectId,transform}).ok,true);
+  const after=sim.reconcileWorld();
+  assert.equal(after.paused,true);
+  assert.equal(after.clockTick,before.clockTick);
+  assert.equal(after.stations.find(station=>station.kind==='rest').holder,null);
+  assert.equal(after.residents.find(resident=>resident.id==='ada').activity,null);
+  assert.ok(after.log.some(entry=>entry.event==='failed'&&entry.residentId==='ada'&&
+    entry.message.includes('chair was moved externally')));
 });
 
 test('restore rejects corrupt reservation and wrong room without changing Matrix scene',()=>{

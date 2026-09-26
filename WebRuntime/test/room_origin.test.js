@@ -7,6 +7,7 @@ import {storedWorld,storedBrowserWorld,saveStoredWorld,loadStoredWorld,restoreSt
   saveCheckpoint,loadCheckpoint} from '../src/scene_store.js';
 import {ROOM_ANCHOR_KEY,ROOM_ARCHIVES_KEY,hasWorldToProtect,roomArchives,
   archiveAndClearRoom,archiveAndRebaseRoom,clearRoomArchives} from '../src/room_origin.js';
+import {createCitizensDemo} from '../src/citizens.js';
 
 function storage(){
   const entries=new Map();
@@ -40,6 +41,22 @@ test('unavailable saved origin hides edits until recovery, then archive preserve
   world.setOriginUnavailable(false);
   assert.equal(world.snapshot().readOnly,undefined);
   world.leaveAR();
+  assert.equal(world.scene.objects.length,0);
+});
+
+test('AR recovery archive preserves v3 Citizens and clear removes their active state',()=>{
+  const world=new MatrixWorld(()=>crypto.randomUUID().replaceAll('-','')),local=storage();
+  const simulation=createCitizensDemo(world,{seed:31});
+  simulation.step();world.citizens=simulation.snapshot();
+  const before=storedWorld(world);
+  assert.equal(before.version,3);
+  world.enterAR();world.setOriginUnavailable(true);
+  const archive=archiveAndClearRoom(world,local);
+  assert.deepEqual(archive.world,before);
+  assert.deepEqual(roomArchives(local)[0].world,before);
+  assert.equal(world.citizens,null);
+  world.setOriginUnavailable(false);world.leaveAR();
+  assert.equal(storedWorld(world).version,2);
   assert.equal(world.scene.objects.length,0);
 });
 

@@ -9,7 +9,7 @@ from unittest.mock import patch
 import urllib.error
 import urllib.request
 
-from server import APIError, Server, State
+from server import APIError, Server, State, world_checkpoint_digest
 from test_web_assets import animated_glb
 
 
@@ -62,6 +62,110 @@ class WorldCheckpointTests(unittest.TestCase):
 
     def tearDown(self):
         self.temp.cleanup()
+
+    def citizens_world(self):
+        world = copy.deepcopy(self.world)
+        for object_id, asset_id, x in (("citizen-ada", "orb", -2),
+                                       ("citizen-bo", "orb", 2),
+                                       ("citizen-chair", "chair", 0),
+                                       ("citizen-table", "table", 1)):
+            pose = copy.deepcopy(POSE)
+            pose["position"]["x"] = x
+            world["scene"]["objects"].append({"objectId": object_id, "assetId": asset_id,
+                                                "anchorId": "web-floor", "transform": pose})
+        active = copy.deepcopy(self.snapshot)
+        active["scene"] = copy.deepcopy(world["scene"])
+        active["assets"].extend({"assetId": asset_id, "displayName": asset_id.title()}
+                                for asset_id in ("orb", "chair", "table"))
+        self.state.exchange({"clientId": "browser", "snapshot": active, "results": []})
+        world["version"] = 3
+        world["citizens"] = {
+            "schemaVersion": 1, "world": {"schemaVersion": 1, "roomId": "web-virtual-room-v1"},
+            "seed": 73, "rngState": 14362, "requestSequence": 9, "clockTick": 12,
+            "paused": True,
+            "residents": [
+                {"id": "ada", "name": "Ada", "objectId": "citizen-ada",
+                 "needs": {"hunger": 70, "energy": 25, "fun": 60},
+                 "preferences": {"rest": 1.2, "eat": .85, "explore": .75},
+                 "activity": {"kind": "rest", "stationId": "chair", "phase": "travel",
+                              "remainingTicks": 7, "travelTicks": 2, "target": None},
+                 "cooldowns": {"rest": 0, "eat": 0, "explore": 0}, "lastOutcome": ""},
+                {"id": "bo", "name": "Bo", "objectId": "citizen-bo",
+                 "needs": {"hunger": 40, "energy": 32, "fun": 55},
+                 "preferences": {"rest": 1.1, "eat": 1, "explore": .75},
+                 "activity": None, "cooldowns": {"rest": 0, "eat": 0, "explore": 0},
+                 "lastOutcome": "Completed explore at minute 8"}],
+            "stations": [{"id": "chair", "kind": "rest", "objectId": "citizen-chair",
+                          "capacity": 1, "holder": "ada"},
+                         {"id": "food", "kind": "eat", "objectId": "citizen-table",
+                          "capacity": 1, "holder": None}],
+            "log": [{"tick": 10, "residentId": "ada", "event": "selected",
+                     "message": "Ada chose rest."},
+                    {"tick": 11, "residentId": "bo", "event": "blocked",
+                     "message": "Chair occupied by Ada."}]}
+        return world
+
+    def test_citizens_v3_roundtrip_keeps_intent_ids_and_legacy_v2_exact(self):
+        world = self.citizens_world()
+        saved = self.state.save_world_checkpoint("Citizens", world)
+        self.assertTrue(saved["saved"])
+        document = json.loads((self.scenes / "world_checkpoints" / "Citizens.json").read_text(encoding="utf-8"))
+        self.assertEqual(document["world"]["citizens"], world["citizens"])
+        fresh = State(self.scenes, web_assets_directory=self.assets)
+        active = copy.deepcopy(self.state.latest)
+        active["scene"]["objects"] = []
+        fresh.exchange({"clientId": "reopened-browser", "snapshot": active, "results": []})
+        before = copy.deepcopy(fresh.latest)
+        loaded = fresh.load_world_checkpoint("Citizens")
+        self.assertEqual(loaded["world"]["version"], 3)
+        self.assertEqual(loaded["world"]["citizens"], world["citizens"])
+        self.assertEqual(loaded["world"]["citizens"]["residents"][0]["activity"]["phase"], "travel")
+        self.assertEqual(fresh.latest, before, "load returns a staged world; it does not replace the runtime")
+        staged = copy.deepcopy(active)
+        staged["scene"] = copy.deepcopy(loaded["world"]["scene"])
+        accepted = fresh.exchange({"clientId": "reopened-browser", "snapshot": staged, "results": [],
+                                   "worldRestoreExpectedRevision": loaded["expectedRevision"]})
+        self.assertEqual(accepted["commands"], [])
+        self.assertEqual(fresh.latest["scene"], loaded["world"]["scene"])
+        self.state.save_world_checkpoint("LegacyV2", self.world | {"scene": self.state.latest["scene"]})
+        legacy = self.state.load_world_checkpoint("LegacyV2")["world"]
+        self.assertEqual(set(legacy), {"version", "scene", "game"})
+        self.assertEqual(legacy["version"], 2)
+
+    def test_citizens_invalid_bindings_do_not_overwrite_or_replace(self):
+        world = self.citizens_world()
+        self.state.save_world_checkpoint("Citizens", world)
+        path = self.scenes / "world_checkpoints" / "Citizens.json"
+        before_bytes = path.read_bytes()
+        before_runtime = copy.deepcopy(self.state.latest)
+        cases = (
+            ("missing resident", lambda item: item["citizens"]["residents"][0].update(objectId="missing")),
+            ("wrong station asset", lambda item: item["citizens"]["stations"][0].update(objectId="citizen-table")),
+            ("stale reservation", lambda item: item["citizens"]["stations"][0].update(holder=None)),
+            ("duplicate station kind", lambda item: item["citizens"]["stations"][1].update(kind="rest")),
+            ("unknown citizens schema", lambda item: item["citizens"].update(schemaVersion=9)),
+            ("invalid need", lambda item: item["citizens"]["residents"][0]["needs"].update(energy=-1)),
+        )
+        for label, mutate in cases:
+            with self.subTest(label=label):
+                invalid = copy.deepcopy(world)
+                mutate(invalid)
+                with self.assertRaises(APIError):
+                    self.state.save_world_checkpoint("Citizens", invalid)
+                self.assertEqual(path.read_bytes(), before_bytes)
+                self.assertEqual(self.state.latest, before_runtime)
+        for invalid in (dict(self.world, citizens=world["citizens"]),
+                        dict(world, citizens=None)):
+            with self.assertRaisesRegex(APIError, "Unsupported world checkpoint envelope"):
+                self.state.save_world_checkpoint("Citizens", invalid)
+            self.assertEqual(path.read_bytes(), before_bytes)
+        document = json.loads(before_bytes)
+        document["world"]["citizens"]["residents"][0]["objectId"] = "missing"
+        document["payloadSha256"] = world_checkpoint_digest(document["world"], document["dependencies"])
+        path.write_text(json.dumps(document), encoding="utf-8")
+        with self.assertRaisesRegex(APIError, "Citizens resident object"):
+            self.state.load_world_checkpoint("Citizens")
+        self.assertEqual(self.state.latest, before_runtime)
 
     def test_restart_restores_exact_ids_game_progress_component_and_animation(self):
         saved = self.state.save_world_checkpoint("Demo", self.world)
@@ -292,6 +396,12 @@ class WorldCheckpointTests(unittest.TestCase):
             self.assertEqual(loaded["game"], self.world["game"])
             self.assertEqual([item["objectId"] for item in loaded["scene"]["objects"]],
                              ["pickup-1", "pickup-2", "zone-1"])
+            citizens_world = self.citizens_world()
+            self.assertEqual(request("/api/web/world/save",
+                                     {"name": "Citizens", "world": citizens_world})[0], 200)
+            citizens_loaded = request("/api/web/world/load", {"name": "Citizens"})[1]["world"]
+            self.assertEqual(citizens_loaded["version"], 3)
+            self.assertEqual(citizens_loaded["citizens"], citizens_world["citizens"])
             self.assertEqual(request("/api/web/world/load", {"name": "Demo", "extra": True})[0], 400)
             self.assertEqual(request("/api/scenes")[1], {"scenes": []})
         finally:

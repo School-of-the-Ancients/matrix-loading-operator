@@ -18,6 +18,8 @@ const clone=value=>structuredClone(value);
 const round=value=>Math.round(value*100)/100;
 const clamp=value=>Math.max(0,Math.min(100,round(value)));
 const distance=(a,b)=>Math.hypot(a.x-b.x,a.z-b.z);
+const sameTransform=(a,b)=>a&&b&&['position','rotation','scale'].every(part=>
+  ['x','y','z'].every(axis=>a[part]?.[axis]===b[part]?.[axis]));
 const objectById=(world,id)=>world.scene.objects.find(object=>object.objectId===id);
 const positionOf=(world,id)=>objectById(world,id)?.transform?.position;
 
@@ -158,20 +160,78 @@ export class CitizensSimulation {
     validState(world,state);
     this.world=world;
     this.state=clone(state);
+    // Runtime-only baseline: the serialized scene supplies it again on restore.
+    this.observedTransforms=new Map([...state.residents,...state.stations].map(bound=>
+      [bound.objectId,clone(objectById(world,bound.objectId).transform)]));
+    this.invalidBindings=new Set();
   }
   static restore(world,saved){return new CitizensSimulation(world,saved);}
   snapshot(){return clone(this.state);}
-  exportState(){return this.snapshot();}
+  exportState(){
+    this.reconcileWorld();
+    if(this.invalidBindings.size)throw Error('Citizens binding is missing or incompatible');
+    return this.snapshot();
+  }
+  reconcileWorld(){this.reconcileBindings();return this.snapshot();}
+  reconcileBindings(){
+    try{assertWorld(this.world);}catch(error){
+      if(!this.invalidBindings.has('world')){
+        for(const resident of this.state.residents)if(resident.activity)
+          this.fail(resident,'the virtual room became unavailable');
+        this.log('','failed',`Simulation stopped: ${error.message}`);
+      }
+      this.invalidBindings.add('world');this.state.paused=true;
+      return true;
+    }
+    this.invalidBindings.delete('world');
+    let interrupted=false;
+    for(const [kind,bound] of [
+      ...this.state.residents.map(resident=>['resident',resident]),
+      ...this.state.stations.map(station=>['station',station])]){
+      const object=objectById(this.world,bound.objectId);
+      const compatible=kind==='resident'
+        ?object?.assetId==='orb'&&object.anchorId===ANCHOR_ID&&!object.physics&&!object.component
+        :object?.assetId===(bound.kind==='rest'?'chair':'table')&&object.anchorId===ANCHOR_ID;
+      if(!compatible){
+        if(!this.invalidBindings.has(bound.objectId)){
+          this.interruptBinding(kind,bound,`${bound.name||bound.id} is missing or incompatible`);
+          interrupted=true;
+        }
+        this.invalidBindings.add(bound.objectId);
+        continue;
+      }
+      if(this.invalidBindings.delete(bound.objectId)){
+        this.observedTransforms.set(bound.objectId,clone(object.transform));
+        continue;
+      }
+      if(!sameTransform(object.transform,this.observedTransforms.get(bound.objectId))){
+        this.interruptBinding(kind,bound,`${bound.name||bound.id} was moved externally`);
+        interrupted=true;
+      }
+      this.observedTransforms.set(bound.objectId,clone(object.transform));
+    }
+    if(interrupted)this.state.paused=true;
+    return interrupted||this.invalidBindings.size>0;
+  }
+  interruptBinding(kind,bound,reason){
+    const affected=kind==='resident'?[bound]:
+      this.state.residents.filter(resident=>resident.activity?.stationId===bound.id);
+    let cancelled=false;
+    for(const resident of affected)if(resident.activity){this.fail(resident,reason);cancelled=true;}
+    if(!cancelled)this.log(kind==='resident'?bound.id:'','failed',
+      `${reason}; simulation paused.`);
+    this.state.paused=true;
+  }
   pause(){
     if(!this.state.paused){this.state.paused=true;this.log('', 'paused','Simulation paused.');}
     return this.snapshot();
   }
   resume(){
-    assertWorld(this.world);
+    if(this.reconcileBindings())return this.snapshot();
     if(this.state.paused){this.state.paused=false;this.log('','resumed','Simulation resumed.');}
     return this.snapshot();
   }
-  advance(){return this.state.paused?this.snapshot():this.step();}
+  advance(){return this.state.paused?this.reconcileWorld():this.step();}
   nextRandom(){
     // Xorshift32: deterministic and serializable; seed zero is disallowed.
     let value=this.state.rngState>>>0;
@@ -214,6 +274,9 @@ export class CitizensSimulation {
     catch(error){return {ok:false,error:error.message||String(error)};}
     if(!receipt?.ok||receipt.requestId!==requestId||receipt.objectId!==resident.objectId)
       return {ok:false,error:receipt?.error||'missing or mismatched Matrix receipt'};
+    const observed=objectById(this.world,resident.objectId);
+    if(!observed)return {ok:false,error:'resident object is missing after movement'};
+    this.observedTransforms.set(resident.objectId,clone(observed.transform));
     return {ok:true};
   }
   requestInteraction(resident,station){
@@ -315,10 +378,7 @@ export class CitizensSimulation {
     this.log(resident.id,'completed',`${resident.name} completed ${kind}; observed outcome updated needs.`);
   }
   step(){
-    try{assertWorld(this.world);}catch(error){
-      this.state.paused=true;this.log('','failed',`Simulation stopped: ${error.message}`);
-      return this.snapshot();
-    }
+    if(this.reconcileBindings())return this.snapshot();
     if(this.state.clockTick>=1000000000){
       this.state.paused=true;this.log('','failed','Simulation clock limit reached.');
       return this.snapshot();
