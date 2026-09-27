@@ -6,12 +6,13 @@ import hashlib
 from pathlib import Path
 import struct
 import tempfile
+import threading
 import unittest
 import urllib.error
 import zlib
 from unittest.mock import patch
 
-from agent_portal import AgentPortal
+from agent_portal import AgentPortal, AgentPortalError
 from content_catalog import ContentError
 from matrix_tool_bridge import MatrixToolBridge, record_concept_build, scale_block, spawn_builtin
 from procedural_contract import new_recipe
@@ -327,6 +328,64 @@ class ConceptHandoffTests(unittest.TestCase):
         self.assertIn("scene changed while the selected concept",
                       raised.exception.read().decode("utf-8"))
         self.assertEqual(len(self.room["scene"]["objects"]), 1)
+
+    def assert_concurrent_turn_preserves_build_guard(self, contender_text):
+        entered = threading.Event()
+        release = threading.Event()
+        accepted = {}
+
+        def paused_send(*args, **kwargs):
+            if entered.is_set():
+                raise AgentPortalError(409, "Agent is already working")
+            entered.set()
+            if not release.wait(5):
+                raise TimeoutError("Accepted concept turn was not released")
+            return {"turnId": "accepted-turn",
+                    "buildRequestId": args[3]["buildRequestId"]}
+
+        def submit_accepted():
+            try:
+                accepted["result"] = self.build()
+            except Exception as error:
+                accepted["error"] = error
+
+        with patch.object(self.state.agent_portal, "send_text", side_effect=paused_send):
+            worker = threading.Thread(target=submit_accepted)
+            worker.start()
+            try:
+                self.assertTrue(entered.wait(3), "Accepted turn did not reach Agent send")
+                guard_id = self.state.concept_build_guard["buildRequestId"]
+                with self.assertRaises(AgentPortalError) as raised:
+                    agent_portal_action(self.state, "/api/agent/turn",
+                                        {"sessionId": self.session_id,
+                                         "text": contender_text, "context": self.context()})
+                self.assertEqual(raised.exception.status, 409)
+                self.assertEqual(self.state.concept_build_guard["buildRequestId"], guard_id)
+            finally:
+                release.set()
+                worker.join(5)
+        self.assertFalse(worker.is_alive())
+        self.assertNotIn("error", accepted)
+        self.assertEqual(accepted["result"]["buildRequestId"], guard_id)
+
+        self.room["scene"]["objects"].append({"objectId": "unrelated", "assetId": "block",
+                                              "anchorId": "web-floor", "transform": copy.deepcopy(POSE)})
+        self.exchange()
+        bridge = MatrixToolBridge(self.state)
+        self.addCleanup(bridge.close)
+        with self.assertRaises(urllib.error.HTTPError) as raised:
+            spawn_builtin(bridge.url, bridge.token, {
+                "room_id": self.room["scene"]["roomId"], "scene_revision": self.state.revision,
+                "asset_id": "block", "transform": copy.deepcopy(POSE)})
+        self.assertEqual(raised.exception.code, 409)
+        self.assertIn("scene changed while the selected concept",
+                      raised.exception.read().decode("utf-8"))
+
+    def test_parallel_plain_turn_cannot_clear_accepted_concept_guard(self):
+        self.assert_concurrent_turn_preserves_build_guard("Tell me about the room")
+
+    def test_parallel_concept_turn_cannot_replace_accepted_concept_guard(self):
+        self.assert_concurrent_turn_preserves_build_guard("Build this in the Matrix")
 
     def test_scene_change_blocks_scale_proposal_before_client_review(self):
         self.build()

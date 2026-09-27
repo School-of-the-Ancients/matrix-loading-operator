@@ -3364,96 +3364,13 @@ def agent_portal_action(state, path, body):
         require(set(body) in ({"sessionId"}, {"sessionId", "cursor"}), "Invalid Agent status request")
         return state.agent_portal_status(body["sessionId"], body.get("cursor", 0))
     if path == "/api/agent/turn":
-        fields = set(body)
-        expected = {"expectedConceptId", "expectedConceptVersion"}
-        require({"sessionId", "text"} <= fields <=
-                {"sessionId", "text", "context", "creationMode"} | expected and
-                (expected <= fields or expected.isdisjoint(fields)),
-                "Invalid Agent turn request")
-        # Selection and image bytes stay on the PC. The browser names neither a
-        # path nor an image; a new image result never starts a Codex build.
-        portal_status = state.agent_portal_status(body["sessionId"])
-        if portal_status.get("activeTurnId") is not None:
+        # Reserve admission before reading status or changing a concept guard.
+        if not state.agent_turn_submission_lock.acquire(blocking=False):
             raise AgentPortalError(409, "Agent is already working")
-        with state.lock:
-            if (state.concept_build_guard is not None and
-                    state.concept_build_guard.get("sessionId") == body["sessionId"]):
-                state.concept_build_guard = None
-        selected = (state.concepts.selected(body["sessionId"])
-                    if concept_build_request(body["text"]) else None)
-        require((expected | {"creationMode"}).isdisjoint(fields) or selected is not None,
-                "Concept build options require a selected-concept build request", 409)
-        if selected is None and concept_build_request(body["text"]):
-            raise APIError(409, "Select a ready concept version before building it")
-        if selected is not None:
-            creation_mode = body.get("creationMode", "auto")
-            require(type(creation_mode) is str and
-                    creation_mode in ("auto", "procedural", "blender"),
-                    "Invalid concept creation mode")
-            if expected <= fields:
-                require(type(body["expectedConceptId"]) is str and
-                        re.fullmatch(r"[0-9a-f]{32}", body["expectedConceptId"]) and
-                        type(body["expectedConceptVersion"]) is int and
-                        body["expectedConceptVersion"] >= 1,
-                        "Invalid expected concept identity")
-                require(selected["conceptId"] == body["expectedConceptId"] and
-                        selected["version"] == body["expectedConceptVersion"],
-                        "Selected concept changed; review and select the intended version again", 409)
-            require(concept_reference_matches(body["text"], selected),
-                    "Requested concept version is not selected; select it first", 409)
-        context = (agent_turn_context(state, body["context"], creation=selected is not None)
-                   if "context" in body
-                   else agent_runtime_context(state, include_scene=selected is not None))
-        if selected is None:
-            return portal.send_text(body["sessionId"], body["text"], context)
-        require(context.get("online") is True and type(context.get("sceneSummary")) is dict,
-                "Current Matrix scene is required to build from a concept", 409)
-        build_id = uuid.uuid4().hex
-        provenance = {"buildRequestId": build_id, "conceptId": selected["conceptId"],
-                      "creationMode": creation_mode,
-                      "status": "requested", "turnId": None,
-                      "roomId": context["roomId"], "sceneRevision": context["sceneRevision"],
-                      "hostWorldId": context.get("hostWorldId"),
-                      "runtimeGeneration": context.get("runtimeGeneration")}
-        with state.lock:
-            state.expire()
-            require(state.online() and state.latest is not None and
-                    state.latest["scene"]["roomId"] == context["roomId"] and
-                    state.revision == context["sceneRevision"] and
-                    state.host_world_id == context.get("hostWorldId") and
-                    state.runtime_generation == context.get("runtimeGeneration"),
-                    "Matrix scene changed before concept build started; retry", 409)
-            state.concepts.record_build(body["sessionId"], provenance)
-            state.concept_build_guard = {"sessionId": body["sessionId"],
-                                         "sceneFingerprint": concept_scene_fingerprint(state.latest),
-                                         **{key: provenance[key] for key in
-                                         ("buildRequestId", "roomId", "sceneRevision",
-                                          "hostWorldId", "runtimeGeneration")}}
         try:
-            result = portal.send_text(body["sessionId"], body["text"], context,
-                                      {**selected, "buildRequestId": build_id,
-                                       "creationMode": creation_mode})
-        except Exception:
-            with state.lock:
-                state.concept_build_guard = None
-            try:
-                state.concepts.record_build(body["sessionId"],
-                                            {**provenance, "status": "failed"})
-            except (ContentError, OSError):
-                pass
-            raise
-        try:
-            state.concepts.record_build(body["sessionId"],
-                                        {**provenance, "turnId": result["turnId"]})
-        except (ContentError, OSError):
-            with state.lock:
-                state.concept_build_guard = None
-            try:
-                portal.cancel(body["sessionId"], result["turnId"])
-            except AgentPortalError:
-                pass
-            raise AgentPortalError(503, "Concept build record could not be saved") from None
-        return result
+            return agent_portal_turn(state, body)
+        finally:
+            state.agent_turn_submission_lock.release()
     if path == "/api/agent/approval":
         require(set(body) == {"sessionId", "approvalId", "turnId", "approve"}, "Invalid Agent approval request")
         return portal.decide(body["sessionId"], body["approvalId"], body["turnId"], body["approve"])
@@ -3461,6 +3378,105 @@ def agent_portal_action(state, path, body):
         require(set(body) == {"sessionId", "turnId"}, "Invalid Agent cancel request")
         return portal.cancel(body["sessionId"], body["turnId"])
     raise APIError(404, "Not found")
+
+
+def agent_portal_turn(state, body):
+    """Submit one turn while holding the session submission reservation."""
+    portal = state.agent_portal
+    fields = set(body)
+    expected = {"expectedConceptId", "expectedConceptVersion"}
+    require({"sessionId", "text"} <= fields <=
+            {"sessionId", "text", "context", "creationMode"} | expected and
+            (expected <= fields or expected.isdisjoint(fields)),
+            "Invalid Agent turn request")
+    # Selection and image bytes stay on the PC. The browser names neither a
+    # path nor an image; a new image result never starts a Codex build.
+    portal_status = state.agent_portal_status(body["sessionId"])
+    if portal_status.get("activeTurnId") is not None:
+        raise AgentPortalError(409, "Agent is already working")
+    with state.lock:
+        if (state.concept_build_guard is not None and
+                state.concept_build_guard.get("sessionId") == body["sessionId"]):
+            state.concept_build_guard = None
+    selected = (state.concepts.selected(body["sessionId"])
+                if concept_build_request(body["text"]) else None)
+    require((expected | {"creationMode"}).isdisjoint(fields) or selected is not None,
+            "Concept build options require a selected-concept build request", 409)
+    if selected is None and concept_build_request(body["text"]):
+        raise APIError(409, "Select a ready concept version before building it")
+    if selected is not None:
+        creation_mode = body.get("creationMode", "auto")
+        require(type(creation_mode) is str and
+                creation_mode in ("auto", "procedural", "blender"),
+                "Invalid concept creation mode")
+        if expected <= fields:
+            require(type(body["expectedConceptId"]) is str and
+                    re.fullmatch(r"[0-9a-f]{32}", body["expectedConceptId"]) and
+                    type(body["expectedConceptVersion"]) is int and
+                    body["expectedConceptVersion"] >= 1,
+                    "Invalid expected concept identity")
+            require(selected["conceptId"] == body["expectedConceptId"] and
+                    selected["version"] == body["expectedConceptVersion"],
+                    "Selected concept changed; review and select the intended version again", 409)
+        require(concept_reference_matches(body["text"], selected),
+                "Requested concept version is not selected; select it first", 409)
+    context = (agent_turn_context(state, body["context"], creation=selected is not None)
+               if "context" in body
+               else agent_runtime_context(state, include_scene=selected is not None))
+    if selected is None:
+        return portal.send_text(body["sessionId"], body["text"], context)
+    require(context.get("online") is True and type(context.get("sceneSummary")) is dict,
+            "Current Matrix scene is required to build from a concept", 409)
+    build_id = uuid.uuid4().hex
+    provenance = {"buildRequestId": build_id, "conceptId": selected["conceptId"],
+                  "creationMode": creation_mode,
+                  "status": "requested", "turnId": None,
+                  "roomId": context["roomId"], "sceneRevision": context["sceneRevision"],
+                  "hostWorldId": context.get("hostWorldId"),
+                  "runtimeGeneration": context.get("runtimeGeneration")}
+    with state.lock:
+        state.expire()
+        require(state.online() and state.latest is not None and
+                state.latest["scene"]["roomId"] == context["roomId"] and
+                state.revision == context["sceneRevision"] and
+                state.host_world_id == context.get("hostWorldId") and
+                state.runtime_generation == context.get("runtimeGeneration"),
+                "Matrix scene changed before concept build started; retry", 409)
+        state.concepts.record_build(body["sessionId"], provenance)
+        state.concept_build_guard = {"sessionId": body["sessionId"],
+                                     "sceneFingerprint": concept_scene_fingerprint(state.latest),
+                                     **{key: provenance[key] for key in
+                                     ("buildRequestId", "roomId", "sceneRevision",
+                                      "hostWorldId", "runtimeGeneration")}}
+    try:
+        result = portal.send_text(body["sessionId"], body["text"], context,
+                                  {**selected, "buildRequestId": build_id,
+                                   "creationMode": creation_mode})
+    except Exception:
+        with state.lock:
+            if (state.concept_build_guard is not None and
+                    state.concept_build_guard.get("buildRequestId") == build_id):
+                state.concept_build_guard = None
+        try:
+            state.concepts.record_build(body["sessionId"],
+                                        {**provenance, "status": "failed"})
+        except (ContentError, OSError):
+            pass
+        raise
+    try:
+        state.concepts.record_build(body["sessionId"],
+                                    {**provenance, "turnId": result["turnId"]})
+    except (ContentError, OSError):
+        with state.lock:
+            if (state.concept_build_guard is not None and
+                    state.concept_build_guard.get("buildRequestId") == build_id):
+                state.concept_build_guard = None
+        try:
+            portal.cancel(body["sessionId"], result["turnId"])
+        except AgentPortalError:
+            pass
+        raise AgentPortalError(503, "Concept build record could not be saved") from None
+    return result
 
 
 def web_virtual_floor_ready(snapshot):
@@ -3555,6 +3571,7 @@ class State:
         self.matrix_tool_bridge = None
         self.agent_portal = AgentPortal(self.directory / ".agent_portal", lambda: local_agent_backend(self))
         self.concept_build_guard = None
+        self.agent_turn_submission_lock = threading.Lock()
         self.clock = clock
         self.lock = threading.RLock()
         self.client_id = None
