@@ -222,6 +222,28 @@ class AppServerTransportTests(unittest.TestCase):
         self.assertEqual(self.transport.image_generation_result("thread-test", "outside-turn")["status"],
                          "failed")
 
+    def test_saved_path_hash_mismatch_uses_completed_image_bytes(self):
+        root = Path(self.directory.name) / "generated_images"
+        root.mkdir()
+        self.transport._generated_root = root
+        saved = root / "wrong.png"
+        saved.write_bytes(b"\x89PNG\r\n\x1a\nwrong")
+        actual = b"\x89PNG\r\n\x1a\nactual"
+        self.transport._receive({"method": "item/completed", "params": {
+            "threadId": "thread-test", "turnId": "mismatch-turn",
+            "item": {"type": "imageGeneration", "id": "image-mismatch", "status": "completed",
+                     "savedPath": str(saved), "result": base64.b64encode(actual).decode()}}})
+        result = self.transport.image_generation_result("thread-test", "mismatch-turn")
+        self.assertEqual(result["status"], "ready")
+        self.assertNotEqual(Path(result["imagePath"]), saved)
+        self.assertEqual(Path(result["imagePath"]).read_bytes(), actual)
+
+    def test_native_capability_requires_chatgpt_account(self):
+        with patch.object(self.transport, "request", return_value={"account": {"type": "apiKey"}}):
+            available, reason = self.transport.native_image_capability()
+        self.assertFalse(available)
+        self.assertIn("ChatGPT", reason)
+
     def test_automatic_policy_is_sent_on_new_and_resumed_thread(self):
         thread_id = self.transport.thread_start(sandbox="danger-full-access", approval_policy="never")
         self.assertEqual(thread_id, "thread-test")
