@@ -21,12 +21,29 @@ class FakeService {
     this.online=false;this.snapshot=null;this.hostWorldId=null;
     this.revision=0;this.worlds=new Map();this.commands=[];this.results=[];
     this.saveCount=0;this.failSave=false;this.failExchange=false;
+    this.citizenConstructionBudget=1;this.citizenRequests=[];
+    this.failCitizenPolicy=false;
     this.request=this.request.bind(this);
   }
   async request(method,path,body){
     if(path==='/api/state')return {online:this.online,pendingCount:this.commands.length,
       snapshot:copy(this.snapshot),hostWorldId:this.hostWorldId};
     if(path==='/api/web/worlds')return {worlds:[...this.worlds.keys()]};
+    if(path==='/api/citizens/construction'){
+      if(this.failCitizenPolicy)throw Error('policy unavailable');
+      this.citizenRequests.push(copy(body));
+      const construction=this.snapshot?.citizensState?.construction;
+      assert.deepEqual(body,{intentId:construction.intentId,residentId:'bo'});
+      if(this.citizenConstructionBudget===0||this.snapshot.scene.objects.length!==4)
+        return {allowed:false,reason:'Citizen construction budget exhausted'};
+      this.citizenConstructionBudget--;
+      const transform=copy(this.snapshot.scene.objects[0].transform);
+      transform.position={x:1.5,y:0,z:1.5};
+      this.commands.push({requestId:'c'.repeat(32),op:'create_procedural',
+        anchorId:'web-floor',transform,
+        procedural:createProceduralRecipe('curved-bench')});
+      return {allowed:true,requestId:'c'.repeat(32)};
+    }
     if(path==='/api/exchange'){
       if(this.failExchange)throw Error('exchange unavailable');
       if(body.worldRestoreExpectedRevision!==undefined)
@@ -160,6 +177,122 @@ test('host rejects a second construction and unrelated mutations without scene c
   assert.deepEqual(service.results.slice(-2).map(item=>[item.requestId,item.ok]),
     [['operator-bench-2',false],['operator-spawn-2',false]]);
   assert.equal(service.worlds.get('AdaBo').scene.objects.length,5);
+});
+
+test('Bo requests one reviewed bench from chair contention, uses it, and retains provenance after restart',async()=>{
+  const service=new FakeService();
+  const host=new HostedWorld({name:'AdaBo',seed:29,citizenConstruction:true,
+    request:service.request});
+  await host.start();
+  const core=copy(host.world.scene.objects);
+  const residents=host.simulation.snapshot().residents.map(item=>item.objectId);
+  await host.tick();
+  let state=host.simulation.snapshot();
+  const record=state.construction;
+  assert.equal(service.citizenRequests.length,1);
+  assert.equal(record.residentId,'bo');
+  assert.equal(record.blockedStationId,'chair');
+  assert.equal(record.requestId,'c'.repeat(32));
+  assert.equal(record.status,'created');
+  assert.equal(state.stations.find(item=>item.id==='citizen-bench').objectId,
+    record.objectId);
+  assert.deepEqual(host.world.scene.objects.slice(0,4).map(item=>[item.objectId,item.assetId]),
+    core.map(item=>[item.objectId,item.assetId]));
+  assert.deepEqual(host.world.scene.objects.slice(0,2),core.slice(0,2));
+  assert.equal(service.results.find(item=>item.requestId===record.requestId).objectId,
+    record.objectId);
+  let use=null;
+  const execute=host.world.execute.bind(host.world);
+  host.world.execute=(command,options)=>{
+    const receipt=execute(command,options);
+    if(command.op==='interact'&&command.targetObjectId===record.objectId)
+      use={command,receipt};
+    return receipt;
+  };
+  for(let i=0;i<160&&state.construction.status!=='used';i++){
+    await host.tick();state=host.simulation.snapshot();
+  }
+  assert.equal(state.construction.status,'used');
+  assert.equal(use?.receipt.ok,true);
+  assert.equal(use.command.actorObjectId,state.residents.find(item=>item.id==='bo').objectId);
+  assert.equal(use.receipt.requestId,state.construction.useRequestId);
+  assert.equal(use.receipt.outcome.targetObjectId,record.objectId);
+  assert.deepEqual(service.worlds.get('AdaBo').citizens.construction,state.construction);
+  service.online=false;
+  const resumed=new HostedWorld({name:'AdaBo',citizenConstruction:true,
+    request:service.request});
+  await resumed.start();
+  assert.deepEqual(resumed.simulation.snapshot().construction,state.construction);
+  assert.deepEqual(resumed.simulation.snapshot().residents.map(item=>item.objectId),residents);
+  assert.equal(resumed.world.scene.objects[4].objectId,record.objectId);
+  await resumed.tick();
+  assert.equal(service.citizenRequests.length,1);
+});
+
+test('a zero citizen construction budget denies Bo safely without creating an object',async()=>{
+  const service=new FakeService();
+  service.citizenConstructionBudget=0;
+  const host=new HostedWorld({name:'AdaBo',seed:29,citizenConstruction:true,
+    request:service.request});
+  await host.start();
+  const ids=host.simulation.snapshot().residents.map(item=>item.objectId);
+  await host.tick();
+  const denied=host.simulation.snapshot().construction;
+  assert.equal(denied.status,'denied');
+  assert.equal(denied.residentId,'bo');
+  assert.equal(denied.requestId,null);
+  assert.match(denied.reason,/budget/);
+  assert.equal(host.world.scene.objects.length,4);
+  await host.tick();
+  assert.equal(service.citizenRequests.length,1);
+  assert.deepEqual(host.simulation.snapshot().residents.map(item=>item.objectId),ids);
+  assert.deepEqual(service.worlds.get('AdaBo').citizens.construction,denied);
+});
+
+test('a long Matrix creation failure saves a bounded failed record',async()=>{
+  const service=new FakeService();
+  const host=new HostedWorld({name:'AdaBo',seed:29,citizenConstruction:true,
+    request:service.request});
+  await host.start();
+  const error='Matrix procedural rejection: '+'.'.repeat(300);
+  const execute=host.world.execute.bind(host.world);
+  host.world.execute=(command,options)=>command.op==='create_procedural'
+    ? {requestId:command.requestId,ok:false,error,objectId:''}
+    : execute(command,options);
+  await host.tick();
+  const record=host.simulation.snapshot().construction;
+  assert.equal(record.status,'failed');
+  assert.equal(record.reason,error.slice(0,160));
+  assert.equal(record.reason.length,160);
+  assert.equal(record.objectId,null);
+  assert.equal(host.world.scene.objects.length,4);
+  assert.deepEqual(service.worlds.get('AdaBo').citizens.construction,record);
+  assert.equal(service.results.find(item=>item.requestId===record.requestId).error,
+    error,'the Matrix receipt keeps the full diagnostic');
+  await host.tick();
+  assert.equal(service.citizenRequests.length,1);
+});
+
+test('an unresolved saved intent stops restart without risking a second policy request',async()=>{
+  const service=new FakeService();
+  const first=new HostedWorld({name:'AdaBo',citizenConstruction:true,
+    request:service.request});
+  await first.start();
+  service.failCitizenPolicy=true;
+  await assert.rejects(first.tick(),/policy unavailable/);
+  assert.equal(service.worlds.get('AdaBo').citizens.construction.status,'requested');
+  assert.equal(service.worlds.get('AdaBo').scene.objects.length,4);
+  service.online=false;
+  const disabled=new HostedWorld({name:'AdaBo',request:service.request});
+  await assert.rejects(disabled.start(),/unresolved Citizen construction request/);
+  service.online=false;
+  service.failCitizenPolicy=false;
+  const resumed=new HostedWorld({name:'AdaBo',citizenConstruction:true,
+    request:service.request});
+  await assert.rejects(resumed.start(),/unresolved Citizen construction request/);
+  assert.equal(service.worlds.get('AdaBo').citizens.construction.status,'requested');
+  assert.equal(service.worlds.get('AdaBo').scene.objects.length,4);
+  assert.equal(service.citizenRequests.length,0);
 });
 
 test('unsupported checkpoint is rejected before restore or overwrite',async()=>{

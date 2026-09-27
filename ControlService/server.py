@@ -1125,6 +1125,24 @@ def runtime_descriptor(value):
     return copy.deepcopy(value)
 
 
+CITIZEN_BENCH_TRANSFORM = {
+    "position": {"x": 1.5, "y": 0, "z": 1.5},
+    "rotation": {"x": 0, "y": 0, "z": 0},
+    "scale": {"x": 1, "y": 1, "z": 1},
+}
+CITIZEN_BENCH_INTERACTION = {
+    "schemaVersion": 2, "interactionId": "curved-seat-rest", "kind": "rest",
+    "proceduralSource": {"generatorId": "curved-bench",
+                         "generatorVersion": "1.0.0",
+                         "sourceRevision": "curved-bench-v1"},
+    "requiredCapabilities": ["static-virtual-floor", "reviewed-procedural-geometry"],
+    "availability": ["target-static", "floor-aligned", "generator-available"],
+    "approachPose": {"x": 0, "z": -.55}, "usePose": {"x": 0, "z": -.05},
+    "rangeMeters": .7, "durationTicks": 4, "capacity": 1,
+    "effect": {"need": "energy", "delta": 31},
+}
+
+
 def hosted_fixture(current):
     """A headless claim keeps Ada/Bo and at most one reviewed construction."""
     objects = current["scene"]["objects"]
@@ -1141,38 +1159,52 @@ def hosted_fixture(current):
     if citizens is None:
         require(not objects, "Hosted bootstrap must have an empty scene")
         return False
-    require(type(citizens) is dict and citizens.get("schemaVersion") == 12 and
-            citizens.get("clockSpeed") == 1 and
-            type(citizens.get("residents")) is list and
-            type(citizens.get("stations")) is list and
-            len(citizens["residents"]) == 2 and len(citizens["stations"]) == 2 and
-            {item["id"] for item in citizens["residents"]} == {"ada", "bo"} and
-            {item["id"] for item in citizens["stations"]} == {"chair", "food"} and
-            len(objects) in (4, 5),
-            "Hosted world supports only two resident markers and two stations")
+    require(type(citizens) is dict and citizens.get("schemaVersion") in (12, 13) and
+             citizens.get("clockSpeed") == 1 and
+             type(citizens.get("residents")) is list and
+             type(citizens.get("stations")) is list and
+             len(citizens["residents"]) == 2 and len(citizens["stations"]) in (2, 3) and
+             {item["id"] for item in citizens["residents"]} == {"ada", "bo"} and
+             [item["id"] for item in citizens["stations"][:2]] == ["chair", "food"] and
+             (len(citizens["stations"]) == 2 or
+              citizens["schemaVersion"] == 13 and
+              citizens["stations"][2]["id"] == "citizen-bench") and
+             len(objects) in (4, 5),
+            "Hosted world supports Ada, Bo and at most one reviewed bench station")
     by_id = {item["objectId"]: item for item in objects}
-    bound = {item["objectId"] for item in
-             citizens["residents"] + citizens["stations"]}
+    core = citizens["residents"] + citizens["stations"][:2]
+    bound = {item["objectId"] for item in core}
     require(len(bound) == 4 and
-            all(by_id.get(item["objectId"], {}).get("assetId") == "orb"
-                for item in citizens["residents"]) and
-            all(by_id.get(item["objectId"], {}).get("assetId") ==
-                ("chair" if item["id"] == "chair" else "table")
-                for item in citizens["stations"]) and
-            all(set(by_id[object_id]) == {"objectId", "assetId", "anchorId", "transform"} and
-                by_id[object_id]["anchorId"] == "web-floor" for object_id in bound),
+             all(by_id.get(item["objectId"], {}).get("assetId") == "orb"
+                 for item in citizens["residents"]) and
+             all(by_id.get(item["objectId"], {}).get("assetId") ==
+                 ("chair" if item["id"] == "chair" else "table")
+                 for item in citizens["stations"][:2]) and
+             all(set(by_id[object_id]) == {"objectId", "assetId", "anchorId", "transform"} and
+                 by_id[object_id]["anchorId"] == "web-floor" for object_id in bound),
             "Hosted Citizens bindings do not match the scene")
     additions = [item for item in objects if item["objectId"] not in bound]
-    require(len(additions) <= 1 and
-            all(set(item) == {"objectId", "assetId", "anchorId", "transform", "procedural"} and
+    bench_bound = len(citizens["stations"]) == 3
+    require((not bench_bound or len(additions) == 1) and len(additions) <= 1 and
+            all(set(item) == {"objectId", "assetId", "anchorId", "transform", "procedural"} |
+                ({"interaction"} if bench_bound else set()) and
                 item["assetId"] == "matrix:procedural" and
-                item["anchorId"] == "web-floor" for item in additions),
+                item["anchorId"] == "web-floor" for item in additions) and
+            (not bench_bound or additions[0]["objectId"] ==
+             citizens["stations"][2]["objectId"]),
             "Hosted world supports one reviewed procedural construction")
     for item in additions:
         try:
             available_recipe(item["procedural"], current.get("proceduralGenerators", []))
         except ProceduralError as error:
             raise APIError(409, str(error)) from None
+        if bench_bound:
+            require(item["transform"] == CITIZEN_BENCH_TRANSFORM and
+                    item["interaction"] == CITIZEN_BENCH_INTERACTION and
+                    item["procedural"]["generatorId"] == "curved-bench",
+                    "Hosted bench lacks its reviewed Matrix interaction")
+            require_procedural_interaction(item, current.get("assets", []),
+                                           current.get("proceduralGenerators", []))
     return True
 
 
@@ -1675,7 +1707,7 @@ def world_checkpoint_digest(world, dependencies):
     return hashlib.sha256(payload).hexdigest()
 
 
-def validate_citizens_checkpoint(value, checked_scene):
+def validate_citizens_checkpoint(value, checked_scene, *, _allow_citizen_bench=False):
     """Validate the bounded browser Citizens state against its saved world."""
     def shape(item, fields, label):
         require(type(item) is dict and set(item) == set(fields), f"Invalid Citizens {label}")
@@ -1699,8 +1731,118 @@ def validate_citizens_checkpoint(value, checked_scene):
         return type(item) in (int, float) and minimum <= item <= maximum and math.isfinite(item)
 
     require(type(value) is dict and type(value.get("schemaVersion")) is int and
-            value["schemaVersion"] in (1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12), "Unsupported Citizens schemaVersion")
+            value["schemaVersion"] in (1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13),
+            "Unsupported Citizens schemaVersion")
     version = value["schemaVersion"]
+    if version == 13:
+        require("construction" in value, "Invalid Citizens construction state")
+        construction = value["construction"]
+        stations = value.get("stations")
+        require(type(stations) is list and len(stations) in (2, 3),
+                "Invalid Citizens construction stations")
+        bench_bound = len(stations) == 3
+        require([item.get("id") for item in stations[:2] if type(item) is dict] ==
+                ["chair", "food"] and
+                (not bench_bound or type(stations[2]) is dict and
+                 stations[2].get("id") == "citizen-bench" and
+                 stations[2].get("kind") == "rest"),
+                "Invalid Citizens construction station binding")
+        if construction is None:
+            require(not bench_bound, "Unattributed Citizens construction station")
+        else:
+            shape(construction, ("intentId", "residentId", "blockedStationId",
+                                 "waitExecutionId", "requestedTick", "status", "requestId",
+                                 "objectId", "interactionRequestId", "useRequestId", "reason"),
+                  "construction")
+            citizens_text(construction["intentId"], "Citizens construction intent ID")
+            resident_id = citizens_text(construction["residentId"],
+                                        "Citizens construction resident ID", limit=32)
+            require(resident_id == "bo" and
+                    construction["blockedStationId"] == "chair" and
+                    type(value.get("actionSequence")) is int and
+                    integer(construction["waitExecutionId"], 1,
+                            value["actionSequence"]) and
+                    type(value.get("seed")) is int and
+                    construction["intentId"] ==
+                    f'citizens-{value["seed"]}-construction-{construction["waitExecutionId"]}' and
+                    type(value.get("clockTick")) is int and
+                    integer(construction["requestedTick"], 1,
+                            value["clockTick"]) and
+                    type(value.get("residents")) is list and
+                    any(type(item) is dict and item.get("id") == resident_id
+                        for item in value["residents"]) and
+                    construction["status"] in
+                    ("requested", "queued", "created", "used", "denied", "failed"),
+                    "Invalid Citizens construction provenance")
+            status = construction["status"]
+            request_id = construction["requestId"]
+            object_id = construction["objectId"]
+            interaction_id = construction["interactionRequestId"]
+            use_id = construction["useRequestId"]
+            reason = citizens_text(construction["reason"],
+                                   "Citizens construction reason", empty=True, limit=160)
+            require(request_id is None or type(request_id) is str and
+                    re.fullmatch(r"[0-9a-f]{32}", request_id) is not None,
+                    "Invalid Citizens construction request ID")
+            for field, item in (("object ID", object_id),
+                                ("interaction request ID", interaction_id),
+                                ("use request ID", use_id)):
+                if item is not None:
+                    citizens_text(item, "Citizens construction " + field)
+            require((status == "requested" and
+                     request_id is object_id is interaction_id is use_id is None and
+                     reason == "") or
+                    (status == "queued" and request_id is not None and
+                     object_id is interaction_id is use_id is None and reason == "") or
+                    (status == "created" and request_id is not None and
+                     object_id is not None and interaction_id is not None and
+                     use_id is None and reason == "") or
+                    (status == "used" and request_id is not None and
+                     object_id is not None and interaction_id is not None and
+                     use_id is not None and reason == "") or
+                    (status == "denied" and request_id is object_id is
+                     interaction_id is use_id is None and bool(reason)) or
+                    (status == "failed" and object_id is interaction_id is
+                     use_id is None and bool(reason)),
+                    "Invalid Citizens construction outcome")
+            require(bench_bound == (status in ("created", "used")),
+                    "Citizens construction station and outcome disagree")
+            if status in ("created", "used"):
+                require(interaction_id == request_id + "-interaction",
+                        "Citizens construction interaction receipt changed")
+            if status == "used":
+                use = re.fullmatch(r"citizens-([0-9]+)-action-([0-9]+)-([0-9]+)",
+                                   use_id)
+                require(use is not None and int(use[1]) == value["seed"] and
+                        int(use[2]) == construction["waitExecutionId"] and
+                        type(value.get("requestSequence")) is int and
+                        integer(int(use[3]), 1, value["requestSequence"]) and
+                        use_id == (f'citizens-{value["seed"]}-action-'
+                                   f'{construction["waitExecutionId"]}-{int(use[3])}'),
+                        "Invalid Citizens construction use receipt")
+            if status in ("requested", "queued"):
+                waiters = stations[0].get("waiters")
+                require(type(waiters) is list and any(type(item) is dict and
+                            item.get("residentId") == resident_id and
+                            item.get("executionId") == construction["waitExecutionId"]
+                            for item in waiters),
+                        "Citizens construction need is no longer queued")
+            if bench_bound:
+                require(stations[2]["objectId"] == object_id and
+                        stations[2].get("approachMode") == "selected" and
+                        stations[2].get("interaction") == CITIZEN_BENCH_INTERACTION and
+                        any(item["objectId"] == object_id and
+                            item.get("assetId") == "matrix:procedural" and
+                            item.get("transform") == CITIZEN_BENCH_TRANSFORM and
+                            item.get("interaction") == CITIZEN_BENCH_INTERACTION
+                            for item in checked_scene["objects"]),
+                        "Citizens construction object or interaction is missing")
+        projected = copy.deepcopy(value)
+        projected["schemaVersion"] = 12
+        del projected["construction"]
+        validate_citizens_checkpoint(projected, checked_scene,
+                                     _allow_citizen_bench=bench_bound)
+        return
     if version == 12:
         # Only a non-null social session adds a retry count. Project into the
         # exact v11 contract so all prior world, resident, appointment and
@@ -1724,7 +1866,8 @@ def validate_citizens_checkpoint(value, checked_scene):
                         value["clockTick"] - session["acceptedTick"],
                         "Invalid Citizens social route retry timing")
             del projected["socialSession"]["routeRetries"]
-        validate_citizens_checkpoint(projected, checked_scene)
+        validate_citizens_checkpoint(projected, checked_scene,
+                                     _allow_citizen_bench=_allow_citizen_bench)
         return
     if version in (10, 11):
         # Validate resident-local appointment lifecycles before projecting to
@@ -1734,7 +1877,7 @@ def validate_citizens_checkpoint(value, checked_scene):
         require(type(value.get("residents")) is list and
                 len(value["residents"]) <= 4 and
                 type(value.get("stations")) is list and
-                len(value["stations"]) <= 2 and
+                len(value["stations"]) <= (3 if _allow_citizen_bench else 2) and
                 type(value.get("socialEvents")) is list and
                 integer(value.get("clockTick"), 0, 1000000000) and
                 integer(value.get("seed"), 1, 0xffffffff) and
@@ -1898,7 +2041,8 @@ def validate_citizens_checkpoint(value, checked_scene):
                         number(candidate["score"], 0, 300),
                         "Invalid Citizens appointment candidate")
                 old_resident["lastDecision"] = None
-        validate_citizens_checkpoint(projected, checked_scene)
+        validate_citizens_checkpoint(projected, checked_scene,
+                                     _allow_citizen_bench=_allow_citizen_bench)
         return
     if version == 9:
         # V9 adds one need, one preference and a social choice trace. Project
@@ -1951,7 +2095,8 @@ def validate_citizens_checkpoint(value, checked_scene):
                     candidate["score"] >= 35,
                     "Invalid Citizens social candidate")
             old_resident["lastDecision"] = None
-        validate_citizens_checkpoint(projected, checked_scene)
+        validate_citizens_checkpoint(projected, checked_scene,
+                                     _allow_citizen_bench=_allow_citizen_bench)
         return
     state_fields = ("schemaVersion", "world", "seed", "rngState", "requestSequence",
                     "clockTick", "paused", "residents", "stations", "log")
@@ -1987,7 +2132,8 @@ def validate_citizens_checkpoint(value, checked_scene):
     require(type(residents) is list and (1 <= len(residents) <= 4 if version == 1 else
                                         0 <= len(residents) <= 4) and
             type(stations) is list and (len(stations) == 2 if version == 1 else
-                                        len(stations) <= 2) and
+                                        len(stations) <=
+                                        (3 if _allow_citizen_bench else 2)) and
             type(events) is list and len(events) <= 80, "Invalid Citizens list bounds")
     if version >= 2:
         require(len(residents) + len(retired_ids) <= 4,
@@ -2094,7 +2240,10 @@ def validate_citizens_checkpoint(value, checked_scene):
         station_id = citizens_text(station["id"], "Citizens station ID", limit=32)
         object_id = citizens_text(station["objectId"], "Citizens station object ID")
         kind = station["kind"]
-        require(kind in ("rest", "eat") and kind not in station_kinds and
+        duplicate_kind = kind in station_kinds
+        require(kind in ("rest", "eat") and
+                (not duplicate_kind or _allow_citizen_bench and
+                 station_id == "citizen-bench" and kind == "rest") and
                 station_id not in stations_by_id and object_id not in bound_objects and
                 type(station["capacity"]) is int and station["capacity"] == 1,
                 "Invalid Citizens station or duplicate binding")
@@ -2722,7 +2871,11 @@ def require_physics_eligible(obj, assets, registered_assets, pose=None):
 
 
 class State:
-    def __init__(self, directory, clock=time.monotonic, learning=None, web_assets_directory=None):
+    def __init__(self, directory, clock=time.monotonic, learning=None,
+                 web_assets_directory=None, citizen_construction_budget=1):
+        require(type(citizen_construction_budget) is int and
+                citizen_construction_budget in (0, 1),
+                "Citizen construction budget must be zero or one")
         self.directory = Path(directory)
         self.directory.mkdir(parents=True, exist_ok=True)
         self.web_assets = WebAssetCatalog(web_assets_directory or Path(__file__).with_name("web_assets"))
@@ -2747,6 +2900,8 @@ class State:
         self.agent_move_ids = collections.OrderedDict()
         self.agent_spawn_ids = collections.OrderedDict()
         self.agent_procedural_ids = collections.OrderedDict()
+        self.citizen_construction_budget = citizen_construction_budget
+        self.citizen_construction_issued = 0
         self.agent_game_ids = collections.OrderedDict()
         self.agent_display_ids = collections.OrderedDict()
         self.agent_control_ids = collections.OrderedDict()
@@ -3842,6 +3997,73 @@ class State:
             return {"roomId": self.latest["scene"]["roomId"],
                     "sceneRevision": self.revision,
                     "generators": copy.deepcopy(self.latest.get("proceduralGenerators", []))}
+
+    def citizen_construction_request(self, value):
+        """Mediate one resident intent through the existing typed procedural path."""
+        require(type(value) is dict and set(value) == {"intentId", "residentId"},
+                "Citizen construction needs an intentId and residentId")
+        intent_id = text(value["intentId"], "citizen construction intent ID")
+        resident_id = text(value["residentId"], "citizen construction resident ID",
+                           limit=32)
+
+        def denied(reason):
+            return {"allowed": False,
+                    "reason": (str(reason) or "Citizen construction denied")[:160]}
+
+        with self.lock:
+            self.expire()
+            if self.citizen_construction_issued >= self.citizen_construction_budget:
+                return denied("Citizen construction budget is exhausted")
+            current = self.latest
+            if not self.online() or self.host_world_id is None or current is None:
+                return denied("Hosted Citizens world is unavailable")
+            if self.host_saved_sequence != self.host_sequence:
+                return denied("Hosted Citizens state needs a durable checkpoint")
+            if self.pending or self.content.busy():
+                return denied("Matrix world has a pending edit")
+            if (current.get("runtimeDescriptor") or {}).get("client") != "matrix-world-host":
+                return denied("Citizen construction requires the hosted Matrix owner")
+            citizens = current.get("citizensState")
+            if (type(citizens) is not dict or citizens.get("schemaVersion") != 13 or
+                    len(current["scene"]["objects"]) != 4):
+                return denied("Citizen construction requires the four-object hosted world")
+            construction = citizens.get("construction")
+            if (type(construction) is not dict or construction.get("status") != "requested" or
+                    construction.get("intentId") != intent_id or
+                    construction.get("residentId") != resident_id or
+                    resident_id != "bo" or construction.get("blockedStationId") != "chair"):
+                return denied("Resident construction intent is unavailable or changed")
+            chair = next((item for item in citizens["stations"]
+                          if item["id"] == "chair"), None)
+            bo = next((item for item in citizens["residents"]
+                       if item["id"] == "bo"), None)
+            claim = chair.get("claim") if chair is not None else None
+            waiters = chair.get("waiters") if chair is not None else None
+            waiting = next((item for item in waiters or []
+                            if item.get("residentId") == resident_id and
+                            item.get("executionId") ==
+                            construction.get("waitExecutionId")), None)
+            if (type(claim) is not dict or claim.get("residentId") != "ada" or
+                    bo is None or bo.get("activity") is not None or
+                    bo.get("needs", {}).get("energy", 101) > 40 or
+                    waiting is None or construction.get("requestedTick") !=
+                    citizens["clockTick"]):
+                return denied("Bo is no longer waiting for the occupied chair")
+            request = {"action": "create", "room_id": current["scene"]["roomId"],
+                       "scene_revision": self.revision, "generator_id": "curved-bench",
+                       "parameters": {}, "transform": {
+                           "position": {"x": 1.5, "y": 0, "z": 1.5},
+                           "rotation": {"x": 0, "y": 0, "z": 0},
+                           "scale": {"x": 1, "y": 1, "z": 1}}}
+            try:
+                queued = self.agent_procedural_action(request)
+            except APIError as error:
+                return denied(str(error))
+            request_id = queued["requestId"]
+            self.agent_procedural_ids[request_id]["citizenIntentId"] = intent_id
+            self.agent_procedural_ids[request_id]["residentId"] = resident_id
+            self.citizen_construction_issued += 1
+            return {"allowed": True, "requestId": request_id}
 
     def agent_procedural_action(self, value):
         """Queue one generic create/regenerate operation, pinned to live code."""
@@ -6004,6 +6226,12 @@ class Handler(BaseHTTPRequestHandler):
             elif path == "/api/web/world/load":
                 require(set(body) == {"name"}, "World checkpoint load needs a name")
                 data = state.load_world_checkpoint(body["name"])
+            elif path == "/api/citizens/construction":
+                require(bool(self.server.token),
+                        "Citizen construction requires an owner token", 503)
+                require(loopback(self.client_address[0]),
+                        "Citizen construction requires the local world host", 403)
+                data = state.citizen_construction_request(body)
             elif path == "/api/plan":
                 data = plan(state, body)
             elif path == "/api/capture":

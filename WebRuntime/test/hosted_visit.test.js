@@ -2,7 +2,8 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import {readFileSync} from 'node:fs';
 import {MatrixWorld} from '../src/protocol.js';
-import {createCitizensDemo} from '../src/citizens.js';
+import {CITIZEN_BENCH_INTERACTION,CITIZEN_BENCH_TRANSFORM,
+  createCitizensDemo} from '../src/citizens.js';
 import {createProceduralRecipe} from '../src/procedural.js';
 import {storedWorld} from '../src/scene_store.js';
 import {applyHostedObservation,stageHostedObservation} from '../src/hosted_visit.js';
@@ -25,6 +26,29 @@ function createBench(owner){
     anchorId:'web-floor',procedural:createProceduralRecipe('curved-bench'),
     transform:{position:{x:-2,y:0,z:2},rotation:{x:0,y:0,z:0},
       scale:{x:1,y:1,z:1}}});
+}
+
+function citizenConstruction(owner,simulation){
+  const requestId='c'.repeat(32);
+  const interactionRequestId=`${requestId}-interaction`;
+  const created=owner.execute({requestId,op:'create_procedural',
+    anchorId:'web-floor',procedural:createProceduralRecipe('curved-bench'),
+    transform:structuredClone(CITIZEN_BENCH_TRANSFORM)});
+  assert.equal(created.ok,true,created.error);
+  const reviewed=owner.execute({requestId:interactionRequestId,
+    op:'set_interaction',objectId:created.objectId,
+    interaction:structuredClone(CITIZEN_BENCH_INTERACTION),
+    expectedInteraction:null});
+  assert.equal(reviewed.ok,true,reviewed.error);
+  owner.citizens=simulation.constructionCreated(created,reviewed);
+  return {objectId:created.objectId,created,reviewed};
+}
+
+function legacyObservation(observation){
+  const copy=structuredClone(observation);
+  copy.world.citizens.schemaVersion=12;
+  delete copy.world.citizens.construction;
+  return copy;
 }
 
 test('desktop and AR visitor project the same checkpointed IDs and later Citizens tick',()=>{
@@ -84,6 +108,120 @@ test('AR visitor accepts one procedural addition and rebuilds only on scene stru
   assert.equal(visitor.scene.objects.at(-1).objectId,receipt.objectId);
   visitor.leaveAR();
   assert.deepEqual(visitor.scene,owner.scene);
+});
+
+test('v12 Operator addition remains viewable after Citizens v13 migration',()=>{
+  const {owner,observe}=fixture();
+  const visitor=new MatrixWorld();
+  const first=applyHostedObservation(visitor,legacyObservation(observe(1)));
+  const receipt=createBench(owner);
+  assert.equal(receipt.ok,true);
+  const created=applyHostedObservation(visitor,legacyObservation(observe(2)),first.state);
+  assert.equal(created.structureChanged,true);
+  assert.equal(visitor.scene.objects.at(-1).objectId,receipt.objectId);
+  assert.deepEqual(created.state.bindingIds,first.state.bindingIds);
+  assert.equal(visitor.citizens.construction,null);
+});
+
+test('visitor accepts one receipt-backed Citizen bench station and its later use state',()=>{
+  const {owner,simulation,observe}=fixture();
+  const visitor=new MatrixWorld();
+  const first=applyHostedObservation(visitor,observe(1));
+  visitor.enterAR();
+  const anchor=visitor.spatial;
+  owner.citizens=simulation.step();
+  const intent=simulation.proposeConstruction();
+  assert.equal(intent.residentId,'bo');
+  owner.citizens=simulation.snapshot();
+  const requested=applyHostedObservation(visitor,observe(2),first.state);
+  assert.equal(requested.world.citizens.construction.status,'requested');
+  assert.equal(requested.world.scene.objects.length,4);
+  owner.citizens=simulation.constructionQueued('c'.repeat(32));
+  const queued=applyHostedObservation(visitor,observe(3),requested.state);
+  assert.equal(queued.world.citizens.construction.requestId,'c'.repeat(32));
+  const {objectId:benchId}=citizenConstruction(owner,simulation);
+  const created=applyHostedObservation(visitor,observe(4),queued.state);
+  assert.equal(created.structureChanged,true);
+  assert.equal(visitor.spatial,anchor);
+  assert.equal(visitor.scene.objects.at(-1).objectId,benchId);
+  assert.equal(visitor.citizens.construction.status,'created');
+  assert.equal(created.state.bindingIds.length,first.state.bindingIds.length+1);
+  assert.ok(first.state.bindingIds.every(binding=>created.state.bindingIds.includes(binding)));
+  assert.ok(created.state.bindingIds.includes(`citizen-bench:${benchId}`));
+  let usedState=null;
+  for(let tick=0;tick<80;tick++){
+    owner.citizens=simulation.step();
+    if(owner.citizens.construction.status==='used'){
+      usedState=owner.citizens;break;
+    }
+  }
+  assert.ok(usedState,'Bo must actually reach and use the new bench');
+  const used=applyHostedObservation(visitor,observe(5),created.state);
+  assert.equal(used.structureChanged,false);
+  assert.equal(visitor.citizens.construction.useRequestId,
+    usedState.construction.useRequestId);
+  assert.ok(visitor.citizens.construction.useRequestId);
+  const restarted=applyHostedObservation(visitor,observe(1,'b'.repeat(32)),used.state);
+  assert.equal(restarted.structureChanged,false);
+  assert.equal(visitor.citizens.stations.at(-1).objectId,benchId);
+});
+
+test('v13 denied Citizen request still permits one unbound human Operator creation',()=>{
+  const {owner,simulation,observe}=fixture();
+  const visitor=new MatrixWorld();
+  const first=applyHostedObservation(visitor,observe(1));
+  owner.citizens=simulation.step();
+  assert.equal(simulation.proposeConstruction().status,'requested');
+  owner.citizens=simulation.snapshot();
+  const requested=applyHostedObservation(visitor,observe(2),first.state);
+  const receipt=createBench(owner);
+  assert.equal(receipt.ok,true);
+  const operatorWon=applyHostedObservation(visitor,observe(3),requested.state);
+  assert.equal(operatorWon.world.citizens.construction.status,'requested');
+  assert.equal(operatorWon.world.scene.objects.at(-1).objectId,receipt.objectId);
+  assert.deepEqual(operatorWon.state.bindingIds,first.state.bindingIds);
+  owner.citizens=simulation.constructionDenied('One slot is occupied');
+  const denied=applyHostedObservation(visitor,observe(4),operatorWon.state);
+  assert.equal(denied.world.scene.objects.at(-1).objectId,receipt.objectId);
+  assert.equal(denied.world.citizens.construction.status,'denied');
+  assert.deepEqual(denied.state.bindingIds,first.state.bindingIds);
+});
+
+test('visitor rejects altered construction provenance and unrelated world edits',()=>{
+  const {owner,simulation,observe}=fixture();
+  const visitor=new MatrixWorld();
+  const first=applyHostedObservation(visitor,observe(1));
+  owner.citizens=simulation.step();
+  assert.ok(simulation.proposeConstruction());
+  simulation.constructionQueued('c'.repeat(32));
+  citizenConstruction(owner,simulation);
+  owner.citizens=simulation.snapshot();
+  const created=applyHostedObservation(visitor,observe(2),first.state);
+  const scene=structuredClone(visitor.scene);
+  const citizens=structuredClone(visitor.citizens);
+
+  const changedRequest=observe(3);
+  changedRequest.world.citizens.construction.requestId='d'.repeat(32);
+  changedRequest.world.citizens.construction.interactionRequestId=
+    `${'d'.repeat(32)}-interaction`;
+  assert.throws(()=>applyHostedObservation(visitor,changedRequest,created.state),
+    /construction provenance moved backward/);
+
+  const movedChair=observe(3);
+  movedChair.world.scene.objects.find(item=>item.assetId==='chair')
+    .transform.position.x+=1;
+  assert.throws(()=>applyHostedObservation(visitor,movedChair,created.state),
+    /identity or clock moved backward/);
+
+  const differentStation=observe(3);
+  differentStation.world.citizens.stations.at(-1).id='unrelated-station';
+  assert.throws(()=>applyHostedObservation(visitor,differentStation,created.state));
+
+  const alteredInteraction=observe(3);
+  alteredInteraction.world.scene.objects.at(-1).interaction.effect.delta=99;
+  assert.throws(()=>applyHostedObservation(visitor,alteredInteraction,created.state));
+  assert.deepEqual(visitor.scene,scene);
+  assert.deepEqual(visitor.citizens,citizens);
 });
 
 test('visitor rejects a removed creation, rebound citizen, or second procedural object',()=>{

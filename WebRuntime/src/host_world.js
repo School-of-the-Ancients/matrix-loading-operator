@@ -4,7 +4,8 @@ import {resolve} from 'node:path';
 import {setTimeout as delay} from 'node:timers/promises';
 import {fileURLToPath} from 'node:url';
 import {MatrixWorld} from './protocol.js';
-import {CitizensSimulation,createCitizensDemo} from './citizens.js';
+import {CITIZEN_BENCH_INTERACTION,CITIZEN_BENCH_TRANSFORM,
+  CitizensSimulation,createCitizensDemo} from './citizens.js';
 import {normalizeProceduralRecipe} from './procedural.js';
 import {restoreStoredWorld,storedWorld} from './scene_store.js';
 
@@ -12,6 +13,8 @@ const WORLD_NAME=/^[A-Za-z0-9][A-Za-z0-9 _-]{0,63}$/;
 const UNSUPPORTED_COMMAND='This hosted Citizens world accepts one typed procedural creation only';
 const keys=(value,expected)=>value&&typeof value==='object'&&!Array.isArray(value)&&
   Object.keys(value).sort().join(',')===expected.slice().sort().join(',');
+const sameTransform=(a,b)=>a&&b&&['position','rotation','scale'].every(part=>
+  ['x','y','z'].every(axis=>a[part]?.[axis]===b[part]?.[axis]));
 const fail=message=>{throw Error(message);};
 
 export function assertHostedFixture(value){
@@ -23,28 +26,45 @@ export function assertHostedFixture(value){
      ![4,5].includes(scene.objects.length))
     fail('Hosted world needs the built-in virtual scene and at most one construction');
   const citizens=value.citizens;
-  if(citizens?.schemaVersion!==12||citizens.clockSpeed!==1||
+  if(![12,13].includes(citizens?.schemaVersion)||citizens.clockSpeed!==1||
      !Array.isArray(citizens.residents)||
      !Array.isArray(citizens.stations)||
      citizens.residents.map(item=>item.id).sort().join(',')!=='ada,bo'||
-     citizens.stations.map(item=>item.id).sort().join(',')!=='chair,food')
+     !['chair,food','chair,citizen-bench,food'].includes(
+       citizens.stations.map(item=>item.id).sort().join(',')))
     fail('Hosted world needs the built-in Ada and Bo Citizens state');
+  const bench=citizens.stations.find(item=>item.id==='citizen-bench');
+  const construction=citizens.schemaVersion===13?citizens.construction:null;
+  if((bench&&citizens.schemaVersion!==13)||
+     (bench&&(!construction||!['created','used'].includes(construction.status)))||
+     (!bench&&construction&&['created','used'].includes(construction.status)))
+    fail('Hosted construction station and resident provenance disagree');
   const byId=new Map(scene.objects.map(object=>[object.objectId,object]));
-  const bound=new Set([...citizens.residents,...citizens.stations].map(item=>item.objectId));
-  if(byId.size!==scene.objects.length||bound.size!==4||
-     [...bound].some(id=>!keys(byId.get(id),['objectId','assetId','anchorId','transform'])||
+  const coreStations=citizens.stations.filter(item=>item.id!=='citizen-bench');
+  const core=new Set([...citizens.residents,...coreStations].map(item=>item.objectId));
+  if(byId.size!==scene.objects.length||core.size!==4||
+     [...core].some(id=>!keys(byId.get(id),['objectId','assetId','anchorId','transform'])||
        byId.get(id).anchorId!=='web-floor'))
     fail('Hosted world supports only two static resident markers and two stations');
   if(citizens.residents.some(item=>byId.get(item.objectId)?.assetId!=='orb')||
-     citizens.stations.some(item=>byId.get(item.objectId)?.assetId!==
+     coreStations.some(item=>byId.get(item.objectId)?.assetId!==
        (item.id==='chair'?'chair':'table')))
     fail('Hosted Citizens bindings do not match the built-in scene');
-  const additions=scene.objects.filter(object=>!bound.has(object.objectId));
+  const additions=scene.objects.filter(object=>!core.has(object.objectId));
   if(additions.length>1||additions.some(object=>
-    !keys(object,['objectId','assetId','anchorId','transform','procedural'])||
+    !keys(object,['objectId','assetId','anchorId','transform','procedural',
+      ...(bench?['interaction']:[])])||
       object.assetId!=='matrix:procedural'||object.anchorId!=='web-floor'))
     fail('Hosted world supports one reviewed procedural construction');
   for(const object of additions)normalizeProceduralRecipe(object.procedural);
+  if(bench){
+    const object=additions[0];
+    if(!object||object.objectId!==bench.objectId||
+       object.objectId!==construction.objectId||
+       object.procedural.generatorId!=='curved-bench'||
+       JSON.stringify(object.interaction)!==JSON.stringify(CITIZEN_BENCH_INTERACTION))
+      fail('Hosted bench lacks its reviewed Matrix interaction');
+  }
   return value;
 }
 
@@ -73,7 +93,8 @@ export function serviceRequest(baseUrl,token){
 }
 
 export class HostedWorld {
-  constructor({name,seed=29,resumePaused=false,request,clientId=randomUUID()}={}){
+  constructor({name,seed=29,resumePaused=false,citizenConstruction=false,
+    request,clientId=randomUUID()}={}){
     if(typeof name!=='string'||!WORLD_NAME.test(name)||
        /^(CON|PRN|AUX|NUL|COM[1-9]|LPT[1-9])$/i.test(name))
       fail('Invalid hosted world name');
@@ -81,6 +102,7 @@ export class HostedWorld {
       fail('Hosted world seed must be a positive 32-bit integer');
     if(typeof request!=='function')fail('Hosted world needs a service request function');
     this.name=name;this.seed=seed;this.resumePaused=resumePaused;
+    this.citizenConstruction=citizenConstruction;
     this.request=request;this.clientId=clientId;
     this.world=new MatrixWorld();
     this.world.runtimePresentation='host';
@@ -92,6 +114,7 @@ export class HostedWorld {
   async exchange(expectedRevision){
     // Results stay in memory until an exchange succeeds. Any ambiguous network
     // outcome aborts the process; a later process restores the last checkpoint.
+    const observed=[];
     for(let round=0;round<8;round++){
       const results=[...this.results.values()];
       const body={clientId:this.clientId,hostWorldId:this.name,
@@ -113,8 +136,9 @@ export class HostedWorld {
           {requestId:command.requestId,ok:false,error:UNSUPPORTED_COMMAND,objectId:''};
         if(result.ok)assertHostedFixture(storedWorld(this.world));
         this.results.set(command.requestId,result);
+        observed.push(result);
       }
-      if(!this.results.size)return;
+      if(!this.results.size)return observed;
     }
     fail('Hosted world could not drain operator commands');
   }
@@ -164,6 +188,11 @@ export class HostedWorld {
         this.world.citizens=this.simulation.snapshot();
         await this.exchange();
       }
+      const pendingConstruction=this.simulation.snapshot().construction;
+      if(pendingConstruction?.status==='queued')
+        fail('Checkpoint has a queued Citizen construction; inspect its Matrix receipt');
+      if(pendingConstruction?.status==='requested')
+        fail('Checkpoint has an unresolved Citizen construction request; inspect policy and Matrix status');
       await this.save();
       this.started=true;
       return this.simulation.snapshot();
@@ -180,13 +209,68 @@ export class HostedWorld {
       this.world.citizens=this.simulation.advance();
       if(this.world.citizens.clockTick!==before+1)
         fail('Citizens tick did not advance exactly once');
+      const intent=this.citizenConstruction?
+        this.simulation.proposeConstruction():null;
+      this.world.citizens=this.simulation.snapshot();
       await this.exchange();
       await this.save();
+      if(intent)await this.fulfillConstruction(intent);
       if(this.simulation.snapshot().paused)
         fail('Citizens paused after the tick; checkpoint saved for inspection');
       return this.simulation.snapshot();
     }catch(error){this.failed=true;throw error;}
     finally{this.busy=false;}
+  }
+
+  async fulfillConstruction(intent){
+    const decision=await this.request('POST','/api/citizens/construction',
+      {intentId:intent.intentId,residentId:intent.residentId});
+    if(decision?.allowed===false&&typeof decision.reason==='string'){
+      this.world.citizens=this.simulation.constructionDenied(decision.reason);
+      await this.exchange();
+      await this.save();
+      return;
+    }
+    if(decision?.allowed!==true||!(/^[0-9a-f]{32}$/).test(decision.requestId))
+      fail('Citizens construction policy returned no exact queued request');
+    this.world.citizens=this.simulation.constructionQueued(decision.requestId);
+    const results=await this.exchange();
+    const matched=results.filter(item=>item.requestId===decision.requestId);
+    if(matched.length!==1)fail('Citizens construction has no exact Matrix receipt');
+    const creation=matched[0];
+    if(!creation.ok){
+      if(this.world.scene.objects.length!==4)
+        fail('Failed Matrix creation changed the hosted scene');
+      this.world.citizens=this.simulation.constructionFailed(
+        String(creation.error||'Matrix rejected the construction').slice(0,160));
+      await this.exchange();
+      await this.save();
+      return;
+    }
+    const object=this.world.scene.objects.find(item=>item.objectId===creation.objectId);
+    if(!object||object.assetId!=='matrix:procedural'||
+       object.procedural?.generatorId!=='curved-bench'||
+       !sameTransform(object.transform,CITIZEN_BENCH_TRANSFORM))
+      fail('Matrix creation receipt does not match the reviewed resident bench');
+    const interaction=this.world.execute({requestId:`${decision.requestId}-interaction`,
+      op:'set_interaction',objectId:creation.objectId,
+      interaction:structuredClone(CITIZEN_BENCH_INTERACTION),
+      expectedInteraction:null},{recordHistory:false});
+    try{
+      if(!interaction?.ok||interaction.requestId!==`${decision.requestId}-interaction`||
+         interaction.objectId!==creation.objectId)
+        throw Error(interaction?.error||'Matrix did not confirm the reviewed interaction');
+      this.world.citizens=this.simulation.constructionCreated(creation,interaction);
+    }catch(error){
+      const rollback=this.world.execute({requestId:`${decision.requestId}-rollback`,
+        op:'delete',objectId:creation.objectId},{recordHistory:false});
+      if(!rollback?.ok||this.world.scene.objects.some(item=>item.objectId===creation.objectId))
+        fail('Citizens construction failed and Matrix rollback was not confirmed');
+      this.world.citizens=this.simulation.constructionFailed(
+        String(error?.message||'Matrix interaction failed').slice(0,160));
+    }
+    await this.exchange();
+    await this.save();
   }
 
   async run({ticks=Infinity,intervalMs=500,signal}={}){
@@ -206,15 +290,18 @@ export class HostedWorld {
 }
 
 function cliOptions(args){
-  const options={ticks:Infinity,resumePaused:false};
+  const options={ticks:Infinity,intervalMs:500,resumePaused:false,
+    citizenConstruction:false};
   for(let i=0;i<args.length;i++){
     const arg=args[i];
     if(arg==='--resume-paused'){options.resumePaused=true;continue;}
-    if(!['--url','--name','--seed','--ticks'].includes(arg)||!args[i+1])
+    if(arg==='--citizen-construction'){options.citizenConstruction=true;continue;}
+    if(!['--url','--name','--seed','--ticks','--interval-ms'].includes(arg)||!args[i+1])
       fail(`Unknown or incomplete argument: ${arg}`);
-    options[arg.slice(2)]=args[++i];
+    if(arg==='--interval-ms')options.intervalMs=Number(args[++i]);
+    else options[arg.slice(2)]=args[++i];
   }
-  if(!options.url||!options.name)fail('Usage: node src/host_world.js --url http(s)://127.0.0.1:PORT --name NAME [--seed N] [--ticks N] [--resume-paused]');
+  if(!options.url||!options.name)fail('Usage: node src/host_world.js --url http(s)://127.0.0.1:PORT --name NAME [--seed N] [--ticks N] [--interval-ms N] [--citizen-construction] [--resume-paused]');
   options.seed=options.seed===undefined?29:Number(options.seed);
   options.ticks=options.ticks===Infinity?Infinity:Number(options.ticks);
   return options;
@@ -228,7 +315,8 @@ if(process.argv[1]&&fileURLToPath(import.meta.url)===resolve(process.argv[1])){
     const stop=new AbortController();
     process.once('SIGINT',()=>stop.abort());
     process.once('SIGTERM',()=>stop.abort());
-    const final=await host.run({ticks:options.ticks,signal:stop.signal});
+    const final=await host.run({ticks:options.ticks,
+      intervalMs:options.intervalMs,signal:stop.signal});
     console.log(`Hosted ${options.name} at Citizens tick ${final.clockTick}; saved PC checkpoint.`);
   }catch(error){
     if(error?.name!=='AbortError')console.error(`World host stopped: ${error.message}`);
