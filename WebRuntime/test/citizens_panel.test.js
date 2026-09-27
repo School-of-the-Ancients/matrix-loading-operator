@@ -53,6 +53,115 @@ test('panel advances a bounded visible batch and persists clock speed',()=>{
   }
 });
 
+test('paused routine editor preserves a typed draft and commits one resident schedule',()=>{
+  const dom=stubDocument();
+  let panel;
+  try{
+    let sequence=0,commits=0;
+    const world=new MatrixWorld(()=>`routine-panel-${++sequence}`);
+    panel=new CitizensPanel(world,{onChange(){commits++;return '';},
+      canStart:()=>'',onFeedback(){}});
+    panel.start();clearInterval(panel.timer);
+    const before=structuredClone(world.citizens);
+    const scene=structuredClone(world.scene);
+    const resident=dom.elements.get('citizens-routine-resident');
+    const routine=dom.elements.get('citizens-routine-id');
+    assert.deepEqual(resident.children.map(option=>option.value),['ada','bo']);
+    resident.value='bo';panel.selectRoutineResident();
+    routine.value='evening-rest';panel.selectRoutine();
+    const start=dom.elements.get('citizens-routine-start');
+    const end=dom.elements.get('citizens-routine-end');
+    const priority=dom.elements.get('citizens-routine-priority');
+    assert.equal(start.value,'1260');assert.equal(end.value,'360');
+    start.value='1210';end.value='1440';priority.value='low';
+    panel.render();panel.tick();
+    assert.equal(start.value,'1210');assert.equal(end.value,'1440');
+    assert.equal(priority.value,'low');
+    panel.applyRoutine();
+    assert.equal(commits,2,'start and successful edit each save once');
+    assert.deepEqual(world.scene,scene);
+    assert.deepEqual(world.citizens.residents[0],before.residents[0]);
+    assert.deepEqual(world.citizens.residents[1].routines.find(item=>
+      item.id==='evening-rest'),
+    {...before.residents[1].routines.find(item=>item.id==='evening-rest'),
+      startMinute:1210,endMinute:1440,priority:'low'});
+    assert.equal(world.citizens.paused,true);
+    assert.match(dom.elements.get('citizens-routine-status').textContent,
+      /next idle choice; current activity continues/);
+    const html=readFileSync(new URL('../index.html',import.meta.url),'utf8');
+    assert.match(html,/id="citizens-routine-end" type="number" min="0" max="1440"/);
+    assert.match(html,/id="citizens-routine-status"[^>]*role="status"/);
+  }finally{
+    if(panel)clearInterval(panel.timer);
+    dom.restore();
+  }
+});
+
+test('routine editor rejects empty, equal, and invalid priority without a save',()=>{
+  const dom=stubDocument();
+  let panel;
+  try{
+    let sequence=0,commits=0;
+    const world=new MatrixWorld(()=>`routine-invalid-${++sequence}`);
+    panel=new CitizensPanel(world,{onChange(){commits++;return '';},
+      canStart:()=>'',onFeedback(){}});
+    panel.start();clearInterval(panel.timer);
+    const before=structuredClone(world.citizens);
+    const start=dom.elements.get('citizens-routine-start');
+    const end=dom.elements.get('citizens-routine-end');
+    start.value='';end.value='100';panel.applyRoutine();
+    assert.match(dom.elements.get('citizens-routine-status').textContent,
+      /Start must be a whole minute/);
+    start.value='100';panel.applyRoutine();
+    assert.match(dom.elements.get('citizens-routine-status').textContent,
+      /Start and end must differ/);
+    end.value='200';dom.elements.get('citizens-routine-priority').value='urgent';
+    panel.applyRoutine();
+    assert.match(dom.elements.get('citizens-routine-status').textContent,
+      /valid routine priority/);
+    assert.deepEqual(world.citizens,before);
+    assert.equal(commits,1,'invalid submissions do not save');
+  }finally{
+    if(panel)clearInterval(panel.timer);
+    dom.restore();
+  }
+});
+
+test('routine controls lock while running, in AR, or during a PC world exchange',()=>{
+  const dom=stubDocument();
+  let panel;
+  try{
+    let sequence=0,commits=0,busy=false;
+    const world=new MatrixWorld(()=>`routine-lock-${++sequence}`);
+    panel=new CitizensPanel(world,{onChange(){commits++;return '';},
+      canStart:()=>'',canMutate:()=>busy?'PC world exchange is pending.':'',
+      onFeedback(){}});
+    panel.start();clearInterval(panel.timer);
+    assert.equal(dom.elements.get('citizens-routine-apply').disabled,false);
+    panel.toggle();
+    assert.equal(dom.elements.get('citizens-routine-apply').disabled,true);
+    const running=structuredClone(world.citizens),runningCommits=commits;
+    panel.applyRoutine();
+    assert.deepEqual(world.citizens,running);
+    assert.equal(commits,runningCommits);
+    panel.toggle();
+    busy=true;panel.render();
+    assert.equal(dom.elements.get('citizens-routine-apply').disabled,true);
+    const paused=structuredClone(world.citizens),pausedCommits=commits;
+    panel.applyRoutine();
+    assert.deepEqual(world.citizens,paused);
+    assert.equal(commits,pausedCommits);
+    busy=false;world.spatial={};panel.render();
+    assert.equal(dom.elements.get('citizens-routine-apply').disabled,true);
+    panel.applyRoutine();
+    assert.deepEqual(world.citizens,paused);
+    assert.equal(commits,pausedCommits);
+  }finally{
+    if(panel)clearInterval(panel.timer);
+    dom.restore();
+  }
+});
+
 test('panel enables selected authored furniture and preserves other world objects',()=>{
   const dom=stubDocument();
   let panel;

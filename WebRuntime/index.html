@@ -36,6 +36,23 @@
         <p id="citizens-status" class="hint" role="status">No Citizens in this world.</p>
         <h3>Residents</h3><ul id="citizens-residents" class="citizens-list"></ul>
         <h3>Activity choices and routines</h3><ul id="citizens-routines" class="citizens-list"></ul>
+        <h3 id="citizens-routine-editor-heading">Edit an existing routine</h3>
+        <p class="hint">Pause Citizens to change a resident's daily window or priority. The change applies at the next idle choice; an activity already underway continues.</p>
+        <div role="group" aria-labelledby="citizens-routine-editor-heading">
+          <label for="citizens-routine-resident">Resident</label>
+          <select id="citizens-routine-resident" disabled></select>
+          <label for="citizens-routine-id">Routine</label>
+          <select id="citizens-routine-id" disabled></select>
+          <label for="citizens-routine-start">Start minute of day (0–1439)</label>
+          <input id="citizens-routine-start" type="number" min="0" max="1439" step="1" inputmode="numeric" disabled />
+          <label for="citizens-routine-end">End minute of day (0–1440)</label>
+          <input id="citizens-routine-end" type="number" min="0" max="1440" step="1" inputmode="numeric" disabled />
+          <p class="hint">0 is midnight; 420 is 07:00; 1440 ends at midnight. A later start than end makes an overnight window.</p>
+          <label for="citizens-routine-priority">Priority</label>
+          <select id="citizens-routine-priority" disabled><option value="high">High</option><option value="default">Default</option><option value="low">Low</option></select>
+          <div class="row"><button id="citizens-routine-apply" type="button" aria-describedby="citizens-routine-status" disabled>Apply routine</button></div>
+          <p id="citizens-routine-status" class="hint" role="status" aria-live="polite">Start Citizens and pause to edit a routine.</p>
+        </div>
         <h3>Shared objects</h3><ul id="citizens-stations" class="citizens-list"></ul>
         <h3>Social interaction</h3>
         <p id="citizens-social-status" class="hint">No active social session yet.</p>
