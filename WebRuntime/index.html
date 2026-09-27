@@ -53,6 +53,23 @@
           <div class="row"><button id="citizens-routine-apply" type="button" aria-describedby="citizens-routine-status" disabled>Apply routine</button></div>
           <p id="citizens-routine-status" class="hint" role="status" aria-live="polite">Start Citizens and pause to edit a routine.</p>
         </div>
+        <h3>One-time appointments</h3>
+        <ul id="citizens-appointments" class="citizens-list" aria-label="Resident appointment outcomes"></ul>
+        <h3 id="citizens-appointment-editor-heading">Schedule an appointment</h3>
+        <p class="hint">Pause Citizens to book one rest or eat activity at an existing station. An ongoing activity, conversation, or FIFO wait continues; an appointment can miss its deadline while the resident is busy. Missing the deadline grants no appointment result. A later verified action can still update the resident's need; only a verified interaction by the deadline completes the appointment.</p>
+        <div role="group" aria-labelledby="citizens-appointment-editor-heading">
+          <label for="citizens-appointment-resident">Resident</label>
+          <select id="citizens-appointment-resident" disabled></select>
+          <label for="citizens-appointment-kind">Activity and station</label>
+          <select id="citizens-appointment-kind" disabled></select>
+          <label for="citizens-appointment-start">Start simulated minute</label>
+          <input id="citizens-appointment-start" type="number" min="0" max="999999998" step="1" inputmode="numeric" aria-describedby="citizens-appointment-hint" disabled />
+          <label for="citizens-appointment-deadline">Complete by simulated minute (inclusive)</label>
+          <input id="citizens-appointment-deadline" type="number" min="1" max="999999999" step="1" inputmode="numeric" aria-describedby="citizens-appointment-hint" disabled />
+          <p id="citizens-appointment-hint" class="hint">Start and deadline use the Citizens clock, not local wall time.</p>
+          <div class="row"><button id="citizens-appointment-apply" type="button" aria-describedby="citizens-appointment-status" disabled>Schedule appointment</button></div>
+          <p id="citizens-appointment-status" class="hint" role="status" aria-live="polite">Start Citizens and pause to schedule an appointment.</p>
+        </div>
         <h3>Shared objects</h3><ul id="citizens-stations" class="citizens-list"></ul>
         <h3>Social interaction</h3>
         <p id="citizens-social-status" class="hint">No active social session yet.</p>

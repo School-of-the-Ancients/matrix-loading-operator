@@ -5,6 +5,7 @@ import {CitizensSimulation,createCitizensDemo,
 
 const byId=id=>document.getElementById(id);
 const intervalMs=500;
+const APPOINTMENT_HORIZON=1440;
 const activeRoutine=(routine,minute)=>routine.startMinute<routine.endMinute?
   minute>=routine.startMinute&&minute<routine.endMinute:
   minute>=routine.startMinute||minute<routine.endMinute;
@@ -46,6 +47,11 @@ export class CitizensPanel {
     this.routineResidentOptions=null;
     this.routineOptions=null;
     this.routineStatus='';
+    this.appointmentSelection=null;
+    this.appointmentFieldKey=null;
+    this.appointmentResidentOptions=null;
+    this.appointmentKindOptions=null;
+    this.appointmentStatus='';
     byId('citizens-start').addEventListener('click',()=>this.start());
     byId('citizens-bind-selected').addEventListener('click',()=>this.start('selected'));
     byId('citizens-add-selected').addEventListener('click',()=>this.addStation());
@@ -57,6 +63,11 @@ export class CitizensPanel {
     byId('citizens-routine-resident').addEventListener('change',()=>this.selectRoutineResident());
     byId('citizens-routine-id').addEventListener('change',()=>this.selectRoutine());
     byId('citizens-routine-apply').addEventListener('click',()=>this.applyRoutine());
+    byId('citizens-appointment-resident').addEventListener('change',()=>this.selectAppointmentResident());
+    byId('citizens-appointment-kind').addEventListener('change',()=>this.selectAppointmentKind());
+    byId('citizens-appointment-start').addEventListener('input',()=>this.appointmentInputChanged());
+    byId('citizens-appointment-deadline').addEventListener('input',()=>this.appointmentInputChanged());
+    byId('citizens-appointment-apply').addEventListener('click',()=>this.applyAppointment());
     this.timer=setInterval(()=>this.tick(),intervalMs);
     this.syncFromWorld();
   }
@@ -76,6 +87,14 @@ export class CitizensPanel {
     this.routineStatus='';
   }
 
+  resetAppointmentEditor(){
+    this.appointmentSelection=null;
+    this.appointmentFieldKey=null;
+    this.appointmentResidentOptions=null;
+    this.appointmentKindOptions=null;
+    this.appointmentStatus='';
+  }
+
   syncFromWorld(){
     // A PC restore stages its candidate directly on the world until the PC
     // exchange accepts it. Do not bind to or reconcile that temporary state.
@@ -86,6 +105,7 @@ export class CitizensPanel {
       if(this.world.citizens!==this.boundState){
         this.simulation=null;this.arWorld=null;
         this.resetRoutineEditor();
+        this.resetAppointmentEditor();
       }
       if(!this.simulation&&this.world.citizens){
         try{
@@ -146,10 +166,12 @@ export class CitizensPanel {
     }
     if(!this.world.citizens){
       this.resetRoutineEditor();
+      this.resetAppointmentEditor();
       this.simulation=null;this.boundState=null;this.error='';this.render();return;
     }
     if(this.world.citizens!==this.boundState||!this.simulation){
       this.resetRoutineEditor();
+      this.resetAppointmentEditor();
       try{
         this.simulation=CitizensSimulation.restore(this.world,this.world.citizens);
         this.boundState=this.world.citizens;
@@ -383,6 +405,173 @@ export class CitizensPanel {
     }
   }
 
+  selectAppointmentResident(){
+    this.appointmentSelection={residentId:byId('citizens-appointment-resident').value,
+      kind:null};
+    this.appointmentFieldKey=null;
+    this.appointmentStatus='';
+    this.render();
+  }
+
+  selectAppointmentKind(){
+    this.appointmentSelection={residentId:byId('citizens-appointment-resident').value,
+      kind:byId('citizens-appointment-kind').value};
+    this.appointmentFieldKey=null;
+    this.appointmentStatus='';
+    this.render();
+  }
+
+  appointmentInputChanged(){
+    this.appointmentStatus='';
+    this.renderAppointmentEditor(this.simulation?.snapshot(),this.canMutate());
+  }
+
+  appointmentGlobalBlock(state,mutationBlocked){
+    if(mutationBlocked)return mutationBlocked;
+    if(this.world.spatial)return 'Return to the desktop virtual room to schedule appointments.';
+    if(this.error)return this.error;
+    if(!state)return 'Start Citizens and pause to schedule an appointment.';
+    if(!state.paused)return 'Pause Citizens before scheduling an appointment.';
+    if(this.simulation?.invalidBindings?.size)
+      return 'Recover Citizens bindings before scheduling an appointment.';
+    if(state.clockTick>=999999998)
+      return 'The simulation clock cannot fit another appointment.';
+    return '';
+  }
+
+  appointmentEditBlock(state,mutationBlocked,resident,station){
+    const globalBlock=this.appointmentGlobalBlock(state,mutationBlocked);
+    if(globalBlock)return globalBlock;
+    if(!resident)return 'No resident is available for an appointment.';
+    if(!station)return 'Add a reviewed rest or eat station before scheduling this activity.';
+    if((resident.appointments||[]).length>=3)
+      return `${resident.name} already has three saved appointments.`;
+    return '';
+  }
+
+  renderAppointmentEditor(state,mutationBlocked){
+    const residents=state?.residents||[];
+    const residentSelect=byId('citizens-appointment-resident');
+    const kindSelect=byId('citizens-appointment-kind');
+    const residentOptions=JSON.stringify(residents.map(item=>[item.id,item.name]));
+    if(this.appointmentResidentOptions!==residentOptions){
+      residentSelect.replaceChildren(...residents.map(resident=>{
+        const option=document.createElement('option');
+        option.value=resident.id;option.textContent=resident.name;
+        return option;
+      }));
+      this.appointmentResidentOptions=residentOptions;
+    }
+    const resident=residents.find(item=>item.id===this.appointmentSelection?.residentId)||
+      residents[0];
+    const stations=(state?.stations||[]).filter(item=>
+      item.kind==='rest'||item.kind==='eat');
+    const kindOptions=JSON.stringify(stations.map(item=>[item.kind,item.id]));
+    if(this.appointmentKindOptions!==kindOptions){
+      kindSelect.replaceChildren(...stations.map(station=>{
+        const option=document.createElement('option');
+        option.value=station.kind;
+        option.textContent=`${station.kind} at ${station.id}`;
+        return option;
+      }));
+      this.appointmentKindOptions=kindOptions;
+    }
+    const station=stations.find(item=>item.kind===this.appointmentSelection?.kind)||
+      stations[0];
+    const fieldKey=JSON.stringify([resident?.id||'',station?.kind||'']);
+    this.appointmentSelection=resident?{
+      residentId:resident.id,kind:station?.kind||null}:null;
+    residentSelect.value=resident?.id||'';
+    kindSelect.value=station?.kind||'';
+    const startInput=byId('citizens-appointment-start');
+    const deadlineInput=byId('citizens-appointment-deadline');
+    const firstStart=(state?.clockTick??-1)+1;
+    const lastStart=Math.min((state?.clockTick??-1)+APPOINTMENT_HORIZON,999999998);
+    if(this.appointmentFieldKey!==fieldKey){
+      const proposedStart=state?firstStart:0;
+      startInput.value=state?String(proposedStart):'';
+      deadlineInput.value=state?String(Math.min(proposedStart+60,999999999)):'';
+      this.appointmentFieldKey=fieldKey;
+    }
+    startInput.min=String(Math.max(0,firstStart));
+    startInput.max=String(Math.max(0,lastStart));
+    const typedStart=Number(startInput.value);
+    const usableStart=/^\d+$/.test(startInput.value)&&
+      Number.isSafeInteger(typedStart)&&typedStart>=firstStart&&
+      typedStart<=lastStart?typedStart:firstStart;
+    const firstDeadline=usableStart+1;
+    const lastDeadline=Math.min(usableStart+APPOINTMENT_HORIZON,999999999);
+    deadlineInput.min=String(Math.min(firstDeadline,999999999));
+    deadlineInput.max=String(lastDeadline);
+    byId('citizens-appointment-hint').textContent=state?
+      `Current simulated minute ${state.clockTick}. Start at m ${firstStart}–${lastStart}; complete by m ${firstDeadline}–${lastDeadline} for the entered start. The deadline minute counts. At most three appointments per resident.`:
+      'Start and deadline use the Citizens clock, not local wall time.';
+    const globalBlock=this.appointmentGlobalBlock(state,mutationBlocked);
+    const block=this.appointmentEditBlock(state,mutationBlocked,resident,station);
+    residentSelect.disabled=!!globalBlock||!residents.length;
+    kindSelect.disabled=!!globalBlock||!stations.length;
+    for(const id of ['citizens-appointment-start','citizens-appointment-deadline',
+      'citizens-appointment-apply'])byId(id).disabled=!!block;
+    byId('citizens-appointment-status').textContent=block||this.appointmentStatus||
+      `Schedule ${resident.name} to ${station.kind} at ${station.id}. The current activity or FIFO ticket continues.`;
+  }
+
+  applyAppointment(){
+    const mutationBlocked=this.canMutate();
+    if(mutationBlocked||this.world.spatial){
+      this.appointmentStatus=mutationBlocked||
+        'Return to the desktop virtual room to schedule appointments.';
+      this.onFeedback(this.appointmentStatus,true);
+      this.render();return;
+    }
+    this.syncFromWorld();
+    const state=this.simulation?.snapshot();
+    const residentId=byId('citizens-appointment-resident').value;
+    const kind=byId('citizens-appointment-kind').value;
+    const resident=state?.residents?.find(item=>item.id===residentId);
+    const station=state?.stations?.find(item=>item.kind===kind);
+    const blocked=this.appointmentEditBlock(state,this.canMutate(),resident,station);
+    if(blocked){
+      this.appointmentStatus=blocked;this.onFeedback(blocked,true);this.render();return;
+    }
+    let scheduled;
+    try{
+      const wholeTick=(id,label,min,max)=>{
+        const raw=byId(id).value.trim(),value=Number(raw);
+        if(!/^\d+$/.test(raw)||!Number.isSafeInteger(value)||
+          value<min||value>max)
+          throw Error(`${label} must be a whole simulated minute from ${min} to ${max}`);
+        return value;
+      };
+      const startTick=wholeTick('citizens-appointment-start','Start',
+        state.clockTick+1,Math.min(state.clockTick+APPOINTMENT_HORIZON,999999998));
+      const deadlineTick=wholeTick('citizens-appointment-deadline','Deadline',
+        startTick+1,Math.min(startTick+APPOINTMENT_HORIZON,999999999));
+      const after=this.simulation.scheduleAppointment(residentId,
+        {kind,startTick,deadlineTick});
+      const beforeIds=new Set((resident.appointments||[]).map(item=>item.id));
+      scheduled=after.residents.find(item=>item.id===residentId)?.appointments
+        .find(item=>!beforeIds.has(item.id));
+    }catch(error){
+      this.appointmentStatus=`Appointment was not scheduled: ${error.message}`;
+      this.onFeedback(this.appointmentStatus,true);
+      this.render();return;
+    }
+    this.appointmentFieldKey=null;
+    this.appointmentStatus=`Scheduled ${scheduled?.id||'appointment'} for ${resident.name}. It does not interrupt the current activity or FIFO ticket.`;
+    try{
+      const warning=this.commit();
+      if(warning){
+        this.appointmentStatus=`Appointment scheduled in this tab, but browser saving reported: ${warning}`;
+        this.render();
+      }
+    }catch(error){
+      this.appointmentStatus=`Appointment scheduled in this tab, but browser saving did not finish: ${error.message}`;
+      this.onFeedback(this.appointmentStatus,true);
+      this.render();
+    }
+  }
+
   tick(){
     if(this.recoverArmedUntil&&performance.now()>this.recoverArmedUntil){
       this.recoverArmedUntil=0;this.recoverArmedCopy='';this.render();
@@ -431,6 +620,7 @@ export class CitizensPanel {
     this.simulation=null;this.arWorld=null;this.boundState=null;
     this.world.citizens=null;this.error='';
     this.resetRoutineEditor();
+    this.resetAppointmentEditor();
     this.render();this.onChange();
     this.onFeedback('Citizens stopped. Their objects remain as ordinary scene objects.');
   }
@@ -597,6 +787,34 @@ export class CitizensPanel {
     });
     byId('citizens-routines').replaceChildren(...routines);
     this.renderRoutineEditor(state,mutationBlocked);
+    this.renderAppointmentEditor(state,mutationBlocked);
+    const appointments=(state?.residents||[]).flatMap(resident=>
+      (resident.appointments||[]).map(appointment=>({resident,appointment})));
+    appointments.sort((a,b)=>a.appointment.deadlineTick-b.appointment.deadlineTick||
+      a.appointment.startTick-b.appointment.startTick||
+      a.appointment.id.localeCompare(b.appointment.id));
+    byId('citizens-appointments').replaceChildren(...appointments.map(({resident,appointment})=>{
+      const item=document.createElement('li');
+      const queue=waiting.get(resident.id);
+      const status=appointment.status==='active'?
+        queue?.executionId===appointment.executionId?
+          `queued for ${queue.stationId} · ticket #${queue.position}`:
+          resident.activity?.executionId===appointment.executionId?
+            `started · ${resident.activity.phase}`:'active':
+        appointment.status;
+      const execution=appointment.executionId?
+        ` · execution ${appointment.executionId}`:'';
+      const resolved=appointment.resolvedTick!==null&&
+        appointment.resolvedTick!==undefined?
+          ` at m ${appointment.resolvedTick}`:'';
+      const receipt=appointment.requestId?
+        ` · receipt ${appointment.requestId}`:'';
+      const reason=appointment.reason?` · ${appointment.reason}`:'';
+      item.textContent=`${resident.name}: ${appointment.id} · ${appointment.kind} `+
+        `m ${appointment.startTick}–${appointment.deadlineTick} (deadline inclusive) · `+
+        `${status}${execution}${resolved}${receipt}${reason}`;
+      return item;
+    }));
     const stations=(state?.stations||[]).map(station=>{
       const item=document.createElement('li');
       const claim=station.claim;

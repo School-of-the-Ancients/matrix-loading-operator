@@ -716,8 +716,155 @@ def validate_citizens_checkpoint(value, checked_scene):
         return type(item) in (int, float) and minimum <= item <= maximum and math.isfinite(item)
 
     require(type(value) is dict and type(value.get("schemaVersion")) is int and
-            value["schemaVersion"] in (1, 2, 3, 4, 5, 6, 7, 8, 9), "Unsupported Citizens schemaVersion")
+            value["schemaVersion"] in (1, 2, 3, 4, 5, 6, 7, 8, 9, 10), "Unsupported Citizens schemaVersion")
     version = value["schemaVersion"]
+    if version == 10:
+        # Appointments are resident-local commitments. Validate their exact
+        # lifecycle and active execution links before projecting back to the
+        # v9 state, which continues to check all world and action bindings.
+        require(type(value.get("residents")) is list and
+                len(value["residents"]) <= 4 and
+                type(value.get("stations")) is list and
+                len(value["stations"]) <= 2 and
+                type(value.get("socialEvents")) is list and
+                integer(value.get("clockTick"), 0, 1000000000) and
+                integer(value.get("seed"), 1, 0xffffffff) and
+                integer(value.get("actionSequence"), 0, 1000000000) and
+                integer(value.get("requestSequence"), 0, 1000000000),
+                "Invalid Citizens appointment state")
+        projected = copy.deepcopy(value)
+        projected["schemaVersion"] = 9
+        used_request_sequences = set()
+        for event in value["socialEvents"]:
+            if type(event) is dict and event.get("event") == "ended" and \
+                    type(event.get("requestId")) is str:
+                match = re.fullmatch(r"citizens-([0-9]+)-social-([0-9]+)-([0-9]+)",
+                                     event["requestId"])
+                if match is not None:
+                    used_request_sequences.add(int(match[3]))
+        used_executions = set()
+        for resident, old_resident in zip(value["residents"], projected["residents"]):
+            require(type(resident) is dict and
+                    type(resident.get("appointments")) is list and
+                    len(resident["appointments"]) <= 3,
+                    "Invalid Citizens appointments")
+            del old_resident["appointments"]
+            appointment_ids = set()
+            appointments_by_id = {}
+            active_count = 0
+            for appointment in resident["appointments"]:
+                shape(appointment, ("id", "kind", "startTick", "deadlineTick", "status",
+                                    "executionId", "resolvedTick", "requestId", "reason"),
+                      "appointment")
+                appointment_id = appointment["id"]
+                kind = appointment["kind"]
+                start, deadline = appointment["startTick"], appointment["deadlineTick"]
+                require(type(appointment_id) is str and
+                        appointment_id in ("appointment-1", "appointment-2", "appointment-3") and
+                        appointment_id not in appointment_ids and
+                        type(kind) is str and kind in ("rest", "eat") and
+                        integer(start, 1, 999999999) and
+                        integer(deadline, start + 1, min(start + 1440, 999999999)),
+                        "Invalid Citizens appointment identity or window")
+                appointment_ids.add(appointment_id)
+                appointments_by_id[appointment_id] = appointment
+                status = appointment["status"]
+                execution_id = appointment["executionId"]
+                resolved = appointment["resolvedTick"]
+                request_id = appointment["requestId"]
+                reason = appointment["reason"]
+                require(type(status) is str and
+                        status in ("pending", "active", "completed", "missed") and
+                        type(reason) is str and len(reason) <= 128,
+                        "Invalid Citizens appointment lifecycle")
+                if execution_id is not None:
+                    require(integer(execution_id, 1, value["actionSequence"]) and
+                            execution_id not in used_executions,
+                            "Invalid Citizens appointment execution")
+                    used_executions.add(execution_id)
+                if status == "pending":
+                    require(execution_id is None and resolved is None and
+                            request_id is None and reason == "" and
+                            value["clockTick"] <= deadline,
+                            "Invalid pending Citizens appointment")
+                elif status == "active":
+                    active_count += 1
+                    activity = resident.get("activity")
+                    linked_activity = (type(activity) is dict and
+                                       activity.get("executionId") == execution_id and
+                                       activity.get("kind") == kind and
+                                       activity.get("phase") in ("travel", "use"))
+                    linked_waiter = any(
+                        type(station) is dict and station.get("kind") == kind and
+                        type(station.get("waiters")) is list and
+                        any(type(waiter) is dict and
+                            waiter.get("residentId") == resident.get("id") and
+                            waiter.get("executionId") == execution_id
+                            for waiter in station["waiters"])
+                        for station in value["stations"])
+                    require(execution_id is not None and resolved is None and
+                            request_id is None and reason == "" and
+                            start <= value["clockTick"] <= deadline and
+                            (linked_activity or linked_waiter),
+                            "Invalid active Citizens appointment")
+                elif status == "completed":
+                    match = (re.fullmatch(r"citizens-([0-9]+)-action-([0-9]+)-([0-9]+)",
+                                         request_id) if type(request_id) is str else None)
+                    require(execution_id is not None and
+                            integer(resolved, start, deadline) and
+                            resolved <= value["clockTick"] and
+                            match is not None and
+                            int(match[1]) == value["seed"] and
+                            int(match[2]) == execution_id and
+                            integer(int(match[3]), 1, value["requestSequence"]) and
+                            request_id == f"citizens-{value['seed']}-action-{execution_id}-{int(match[3])}" and
+                            int(match[3]) not in used_request_sequences and reason == "",
+                            "Invalid completed Citizens appointment")
+                    used_request_sequences.add(int(match[3]))
+                else:
+                    require((execution_id is None or
+                             integer(execution_id, 1, value["actionSequence"])) and
+                            resolved == deadline + 1 and
+                            resolved <= value["clockTick"] and
+                            request_id is None and reason == "deadline passed",
+                            "Invalid missed Citizens appointment")
+            require(active_count <= 1, "Multiple active Citizens appointments")
+            decision = resident.get("lastDecision")
+            if type(decision) is dict and decision.get("mode") == "appointment":
+                shape(decision, ("tick", "mode", "roll", "selectedKind",
+                                 "selectedRoutineId", "selectedAppointmentId", "candidates"),
+                      "appointment decision")
+                require(type(decision["selectedAppointmentId"]) is str,
+                        "Invalid Citizens appointment decision")
+                selected = appointments_by_id.get(decision["selectedAppointmentId"])
+                require(integer(decision["tick"], 0, value["clockTick"]) and
+                        decision["roll"] is None and
+                        decision["selectedRoutineId"] is None and
+                        selected is not None and
+                        decision["selectedKind"] == selected["kind"] and
+                        type(decision["candidates"]) is list and
+                        len(decision["candidates"]) == 1,
+                        "Invalid Citizens appointment decision")
+                candidate = decision["candidates"][0]
+                shape(candidate, ("kind", "routineId", "priority", "deficit",
+                                  "preference", "travelMeters", "baseWeight",
+                                  "availabilityFactor", "score"),
+                      "appointment decision candidate")
+                require(candidate["kind"] == selected["kind"] and
+                        candidate["routineId"] is None and
+                        candidate["priority"] == "none" and
+                        number(candidate["deficit"], 0, 100) and
+                        number(candidate["preference"], .2, 2) and
+                        number(candidate["travelMeters"], 0, 1000) and
+                        number(candidate["baseWeight"], 0, 100) and
+                        candidate["baseWeight"] == 0 and
+                        number(candidate["availabilityFactor"], 0, 1) and
+                        candidate["availabilityFactor"] == 1 and
+                        number(candidate["score"], 0, 300),
+                        "Invalid Citizens appointment candidate")
+                old_resident["lastDecision"] = None
+        validate_citizens_checkpoint(projected, checked_scene)
+        return
     if version == 9:
         # V9 adds one need, one preference and a social choice trace. Project
         # those fields away only after validating them, so every other shape

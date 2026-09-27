@@ -162,6 +162,140 @@ test('routine controls lock while running, in AR, or during a PC world exchange'
   }
 });
 
+test('paused appointment form keeps its draft and schedules one reviewed activity',()=>{
+  const dom=stubDocument();
+  let panel;
+  try{
+    let sequence=0,commits=0;
+    const world=new MatrixWorld(()=>`appointment-panel-${++sequence}`);
+    panel=new CitizensPanel(world,{onChange(){commits++;return '';},
+      canStart:()=>'',onFeedback(){}});
+    panel.start();clearInterval(panel.timer);
+    const beforeScene=structuredClone(world.scene);
+    const kind=dom.elements.get('citizens-appointment-kind');
+    assert.deepEqual(kind.children.map(option=>option.value),['rest','eat']);
+    kind.value='eat';panel.selectAppointmentKind();
+    const start=dom.elements.get('citizens-appointment-start');
+    const deadline=dom.elements.get('citizens-appointment-deadline');
+    start.value='2';deadline.value='40';
+    panel.render();panel.tick();
+    assert.equal(start.value,'2');assert.equal(deadline.value,'40');
+    assert.match(dom.elements.get('citizens-appointment-hint').textContent,
+      /Current simulated minute 0.*The deadline minute counts/);
+    panel.applyAppointment();
+    assert.equal(commits,2,'start and appointment each save once');
+    assert.deepEqual(world.scene,beforeScene);
+    assert.deepEqual(world.citizens.residents[0].appointments,[{
+      id:'appointment-1',kind:'eat',startTick:2,deadlineTick:40,
+      status:'pending',executionId:null,resolvedTick:null,requestId:null,reason:''}]);
+    assert.deepEqual(world.citizens.residents[1].appointments,[]);
+    assert.match(dom.elements.get('citizens-appointments').children[0].textContent,
+      /Ada: appointment-1 · eat m 2–40 \(deadline inclusive\) · pending/);
+    assert.match(dom.elements.get('citizens-appointment-status').textContent,
+      /Scheduled appointment-1 for Ada/);
+    const html=readFileSync(new URL('../index.html',import.meta.url),'utf8');
+    assert.match(html,/id="citizens-appointment-deadline"[^>]*aria-describedby="citizens-appointment-hint"/);
+    assert.match(html,/id="citizens-appointment-status"[^>]*role="status"/);
+  }finally{
+    if(panel)clearInterval(panel.timer);
+    dom.restore();
+  }
+});
+
+test('appointment form rejects invalid ticks and locks for running, AR, and PC exchange',()=>{
+  const dom=stubDocument();
+  let panel;
+  try{
+    let sequence=0,commits=0,busy=false;
+    const world=new MatrixWorld(()=>`appointment-lock-${++sequence}`);
+    panel=new CitizensPanel(world,{onChange(){commits++;return '';},
+      canStart:()=>'',canMutate:()=>busy?'PC world exchange is pending.':'',
+      onFeedback(){}});
+    panel.start();clearInterval(panel.timer);
+    const before=structuredClone(world.citizens);
+    const start=dom.elements.get('citizens-appointment-start');
+    const deadline=dom.elements.get('citizens-appointment-deadline');
+    start.value='';deadline.value='20';panel.applyAppointment();
+    assert.match(dom.elements.get('citizens-appointment-status').textContent,
+      /Start must be a whole simulated minute/);
+    start.value='2';deadline.value='2';panel.applyAppointment();
+    assert.match(dom.elements.get('citizens-appointment-status').textContent,
+      /Deadline must be a whole simulated minute/);
+    assert.deepEqual(world.citizens,before);
+    assert.equal(commits,1);
+    panel.toggle();
+    assert.equal(dom.elements.get('citizens-appointment-apply').disabled,true);
+    const running=structuredClone(world.citizens),runningCommits=commits;
+    panel.applyAppointment();
+    assert.deepEqual(world.citizens,running);
+    assert.equal(commits,runningCommits);
+    panel.toggle();
+    busy=true;panel.render();
+    assert.equal(dom.elements.get('citizens-appointment-apply').disabled,true);
+    const paused=structuredClone(world.citizens),pausedCommits=commits;
+    panel.applyAppointment();
+    assert.deepEqual(world.citizens,paused);
+    assert.equal(commits,pausedCommits);
+    busy=false;world.spatial={};panel.render();
+    assert.equal(dom.elements.get('citizens-appointment-apply').disabled,true);
+    panel.applyAppointment();
+    assert.deepEqual(world.citizens,paused);
+    assert.equal(commits,pausedCommits);
+  }finally{
+    if(panel)clearInterval(panel.timer);
+    dom.restore();
+  }
+});
+
+test('appointment inspector separates queued, started, completed receipt, and missed deadline',()=>{
+  const dom=stubDocument();
+  let panel;
+  try{
+    const world=new MatrixWorld(()=> 'unused');
+    panel=new CitizensPanel(world,{onChange(){},canStart:()=>'',onFeedback(){}});
+    const appointment=(id,kind,status,executionId,resolvedTick,requestId,reason,
+      startTick,deadlineTick)=>({id,kind,status,executionId,resolvedTick,requestId,
+        reason,startTick,deadlineTick});
+    const needs={hunger:50,energy:40,fun:60,social:32};
+    const state={schemaVersion:10,paused:true,clockTick:15,seed:17,
+      residents:[
+        {id:'ada',name:'Ada',needs,activity:null,socialSessionId:null,
+          routines:[],lastDecision:null,lastOutcome:'',appointments:[
+            appointment('appointment-1','rest','active',11,null,null,'',2,30),
+            appointment('appointment-2','eat','completed',9,12,
+              'citizens-17-action-9-14','',2,20),
+            appointment('appointment-3','eat','missed',null,10,null,
+              'deadline passed',2,9)]},
+        {id:'bo',name:'Bo',needs,activity:{kind:'eat',phase:'travel',
+          executionId:12},socialSessionId:null,routines:[],lastDecision:null,
+          lastOutcome:'',appointments:[
+            appointment('appointment-1','eat','active',12,null,null,'',3,35)]}],
+      retiredResidentIds:[],stations:[
+        {id:'chair',kind:'rest',claim:null,waiters:[
+          {residentId:'ada',executionId:11,enqueuedTick:5}]},
+        {id:'food',kind:'eat',claim:null,waiters:[]}],
+      log:[],socialSession:null,socialEvents:[],relationships:[]};
+    world.citizens=state;panel.simulation={snapshot:()=>state};panel.render();
+    const rows=dom.elements.get('citizens-appointments').children
+      .map(item=>item.textContent);
+    assert.equal(rows.length,4);
+    assert.ok(rows.some(row=>/Ada: appointment-1.*queued for chair · ticket #1 · execution 11/.test(row)));
+    assert.ok(rows.some(row=>/Bo: appointment-1.*started · travel · execution 12/.test(row)));
+    assert.ok(rows.some(row=>/completed · execution 9 at m 12 · receipt citizens-17-action-9-14/.test(row)));
+    assert.ok(rows.some(row=>/missed at m 10 · deadline passed/.test(row)));
+    assert.ok(rows.every(row=>!row.includes('undefined')&&!row.includes('null')));
+    assert.equal(dom.elements.get('citizens-appointment-apply').disabled,true,
+      'Ada has reached the three-appointment cap');
+    const residentSelect=dom.elements.get('citizens-appointment-resident');
+    assert.equal(residentSelect.disabled,false,'the user can still choose Bo');
+    residentSelect.value='bo';panel.selectAppointmentResident();
+    assert.equal(dom.elements.get('citizens-appointment-apply').disabled,false);
+  }finally{
+    if(panel)clearInterval(panel.timer);
+    dom.restore();
+  }
+});
+
 test('panel enables selected authored furniture and preserves other world objects',()=>{
   const dom=stubDocument();
   let panel;
