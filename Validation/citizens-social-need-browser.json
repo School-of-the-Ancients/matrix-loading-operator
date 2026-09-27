@@ -1,0 +1,73 @@
+{
+  "date": "2026-09-26",
+  "surface": "built ordinary /web/ desktop virtual room",
+  "isolation": {
+    "loopbackPort": 19853,
+    "sceneDirectory": "work/citizens-social-need-state/scenes",
+    "assetDirectory": "work/citizens-social-need-catalog",
+    "sourceCheckpoint": "dual-stations-m1",
+    "earlierDemoPortsUntouched": [19849, 19850, 19851, 19852]
+  },
+  "seed": 29,
+  "reviewedStaticAssets": [
+    "web:citizens-demo-chair:fb5408949487",
+    "web:citizens-demo-food-table:53b79a6a6f7f"
+  ],
+  "stableSceneObjectIds": [
+    "821fc875805840c5b4d3dfa9e4b21d8b",
+    "7448c0018a8a45e1acf5d0a55aa7e561",
+    "48c153fafbb3405590749fabbd0630d8",
+    "3fc1c2b72653498a94baf423dc760e71"
+  ],
+  "observedBrowserTimeline": [
+    "Restoring the prior v6 minute-1 PC checkpoint displayed the same four objects, Ada's chair claim execution 1, Bo's FIFO wait execution 2, and migrated v9 social need 50 for each resident.",
+    "Seventy-seven paused Step actions reached minute 78. Ada logged one bounded wait while Bo finished food, then chose conversation with social need 42.3 and score 64.37 versus competing activity score 19.47. Session social-29-7 was offered; relationship remained 50 and neither resident received a social benefit.",
+    "At minute 79 Bo accepted with the saved seeded response roll. Thirteen Step actions from minute 78 ended the session at minute 91 after a matching Matrix converse receipt citizens-29-social-7-100. Both social needs were 76 after 13 minutes of decay and the +35 receipt-backed benefit; relationship changed from 50 to 55.",
+    "After the final critical-invitee and waiting-log fixes, the browser reloaded at minute 91 with four objects, both rendered GLBs, both social needs 76, the ended receipt event and relationship 55. Restoring the final named minute-78 offered checkpoint and taking 13 Step actions reproduced exactly the saved minute-91 world and payload SHA-256.",
+    "No browser console errors were captured."
+  ],
+  "checkpoints": {
+    "outerWorldVersion": 3,
+    "citizensSchemaVersion": 9,
+    "social-need-final-m78-offered": {
+      "minute": 78,
+      "paused": true,
+      "phase": "offered",
+      "adaSocial": 42.3,
+      "boSocial": 42.3,
+      "relationship": 50,
+      "payloadSha256": "f268c6590edd3110dfe09dda4826b2e8b790b1e779a914a7e94a298a6529205d"
+    },
+    "social-need-final-m91-ended": {
+      "minute": 91,
+      "paused": true,
+      "latestEvent": "ended",
+      "receiptRequestId": "citizens-29-social-7-100",
+      "adaSocial": 76,
+      "boSocial": 76,
+      "relationship": 55,
+      "payloadSha256": "854826e32da67630e97c74b834319904b71b0cbf10e4d0e600ec9454dc993ed6"
+    },
+    "social-need-final-m91-replay": {
+      "minute": 91,
+      "paused": true,
+      "worldExactlyEqualsOriginalMinute91": true,
+      "payloadSha256": "854826e32da67630e97c74b834319904b71b0cbf10e4d0e600ec9454dc993ed6"
+    }
+  },
+  "validation": {
+    "webRuntimeTests": "314/314",
+    "controlServiceTests": "689/689",
+    "viteBuild": "passed",
+    "browserConsoleErrors": 0,
+    "screenshots": [
+      "citizens-social-need-offered.png",
+      "citizens-social-need-ended.png",
+      "citizens-social-need-receipt.png"
+    ]
+  },
+  "limits": [
+    "The browser replay observed one successful conversation on two reviewed static GLBs. Focused tests cover critical hunger for both the initiator and invitee, a bounded visible wait for a busy peer, need and preference changes, decline and timeout without benefit, malformed v9 saves, and no duplicate receipt benefit after restore.",
+    "The social choice is deterministic and finite; it uses no per-frame LLM request. General dialogue, more than two residents, animated or moving furniture, and Quest wearer checks remain open."
+  ]
+}

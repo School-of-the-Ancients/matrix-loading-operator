@@ -79,7 +79,7 @@ test('authored chair keeps its claim through observed egress before FIFO handoff
   assert.ok(completed.log.some(entry=>entry.residentId==='ada'&&
     entry.event==='completed'&&entry.message.includes('rest')));
   const saved=simulation.exportState();
-  assert.equal(saved.schemaVersion,8);
+  assert.equal(saved.schemaVersion,9);
   assert.equal(saved.residents[0].activity.phase,'egress');
   assert.deepEqual(CitizensSimulation.restore(world,saved).exportState(),saved);
 
@@ -265,7 +265,7 @@ test('both reviewed stations restore and grant only their distinct observed effe
   const scene=structuredClone(world.scene);
   const saved=simulation.exportState();
   assert.deepEqual(added.stations.map(station=>station.kind),['rest','eat']);
-  assert.equal(saved.schemaVersion,8);
+  assert.equal(saved.schemaVersion,9);
 
   let sequence=0;
   const recovered=new MatrixWorld(()=>`dual-restored-${++sequence}`);

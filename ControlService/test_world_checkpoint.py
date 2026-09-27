@@ -363,6 +363,142 @@ class WorldCheckpointTests(unittest.TestCase):
         self.state.exchange({"clientId": "browser", "snapshot": active, "results": []})
         return world
 
+    def citizens_v9_social_need_world(self):
+        world = self.citizens_v8_egress_world()
+        state = world["citizens"]
+        state["schemaVersion"] = 9
+        for resident, social_need, preference in zip(
+                state["residents"], (32, 46), (1.25, .8)):
+            resident["needs"]["social"] = social_need
+            resident["preferences"]["converse"] = preference
+        state["residents"][0]["lastDecision"] = {
+            "tick": 15, "mode": "social", "roll": None,
+            "selectedKind": "converse", "selectedRoutineId": None,
+            "candidates": [{"kind": "converse", "routineId": None,
+                            "priority": "none", "deficit": 68,
+                            "preference": 1.25, "travelMeters": 2.3,
+                            "baseWeight": 0, "availabilityFactor": 1,
+                            "score": 42.5}]}
+        return world
+
+    def test_citizens_v9_social_need_roundtrip_mid_session_and_v8_compatibility(self):
+        world = self.citizens_v9_social_need_world()
+        live_before = copy.deepcopy(self.state.latest)
+        self.assertTrue(self.state.save_world_checkpoint("SocialNeed", world)["saved"])
+        restored = self.state.load_world_checkpoint("SocialNeed")["world"]
+        self.assertEqual(restored["citizens"], world["citizens"])
+        self.assertEqual(restored["version"], 3)
+        self.assertEqual([item["objectId"] for item in restored["scene"]["objects"]],
+                         [item["objectId"] for item in world["scene"]["objects"]])
+        self.assertEqual(restored["citizens"]["residents"][0]["lastDecision"]["mode"],
+                         "social")
+        self.assertEqual(restored["citizens"]["stations"][0]["claim"]["residentId"],
+                         "ada", "v9 must still preserve an egress claim")
+        self.assertEqual(self.state.latest, live_before)
+
+        mid_session = copy.deepcopy(world)
+        state = mid_session["citizens"]
+        state["clockTick"] = 17
+        state["actionSequence"] = 6
+        state["residents"][0]["activity"] = None
+        state["stations"][0]["claim"] = None
+        state["stations"][0]["waiters"] = []
+        session_id = "social-73-6"
+        state["socialSession"] = {
+            "id": session_id, "executionId": 6, "initiatorId": "ada",
+            "inviteeId": "bo", "phase": "active", "startedTick": 15,
+            "expiresTick": 88, "acceptedTick": 16, "travelTicks": 1,
+            "remainingTicks": 3}
+        state["socialEvents"].extend([
+            {"id": "social-73-6-initiated-15", "event": "initiated", "tick": 15,
+             "initiatorId": "ada", "inviteeId": "bo", "requestId": ""},
+            {"id": "social-73-6-accepted-16", "event": "accepted", "tick": 16,
+             "initiatorId": "ada", "inviteeId": "bo", "requestId": ""}])
+        for resident in state["residents"]:
+            resident["socialSessionId"] = session_id
+        self.assertTrue(self.state.save_world_checkpoint("MidSocialNeed", mid_session)["saved"])
+        resumed = self.state.load_world_checkpoint("MidSocialNeed")["world"]
+        self.assertEqual(resumed["citizens"], mid_session["citizens"])
+        self.assertEqual(resumed["citizens"]["socialSession"]["phase"], "active")
+        self.assertEqual(self.state.latest, live_before,
+                         "loading a mid-session checkpoint must not replace the live world")
+
+        old = copy.deepcopy(world)
+        old["citizens"]["schemaVersion"] = 8
+        for resident in old["citizens"]["residents"]:
+            del resident["needs"]["social"]
+            del resident["preferences"]["converse"]
+        old["citizens"]["residents"][0]["lastDecision"] = None
+        self.assertTrue(self.state.save_world_checkpoint("BeforeSocialNeed", old)["saved"])
+        self.assertEqual(self.state.load_world_checkpoint("BeforeSocialNeed")["world"]["citizens"],
+                         old["citizens"],
+                         "v8 remains exact for browser migration")
+
+    def test_citizens_v9_rejects_malformed_social_choice_atomically(self):
+        world = self.citizens_v9_social_need_world()
+        self.assertTrue(self.state.save_world_checkpoint("SocialNeed", world)["saved"])
+        path = self.scenes / "world_checkpoints" / "SocialNeed.json"
+        original = path.read_bytes()
+        live_before = copy.deepcopy(self.state.latest)
+
+        def state(item):
+            return item["citizens"]
+
+        def ada(item):
+            return state(item)["residents"][0]
+
+        def decision(item):
+            return ada(item)["lastDecision"]
+
+        def candidate(item):
+            return decision(item)["candidates"][0]
+
+        cases = (
+            ("missing social need", lambda item: ada(item)["needs"].pop("social")),
+            ("extra need", lambda item: ada(item)["needs"].update(loneliness=20)),
+            ("boolean need", lambda item: ada(item)["needs"].update(social=True)),
+            ("unbounded need", lambda item: ada(item)["needs"].update(social=101)),
+            ("nonfinite need", lambda item: ada(item)["needs"].update(social=float("inf"))),
+            ("missing converse preference", lambda item: ada(item)["preferences"].pop("converse")),
+            ("extra preference", lambda item: ada(item)["preferences"].update(greet=1)),
+            ("low preference", lambda item: ada(item)["preferences"].update(converse=.1)),
+            ("social decision needs converse", lambda item: decision(item).update(selectedKind="rest")),
+            ("social decision needs no roll", lambda item: decision(item).update(roll=.5)),
+            ("social decision needs no routine", lambda item: decision(item).update(selectedRoutineId="morning-rest")),
+            ("social decision needs one candidate", lambda item: decision(item).update(candidates=[])),
+            ("social candidate needs converse", lambda item: candidate(item).update(kind="rest")),
+            ("social candidate needs no routine", lambda item: candidate(item).update(routineId="morning-rest")),
+            ("social candidate needs no priority", lambda item: candidate(item).update(priority="high")),
+            ("social candidate has no window weight", lambda item: candidate(item).update(baseWeight=1)),
+            ("social candidate must be available", lambda item: candidate(item).update(availabilityFactor=.5)),
+            ("social candidate meets threshold", lambda item: candidate(item).update(score=34.99)),
+            ("social candidate travel bounded", lambda item: candidate(item).update(travelMeters=1001)),
+            ("other state fields remain exact", lambda item: state(item).update(socialClock=17)),
+            ("v8 cannot contain v9 need", lambda item: state(item).update(schemaVersion=8)),
+        )
+        for label, mutate in cases:
+            with self.subTest(label=label):
+                invalid = copy.deepcopy(world)
+                mutate(invalid)
+                with self.assertRaises(APIError) as rejected:
+                    self.state.save_world_checkpoint("SocialNeed", invalid)
+                self.assertEqual(rejected.exception.status, 400)
+                self.assertEqual(path.read_bytes(), original)
+                self.assertEqual(self.state.latest, live_before)
+
+        for label, mutate in cases[:4] + cases[5:]:
+            with self.subTest(load=label):
+                document = json.loads(original)
+                mutate(document["world"])
+                document["payloadSha256"] = world_checkpoint_digest(
+                    document["world"], document["dependencies"])
+                path.write_text(json.dumps(document), encoding="utf-8")
+                with self.assertRaises(APIError) as rejected:
+                    self.state.load_world_checkpoint("SocialNeed")
+                self.assertEqual(rejected.exception.status, 400)
+                self.assertEqual(self.state.latest, live_before)
+                path.write_bytes(original)
+
     def test_citizens_v8_egress_and_fifo_wait_roundtrip_with_v7_compatibility(self):
         world = self.citizens_v8_egress_world()
         before = copy.deepcopy(self.state.latest)

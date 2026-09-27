@@ -1,5 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import {readFileSync} from 'node:fs';
 import * as THREE from 'three';
 import {MatrixWorld} from '../src/protocol.js';
 import {createCitizensDemo,citizensFurnitureReadiness} from '../src/citizens.js';
@@ -282,6 +283,45 @@ test('panel shows offered, active, and completed social sessions with relationsh
     assert.match(dom.elements.get('citizens-social-status').textContent,/latest ended at m 14/);
     assert.match(dom.elements.get('citizens-relationships').children[0].textContent,/Ada ↔ Bo: 2\/100/);
     assert.match(dom.elements.get('citizens-social-events').children[0].textContent,/receipt citizens-17-social-3-9/);
+  }finally{
+    if(panel)clearInterval(panel.timer);
+    dom.restore();
+  }
+});
+
+test('panel explains a social choice and shows both residents social needs',()=>{
+  const dom=stubDocument();
+  let panel;
+  try{
+    const world=new MatrixWorld(()=> 'unused');
+    panel=new CitizensPanel(world,{onChange(){},canStart:()=>'',onFeedback(){}});
+    const state={schemaVersion:9,paused:true,clockTick:12,seed:17,
+      residents:[{id:'ada',name:'Ada',socialSessionId:'social-17-3',activity:null,
+        needs:{hunger:50,energy:40,fun:60,social:32},lastOutcome:'',routines:[],
+        lastDecision:{tick:12,mode:'social',roll:null,selectedKind:'converse',
+          selectedRoutineId:null,candidates:[{kind:'converse',routineId:null,
+            priority:'none',deficit:68,preference:1.2,travelMeters:1.5,
+            baseWeight:0,availabilityFactor:1,score:72.6}]}},
+      {id:'bo',name:'Bo',socialSessionId:'social-17-3',activity:null,
+        needs:{hunger:50,energy:40,fun:60,social:75},lastOutcome:'',routines:[],
+        lastDecision:null}],retiredResidentIds:[],stations:[],log:[],
+      socialSession:{id:'social-17-3',initiatorId:'ada',inviteeId:'bo',
+        phase:'offered',expiresTick:16},socialEvents:[],relationships:[]};
+    world.citizens=state;
+    panel.simulation={snapshot:()=>state};
+    panel.render();
+
+    const residents=dom.elements.get('citizens-residents').children.map(item=>item.textContent);
+    assert.match(residents[0],/Ada: inviting Bo · session social-17-3/);
+    assert.match(residents[0],/fun 60 · social 32/);
+    assert.match(residents[1],/Bo: invited by Ada · session social-17-3/);
+    assert.match(residents[1],/fun 60 · social 75/);
+    const decision=dom.elements.get('citizens-routines').children[0].textContent;
+    assert.match(decision,/active routines none · m 12 · social need selected conversation/);
+    assert.match(decision,/conversation 72\.6 \(need 68, preference 1\.20/);
+    assert.doesNotMatch(decision,/NaN|undefined/);
+    const html=readFileSync(new URL('../index.html',import.meta.url),'utf8');
+    assert.match(html,/<h3>Activity choices and routines<\/h3>/);
   }finally{
     if(panel)clearInterval(panel.timer);
     dom.restore();
