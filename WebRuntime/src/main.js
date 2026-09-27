@@ -14,11 +14,13 @@ import {startGame,deliverMovedObject,gameStatus,validSavedGame} from './game.js'
 import {archiveAndClearRoom,archiveAndRebaseRoom,roomArchives,
   clearRoomArchives as clearStoredRoomArchives,ROOM_ARCHIVES_KEY} from './room_origin.js';
 import {BlockScaleUI} from './block_scale_ui.js';
+import {CitizensPanel} from './citizens_panel.js';
 
 const $=id=>document.getElementById(id);
 const world=new MatrixWorld();
 const cameraStream=new CameraStream();
 let scaleUI=null;
+let citizensPanel=null;
 let pendingWorld=loadStoredWorld(sessionStorage,localStorage);
 let xrInitialized=false;
 
@@ -149,11 +151,14 @@ async function toggleCamera(){
 }
 
 function renderScene(){
+  citizensPanel?.syncFromWorld();
   view.sync();$('object-count').textContent=`${world.scene.objects.length} object${world.scene.objects.length===1?'':'s'}`;
+  citizensPanel?.decorate(view);
   updateWorldControls();
   scaleUI?.refreshTargets();
   if(!pendingWorld){
-    persistenceWarning=saveStoredWorld(storedBrowserWorld(world),sessionStorage,localStorage);
+    try{persistenceWarning=saveStoredWorld(storedBrowserWorld(world),sessionStorage,localStorage);}
+    catch(error){persistenceWarning=`World save paused: ${error.message}. The previous valid browser copy was kept.`;}
     const durableFailed=persistenceWarning.includes('Persistent browser save failed');
     view.setOperatorWarning(persistenceWarning?durableFailed?
       'PERSISTENT SAVE FAILED · closing browser may lose world':'TAB COPY FAILED · durable world saved':
@@ -180,6 +185,14 @@ const bridge=new MatrixBridge(world,()=>$('token').value.trim(),event=>{
     const message=event.result.ok?`Applied ${event.result.requestId.slice(0,8)}${event.result.objectId?` · ${event.result.objectId.slice(0,8)}`:''}`:`Command failed: ${event.result.error}`;
     feedback(message,!event.result.ok);lastOperatorReply=lastOperatorReply?`${lastOperatorReply}\n\n${message}`:message;operatorMessageUntil=Infinity;view.setOperatorStatus(lastOperatorReply,event.result.ok?'idle':'error');
   }
+});
+citizensPanel=new CitizensPanel(world,{
+  onChange:()=>{renderScene();void bridge.tick(true);},
+  canStart:()=>pendingWorld?'Finish saved-world recovery before starting Citizens.':
+    world.spatial?'Citizens starts only in the desktop virtual room.':
+    world.citizens?'Citizens is already in this world.':
+    world.scene.objects.length||world.game?'Save or choose an empty world before starting this seeded scenario.':'',
+  onFeedback:feedback
 });
 scaleUI=new BlockScaleUI(world,id=>{
   const object=world.requireObject(id);
@@ -482,8 +495,11 @@ async function saveWorld(){
     feedback('Recover the saved room origin before replacing a world checkpoint.',true);
     view.setOperatorWorldNotice('Save blocked: recover the room origin.','error');return;
   }
-  const value=storedBrowserWorld(world);
-  const warning=saveCheckpoint(value.scene,value.game,localStorage,value.originBinding,value.originAnchorHandle);
+  citizensPanel?.pauseForCheckpoint();
+  let value;
+  try{value=storedBrowserWorld(world);}
+  catch(error){feedback(`World checkpoint could not be saved: ${error.message}`,true);return;}
+  const warning=saveCheckpoint(value.scene,value.game,localStorage,value.originBinding,value.originAnchorHandle,value.citizens??null);
   if(warning){feedback(warning,true);view.setOperatorWorldNotice('Browser checkpoint failed.','error');return;}
   view.setOperatorWorldNotice('Saved in browser · saving PC scene backup…','pending');
   const name=`WebWorld_${new Date().toISOString().replace(/[-:T.Z]/g,'').slice(0,14)}`;
@@ -527,13 +543,14 @@ async function savePCWorld(){
   const name=$('world-save-name').value.trim();
   if(!name){feedback('Enter a PC world checkpoint name.',true);return;}
   if(world.spatial||pendingWorld){feedback('PC world checkpoints require the ready desktop virtual room.',true);return;}
+  citizensPanel?.pauseForCheckpoint();
   pcWorldBusy=true;updateWorldControls();feedback('Saving world and game progress on the PC…');
   try{
     await bridge.sync();
     if(world.spatial||pendingWorld)throw Error('The browser left the ready desktop virtual room');
     await bridge.request('/api/web/world/save',{name,world:storedWorld(world)});
     await refreshPCWorlds();$('pc-worlds').value=name;
-    feedback(`PC world checkpoint saved: ${name}. Scene and game progress are included.`);
+    feedback(`PC world checkpoint saved: ${name}. Scene, game and Citizens progress are included.`);
   }catch(error){feedback(`PC world checkpoint was not saved: ${error.message}`,true);}
   finally{pcWorldBusy=false;updateWorldControls();}
 }
@@ -554,7 +571,7 @@ async function restorePCWorld(){
     if(world.spatial||pendingWorld)throw Error('The browser left the ready desktop virtual room');
     await bridge.withExclusiveExchange(()=>applyPCWorld(world,data.world,()=>bridge.sync(data.expectedRevision)));
     discardProposal();renderScene();
-    feedback(`PC world checkpoint restored: ${name}. Object IDs and game progress are active.`);
+    feedback(`PC world checkpoint restored: ${name}. Object IDs, game and Citizens progress are active.`);
   }catch(error){renderScene();feedback(`PC world checkpoint could not be restored: ${error.message}`,true);}
   finally{pcWorldBusy=false;updateWorldControls();}
 }

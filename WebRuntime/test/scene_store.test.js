@@ -2,9 +2,10 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import {MatrixWorld} from '../src/protocol.js';
 import {loadStoredScene,saveStoredScene,restoreStoredScene,saveCheckpoint,loadCheckpoint,
-  storedWorld,saveStoredWorld,loadStoredWorld,restoreStoredWorld,restoreBestStoredWorld,
+  storedWorld,storedBrowserWorld,saveStoredWorld,loadStoredWorld,restoreStoredWorld,restoreBestStoredWorld,
   quarantineStoredWorld,TAB_SCENE_KEY,DURABLE_SCENE_KEY,WORLD_KEY,TAB_WORLD_KEY,
   QUARANTINE_KEY,QUARANTINE_BACKUP_KEY} from '../src/scene_store.js';
+import {createCitizensDemo} from '../src/citizens.js';
 import {startGame,deliverMovedObject} from '../src/game.js';
 import {rememberTurn,clearConversation} from '../src/conversation.js';
 
@@ -81,6 +82,70 @@ test('version 2 saves and restores scene, bindings, score and win progress toget
   assert.ok(deliverMovedObject(reopened,next));
   assert.equal(reopened.game.state.score,8);
   assert.equal(reopened.game.state.phase,'won');
+});
+
+test('Citizens and scene restore together from a v3 browser world and manual checkpoint',()=>{
+  const tab=storage(),durable=storage(),manual=storage();
+  const original=new MatrixWorld(()=>crypto.randomUUID().replaceAll('-',''));
+  const simulation=createCitizensDemo(original,{seed:29});
+  for(let tick=0;tick<12;tick++)simulation.step();
+  original.citizens=simulation.snapshot();
+  const snapshot=storedWorld(original);
+  assert.deepEqual(Object.keys(snapshot),['version','scene','game','citizens']);
+  assert.equal(snapshot.version,3);
+  assert.equal(saveStoredWorld(storedBrowserWorld(original),tab,durable),'');
+  const reopened=new MatrixWorld();
+  restoreStoredWorld(reopened,loadStoredWorld(storage(),durable).value);
+  assert.deepEqual(storedWorld(reopened),snapshot);
+  assert.equal(reopened.citizens.clockTick,12);
+  assert.equal(saveCheckpoint(snapshot.scene,snapshot.game,manual,'virtual',null,
+    snapshot.citizens),'');
+  const checkpoint=loadCheckpoint(manual);
+  assert.equal(checkpoint.version,3);
+  assert.deepEqual(checkpoint.citizens,snapshot.citizens);
+  const manuallyRestored=new MatrixWorld();
+  restoreStoredWorld(manuallyRestored,checkpoint);
+  assert.deepEqual(storedWorld(manuallyRestored),snapshot);
+});
+
+test('invalid v3 Citizens bindings reject restore before changing the active world',()=>{
+  const current=new MatrixWorld(()=>crypto.randomUUID().replaceAll('-',''));
+  const simulation=createCitizensDemo(current,{seed:17});
+  simulation.step();current.citizens=simulation.snapshot();
+  const before=storedWorld(current),selection=structuredClone(current.selection),
+    undo=structuredClone(current.undo),redo=structuredClone(current.redo);
+  const bad=structuredClone(before);
+  bad.citizens.residents[0].objectId='missing-resident';
+  assert.throws(()=>restoreStoredWorld(current,bad),/missing or incompatible/);
+  assert.deepEqual(storedWorld(current),before);
+  assert.deepEqual(current.selection,selection);
+  assert.deepEqual(current.undo,undo);
+  assert.deepEqual(current.redo,redo);
+  const missingSceneObject=structuredClone(before);
+  missingSceneObject.scene.objects=missingSceneObject.scene.objects.filter(object=>
+    object.objectId!==before.citizens.stations[0].objectId);
+  assert.throws(()=>restoreStoredWorld(current,missingSceneObject),/missing or incompatible/);
+  assert.deepEqual(storedWorld(current),before);
+});
+
+test('v2 restore clears active Citizens and v3 cannot silently save invalid bindings',()=>{
+  const tab=storage(),durable=storage();
+  const world=new MatrixWorld(()=>crypto.randomUUID().replaceAll('-',''));
+  const simulation=createCitizensDemo(world,{seed:19});
+  world.citizens=simulation.snapshot();
+  assert.equal(saveStoredWorld(storedWorld(world),tab,durable),'');
+  const validCopy=durable.getItem(WORLD_KEY);
+  const residentId=world.citizens.residents[0].objectId;
+  world.scene.objects=world.scene.objects.filter(object=>object.objectId!==residentId);
+  assert.throws(()=>storedWorld(world),/missing or incompatible/);
+  assert.equal(durable.getItem(WORLD_KEY),validCopy);
+  const legacy=new MatrixWorld();
+  restoreStoredWorld(world,storedWorld(legacy));
+  assert.equal(world.citizens,null);
+  assert.deepEqual(Object.keys(storedWorld(world)),['version','scene','game']);
+  assert.equal(storedWorld(world).version,2);
+  assert.equal(saveCheckpoint(world.scene,world.game,tab),'');
+  assert.equal(loadCheckpoint(tab).version,2);
 });
 
 test('animated GLB physics saves authored state but needs a new verified run after restart or AR',()=>{

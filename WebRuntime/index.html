@@ -17,6 +17,17 @@
       <div class="panel-title"><span>WORLD OPERATOR</span><span id="object-count">0 objects</span></div>
       <p class="hint">Desktop: arrow keys or WASD move, right-drag looks around, left-drag moves an object across the floor, and Shift + left-drag raises or lowers it. In AR or VR, use the in-world Operator panel to speak, review, apply, and confirm room alignment. Click either controller thumbstick to recall, hide, or show that panel. Say “Create a portal in Blender” for an object, or “Create a sci-fi collect-and-deliver game” for a playable challenge. Grab objects with a trigger.</p>
       <p class="hint"><a href="/web/citizens.html" target="_blank" rel="noopener">Open the isolated AI Citizens desktop demo</a> to watch two seeded residents choose activities and share a chair.</p>
+      <section class="citizens-panel" aria-labelledby="citizens-heading">
+        <div class="panel-title"><span id="citizens-heading">AI CITIZENS</span><span>Shared Matrix world</span></div>
+        <p class="hint">Start two residents on an empty desktop virtual floor. They use this world's objects, browser save, and PC world checkpoint. Starting never clears an existing scene.</p>
+        <label for="citizens-seed">Scenario seed</label>
+        <div class="row"><input id="citizens-seed" type="number" min="1" max="4294967295" step="1" value="29" /><button id="citizens-start" type="button">Start here</button></div>
+        <div class="row"><button id="citizens-toggle" type="button" disabled>Run</button><button id="citizens-step" type="button" disabled>Step</button><button id="citizens-stop" type="button" disabled>Stop Citizens</button></div>
+        <p id="citizens-status" class="hint" role="status">No Citizens in this world.</p>
+        <h3>Residents</h3><ul id="citizens-residents" class="citizens-list"></ul>
+        <h3>Shared objects</h3><ul id="citizens-stations" class="citizens-list"></ul>
+        <h3>Recent decisions</h3><ol id="citizens-log" class="citizens-list citizens-log"></ol>
+      </section>
       <label for="token">Service token <small>(only if configured)</small></label>
       <input id="token" type="password" autocomplete="off" placeholder="Kept only in this tab" />
       <section class="agent-panel" aria-labelledby="agent-heading">
@@ -84,7 +95,7 @@
       <div class="row"><button id="refresh-assets">Refresh assets</button><span id="asset-count" class="asset-count">7 built-in</span></div>
       <p id="game-status" class="hint" role="status">No game running.</p>
       <div class="row"><button id="undo">Undo</button><button id="redo">Redo</button><button id="clear">Clear</button></div>
-      <label for="world-save-name">PC world checkpoint · scene and game progress</label>
+      <label for="world-save-name">PC world checkpoint · scene, game and Citizens progress</label>
       <div class="row"><input id="world-save-name" placeholder="World name" /><button id="save-pc-world">Save world</button></div>
       <div class="row"><select id="pc-worlds" aria-label="PC world checkpoints"><option value="">PC world checkpoints</option></select><button id="restore-pc-world">Restore world</button></div>
       <label for="save-name">Legacy PC scene-only backup</label>

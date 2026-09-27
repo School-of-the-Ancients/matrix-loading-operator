@@ -4,6 +4,7 @@ import {MatrixWorld} from '../src/protocol.js';
 import {applyPCWorld} from '../src/world_checkpoint.js';
 import {storedWorld} from '../src/scene_store.js';
 import {startGame} from '../src/game.js';
+import {createCitizensDemo} from '../src/citizens.js';
 
 const pose={position:{x:0,y:0,z:-2},rotation:{x:0,y:0,z:0},scale:{x:1,y:1,z:1}};
 const spec={kind:'game',title:'Orb delivery',summary:'Deliver an orb.',
@@ -51,6 +52,38 @@ test('failed PC exchange leaves the prior scene, game, selection and undo state 
   assert.deepEqual(world.undo,undo);
   assert.deepEqual(world.redo,redo);
   assert.equal(world.originBinding,'ar');
+});
+
+test('PC restore clears Citizens on success and rolls them back on failed exchange',async()=>{
+  const world=new MatrixWorld(()=>crypto.randomUUID().replaceAll('-',''));
+  const simulation=createCitizensDemo(world,{seed:43});
+  simulation.step();world.citizens=simulation.snapshot();
+  const before=storedWorld(world),checkpoint=saved();
+  await assert.rejects(applyPCWorld(world,checkpoint,async()=>{
+    assert.equal(world.citizens,null);
+    throw Error('exchange rejected');
+  }),/exchange rejected/);
+  assert.deepEqual(storedWorld(world),before);
+  await applyPCWorld(world,checkpoint,async()=>{});
+  assert.equal(world.citizens,null);
+  assert.deepEqual(storedWorld(world),checkpoint);
+});
+
+test('PC restore can repair a missing Citizens chair and still roll back a failed exchange',async()=>{
+  const world=new MatrixWorld(()=>crypto.randomUUID().replaceAll('-',''));
+  const simulation=createCitizensDemo(world,{seed:47});
+  world.citizens=simulation.snapshot();
+  const checkpoint=storedWorld(world);
+  const chairId=world.citizens.stations.find(station=>station.kind==='rest').objectId;
+  assert.equal(world.execute({requestId:'external-delete',op:'delete',objectId:chairId}).ok,true);
+  const invalidScene=structuredClone(world.scene),invalidCitizens=structuredClone(world.citizens);
+  assert.throws(()=>storedWorld(world),/missing or incompatible/);
+  await assert.rejects(applyPCWorld(world,checkpoint,async()=>{throw Error('exchange rejected');}),
+    /exchange rejected/);
+  assert.deepEqual(world.scene,invalidScene);
+  assert.deepEqual(world.citizens,invalidCitizens);
+  await applyPCWorld(world,checkpoint,async()=>{});
+  assert.deepEqual(storedWorld(world),checkpoint);
 });
 
 test('invalid PC checkpoint cannot replace a browser world',async()=>{

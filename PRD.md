@@ -37,7 +37,9 @@ Also demonstrate a different interactive exhibit/experiment using the same world
 
 The learner should be able to change an input, observe a result and ask about it. Show units, assumptions and simplifications; check equations/models independently. An engaging explanation alone does not establish scientific accuracy. A historical mentor is a labeled simulation, with sourced facts separated from invented dialogue. Mentor pedagogy and learner records remain School responsibilities.
 
-The September 26 priority change starts Citizens development now at `/web/citizens.html`, an isolated page that reuses WebRuntime/MatrixWorld code but keeps its world and browser storage separate from the main `/web/` Agent Portal. Integration into that live world remains future work. Unfinished M4 wearer checks stay open and can be resumed separately; they are not prerequisites for a desktop simulation. A browser result does not count as Quest acceptance.
+The September 26 priority change started Citizens development at `/web/citizens.html`, an isolated page that reuses WebRuntime/MatrixWorld code but keeps its world and browser storage separate from the main `/web/` Agent Portal. Unfinished M4 wearer checks stay open and can be resumed separately; they are not prerequisites for a desktop simulation. A browser result does not count as Quest acceptance.
+
+The next candidate adds an opt-in Citizens panel to the ordinary `/web/` desktop virtual room. It starts only on an empty floor, reuses the same Matrix world execution and view, and saves versioned simulation state with the existing browser/manual/PC world checkpoints. Version 2 scene/game worlds still load. This is the first shared-world persistence slice; using selected existing furniture, social actions, generalized finite execution, and Quest budgets remain open. See the [shared-world runbook](Docs/Citizens-Shared-World.md).
 
 ## Keep the architecture we already have
 

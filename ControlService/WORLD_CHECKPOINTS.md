@@ -1,9 +1,10 @@
 # PC world checkpoints
 
 `/api/web/world/save` and `/api/web/world/load` store and retrieve one supported
-Matrix WebRuntime world: scene objects, game specification, object bindings, and
-earned progress. They are separate from the older `/api/save` and `/api/load`
-scene-only routes, which keep their existing file format and behavior.
+Matrix WebRuntime world: scene objects, game specification, object bindings,
+earned progress, and, in version 3, bounded AI Citizens simulation state. They
+are separate from the older `/api/save` and `/api/load` scene-only routes, which
+keep their existing file format and behavior.
 
 The browser sends its existing `storedWorld(world)` value after a successful
 `/api/exchange` of the same scene:
@@ -12,6 +13,15 @@ The browser sends its existing `storedWorld(world)` value after a successful
 POST /api/web/world/save
 {"name":"Demo","world":{"version":2,"scene":{"schemaVersion":1,"roomId":"web-virtual-room-v1","objects":[]},"game":null}}
 ```
+
+Version 2 retains exactly `version`, `scene`, and `game` and loads as a world
+without Citizens. Version 3 requires exactly those fields plus a non-null
+`citizens` section. That section holds schema-1 resident and station IDs, needs,
+current finite activities, reservations, clock, seed/random state, and a bounded
+event log. The service validates residents and stations against stable object
+IDs and built-in orb/chair/table assets in the same scene. It rejects malformed
+state, duplicate or missing bindings, and stale reservations before writing or
+returning a checkpoint. Adding `citizens` to a version-2 file is invalid.
 
 `GET /api/web/worlds` lists checkpoint names. `POST /api/web/world/load` with
 `{"name":"Demo"}` returns `{name, schemaVersion, world, dependencies, expectedRevision}`. The load
@@ -27,7 +37,7 @@ conflict keeps the previous browser world and pending command for a retry.
 
 Files live under the configured `--scenes` directory in
 `world_checkpoints/<name>.json`. The file has schema version 1, the browser's
-version 2 `{scene,game}` envelope, an external-asset dependency list containing
+version 2 or 3 world envelope, an external-asset dependency list containing
 full SHA-256 digests and rendering scale/bounds/clip metadata, and a SHA-256 payload checksum. The write is bounded to
 1 MiB and uses a flushed, synced temporary file plus atomic replacement. This
 checksum detects accidental file changes; it is not a signature or encryption.
@@ -35,7 +45,8 @@ checksum detects accidental file changes; it is not a signature or encryption.
 Saving requires an online, synced desktop virtual room with no pending commands.
 AR session plane objects and an unavailable room origin are rejected. The PC
 validates scene schema, component packages, clip bindings, game rules, object
-bindings, score and objective progress. It verifies each referenced GLB against
+bindings, score, objective progress, and version-3 Citizens state. It verifies
+each referenced GLB against
 the PC catalog and its content hash on both save and load. Keep the same
 `--web-assets` catalog when restarting the service. A missing or changed asset
 returns an error with a recovery instruction; it does not replace the saved file
