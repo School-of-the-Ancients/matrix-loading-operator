@@ -10,7 +10,7 @@ Read [VISION.md](VISION.md), [PROJECTS.md](PROJECTS.md), [PRD.md](PRD.md), and [
 
 **Continue the existing implementation. Do not rebuild the engine, restart the project, create a replacement repository or discard current work.** The owner has since selected Three.js/WebXR as the sole forward runtime and archived the Unity project as read-only history. The repository move does not request a service restart or live-world reset.
 
-The selected feature remains [#122 — Immersive Creator Mode](https://github.com/School-of-the-Ancients/matrix-loading-operator/issues/122), supported by #44/#59, #116, and the relevant runtime/experiment contracts. Use `IMPLEMENTATION_PLAN.md` for its active slice. Do not revert to an older Citizens-first or indefinitely desktop-only queue because a dated checkpoint or earlier prompt says “next.” Preserve that work and its acceptance; do not erase it or claim it is merged.
+The selected feature remains [#122 — Immersive Creator Mode](https://github.com/School-of-the-Ancients/matrix-loading-operator/issues/122), supported by #44/#59, #116, and the relevant runtime/experiment contracts. Use `IMPLEMENTATION_PLAN.md` for its active slice. Do not revert to an older Citizens-first or indefinitely desktop-only queue because a dated checkpoint or earlier prompt says “next.” Preserve the merged bounded Citizens implementation and its remaining acceptance; do not confuse source integration with Quest or live-service validation.
 
 Procedural generation, reusable catalog assets and Blender are complementary creation methods. Concept images are an optional input to those methods, not another engine or automatic world conversion. Prefer a usable result over mandatory modeling of every object. **Dynamic world upgrading and public-office portals are later roadmap work**: do not start their autonomous reviewer, overnight scheduler or networking as part of the current demo slice.
 
@@ -44,7 +44,7 @@ Authorized Operator edits apply in the current world; creating does not require 
 - **Current Web Matrix:** `WebRuntime/`, Agent Portal, Matrix tools, procedural creation, Blender/GLB, reusable behaviors, HTML/Three.js/WebXR experiences and demonstrations.
 - **Unity/original Matrix archive:** `Archive/Unity/Assets/`, `Archive/Unity/Packages/`, `Archive/Unity/ProjectSettings/`, native build scripts, original White Room application, Room AR and content packs. Preserve its source and release evidence as read-only history; it is not a supported forward client or the conceptual definition of today's sandbox.
 - **Matrix World:** persistent inhabited-world experiences, including worlds with AI citizens. Boulder/Earth registration is a specialization. An existing world need not have citizens, and a city or separate creation room is not needed for a classroom or game. #125 portals are speculative.
-- **AI Citizens:** embodiment, navigation, needs, schedules, GOAP, memory and social simulation; preserve the open stack, but do not require a society to create a world or teach a concept. Real tool-using workers and animated/simulated citizens are not interchangeable evidence.
+- **AI Citizens:** embodiment, navigation, needs, schedules, GOAP, memory and social simulation; preserve the merged bounded implementation, but do not require a society to create a world or teach a concept. Real tool-using workers and animated/simulated citizens are not interchangeable evidence.
 - **School of the Ancients:** independent education product. Matrix may host a reusable demonstration/adapter; School owns curriculum, mentor pedagogy, learner records and assessment.
 - **Dynamic upgrader:** later use of shared world/asset tools, not a new default service or replacement runtime.
 
@@ -66,7 +66,7 @@ Authorized Operator edits apply in the current world; creating does not require 
 ## Before coding
 
 - Read the controlling issue and dependencies; continue the compatible user-visible slice already underway, or select the next missing slice from the implementation plan.
-- Inspect `main`, current open PRs, their base/head refs and active worktrees. The latest implementation may be stacked and not on `main`; a running service may be older again. An archive/documentation PR does not merge its referenced runtime candidates.
+- Inspect `main`, current open PRs, their base/head refs and active worktrees. Citizens through #126 and Creator Mode through #130 were merged by September 27, 2026; refresh refs before further work. A running service or headset build may be older than merged source.
 - Preserve stacked history, review fixes, state migrations and existing demos. The owner-authorized Unity archive is a bounded historical move; do not force-push, move active Web/ControlService code, close umbrella issues or auto-merge as part of an ordinary documentation/priority change.
 - Identify the track from PROJECTS.md and reuse existing world, validation, receipt, asset, component and checkpoint contracts.
 - Verify existing behavior before building. Fix prerequisites that block the chosen demo; do not continue unrelated resident refinements merely because they were the previous task.

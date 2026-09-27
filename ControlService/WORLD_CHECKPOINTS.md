@@ -49,7 +49,7 @@ still checks GLB bytes and catalog metadata. A missing or changed dependency
 rejects the checkpoint
 without replacing the active world. Subsequent v7–v12 states add the virtual
 day and routine schedule, station egress, social choices and appointments, and
-bounded retries for an accepted conversation's route. The current nested
+bounded retries for an accepted conversation's route. A valid v11 social session migrates with zero retries; in v12 a fourth blocked route tick interrupts both residents without a social reward. The current nested
 Citizens schema is **v12**; the outer world envelope remains version 3. The PC
 accepts exact valid v1–v12 shapes. A v3 social file is accepted only while its
 retained completed events account for its relationship score. Browser restore

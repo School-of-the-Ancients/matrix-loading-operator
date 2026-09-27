@@ -15,7 +15,7 @@ White Room is the Matrix-inspired blank-canvas/loading idea, **not an actual Uni
 | Matrix Web / Current | Three.js, WebXR, PC-local Operator, procedural/reused/Blender content, interactions and displays | Current create → play/learn → revise → save loop under #122 |
 | Matrix Unity / Archive | Historical native Quest/desktop, White Room application, MRUK room AR and AssetBundles | Preserve source, releases and dated evidence for reference; no new native builds or coursework APKs |
 | Matrix World | Persistent inhabited worlds, towns and offices; optional georeferenced/Earth-aligned views | Broader world composition, not a prerequisite for a local experience; #125 portals are speculative |
-| AI Citizens | Embodiment, needs, schedules, decisions, memory and social simulation | Preserve existing candidates; optional inhabitants, not required in every world |
+| AI Citizens | Embodiment, needs, schedules, decisions, memory and social simulation | Preserve bounded merged capabilities; optional inhabitants, not required in every world |
 | School of the Ancients | Independent education product consuming reusable experiences | Important learning use case; separate curriculum/learner-state ownership |
 | Dynamic world upgrader | Later inspection and improvement of worlds/assets/interactions | Deferred; no automatic overnight worker in the current slice |
 
@@ -71,9 +71,9 @@ An immersive panel must be usable in the tested headset mode; an ordinary HTML p
 
 ## Current implementation
 
-The foundation through #98/#99 includes Agent Portal/session/tool boundaries, GLB/animation and component paths, world checkpoints and selected desktop/Quest observations. Citizens work has progressed through later merges and an open stack; inspect current refs before choosing a base. [Current checkpoints](Docs/Current-Checkpoint.md) and the [pinned candidate runbook](https://github.com/School-of-the-Ancients/matrix-loading-operator/blob/25cde859676b7d752e4ae4118c7f68e67998bfe6/Docs/Citizens-Shared-World.md) preserve dated evidence and limits.
+The merged source through #130 includes Agent Portal/session/tool boundaries, GLB/animation and component paths, world checkpoints, bounded Citizens shared-world simulation, and Creator Mode. [Current checkpoints](Docs/Current-Checkpoint.md), the [Citizens runbook](Docs/Citizens-Shared-World.md), and the [Creator Mode runbook](Docs/Procedural-Creation.md) preserve dated evidence and limits; inspect the running build before making support claims.
 
-The product description does not convert bounded virtual-floor drop into general rigid-body physics or declare #122 complete. Review actual source, open work and the running build before making support claims. A docs branch does not reveal another session's local or unpushed implementation.
+The older bounded virtual-floor drop is distinct from the merged Creator Mode's scoped Rapier physics, and neither declares #122 complete. Review actual source, open work and the running build before making support claims. A docs branch does not reveal another session's local or unpushed implementation.
 
 The merged [Immersive Creator Mode implementation](Docs/Procedural-Creation.md) continues that same `/web/` world with versioned procedural editing, Creator/Play controls, Rapier rigid bodies and virtual colliders, objective state, world displays and explicit browser/PC world saves. Its [isolated desktop evidence](Validation/Immersive-Creator-Desktop-2026-09-26.md) includes a connected PC-local Codex Agent creating and revising a separate Gravity Lab. Source tests and desktop observations remain distinct from the user's deployed service and VR/AR wearer evidence.
 
@@ -99,11 +99,11 @@ World composition consumes shared runtime, content, spatial and Citizens capabil
 
 # 4. AI Citizens / Character Body
 
-**Status: existing bounded desktop candidates; preserve their stack, saves and evidence. Further autonomy is separately selected.**
+**Status: bounded Citizens source merged through #126; preserve its saves and dated desktop evidence. Further autonomy is separately selected.**
 
 Owners: [#29](https://github.com/School-of-the-Ancients/matrix-loading-operator/issues/29), #14 body/animation, #15 interaction/navigation, #16 GOAP, #17 needs/schedules, #18 identity/memory/dialogue, #19 social behavior and #20 persistence/replay. [#109](https://github.com/School-of-the-Ancients/matrix-loading-operator/issues/109) covers resident worldbuilding; [#118](https://github.com/School-of-the-Ancients/matrix-loading-operator/issues/118) covers broader citizen-driven quests.
 
-The isolated fixture and opt-in main-world candidate reuse MatrixWorld movement, interaction receipts, stable IDs and checkpoints. Residents own decisions; Matrix owns execution. Preserve bounded retries, reservations, migrations and verified outcomes when creation work touches these contracts.
+The isolated fixture and opt-in main-world implementation reuse MatrixWorld movement, interaction receipts, stable IDs and checkpoints. Residents own decisions; Matrix owns execution. Preserve bounded retries, reservations, migrations and verified outcomes when creation work touches these contracts.
 
 A teacher character, creator-authored objective or student experiment does not require a complete needs/schedules/social simulation. Reuse working capabilities without making all Citizens work mandatory.
 
@@ -162,6 +162,6 @@ Keep one active slice in `IMPLEMENTATION_PLAN.md`: goal, actual base, in-scope o
 
 Detailed observations belong in checkpoints, runbooks and `Validation/`; historical “next” suggestions do not override the active queue. Keep exact source/PR links. Open PR, merged source, running service and wearer-tested build are distinct states.
 
-The documentation review is not blanket code approval or new runtime evidence. Refresh refs before integration. Do not infer unpushed work, merge unrelated runtime PRs or close umbrella issues merely to shrink a board. Pin links to candidate-only files until their owning code is merged.
+The documentation review is not blanket code approval or new runtime evidence. Refresh refs before integration. Do not infer unpushed work, merge unrelated runtime PRs or close umbrella issues merely to shrink a board. Use merged-source links for current behavior and pinned commit links for dated evidence.
 
 Portals, the upgrader, full society, global mapping and multiplayer remain future work unless selected. The existing Creator Mode goal remains active. **Do not rebuild or restart the project.**
