@@ -10,6 +10,12 @@ References are inputs and examples, not automatic dependencies or new roadmap it
 
 Use these references to improve fast, parameterized creation behind **"Operator, load/create XYZ."**
 
+## Physics and simulation
+
+- **three-avbd** — Three.js/WebGPU rigid-body physics using Augmented Vertex Block Descent; supports large GPU-simulated worlds with contacts, friction, joints, raycasts and interaction: https://github.com/sbobyn/three-avbd
+
+Use as a reference/candidate for scalable browser-native physics rather than automatically replacing the current Matrix physics path.
+
 ## Operator creation pipeline
 
 Matrix supports complementary creation paths:
