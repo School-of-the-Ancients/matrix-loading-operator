@@ -42,6 +42,10 @@ const physicsAssetSignature=asset=>JSON.stringify([asset?.sha256,asset?.url,asse
 const renderedAssetSignature=asset=>JSON.stringify([physicsAssetSignature(asset),asset?.geometry?.animationClips]);
 const physicsRegisteredGlb=asset=>!!asset?.url&&asset.assetId?.startsWith('web:')&&
   /^[0-9a-f]{64}$/.test(asset.sha256||'')&&finite(asset.spawnScale,.01,20);
+const renderedNavigationFootprint=(asset,measuredSize)=>
+  physicsRegisteredGlb(asset)&&!!asset.localBounds&&
+  validRenderedPhysicsSize(measuredSize)&&
+  ['x','y','z'].every(axis=>measuredSize[axis]<=asset.localBounds.size[axis]+.005);
 const validAnimationBinding=(binding,asset,allowEmpty=false)=>{
   if(!binding||typeof binding!=='object'||Array.isArray(binding)||
      Object.keys(binding).sort().join(',')!=='loopClip,selectClip')return false;
@@ -72,6 +76,9 @@ export class MatrixWorld {
     this.spatial=null;this.virtualScene=null;
     this.undo=[]; this.redo=[];
     this.physicsBodies=new Map();this.physicsVerification=new Map();
+    // Transient evidence from the actual GLB renderer, scoped to each current
+    // scene object. Ordinary redraws may reuse it; catalog/scene changes may not.
+    this.renderedVerification=new Map();
     this.physicsSceneReference=this.scene;
   }
   snapshot(viewer=null) {
@@ -124,6 +131,12 @@ export class MatrixWorld {
       if(!object||physicsAssetSignature(this.asset(object.assetId))!==verification.signature)
         this.invalidatePhysicsAsset(objectId,true);
     }
+    for(const [objectId,verification] of this.renderedVerification){
+      const object=this.scene.objects.find(item=>item.objectId===objectId);
+      if(object!==verification.object||
+         renderedAssetSignature(this.asset(object?.assetId))!==verification.signature)
+        this.renderedVerification.delete(objectId);
+    }
     for(const [id,body] of this.physicsBodies){
       if(!physicsRegisteredGlb(this.asset(body.assetId)))this.physicsBodies.delete(id);
     }
@@ -135,6 +148,13 @@ export class MatrixWorld {
     const asset=this.asset(assetId);
     const object=this.scene.objects.find(item=>item.objectId===objectId);
     const bounds=asset?.localBounds;
+    // The view calls this only after an exact GLB instance has loaded and
+    // instantiated. Navigation accepts conservative registered bounds while
+    // physics keeps its existing near-exact rendered-size requirement.
+    if(object?.assetId===assetId&&renderedNavigationFootprint(asset,measuredSize))
+      this.renderedVerification.set(objectId,{object,
+        signature:renderedAssetSignature(asset),measuredSize:clone(measuredSize)});
+    else this.renderedVerification.delete(objectId);
     const verified=!!object&&object.assetId===assetId&&physicsRegisteredGlb(asset)&&
       validRenderedPhysicsSize(measuredSize)&&
       (!bounds||['x','y','z'].every(axis=>Math.abs(measuredSize[axis]-bounds.size[axis])<=.02));
@@ -150,12 +170,30 @@ export class MatrixWorld {
     return verified;
   }
   invalidatePhysicsAsset(objectId,cancelRun=false){
+    // The view rebuilds equivalent roots after every Citizens tick. This
+    // pauses physics, while the content-addressed render footprint stays valid.
     this.physicsVerification.delete(objectId);
     const body=this.physicsBodies.get(objectId);
     if(!body)return false;
     if(cancelRun)this.physicsBodies.delete(objectId);
     else this.setPhysicsPause(body,'model',true);
     return true;
+  }
+  invalidateRenderedAsset(objectId,cancelRun=false){
+    this.renderedVerification.delete(objectId);
+    return this.invalidatePhysicsAsset(objectId,cancelRun);
+  }
+  renderedAssetVerified(object){
+    this.ensurePhysicsScene();
+    if(!object||this.scene.objects.find(item=>item.objectId===object.objectId)!==object)
+      return false;
+    const asset=this.asset(object.assetId);
+    if(!asset)return false;
+    if(!asset.url)return true; // Bundled geometry is part of this runtime build.
+    const verification=this.renderedVerification.get(object.objectId);
+    return !!verification&&verification.object===object&&
+      verification.signature===renderedAssetSignature(asset)&&
+      renderedNavigationFootprint(asset,verification.measuredSize);
   }
   physicsAssetVerified(object){
     this.ensurePhysicsScene();
@@ -195,6 +233,7 @@ export class MatrixWorld {
     // retains authored configuration but must never inherit an old run.
     if(this.physicsSceneReference!==this.scene){
       this.physicsBodies.clear();this.physicsVerification.clear();
+      this.renderedVerification.clear();
       this.physicsSceneReference=this.scene;
     }
   }
@@ -245,6 +284,7 @@ export class MatrixWorld {
   enterAR(){
     if(this.spatial)return;
     this.physicsBodies.clear();this.physicsVerification.clear();
+    this.renderedVerification.clear();
     this.virtualScene={scene:clone(this.scene),selection:clone(this.selection),undo:this.undo,redo:this.redo};
     this.scene={...clone(this.scene),roomId:`webxr-session-${this.idFactory()}`};
     this.physicsSceneReference=this.scene;
@@ -273,7 +313,8 @@ export class MatrixWorld {
     saved.scene.objects=clone(this.scene.objects.filter(object=>object.anchorId===ANCHOR_ID));
     this.scene=saved.scene;
     if(!this.scene.objects.length&&this.game===null){this.originBinding='virtual';this.originAnchorHandle=null;}
-    this.physicsBodies.clear();this.physicsVerification.clear();this.physicsSceneReference=this.scene;
+    this.physicsBodies.clear();this.physicsVerification.clear();
+    this.renderedVerification.clear();this.physicsSceneReference=this.scene;
     this.selection=this.selection.anchorId===ANCHOR_ID?this.selection:saved.selection;
     this.undo=[];this.redo=[];this.spatial=null;this.virtualScene=null;this.arEntryContent=null;
   }
@@ -400,9 +441,13 @@ export class MatrixWorld {
             if(actor.objectId===target.objectId||actor.anchorId!==ANCHOR_ID||
                target.anchorId!==ANCHOR_ID||!advertised)
               throw Error('Interaction is not advertised by this virtual-floor target');
+            const animatedGlb=item=>{
+              const asset=this.asset(item.assetId);
+              return !!asset?.url&&!!asset.geometry?.animationClips?.length;
+            };
             const moving=item=>!!(item.physics||item.component?.status==='running'||
               item.behaviors?.some(behavior=>behavior.enabled&&!behavior.paused));
-            if(moving(actor)||moving(target))
+            if(moving(actor)||moving(target)||animatedGlb(actor)||animatedGlb(target))
               throw Error('Interaction actor or target has another transform owner');
             const a=actor.transform.position,b=target.transform.position;
             const distance=Math.hypot(a.x-b.x,a.z-b.z);
@@ -421,15 +466,26 @@ export class MatrixWorld {
             for(const item of this.scene.objects){
               if(item.objectId===actor.objectId||item.objectId===target.objectId)continue;
               const asset=this.asset(item.assetId),bounds=asset?.localBounds;
+              // The catalog advertises clip names and duration, not a measured
+              // motion envelope. A single clip auto-loops; a selected clip can
+              // run later. Valid track values alone do not bound nested node
+              // scale and translation relative to the initial footprint, so
+              // no animated GLB can be proven irrelevant by authored distance.
+              if(animatedGlb(item))
+                throw Error('Interaction clearance is unavailable while an animated GLB is present');
               const transform=item.transform,scale=asset?.spawnScale??1;
               const uncertainPose=Math.abs(transform.rotation.x)>.01||
                 Math.abs(transform.rotation.z)>.01;
               const dynamic=moving(item)||uncertainPose||!!item.animation?.loopClip;
+              const verifiedGlb=!asset?.url||this.renderedAssetVerified(item);
               // Loaded GLBs are recentered by MatrixView and verified at <=20 m
               // per model axis. Unknown bounds can therefore matter only near
               // this short use segment, after the saved object scale is applied.
+              // An unverified GLB may be much larger than its claimed bounds.
               // A component controlling horizontal position can move anywhere.
-              const radius=bounds?Math.hypot(
+              const radius=asset?.url&&!verifiedGlb?
+                20*scale*Math.hypot(transform.scale.x,transform.scale.z,
+                  dynamic?transform.scale.y:0):bounds?Math.hypot(
                 bounds.size.x*transform.scale.x*scale/2,
                 bounds.size.z*transform.scale.z*scale/2,
                 dynamic?(Math.abs(bounds.center.y)+bounds.size.y/2)*
@@ -445,7 +501,7 @@ export class MatrixWorld {
                 continue;
               if(item.anchorId!==ANCHOR_ID||dynamic||
                  !bounds||Math.abs(transform.position.y)>.05||
-                 !Number.isFinite(radius))
+                 !Number.isFinite(radius)||!verifiedGlb)
                 throw Error('Interaction clearance is unavailable for moving or unmeasured geometry');
               const yaw=transform.rotation.y*Math.PI/180;
               blockers.push({id:item.objectId,
@@ -558,12 +614,15 @@ export class MatrixWorld {
             dependent.component.status='failed';dependent.component.error='Component target was deleted';}
           if (this.selection.objectId===object.objectId) this.selection.objectId='';
           this.physicsBodies.delete(object.objectId);this.physicsVerification.delete(object.objectId);
+          this.renderedVerification.delete(object.objectId);
           result.objectId=object.objectId; break;
         case 'clear': this.scene.objects=[]; this.selection.objectId='';
-          this.physicsBodies.clear();this.physicsVerification.clear();break;
+          this.physicsBodies.clear();this.physicsVerification.clear();
+          this.renderedVerification.clear();break;
         case 'load':
           this.validateScene(command.scene); this.scene=clone(command.scene); this.selection.objectId='';
-          this.physicsBodies.clear();this.physicsVerification.clear();this.physicsSceneReference=this.scene;break;
+          this.physicsBodies.clear();this.physicsVerification.clear();
+          this.renderedVerification.clear();this.physicsSceneReference=this.scene;break;
         case 'undo': this.replay(this.undo,this.redo); break;
         case 'redo': this.replay(this.redo,this.undo); break;
         default: throw Error('Unknown operation');
@@ -603,5 +662,5 @@ export class MatrixWorld {
       if(!target&&o.component.status!=='failed')throw Error('Invalid component target');
     }
   }
-  replay(from,to) {if(!from.length)throw Error('History is empty'); to.push(clone(this.scene)); if(to.length>32)to.shift(); this.scene=from.pop(); this.selection.objectId='';this.physicsBodies.clear();this.physicsVerification.clear();this.physicsSceneReference=this.scene;}
+  replay(from,to) {if(!from.length)throw Error('History is empty'); to.push(clone(this.scene)); if(to.length>32)to.shift(); this.scene=from.pop(); this.selection.objectId='';this.physicsBodies.clear();this.physicsVerification.clear();this.renderedVerification.clear();this.physicsSceneReference=this.scene;}
 }

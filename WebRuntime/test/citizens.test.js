@@ -26,6 +26,12 @@ const stepUntil=(sim,predicate,limit=600)=>{
   }
   throw Error(`Expected Citizens state was not reached within ${limit} ticks`);
 };
+const registeredObstacle=(hash='a'.repeat(64))=>({
+  assetId:'web:citizens-obstacle',displayName:'Measured obstacle',
+  description:'A static imported obstacle',spawnScale:1,
+  localBounds:{center:{x:0,y:.5,z:0},size:{x:1,y:1,z:1}},
+  sha256:hash,url:`/api/web/assets/${hash}.glb`,byteLength:1024
+});
 
 test('demo creates two resident markers and shared stations from Matrix receipts',()=>{
   const matrix=world();
@@ -107,6 +113,117 @@ test('selected chair residents detour around an authored wall before an observed
   assert.equal(completed,true,'Ada must complete the selected chair interaction');
   assert.ok(detour>1.15,'the observed route must clear the wall end');
   assert.equal(sim.snapshot().stations[0].objectId,chairId);
+});
+
+test('Citizens waits for the exact imported obstacle to be measured before routing',()=>{
+  const matrix=world();
+  const asset=registeredObstacle();
+  matrix.registerAssets([asset]);
+  const chairId=spawn(matrix,'chair',pose(0,0));
+  const obstacleId=spawn(matrix,asset.assetId,pose(-.9,0));
+  const authored=structuredClone(matrix.scene);
+  assert.match(citizensFurnitureReadiness(matrix,chairId),
+    new RegExp(`verified rendered GLB ${obstacleId}`));
+  assert.throws(()=>createCitizensWithSelectedFurniture(matrix,
+    {seed:41,objectId:chairId}),/verified rendered GLB/);
+  assert.deepEqual(matrix.scene,authored,'failed readiness must leave authored objects alone');
+  assert.equal(matrix.verifyPhysicsAsset(asset.assetId,{x:1,y:1,z:1},obstacleId),true);
+  assert.equal(citizensFurnitureReadiness(matrix,chairId),'');
+  const sim=createCitizensWithSelectedFurniture(matrix,{seed:41,objectId:chairId});
+  const wall={id:obstacleId,cx:-.9,cz:0,halfX:.5,halfZ:.5,yawRadians:0};
+  const adaId=sim.snapshot().residents.find(resident=>resident.id==='ada').objectId;
+  let before=structuredClone(matrix.requireObject(adaId).transform.position);
+  let observedDetour=false;
+  for(let i=0;i<100;i++){
+    const state=sim.step(),after=matrix.requireObject(adaId).transform.position;
+    assert.equal(segmentClear(before,after,[wall],.18),true);
+    observedDetour ||= Math.abs(after.z)>.5;
+    before=structuredClone(after);
+    if(state.log.some(entry=>entry.residentId==='ada'&&entry.event==='completed'&&
+      entry.message.includes('rest'))){
+      assert.equal(observedDetour,true);
+      return;
+    }
+  }
+  assert.fail('Ada did not complete a receipt-backed rest after measured GLB detour');
+});
+
+test('Citizens refuses measured GLBs whose clips can move geometry outside rest bounds',()=>{
+  for(const binding of [null,{loopClip:null,selectClip:'Select'}]){
+    const matrix=world();
+    const asset={...registeredObstacle(),geometry:{animationClips:binding?
+      [{name:'Loop',durationSeconds:1},{name:'Select',durationSeconds:1}]:
+      [{name:'Loop',durationSeconds:1}]}};
+    matrix.registerAssets([asset]);
+    const chairId=spawn(matrix,'chair',pose(0,0));
+    const obstacleId=spawn(matrix,asset.assetId,pose(-.9,0));
+    if(binding){
+      assert.equal(matrix.execute({requestId:'select-only-clip',op:'bind_animation',
+        objectId:obstacleId,...binding}).ok,true);
+    }
+    assert.equal(matrix.verifyPhysicsAsset(asset.assetId,{x:1,y:1,z:1},obstacleId),true);
+    assert.equal(matrix.renderedAssetVerified(matrix.requireObject(obstacleId)),true,
+      'rendering verifies only the resting GLB bounds');
+    assert.match(citizensFurnitureReadiness(matrix,chairId),/animated GLB/);
+    assert.throws(()=>createCitizensWithSelectedFurniture(matrix,
+      {seed:44,objectId:chairId}),/animated GLB/);
+    assert.equal(matrix.scene.objects.length,2);
+  }
+});
+
+test('catalog change pauses active Citizens before time, motion, or benefit',()=>{
+  const matrix=world();
+  const asset=registeredObstacle();
+  matrix.registerAssets([asset]);
+  const chairId=spawn(matrix,'chair',pose(0,0));
+  const obstacleId=spawn(matrix,asset.assetId,pose(-.9,0));
+  assert.equal(matrix.verifyPhysicsAsset(asset.assetId,{x:1,y:1,z:1},obstacleId),true);
+  const sim=createCitizensWithSelectedFurniture(matrix,{seed:42,objectId:chairId});
+  const moving=sim.step();
+  assert.equal(moving.clockTick,1);
+  const resident=structuredClone(moving.residents.find(item=>item.activity?.kind==='rest'));
+  assert.ok(resident);
+  const before=structuredClone(matrix.requireObject(resident.objectId).transform);
+  const changed=registeredObstacle('b'.repeat(64));
+  matrix.registerAssets([changed]);
+  const blocked=sim.step();
+  assert.equal(blocked.paused,true);
+  assert.equal(blocked.clockTick,1);
+  assert.deepEqual(matrix.requireObject(resident.objectId).transform,before);
+  assert.equal(blocked.residents.find(item=>item.id===resident.id).needs.energy,
+    resident.needs.energy);
+  assert.equal(holder(blocked.stations[0]),null);
+  assert.ok(blocked.log.some(entry=>entry.event==='paused'&&
+    entry.message.includes('verified rendered GLB')));
+  assert.equal(sim.resume().paused,true,'Run remains unavailable while unverified');
+  assert.equal(matrix.verifyPhysicsAsset(changed.assetId,{x:1,y:1,z:1},obstacleId),true);
+  assert.equal(sim.resume().paused,false);
+  const completed=stepUntil(sim,state=>state.log.some(entry=>
+    entry.event==='completed'&&entry.message.includes('rest')),120);
+  assert.ok(completed.clockTick>1);
+});
+
+test('a restored Citizens world waits for browser measurement before resuming',()=>{
+  const matrix=world();
+  const asset=registeredObstacle();
+  matrix.registerAssets([asset]);
+  const chairId=spawn(matrix,'chair',pose(0,0));
+  const obstacleId=spawn(matrix,asset.assetId,pose(-.9,0));
+  assert.equal(matrix.verifyPhysicsAsset(asset.assetId,{x:1,y:1,z:1},obstacleId),true);
+  const sim=createCitizensWithSelectedFurniture(matrix,{seed:43,objectId:chairId});
+  sim.step();sim.pause();
+  const saved=sim.exportState(),scene=structuredClone(matrix.scene);
+  const recovered=world();
+  recovered.registerAssets([asset]);
+  assert.equal(recovered.execute({requestId:'restore-glb-world',op:'load',scene}).ok,true);
+  const resumed=CitizensSimulation.restore(recovered,saved);
+  const poseBefore=structuredClone(recovered.requireObject(saved.residents[0].objectId).transform);
+  assert.equal(resumed.resume().paused,true);
+  assert.equal(resumed.snapshot().clockTick,saved.clockTick);
+  assert.deepEqual(recovered.requireObject(saved.residents[0].objectId).transform,poseBefore);
+  assert.equal(recovered.verifyPhysicsAsset(asset.assetId,{x:1,y:1,z:1},obstacleId),true);
+  assert.equal(resumed.resume().paused,false);
+  assert.ok(resumed.step().clockTick>saved.clockTick);
 });
 
 test('a wall moved into the seat use lane cancels the claim without a need benefit',()=>{

@@ -98,3 +98,16 @@ test('Blender 5.2 exported GLB clip loads and advances in the Matrix mixer',asyn
   assert.ok(wing.quaternion.angleTo(before)>.05);
   stopAnimatedAsset(instance.mixer,instance.model);
 });
+
+test('static browser obstacle fixture has the measured box and no playable clips',async()=>{
+  const raw=await readFile(new URL('./fixtures/static_blender_probe.glb',import.meta.url));
+  const bytes=raw.buffer.slice(raw.byteOffset,raw.byteOffset+raw.byteLength);
+  const gltf=await new GLTFLoader().parseAsync(bytes,'');
+  assert.deepEqual(gltf.animations,[]);
+  const size=new THREE.Box3().setFromObject(gltf.scene).getSize(new THREE.Vector3());
+  assert.ok(Math.abs(size.x-.6552396624908354)<1e-6);
+  assert.ok(Math.abs(size.y-.6552396624908354)<1e-6);
+  assert.ok(Math.abs(size.z-.5)<1e-6);
+  const instance=instantiateAnimatedAsset(gltf,{geometry:{animationClips:[]}});
+  assert.equal(instance.mixer,null);
+});

@@ -302,6 +302,8 @@ export class CitizensPanel {
 
   render(){
     const state=this.simulation?.snapshot();
+    const navigationIssue=state&&!this.world.spatial?
+      this.simulation.navigationIssue?.()||'':'';
     const residentNames=new Map((state?.residents||[]).map(resident=>
       [resident.id,resident.name]));
     const waiting=new Map();
@@ -327,9 +329,11 @@ export class CitizensPanel {
       `Citizens uses ${state.stations.map(station=>station.id).join(' and ')||'no remaining furniture'} in this world.`:
       selectedBlocked||'Selected furniture is ready. Use it to add two residents without replacing the scene.';
     byId('citizens-toggle').disabled=!state||state.residents.length===0||
-      !!this.error||!!this.world.spatial||!!mutationBlocked;
+      !!this.error||!!this.world.spatial||!!mutationBlocked||
+      !!(state?.paused&&navigationIssue);
     byId('citizens-step').disabled=!state||state.residents.length===0||
-      !!this.error||!state.paused||!!this.world.spatial||!!mutationBlocked;
+      !!this.error||!state.paused||!!this.world.spatial||!!mutationBlocked||
+      !!navigationIssue;
     byId('citizens-stop').disabled=!this.world.citizens||!!mutationBlocked;
     byId('citizens-recover').disabled=!recovery||!!recoveryBlocked||!!this.world.spatial;
     byId('citizens-recover').textContent=performance.now()<this.recoverArmedUntil&&recovery?
@@ -342,7 +346,7 @@ export class CitizensPanel {
         'No pre-deletion browser copy is available. The manual Save world checkpoint is separate.';
     if(performance.now()>this.stopArmedUntil)byId('citizens-stop').textContent='Stop Citizens';
     byId('citizens-status').textContent=this.error||(
-      state?`${state.paused?'Paused':'Running'} · minute ${state.clockTick} · seed ${state.seed}`:
+      state?`${state.paused?'Paused':'Running'} · minute ${state.clockTick} · seed ${state.seed}${navigationIssue?` · navigation unavailable: ${navigationIssue}`:''}`:
         this.world.citizens?'Citizens state needs recovery. Undo the edit, restore a valid PC world, or stop Citizens.':
           (blocked&&selectedBlocked?blocked:
             'No Citizens in this world. Start an empty fixture or use selected furniture.'));

@@ -1,6 +1,8 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import * as THREE from 'three';
 import {MatrixWorld,ROOM_ID,ANCHOR_ID,ASSETS} from '../src/protocol.js';
+import {instantiateAnimatedAsset} from '../src/asset_animation.js';
 
 const pose=(x=0,y=0,z=-2)=>({position:{x,y,z},rotation:{x:0,y:0,z:0},scale:{x:1,y:1,z:1}});
 const command=(requestId,op,extra={})=>({requestId,op,...extra});
@@ -292,6 +294,7 @@ test('a GLB with an off-center export pivot blocks at its recentered rendered po
   const glb=world.execute(command('offset-glb','spawn',
     {assetId:asset.assetId,anchorId:ANCHOR_ID,transform:pose(0,0,-1.7)}));
   assert.equal(glb.ok,true);
+  assert.equal(world.verifyPhysicsAsset(asset.assetId,{x:.4,y:1,z:.2},glb.objectId),true);
   const blocked=world.execute(command('rest-by-offset-glb','interact',
     {actorObjectId:actor.objectId,targetObjectId:chair.objectId,kind:'rest'}));
   assert.equal(blocked.ok,false);
@@ -299,7 +302,99 @@ test('a GLB with an off-center export pivot blocks at its recentered rendered po
   assert.equal(blocked.outcome,undefined);
 });
 
-test('a bound looping GLB is uncertain near use but irrelevant when remote',()=>{
+test('a relevant GLB blocker must be renderer verified before a finite interaction',()=>{
+  let n=0;const world=new MatrixWorld(()=>`object-${++n}`);
+  const sha='f'.repeat(64);
+  const asset={assetId:'web:small-wall',displayName:'Small wall',description:'Measured GLB',
+    spawnScale:1,localBounds:{center:{x:0,y:.5,z:0},size:{x:.4,y:1,z:.2}},
+    sha256:sha,byteLength:1024,url:`/api/web/assets/${sha}.glb`};
+  world.registerAssets([asset]);
+  const chair=world.execute(command('chair','spawn',
+    {assetId:'chair',anchorId:ANCHOR_ID,transform:pose(0,0,-2)}));
+  const actor=world.execute(command('actor','spawn',
+    {assetId:'orb',anchorId:ANCHOR_ID,transform:pose(0,0,-1.4)}));
+  const glb=world.execute(command('glb','spawn',
+    {assetId:asset.assetId,anchorId:ANCHOR_ID,transform:pose(0,0,-1.7)}));
+  const use=requestId=>world.execute(command(requestId,'interact',
+    {actorObjectId:actor.objectId,targetObjectId:chair.objectId,kind:'rest'}));
+  const pending=use('unloaded-blocker');
+  assert.equal(pending.ok,false);
+  assert.match(pending.error,/clearance is unavailable/);
+  assert.equal(pending.outcome,undefined);
+  assert.equal(world.verifyPhysicsAsset(asset.assetId,{x:.4,y:1,z:.2},glb.objectId),true);
+  assert.match(use('loaded-blocker').error,/use point is occluded/);
+  world.invalidateRenderedAsset(glb.objectId,true); // Renderer load or instantiation failed.
+  const failed=use('failed-blocker');
+  assert.equal(failed.ok,false);
+  assert.match(failed.error,/clearance is unavailable/);
+  assert.equal(failed.outcome,undefined);
+  assert.equal(world.execute(command('move-off-line','set_transform',
+    {objectId:glb.objectId,transform:pose(1,0,-1.7)})).ok,true);
+  assert.match(use('unverified-off-line').error,/clearance is unavailable/,
+    'claimed tiny bounds cannot make an unmeasured nearby GLB irrelevant');
+  world.verifyPhysicsAsset(asset.assetId,{x:.4,y:1,z:.2},glb.objectId);
+  assert.equal(use('verified-off-line').ok,true);
+  world.invalidateRenderedAsset(glb.objectId,true);
+  assert.equal(world.execute(command('move-blocker','set_transform',
+    {objectId:glb.objectId,transform:pose(50,0,50)})).ok,true);
+  assert.equal(use('remote-failed-blocker').ok,true,
+    'an irrelevant remote unverified asset must not freeze use');
+});
+
+test('GLB navigation evidence is per object, catalog-scoped and cleared by replacement',()=>{
+  let n=0;const world=new MatrixWorld(()=>`glb-${++n}`);
+  const sha='1'.repeat(64);
+  const asset={assetId:'web:measured',displayName:'Measured',description:'Static GLB',
+    spawnScale:1,localBounds:{center:{x:0,y:.5,z:0},size:{x:1,y:1,z:1}},
+    sha256:sha,byteLength:1024,url:`/api/web/assets/${sha}.glb`};
+  world.registerAssets([asset]);
+  const first=world.execute(command('first','spawn',
+    {assetId:asset.assetId,anchorId:ANCHOR_ID,transform:pose()}));
+  const second=world.execute(command('second','spawn',
+    {assetId:asset.assetId,anchorId:ANCHOR_ID,transform:pose(3)}));
+  const firstObject=world.requireObject(first.objectId);
+  const secondObject=world.requireObject(second.objectId);
+  assert.equal(world.renderedAssetVerified(firstObject),false);
+  assert.equal(world.renderedAssetVerified(secondObject),false);
+  assert.equal(world.verifyPhysicsAsset(asset.assetId,{x:1.03,y:1,z:1},first.objectId),false);
+  assert.equal(world.renderedAssetVerified(firstObject),false,
+    'an oversized visual footprint is not navigation ready');
+  assert.equal(world.verifyPhysicsAsset(asset.assetId,{x:.8,y:.8,z:.8},first.objectId),false,
+    'physics retains its tighter exact-size rule');
+  assert.equal(world.renderedAssetVerified(firstObject),true,
+    'a conservative registered box is safe for navigation');
+  assert.equal(world.renderedAssetVerified(secondObject),false,
+    'one measured instance cannot authorize another');
+  assert.equal(world.renderedAssetVerified(structuredClone(firstObject)),false,
+    'only the live scene object is accepted');
+  world.invalidatePhysicsAsset(first.objectId);
+  assert.equal(world.renderedAssetVerified(firstObject),true,
+    'equivalent view rebuilds retain the measured navigation footprint');
+  assert.deepEqual(world.registerAssets([asset]),[]);
+  assert.equal(world.renderedAssetVerified(firstObject),true);
+  assert.deepEqual(world.registerAssets([{...asset,spawnScale:1.1}]),[asset.assetId]);
+  assert.equal(world.renderedAssetVerified(firstObject),false);
+  world.verifyPhysicsAsset(asset.assetId,{x:1,y:1,z:1},first.objectId);
+  assert.equal(world.renderedAssetVerified(firstObject),true);
+  const saved=structuredClone(world.scene);
+  assert.equal(world.execute(command('replace','load',{scene:saved})).ok,true);
+  assert.equal(world.renderedAssetVerified(firstObject),false);
+  assert.equal(world.renderedAssetVerified(world.requireObject(first.objectId)),false,
+    'reusing the same stable ID after scene replacement needs a new load');
+  world.verifyPhysicsAsset(asset.assetId,{x:1,y:1,z:1},first.objectId);
+  assert.equal(world.renderedAssetVerified(world.requireObject(first.objectId)),true);
+  world.scene=structuredClone(world.scene); // Browser-local restore also swaps directly.
+  assert.equal(world.renderedAssetVerified(world.requireObject(first.objectId)),false);
+  assert.equal(world.renderedVerification.size,0);
+  const withoutBounds={...asset};delete withoutBounds.localBounds;
+  world.registerAssets([withoutBounds]);
+  assert.equal(world.verifyPhysicsAsset(asset.assetId,{x:1,y:1,z:1},first.objectId),true,
+    'physics may use exact measured bounds without catalog bounds');
+  assert.equal(world.renderedAssetVerified(world.requireObject(first.objectId)),false,
+    'navigation requires a registered conservative footprint');
+});
+
+test('a bound looping GLB has no proven motion envelope even when remote',()=>{
   let n=0;const world=new MatrixWorld(()=>`object-${++n}`);
   const sha='c'.repeat(64);
   const asset={assetId:'web:looping-glb',displayName:'Looping GLB',
@@ -318,13 +413,13 @@ test('a bound looping GLB is uncertain near use but irrelevant when remote',()=>
     {objectId:glb.objectId,loopClip:'Loop',selectClip:null})).ok,true);
   const use=requestId=>world.execute(command(requestId,'interact',
     {actorObjectId:actor.objectId,targetObjectId:chair.objectId,kind:'rest'}));
-  assert.equal(use('remote-looping-glb').ok,true);
+  assert.match(use('remote-looping-glb').error,/animated GLB is present/);
   assert.equal(world.execute(command('move-looping-glb','set_transform',
     {objectId:glb.objectId,transform:pose(0,0,-1.7)})).ok,true);
-  assert.match(use('near-looping-glb').error,/clearance is unavailable/);
+  assert.match(use('near-looping-glb').error,/animated GLB is present/);
 });
 
-test('an unmeasured looping GLB is uncertain near use but irrelevant when remote',()=>{
+test('an unmeasured looping GLB is also unsafe at any authored distance',()=>{
   let n=0;const world=new MatrixWorld(()=>`object-${++n}`);
   const sha='d'.repeat(64);
   const asset={assetId:'web:unmeasured-looping-glb',displayName:'Unmeasured looping GLB',
@@ -342,10 +437,89 @@ test('an unmeasured looping GLB is uncertain near use but irrelevant when remote
     {objectId:glb.objectId,loopClip:'Idle',selectClip:null})).ok,true);
   const use=requestId=>world.execute(command(requestId,'interact',
     {actorObjectId:actor.objectId,targetObjectId:chair.objectId,kind:'rest'}));
-  assert.equal(use('remote-unmeasured-loop').ok,true);
+  assert.match(use('remote-unmeasured-loop').error,/animated GLB is present/);
   assert.equal(world.execute(command('move-unmeasured-loop','set_transform',
     {objectId:glb.objectId,transform:pose(0,0,-1.7)})).ok,true);
-  assert.match(use('near-unmeasured-loop').error,/clearance is unavailable/);
+  assert.match(use('near-unmeasured-loop').error,/animated GLB is present/);
+});
+
+test('one catalog clip auto-loops without a binding and can reach a use line from ten metres',()=>{
+  let n=0;const world=new MatrixWorld(()=>`object-${++n}`);
+  const sha='7'.repeat(64);
+  const asset={assetId:'web:auto-loop',displayName:'Auto loop',description:'Animated GLB',
+    spawnScale:1,localBounds:{center:{x:0,y:.5,z:0},size:{x:.5,y:1,z:.5}},
+    geometry:{animationClips:[{name:'Reach',durationSeconds:1}]},
+    sha256:sha,byteLength:1024,url:`/api/web/assets/${sha}.glb`};
+  const scene=new THREE.Group();
+  const mesh=new THREE.Mesh(new THREE.BoxGeometry(.5,1,.5),
+    new THREE.MeshBasicMaterial());
+  mesh.name='Mover';scene.add(mesh);
+  const clip=new THREE.AnimationClip('Reach',1,[new THREE.VectorKeyframeTrack(
+    'Mover.position',[0,.5,1],[0,0,0,-10,0,0,0,0,0])]);
+  const animated=instantiateAnimatedAsset({scene,animations:[clip]},asset);
+  animated.mixer.update(.5);
+  assert.equal(animated.model.getObjectByName('Mover').position.x,-10,
+    'a validator-compatible single clip can cross the ten-metre gap');
+  world.registerAssets([asset]);
+  const chair=world.execute(command('chair','spawn',
+    {assetId:'chair',anchorId:ANCHOR_ID,transform:pose(0,0,-2)}));
+  const actor=world.execute(command('actor','spawn',
+    {assetId:'orb',anchorId:ANCHOR_ID,transform:pose(0,0,-1.4)}));
+  const glb=world.execute(command('auto-loop','spawn',
+    {assetId:asset.assetId,anchorId:ANCHOR_ID,transform:pose(10,0,-1.7)}));
+  assert.equal(glb.ok,true);
+  assert.equal(world.requireObject(glb.objectId).animation,undefined,
+    'one advertised clip plays automatically without a scene binding');
+  assert.equal(world.renderedAssetVerified(world.requireObject(glb.objectId)),false);
+  world.verifyPhysicsAsset(asset.assetId,{x:.5,y:1,z:.5},glb.objectId);
+  const use=requestId=>world.execute(command(requestId,'interact',
+    {actorObjectId:actor.objectId,targetObjectId:chair.objectId,kind:'rest'}));
+  const refused=use('auto-loop-ten-metres');
+  assert.equal(refused.ok,false);
+  assert.match(refused.error,/animated GLB is present/);
+  assert.equal(refused.outcome,undefined);
+  assert.equal(world.execute(command('delete-auto-loop','delete',
+    {objectId:glb.objectId})).ok,true);
+  assert.equal(use('clear-after-delete').ok,true);
+});
+
+test('a select-only GLB cannot advertise static clearance, but a remote static GLB can',()=>{
+  let n=0;const world=new MatrixWorld(()=>`object-${++n}`);
+  const sha='8'.repeat(64),staticSha='9'.repeat(64);
+  const selectAsset={assetId:'web:select-only',displayName:'Selection animation',
+    description:'A clip may start after selection.',spawnScale:1,
+    localBounds:{center:{x:0,y:.5,z:0},size:{x:.5,y:1,z:.5}},
+    geometry:{animationClips:[{name:'Idle',durationSeconds:1},
+      {name:'Reach',durationSeconds:1}]},
+    sha256:sha,byteLength:1024,url:`/api/web/assets/${sha}.glb`};
+  const staticAsset={assetId:'web:static-remote',displayName:'Static remote',
+    description:'No animation clips.',spawnScale:1,
+    localBounds:{center:{x:0,y:.5,z:0},size:{x:.5,y:1,z:.5}},
+    sha256:staticSha,byteLength:1024,url:`/api/web/assets/${staticSha}.glb`};
+  world.registerAssets([selectAsset,staticAsset]);
+  const chair=world.execute(command('chair','spawn',
+    {assetId:'chair',anchorId:ANCHOR_ID,transform:pose(0,0,-2)}));
+  const actor=world.execute(command('actor','spawn',
+    {assetId:'orb',anchorId:ANCHOR_ID,transform:pose(0,0,-1.4)}));
+  const staticGlb=world.execute(command('static-remote','spawn',
+    {assetId:staticAsset.assetId,anchorId:ANCHOR_ID,transform:pose(50,0,50)}));
+  assert.equal(staticGlb.ok,true);
+  const use=requestId=>world.execute(command(requestId,'interact',
+    {actorObjectId:actor.objectId,targetObjectId:chair.objectId,kind:'rest'}));
+  assert.equal(use('static-remote-clear').ok,true,
+    'a distant non-animated GLB must not block the finite interaction');
+  const selectGlb=world.execute(command('select-only','spawn',
+    {assetId:selectAsset.assetId,anchorId:ANCHOR_ID,transform:pose(10,0,-1.7)}));
+  assert.equal(world.execute(command('bind-select','bind_animation',
+    {objectId:selectGlb.objectId,loopClip:null,selectClip:'Reach'})).ok,true);
+  world.verifyPhysicsAsset(selectAsset.assetId,{x:.5,y:1,z:.5},selectGlb.objectId);
+  const refused=use('select-only-ten-metres');
+  assert.equal(refused.ok,false);
+  assert.match(refused.error,/animated GLB is present/);
+  assert.equal(refused.outcome,undefined);
+  assert.equal(world.execute(command('delete-select-only','delete',
+    {objectId:selectGlb.objectId})).ok,true);
+  assert.equal(use('static-remote-still-clear').ok,true);
 });
 
 test('active actor or target transform owner cannot produce a finite use receipt',()=>{

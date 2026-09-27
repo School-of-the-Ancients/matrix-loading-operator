@@ -15,6 +15,30 @@ The runtime also checks the current measured obstacle line before a resident
 can receive a station-use benefit. See the [isolated browser record](../Validation/citizens-live-revisions-browser.json)
 and [current checkpoint](Current-Checkpoint.md) for the verified scope.
 
+The registered-GLB readiness candidate requires the actual Three.js view to
+load and measure each registered GLB obstacle before Citizens trusts its
+catalog footprint. A failed load or catalog/scene change makes routes
+unavailable until the current model verifies again. The panel shows that
+reason and disables Run/Step; a running simulation pauses before another tick
+and releases active or queued station work. A content-identical redraw during
+ordinary resident movement keeps the measured-footprint evidence. The
+`MatrixWorld.interact` clearance check also refuses a nearby unverified GLB
+and any catalog GLB with animation clips because no safe swept footprint is
+available for finite use.
+Catalog GLBs with animation clips are refused for Citizens navigation until a
+measured animation envelope is available, including clips that auto-loop or
+play on selection.
+To try this with an authored registered GLB, load it beside a selected built-in
+chair in an isolated `/web/` virtual room, wait until its model is visible,
+then choose **Use selected chair or table** and run the two residents. Save a
+named PC world checkpoint, reload, wait for the model to verify, and step.
+The [browser evidence](../Validation/citizens-glb-readiness-browser.json) used
+the [static Blender probe fixture](../WebRuntime/test/fixtures/static_blender_probe.glb)
+and a deliberately mismatched catalog footprint to exercise the refusal,
+then restored measured bounds for a seeded chair queue and restart replay.
+It also records a live mismatch that released Bo's active chair claim. This is static desktop obstacle
+readiness, not a general GLB interaction definition or Quest check.
+
 ## Try it safely
 
 From the repository root, build and use an isolated ControlService port and scene directory:

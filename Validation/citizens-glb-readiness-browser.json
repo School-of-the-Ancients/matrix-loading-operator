@@ -1,0 +1,68 @@
+{
+  "date": "2026-09-26",
+  "candidateBranch": "codex/citizens-glb-readiness",
+  "surface": "built ordinary /web/ page in the Codex in-app desktop browser",
+  "isolatedService": {
+    "url": "http://127.0.0.1:19846/web/",
+    "sceneDirectory": "work/glb-static-readiness-state/scenes",
+    "webAssetDirectory": "work/glb-static-readiness-state/web-assets",
+    "otherPort19844And19845Demos": "untouched"
+  },
+  "registeredFixture": {
+    "assetId": "web:static-blender-probe:cd36888814c7",
+    "sha256": "cd36888814c744914e9372e7114c12d125aecd5d3ee0a734786a84b0222ea551",
+    "bytes": 2732,
+    "fixtureSource": "WebRuntime/test/fixtures/static_blender_probe.glb",
+    "animationClips": [],
+    "measuredLocalSize": {"x": 0.6552396624908354, "y": 0.6552396624908354, "z": 0.5},
+    "mismatchedCatalogSize": {"x": 0.1, "z": 0.1}
+  },
+  "scene": {
+    "chairObjectId": "240697e6b4c946cf98ba1e1d156776ad",
+    "chairPosition": {"x": 0, "y": 0, "z": -2},
+    "glbObjectId": "eb963ebcbadc48eba83160bc424dff1d",
+    "glbPosition": {"x": -0.9, "y": 0, "z": -2},
+    "finalObjectCount": 4
+  },
+  "browserObservations": [
+    {
+      "step": "catalog footprint deliberately smaller than rendered GLB",
+      "result": "Use selected chair or table was disabled with navigation waiting for verified rendered GLB; the two-object scene was unchanged and no Citizens were added"
+    },
+    {
+      "step": "restore measured catalog footprint and start seed 29",
+      "result": "two orb residents were added to the same scene; minute 1 showed Ada traveling to rest and Bo first in the chair queue"
+    },
+    {
+      "step": "run, then pause at minute 76",
+      "result": "Bo completed a rest at minute 27; after further autonomous actions Ada held the chair claim for rest execution 11 at minute 76; both residents had changed needs and a finite social decline was visible"
+    },
+    {
+      "step": "save named PC whole-world checkpoint glb-static-m76 and reload browser",
+      "result": "the same four objects and minute-76 Citizens state returned; Run and Step were temporarily disabled while the static GLB reloaded, then enabled after rendered verification"
+    },
+    {
+      "step": "step through minute 82, restore glb-static-m76, and replay six steps",
+      "result": "Ada completed rest at minute 82 and reached energy 100 in both runs; PC restore returned the same minute-76 scene objects, activity, needs, and chair claim"
+    },
+    {
+      "step": "change live catalog footprint to 0.1 m and refresh assets during a later run",
+      "result": "Citizens paused at minute 91 with navigation-unavailable feedback, failed Bo's active rest execution 13, and released his chair claim; there was no Bo rest completion or need benefit from that interrupted execution"
+    },
+    {
+      "step": "restore clean named checkpoint after catalog repair",
+      "result": "final browser state is paused at minute 76, seed 29, with four objects and Ada's rest execution 11 holding the chair; controls are enabled after GLB load"
+    }
+  ],
+  "validation": {
+    "WebRuntimeNodeTests": "250 passed of 250",
+    "WebRuntimeViteBuild": "passed",
+    "ControlServicePythonTests": "672 passed of 672"
+  },
+  "limits": [
+    "The static fixture was derived by removing the animation declaration from the existing small Blender probe; its unanimated geometry and bounds are checked by a Node test.",
+    "Catalog GLBs with animation clips fail closed for Citizens navigation and finite MatrixWorld interaction because no swept animation envelope is available.",
+    "The registered GLB is an obstacle, not an authored Citizens station or general affordance.",
+    "This is desktop virtual-floor evidence; it does not satisfy Quest wearer, real-room, moving-target, or general navigation-version acceptance."
+  ]
+}
