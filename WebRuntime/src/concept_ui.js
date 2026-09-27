@@ -187,7 +187,8 @@ export class ConceptUI {
     const strategy=build.strategy?` Strategy: ${short(build.strategy)}.`:'';
     if(build.status==='completed')
       return `Verified Matrix result from ${source}.${strategy} ${build.objectIds?.length||0} object ID(s), ${build.receipts?.length||0} receipt(s).`;
-    if(build.status==='failed')return `Build from ${source} failed.${strategy}`;
+    if(build.status==='failed')
+      return `No verified Matrix result from ${source}. Inspect the world and receipts before retrying.${strategy}`;
     return `Codex build requested from ${source}. Awaiting a verified Matrix result.${strategy}`;
   }
   statusForWorld(){

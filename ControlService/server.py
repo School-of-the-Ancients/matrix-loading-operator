@@ -3348,7 +3348,7 @@ def agent_portal_action(state, path, body):
     portal = state.agent_portal
     if path == "/api/agent/transcribe":
         require(set(body) == {"sessionId", "audioBase64"}, "Invalid Agent transcription request")
-        portal.status(body["sessionId"])
+        state.agent_portal_status(body["sessionId"])
         audio = speech.decode_audio(body["audioBase64"])
         speech.configuration()
         require(state.voice_worker.acquire(blocking=False),
@@ -3362,7 +3362,7 @@ def agent_portal_action(state, path, body):
         return portal.open()
     if path == "/api/agent/status":
         require(set(body) in ({"sessionId"}, {"sessionId", "cursor"}), "Invalid Agent status request")
-        return portal.status(body["sessionId"], body.get("cursor", 0))
+        return state.agent_portal_status(body["sessionId"], body.get("cursor", 0))
     if path == "/api/agent/turn":
         fields = set(body)
         expected = {"expectedConceptId", "expectedConceptVersion"}
@@ -3372,7 +3372,7 @@ def agent_portal_action(state, path, body):
                 "Invalid Agent turn request")
         # Selection and image bytes stay on the PC. The browser names neither a
         # path nor an image; a new image result never starts a Codex build.
-        portal_status = portal.status(body["sessionId"])
+        portal_status = state.agent_portal_status(body["sessionId"])
         if portal_status.get("activeTurnId") is not None:
             raise AgentPortalError(409, "Agent is already working")
         with state.lock:
@@ -3627,6 +3627,12 @@ class State:
         with self.lock:
             self.concept_build_guard = None
 
+    def agent_portal_status(self, session_id, cursor=0):
+        """Reconcile only exact terminal turns before reporting concept builds."""
+        status = self.agent_portal.status(session_id, cursor)
+        self.concepts.reconcile_terminal_builds(session_id, status)
+        return status
+
     def agent_record_concept_build(self, value):
         """Persist a concept result only after exact, observed Matrix receipts."""
         require(type(value) is dict and set(value) in (
@@ -3682,7 +3688,7 @@ class State:
         require(prior["conceptId"] == concept_id and prior["status"] == "requested" and
                 prior.get("turnId") is not None,
                 "Concept build request is not active", 409)
-        portal_status = self.agent_portal.status(session_id)
+        portal_status = self.agent_portal_status(session_id)
         require(portal_status.get("activeTurnId") == prior["turnId"],
                 "Concept build turn is no longer active", 409)
         with self.lock:
@@ -7531,7 +7537,7 @@ class Handler(BaseHTTPRequestHandler):
                 require(set(query) == {"sessionId"} and len(query["sessionId"]) == 1,
                         "Concept status requires one Agent session ID")
                 session_id = query["sessionId"][0]
-                self.server.state.agent_portal.status(session_id)
+                self.server.state.agent_portal_status(session_id)
                 data = self.server.state.concepts.status(session_id)
             elif re.fullmatch(r"/api/agent/concepts/[0-9a-f]{32}/preview", path):
                 concept_id = path.split("/")[4]
@@ -7647,7 +7653,7 @@ class Handler(BaseHTTPRequestHandler):
                 require({"sessionId", "prompt"} <= set(body) <=
                         {"sessionId", "prompt", "negativePrompt", "providerId"},
                         "Invalid concept generation request")
-                state.agent_portal.status(body["sessionId"])
+                state.agent_portal_status(body["sessionId"])
                 data = state.concepts.create(body["sessionId"], body["prompt"],
                                              negative_prompt=body.get("negativePrompt"),
                                              provider_id=body.get("providerId"))
@@ -7656,7 +7662,7 @@ class Handler(BaseHTTPRequestHandler):
                         {"sessionId", "sourceConceptId", "prompt", "negativePrompt",
                          "providerId"},
                         "Invalid concept variation request")
-                state.agent_portal.status(body["sessionId"])
+                state.agent_portal_status(body["sessionId"])
                 data = state.concepts.create(body["sessionId"], body.get("prompt"),
                                              source_concept_id=body["sourceConceptId"],
                                              negative_prompt=body.get("negativePrompt"),
@@ -7665,13 +7671,13 @@ class Handler(BaseHTTPRequestHandler):
                 require({"sessionId", "conceptId"} <= set(body) <=
                         {"sessionId", "conceptId", "designNotes"},
                         "Invalid concept selection request")
-                state.agent_portal.status(body["sessionId"])
+                state.agent_portal_status(body["sessionId"])
                 data = state.concepts.select(body["sessionId"], body["conceptId"],
                                              body.get("designNotes"))
             elif path == "/api/agent/concepts/cancel":
                 require(set(body) == {"sessionId", "conceptId"},
                         "Invalid concept cancellation request")
-                state.agent_portal.status(body["sessionId"])
+                state.agent_portal_status(body["sessionId"])
                 data = state.concepts.cancel(body["sessionId"], body["conceptId"])
             elif path == "/api/web/authoring":
                 data = state.web_authoring.submit(body)

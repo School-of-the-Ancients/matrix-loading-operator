@@ -39,3 +39,10 @@ test('selected-design build uses the refreshed concept identity and requires a r
   await assert.rejects(ConceptUI.prototype.expectedBuild.call(ui,'Build the selected design'),
     /Select a ready concept version/);
 });
+
+test('terminal build without a receipt reports an unverified world result',()=>{
+  const ui={client:{builds:[{status:'failed',conceptId:'a'}],concepts:[
+    {conceptId:'a',version:4}]}};
+  assert.match(ConceptUI.prototype.buildStatus.call(ui),
+    /No verified Matrix result from Version 4\. Inspect the world and receipts before retrying\./);
+});

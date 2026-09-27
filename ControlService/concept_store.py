@@ -506,6 +506,34 @@ class ConceptStore:
             require(build is not None, "Concept build not found", 404)
             return copy.deepcopy(build)
 
+    def reconcile_terminal_builds(self, session_id, agent_status):
+        """Close only unverified builds whose exact Codex turn has ended."""
+        checked_id(session_id, "Agent session ID", SESSION_ID)
+        require(type(agent_status) is dict and agent_status.get("sessionId") == session_id and
+                type(agent_status.get("transcript")) is list,
+                "Invalid Agent status for concept build reconciliation", 502)
+        terminal = {turn.get("turnId") for turn in agent_status["transcript"]
+                    if type(turn) is dict and turn.get("status") in
+                    ("completed", "failed", "cancelled", "unknown") and
+                    type(turn.get("turnId")) is str}
+        terminal.discard(agent_status.get("activeTurnId"))
+        if not terminal:
+            return []
+        with self.lock:
+            entry = self.data["sessions"].get(session_id)
+            if not entry or not any(build["status"] == "requested" and
+                                    build.get("turnId") in terminal
+                                    for build in entry["builds"]):
+                return []
+            def update(data):
+                closed = []
+                for build in data["sessions"][session_id]["builds"]:
+                    if build["status"] == "requested" and build.get("turnId") in terminal:
+                        build.update(status="failed", updatedAt=time.time())
+                        closed.append(build["buildRequestId"])
+                return closed
+            return self._change(update)
+
     def record_build(self, session_id, provenance):
         """Associate an explicit Codex turn and verified result with its selection.
 

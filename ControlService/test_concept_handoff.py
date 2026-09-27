@@ -45,6 +45,7 @@ class RecordingBackend:
 
     def __init__(self):
         self.sent = []
+        self.events = []
 
     def start(self):
         pass
@@ -57,10 +58,10 @@ class RecordingBackend:
 
     def send_text(self, identifier, message, *, image_path=None):
         self.sent.append((identifier, message, image_path))
-        return "native-turn"
+        return "native-turn" if len(self.sent) == 1 else f"native-turn-{len(self.sent)}"
 
     def poll(self, cursor):
-        return cursor, []
+        return len(self.events), self.events[cursor:]
 
     def pending_approvals(self):
         return []
@@ -377,6 +378,37 @@ class ConceptHandoffTests(unittest.TestCase):
         self.assertEqual(verified["receipts"], [receipt_id])
         self.assertEqual(self.state.concepts.build_provenance(
             self.session_id, result["buildRequestId"])["strategy"], "reused built-in asset")
+
+    def test_terminal_turn_closes_only_its_unverified_build(self):
+        first = self.build()
+        self.assertEqual(self.state.concepts.reconcile_terminal_builds(
+            self.session_id, {"sessionId": self.session_id, "activeTurnId": first["turnId"],
+                              "transcript": [{"turnId": "unrelated-turn",
+                                              "status": "completed"}]}), [])
+        self.backend.events.append({"type": "activity", "conversationId": "native-thread",
+                                    "turnId": "unrelated-turn", "activity": "completed"})
+        self.state.agent_portal_status(self.session_id)
+        self.assertEqual(self.state.concepts.build_provenance(
+            self.session_id, first["buildRequestId"])["status"], "requested")
+
+        self.backend.events.append({"type": "activity", "conversationId": "native-thread",
+                                    "turnId": first["turnId"], "activity": "completed"})
+        self.state.agent_portal_status(self.session_id)
+        self.assertEqual(self.state.concepts.build_provenance(
+            self.session_id, first["buildRequestId"])["status"], "failed")
+
+        second = self.build()
+        receipt_id = self.observed_spawn("block", "verified-new", builtin=True)
+        completed = self.state.agent_record_concept_build(self.build_result(
+            second, receipt_id, "verified-new", "block"))
+        self.assertEqual(completed["status"], "completed")
+        self.backend.events.append({"type": "activity", "conversationId": "native-thread",
+                                    "turnId": second["turnId"], "activity": "completed"})
+        self.state.agent_portal_status(self.session_id)
+        builds = self.state.concepts.status(self.session_id, refresh=False)["builds"]
+        self.assertEqual([(build["buildRequestId"], build["status"]) for build in builds],
+                         [(first["buildRequestId"], "failed"),
+                          (second["buildRequestId"], "completed")])
 
 
 if __name__ == "__main__":
