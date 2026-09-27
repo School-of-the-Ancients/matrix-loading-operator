@@ -332,8 +332,11 @@ function validStateV2(world,state,activityVersion=RESERVATION_VERSION,
   }
   const waitingIds=new Set();
   for(const station of state.stations){
+    const selectedApproach=stationVersion>=VERSION&&station.approachMode!==undefined;
     if(!keys(station,['id','kind','objectId','capacity','claim','waiters',
-      ...(stationVersion>=VERSION?['interaction']:[])])||
+      ...(stationVersion>=VERSION?['interaction']:[]),
+      ...(selectedApproach?['approachMode']:[])])||
+      (selectedApproach&&station.approachMode!=='selected')||
       !boundedText(station.id,32)||!station.id||stationIds.has(station.id)||
       !['rest','eat'].includes(station.kind)||stationKinds.has(station.kind)||
       !boundedText(station.objectId,128)||objectIds.has(station.objectId)||
@@ -653,14 +656,8 @@ function initialState(world,seed,adaId,boId,stations){
     ],stations,log:[]};
 }
 
-function selectedFurnitureSetup(world,objectId,{checkRoutes=true}={}){
+function selectedStation(world,objectId){
   assertWorld(world);
-  if(world.citizens!==null&&world.citizens!==undefined)
-    throw Error('Citizens is already active in this world');
-  if(world.game!==null&&world.game!==undefined)
-    throw Error('Finish or remove the active game before starting Citizens');
-  if(world.scene.objects.length+2>MAX_OBJECTS)
-    throw Error('Citizens needs two free Matrix scene slots');
   if(!objectId)throw Error('Select an existing chair or table first');
   const object=objectById(world,objectId);
   if(!object)throw Error('The selected furniture is no longer in the world');
@@ -675,8 +672,20 @@ function selectedFurnitureSetup(world,objectId,{checkRoutes=true}={}){
     throw Error('Selected furniture is moving or has physics');
   navigationObstacles(world);
   const kind=authored?object.interaction.kind:object.assetId==='chair'?'rest':'eat';
-  const station={id:kind==='rest'?'chair':'food',kind,objectId,capacity:1,
+  return {id:kind==='rest'?'chair':'food',kind,objectId,capacity:1,
     claim:null,waiters:[],interaction:authored?clone(object.interaction):null};
+}
+
+function selectedFurnitureSetup(world,objectId,{checkRoutes=true}={}){
+  assertWorld(world);
+  if(world.citizens!==null&&world.citizens!==undefined)
+    throw Error('Citizens is already active in this world');
+  if(world.game!==null&&world.game!==undefined)
+    throw Error('Finish or remove the active game before starting Citizens');
+  if(world.scene.objects.length+2>MAX_OBJECTS)
+    throw Error('Citizens needs two free Matrix scene slots');
+  const station=selectedStation(world,objectId);
+  const object=objectById(world,objectId);
   // Panel rendering calls readiness frequently. Route searches belong to the
   // explicit start operation, which repeats every check before mutating.
   if(!checkRoutes)return {station,positions:null};
@@ -826,6 +835,60 @@ export class CitizensSimulation {
   }
   static restore(world,saved){return new CitizensSimulation(world,saved);}
   snapshot(){return clone(this.state);}
+  additionalStation(objectId,{checkRoutes=false}={}){
+    assertWorld(this.world);
+    if(!this.state.paused)throw Error('Pause Citizens before adding a station');
+    if(this.invalidBindings.size)throw Error('Recover the existing Citizens bindings first');
+    if(this.state.residents.length===0)throw Error('No residents remain to use a station');
+    if(this.state.stations.length>=2)
+      throw Error('Citizens already has rest and food stations');
+    const station=selectedStation(this.world,objectId);
+    if(this.state.stations.some(bound=>bound.objectId===station.objectId))
+      throw Error('That station is already bound to Citizens');
+    if(this.state.stations.some(bound=>bound.kind===station.kind))
+      throw Error(`Citizens already has a ${station.kind} station; select the other kind`);
+    if(checkRoutes){
+      if(this.world.scene!==this.observedScene)
+        throw Error('The scene changed; review Citizens bindings before adding a station');
+      validStateV6(this.world,this.state);
+      for(const bound of [...this.state.residents,...this.state.stations]){
+        const object=objectById(this.world,bound.objectId);
+        if(!object||!sameTransform(object.transform,
+          this.observedTransforms.get(bound.objectId)))
+          throw Error('A Citizens object moved or disappeared; review bindings first');
+      }
+      for(const resident of this.state.residents){
+        const route=stationApproach(this.world,resident.objectId,station);
+        if(!route.ok)
+          throw Error(`${resident.name} cannot reach the selected ${station.kind} station: ${route.reason}`);
+      }
+    }
+    return station;
+  }
+  stationAdditionReadiness(objectId){
+    try{this.additionalStation(objectId);return '';}
+    catch(error){return error.message||String(error);}
+  }
+  addSelectedStation(objectId){
+    const station=this.additionalStation(objectId,{checkRoutes:true});
+    const previous=this.snapshot();
+    try{
+      // Legacy two-station worlds are the built-in seeded fixture. Mark both
+      // selected stations so adding one does not change an in-flight goal.
+      this.state.stations[0].approachMode='selected';
+      station.approachMode='selected';
+      this.state.stations.push(station);
+      this.observedTransforms.set(station.objectId,
+        clone(objectById(this.world,station.objectId).transform));
+      this.log('','selected',`Reviewed ${station.id} station added to the shared world.`);
+      validStateV6(this.world,this.state);
+      return this.snapshot();
+    }catch(error){
+      this.state=previous;
+      this.observedTransforms.delete(station.objectId);
+      throw error;
+    }
+  }
   exportState(){
     this.reconcileWorld();
     if(this.invalidBindings.size)throw Error('Citizens binding is missing or incompatible');
@@ -1259,7 +1322,7 @@ export class CitizensSimulation {
       station.claim.executionId!==action.executionId)
       return {ok:false,reason:'Interaction target is missing or claim changed'};
     return stationApproach(this.world,resident.objectId,station,null,[],
-      !station.interaction&&this.state.stations.length===2?
+      !station.interaction&&!station.approachMode&&this.state.stations.length===2?
         fixtureApproach(this.world,station):null);
   }
   nextExecutionId(){
@@ -1353,7 +1416,7 @@ export class CitizensSimulation {
           resident.cooldowns[kind]=this.state.clockTick+4;continue;
         }
         const approach=stationApproach(this.world,resident.objectId,station,null,[],
-          !station.interaction&&this.state.stations.length===2?
+          !station.interaction&&!station.approachMode&&this.state.stations.length===2?
             fixtureApproach(this.world,station):null);
         if(!approach.ok){
           this.log(resident.id,'blocked',`${resident.name}: ${kind} unavailable; ${approach.reason}.`);

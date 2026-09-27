@@ -1,0 +1,14 @@
+{
+  "schemaVersion": 1,
+  "interactionId": "food-table-eat",
+  "kind": "eat",
+  "assetSha256": "53b79a6a6f7f8950d004b2beb55d42bd4a547d719500dfbb40414166cf9ef0c7",
+  "requiredCapabilities": ["static-virtual-floor", "verified-rendered-bounds"],
+  "availability": ["target-static", "floor-aligned", "rendered-verified"],
+  "approachPose": {"x": 0, "z": -0.9},
+  "usePose": {"x": 0, "z": -0.28},
+  "rangeMeters": 0.8,
+  "durationTicks": 5,
+  "capacity": 1,
+  "effect": {"need": "hunger", "delta": 32}
+}
