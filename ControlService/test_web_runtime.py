@@ -72,6 +72,9 @@ class WebRuntimeContractTests(unittest.TestCase):
                 with self.subTest(path=path), urllib.request.urlopen(self.base + path, timeout=3) as response:
                     policy = response.headers["Content-Security-Policy"]
                     self.assertIn("script-src 'self' 'unsafe-inline' 'wasm-unsafe-eval'", policy)
+                    self.assertIn("img-src 'self' data: blob:", policy)
+                    self.assertIn("connect-src 'self' blob:", policy,
+                                  "GLTFLoader fetches embedded textures from blob URLs")
                     self.assertNotIn(" 'unsafe-eval'", policy)
             with urllib.request.urlopen(self.base + "/web/assets/a.js", timeout=3) as response:
                 self.assertNotIn("'wasm-unsafe-eval'", response.headers["Content-Security-Policy"])

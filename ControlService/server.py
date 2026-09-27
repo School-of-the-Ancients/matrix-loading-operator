@@ -7360,7 +7360,10 @@ class Handler(BaseHTTPRequestHandler):
         script_sources = "'self' 'unsafe-inline'"
         if allow_webassembly:
             script_sources += " 'wasm-unsafe-eval'"
+        # GLTFLoader fetches embedded GLB textures through blob: URLs before
+        # createImageBitmap; img-src alone does not authorize that fetch.
         self.send_header("Content-Security-Policy", "default-src 'self'; img-src 'self' data: blob:; "
+                         "connect-src 'self' blob:; "
                          f"script-src {script_sources}; style-src 'self' 'unsafe-inline'; "
                          "frame-ancestors 'none'")
         self.end_headers()
