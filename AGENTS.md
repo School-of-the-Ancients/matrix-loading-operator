@@ -66,7 +66,7 @@ Authorized Operator edits apply in the current world; creating does not require 
 ## Before coding
 
 - Read the controlling issue and dependencies; continue the compatible user-visible slice already underway, or select the next missing slice from the implementation plan.
-- Inspect `main`, current open PRs, their base/head refs and active worktrees. The latest implementation may be stacked and not on `main`; a running service may be older again. An archive/documentation PR does not merge its referenced runtime candidates.
+- Inspect `main`, current open PRs, their base/head refs and active worktrees. Citizens through #126 and Creator Mode through #130 were merged by September 27, 2026; refresh refs before further work. A running service or headset build may be older than merged source.
 - Preserve stacked history, review fixes, state migrations and existing demos. The owner-authorized Unity archive is a bounded historical move; do not force-push, move active Web/ControlService code, close umbrella issues or auto-merge as part of an ordinary documentation/priority change.
 - Identify the track from PROJECTS.md and reuse existing world, validation, receipt, asset, component and checkpoint contracts.
 - Verify existing behavior before building. Fix prerequisites that block the chosen demo; do not continue unrelated resident refinements merely because they were the previous task.

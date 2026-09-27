@@ -71,7 +71,7 @@ An immersive panel must be usable in the tested headset mode; an ordinary HTML p
 
 ## Current implementation
 
-The foundation through #98/#99 includes Agent Portal/session/tool boundaries, GLB/animation and component paths, world checkpoints and selected desktop/Quest observations. Citizens work has progressed through later merges and an open stack; inspect current refs before choosing a base. [Current checkpoints](Docs/Current-Checkpoint.md) and the [pinned candidate runbook](https://github.com/School-of-the-Ancients/matrix-loading-operator/blob/25cde859676b7d752e4ae4118c7f68e67998bfe6/Docs/Citizens-Shared-World.md) preserve dated evidence and limits.
+The merged source through #130 includes Agent Portal/session/tool boundaries, GLB/animation and component paths, world checkpoints, bounded Citizens shared-world simulation, and Creator Mode. [Current checkpoints](Docs/Current-Checkpoint.md), the [Citizens runbook](Docs/Citizens-Shared-World.md), and the [Creator Mode runbook](Docs/Procedural-Creation.md) preserve dated evidence and limits; inspect the running build before making support claims.
 
 The older bounded virtual-floor drop is distinct from the merged Creator Mode's scoped Rapier physics, and neither declares #122 complete. Review actual source, open work and the running build before making support claims. A docs branch does not reveal another session's local or unpushed implementation.
 

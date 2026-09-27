@@ -1,6 +1,6 @@
 # Procedural creation and Immersive Creator Mode
 
-Status: **merged in [PR #127](https://github.com/School-of-the-Ancients/matrix-loading-operator/pull/127)**, September 26–27, 2026. [Issue #122](https://github.com/School-of-the-Ancients/matrix-loading-operator/issues/122) retains the full procedural creation and immersive acceptance. This implementation adds rigid physics, challenge state, live displays, and Creator/Play controls to the same `/web/` Matrix world. The test route and evidence here do not establish that a headset or the user's running service has loaded the merged source.
+Status: **merged through [PR #130](https://github.com/School-of-the-Ancients/matrix-loading-operator/pull/130)**, September 26–27, 2026. [Issue #122](https://github.com/School-of-the-Ancients/matrix-loading-operator/issues/122) retains the full procedural creation and immersive acceptance. This implementation adds rigid physics, challenge state, live displays, and Creator/Play controls to the same `/web/` Matrix world. The test route and evidence here do not establish that a headset or the user's running service has loaded the merged source.
 
 ## What owns the world
 
