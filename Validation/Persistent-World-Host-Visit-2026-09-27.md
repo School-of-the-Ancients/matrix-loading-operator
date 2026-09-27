@@ -12,16 +12,20 @@ From this branch's checkout:
 
 | Check | Result |
 | --- | --- |
-| `npm.cmd test` in `WebRuntime` | 504 passed, 0 failed, including 9 host and 5 visitor tests |
+| `npm.cmd test` in `WebRuntime` | 505 passed, 0 failed, including 10 host and 5 visitor tests after the loopback HTTPS review fix |
 | `npm.cmd run build` in `WebRuntime` | Passed; emitted `dist/hosted.html` and visitor bundle |
 | `python -m unittest discover -s ControlService -p 'test_*.py'` | 767 passed, 0 failed |
 | `git diff --check` | Passed |
 
 The host tests cover serial advancement, restart from the exact checkpoint without downtime catch-up, command failure receipts, invalid fixture and isolation rejection. Service tests cover view-token separation, saved-observation gating, and hosted checkpoint ownership. Visitor tests cover a desktop/AR projection of the same object IDs at a later clock, stale/changed-world rejection, restart monotonicity, read-only interaction gates, and absence of a browser writer path.
 
+The added host test makes an HTTPS request to a loopback test server with a certificate trusted through `NODE_EXTRA_CA_CERTS` in the owner process. It verifies the owner bearer token reaches the route, then confirms that the same certificate without that trust is rejected before any request reaches the route. URL checks still reject remote hosts, credentials, path/query/fragment suffixes, missing or usual `8765` ports, and non-HTTP schemes.
+
 ## Local process and browser trace
 
 An isolated service ran on `127.0.0.1:18876` with separate temporary scene and asset directories and distinct owner/view tokens. The Node host used world name `AdaBo`; observation returned `online: true`, `readOnly: true`, the same two resident IDs (`ada`, `bo`), and four stable scene object IDs. A separate Node ↔ Python HTTP restart trace advanced from tick 3 to 4 across a service restart with unchanged resident IDs and exact checkpoint recovery.
+
+After the review fix, a separate temporary `ControlService/server.py` process used its built-in `--tls-cert`/`--tls-key` mode on an isolated loopback port with distinct owner and view tokens. The Node owner connected using `https://127.0.0.1:PORT` with the test CA explicitly trusted by Node; `--ticks 1` exited successfully at saved tick 1. A separate HTTPS observation with the view token returned HTTP 200, `online: true`, `readOnly: true`, `clockTick: 1`, and resident IDs `ada`, `bo`. The process and temporary checkpoint directory were removed after the trace. This validates the PC TLS owner path, not a Quest wearer connection.
 
 In desktop Chrome, `/web/hosted.html` connected with the view token and rendered Ada and Bo. Without a browser-owned Citizens timer, the same page showed saved tick **512 → 519** and observation sequence **514 → 521**, retaining Ada's object prefix `769d1bbb` and Bo's `0ecf044d`; Ada's activity changed from travel to use. The details panel toggled. The page has no owner token or local world-save control. The Codex in-app browser loaded the current bundle and canvas, but its automated clicks did not change controls; no page error was captured there. That interaction path remains unexplained, while desktop Chrome produced the stated result.
 

@@ -33,6 +33,15 @@ $env:SANDBOX_TOKEN='the-same-owner-token'
 node src/host_world.js --url http://127.0.0.1:18876 --name AdaBo
 ```
 
+For a TLS service, start the same isolated server with `--tls-cert` and
+`--tls-key`, then use a loopback HTTPS URL such as
+`--url https://127.0.0.1:18876`. The certificate must be trusted by Node and
+cover the chosen loopback IP or hostname. If the local CA is not in Node's
+trust store, set `NODE_EXTRA_CA_CERTS` to that CA's PEM file for the host
+process. The owner still connects only to an explicit loopback port; Node's
+normal certificate and hostname verification remain enabled. Keep the
+`SANDBOX_TOKEN` and `SANDBOX_WORLD_VIEW_TOKEN` values distinct.
+
 `--ticks 3` performs exactly three virtual ticks and exits for a bounded run.
 The default continues at one tick after each 500 ms interval. Slow service
 requests do not trigger catch-up ticks. If exchange or checkpoint save fails,

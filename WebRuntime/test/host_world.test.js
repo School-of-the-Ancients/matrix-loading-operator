@@ -1,5 +1,10 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import {execFile} from 'node:child_process';
+import {readFileSync} from 'node:fs';
+import {createServer} from 'node:https';
+import {promisify} from 'node:util';
+import {fileURLToPath} from 'node:url';
 import {HostedWorld,assertHostedFixture,serviceRequest} from '../src/host_world.js';
 
 const copy=value=>structuredClone(value);
@@ -161,6 +166,47 @@ test('fixture and loopback URL reject broader execution surfaces',()=>{
   const value={version:3,scene:{schemaVersion:1,roomId:'web-virtual-room-v1',objects:[]},
     game:null,citizens:{schemaVersion:12,residents:[],stations:[]}};
   assert.throws(()=>assertHostedFixture(value),/built-in virtual scene/);
-  assert.throws(()=>serviceRequest('http://127.0.0.1:8765','x'.repeat(24)),/isolated/);
-  assert.throws(()=>serviceRequest('http://example.com:9999','x'.repeat(24)),/isolated/);
+  const token='x'.repeat(24);
+  for(const url of ['http://127.0.0.1:18876','https://127.0.0.1:18876',
+    'https://localhost:18876','https://[::1]:18876'])
+    assert.equal(typeof serviceRequest(url,token),'function');
+  for(const url of ['http://127.0.0.1:8765','https://127.0.0.1:8765',
+    'http://example.com:9999','https://example.com:9999',
+    'https://127.0.0.1.example.com:9999','https://192.168.1.10:9999',
+    'https://user:pass@localhost:9999','https://localhost:9999/path',
+    'https://localhost:9999/?token=secret','https://localhost:9999/#fragment',
+    'https://localhost','ftp://localhost:9999'])
+    assert.throws(()=>serviceRequest(url,token),/isolated/);
+});
+
+test('owner uses a trusted loopback HTTPS service with normal TLS verification',async()=>{
+  const certificate=fileURLToPath(new URL('./fixtures/loopback-test.crt',import.meta.url));
+  const key=fileURLToPath(new URL('./fixtures/loopback-test.key',import.meta.url));
+  const runtime=fileURLToPath(new URL('../',import.meta.url));
+  const token='test-host-owner-token-0123456789';
+  const seen=[];
+  const server=createServer({cert:readFileSync(certificate),key:readFileSync(key)},
+    (request,response)=>{
+      seen.push({url:request.url,authorization:request.headers.authorization});
+      response.writeHead(200,{'Content-Type':'application/json'});
+      response.end('{"online":false}');
+    });
+  await new Promise(resolve=>server.listen(0,'127.0.0.1',resolve));
+  try{
+    const url=`https://127.0.0.1:${server.address().port}`;
+    const script="import {serviceRequest} from './src/host_world.js';"+
+      "const result=await serviceRequest(process.argv[1],process.env.HOST_TEST_TOKEN)('GET','/api/state');"+
+      "process.stdout.write(JSON.stringify(result));";
+    const run=env=>promisify(execFile)(process.execPath,
+      ['--input-type=module','--eval',script,url],{cwd:runtime,env});
+    const env={...process.env,HOST_TEST_TOKEN:token,NODE_TLS_REJECT_UNAUTHORIZED:'1',
+      NODE_EXTRA_CA_CERTS:certificate};
+    const {stdout}=await run(env);
+    assert.deepEqual(JSON.parse(stdout),{online:false});
+    assert.deepEqual(seen,[{url:'/api/state',authorization:`Bearer ${token}`}]);
+    await assert.rejects(run({...env,NODE_EXTRA_CA_CERTS:''}),/fetch failed/);
+    assert.equal(seen.length,1,'untrusted TLS never reaches the authenticated route');
+  }finally{
+    await new Promise((resolve,reject)=>server.close(error=>error?reject(error):resolve()));
+  }
 });

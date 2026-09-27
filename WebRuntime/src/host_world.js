@@ -42,10 +42,11 @@ export function assertHostedFixture(value){
 
 function checkedBaseUrl(raw){
   const url=new URL(raw);
-  if(url.protocol!=='http:'||!['127.0.0.1','localhost','[::1]'].includes(url.hostname)||
+  if(!['http:','https:'].includes(url.protocol)||
+     !['127.0.0.1','localhost','[::1]'].includes(url.hostname)||
      !url.port||url.port==='8765'||url.pathname!=='/'||url.search||url.hash||
      url.username||url.password)
-    fail('Use an explicit isolated loopback HTTP port other than 8765');
+    fail('Use an explicit isolated loopback HTTP or HTTPS port other than 8765');
   return url.origin;
 }
 
@@ -198,7 +199,7 @@ function cliOptions(args){
       fail(`Unknown or incomplete argument: ${arg}`);
     options[arg.slice(2)]=args[++i];
   }
-  if(!options.url||!options.name)fail('Usage: node src/host_world.js --url http://127.0.0.1:PORT --name NAME [--seed N] [--ticks N] [--resume-paused]');
+  if(!options.url||!options.name)fail('Usage: node src/host_world.js --url http(s)://127.0.0.1:PORT --name NAME [--seed N] [--ticks N] [--resume-paused]');
   options.seed=options.seed===undefined?29:Number(options.seed);
   options.ticks=options.ticks===Infinity?Infinity:Number(options.ticks);
   return options;
