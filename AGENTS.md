@@ -27,12 +27,18 @@ Do **not** rebuild the engine, create another Matrix repository, introduce a sec
 
 ## Current work
 
-Use the **Now** section of [ROADMAP.md](ROADMAP.md):
+Use the **Now** section of [ROADMAP.md](ROADMAP.md) and the canonical v1.0 epic [#152](https://github.com/School-of-the-Ancients/matrix-loading-operator/issues/152).
 
-- #122 creator loop;
-- #20/#29 persistent AI Citizens world;
-- #22 AR visit/alignment into the same world;
-- #116 live Operator capability grounding.
+Complete the v1.0 critical path in order:
+
+1. #147 — grab + thumbstick transforms;
+2. #91 — ComfyUI visual ideation and selected-image context to the existing Codex Agent;
+3. #150 — persistent panorama / skybox environment;
+4. #149 — restore room-aware Operator context;
+5. #26 — Quest physical-camera context;
+6. freeze, validate and publish v1.0 from the exact tested artifact.
+
+Do not expand the active sprint into later milestones. #148, #20/#29, #9, #31, #32 and coursework packaging are parallel/post-v1.0 work unless the owner explicitly changes the roadmap.
 
 Continue compatible merged work; do not restart earlier milestones.
 
