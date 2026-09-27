@@ -64,7 +64,7 @@ async function poll(run){
     const accepted=applyHostedObservation(world,data,current);
     current=accepted.state;
     if(accepted.changed){
-      if(rendered)view.syncObservedTransforms();
+      if(rendered&&!accepted.structureChanged)view.syncObservedTransforms();
       else view.sync();
       rendered=true;
       if(!xrInitialized){

@@ -8,8 +8,9 @@ const ids=items=>items.map(item=>item.objectId).sort();
 const residentIds=items=>items.map(item=>item.id).sort();
 const same=(left,right)=>JSON.stringify(left)===JSON.stringify(right);
 
-// The service publishes only a checkpointed, built-in Citizens fixture. Check
-// its complete outer contract before staging the existing world-save validator.
+// The service publishes a checkpointed Citizens fixture with at most one
+// reviewed procedural addition. Check its outer contract before staging the
+// existing world-save validator.
 export function stageHostedObservation(observation,previous=null){
   if(!exactKeys(observation,['schemaVersion','worldId','instanceId','sequence',
       'clockTick','online','readOnly','world'])||observation.schemaVersion!==1||
@@ -21,12 +22,17 @@ export function stageHostedObservation(observation,previous=null){
       !Number.isSafeInteger(observation.clockTick)||observation.clockTick<0)
     throw Error('Invalid hosted world observation');
   const saved=observation.world;
+  const objects=saved?.scene?.objects;
+  const core=Array.isArray(objects)?objects.filter(item=>item?.assetId!=='matrix:procedural'):[];
+  const created=Array.isArray(objects)?objects.filter(item=>item?.assetId==='matrix:procedural'):[];
   if(!exactKeys(saved,['version','scene','game','citizens'])||saved.version!==3||
       saved.game!==null||!exactKeys(saved.scene,['schemaVersion','roomId','objects'])||
       saved.scene.schemaVersion!==1||saved.scene.roomId!=='web-virtual-room-v1'||
-      !Array.isArray(saved.scene.objects)||saved.scene.objects.length!==4||
-      saved.scene.objects.map(item=>item.assetId).sort().join(',')!=='chair,orb,orb,table'||
-      saved.scene.objects.some(item=>!exactKeys(item,['objectId','assetId','anchorId','transform'])||
+      !Array.isArray(objects)||core.length!==4||created.length>1||
+      core.map(item=>item?.assetId).sort().join(',')!=='chair,orb,orb,table'||
+      core.some(item=>!exactKeys(item,['objectId','assetId','anchorId','transform'])||
+        item.anchorId!=='web-floor')||
+      created.some(item=>!exactKeys(item,['objectId','assetId','anchorId','transform','procedural'])||
         item.anchorId!=='web-floor')||
       !saved.citizens||typeof saved.citizens!=='object'||Array.isArray(saved.citizens)||
       saved.citizens.schemaVersion!==12||saved.citizens.clockSpeed!==1||
@@ -42,11 +48,20 @@ export function stageHostedObservation(observation,previous=null){
   if(!staged.canVisitDigitalWorld())
     throw Error('Hosted Citizens world cannot be visited in AR');
   const sceneIds=ids(staged.scene.objects);
+  const coreIds=ids(core);
   const citizenIds=residentIds(staged.citizens.residents);
+  const bindingIds=[...staged.citizens.residents,...staged.citizens.stations]
+    .map(item=>`${item.id}:${item.objectId}`).sort();
+  const sceneStructure=JSON.stringify(staged.scene.objects.map(item=>({
+    objectId:item.objectId,assetId:item.assetId,anchorId:item.anchorId,
+    procedural:item.procedural??null})).sort((a,b)=>a.objectId.localeCompare(b.objectId)));
   const signature=JSON.stringify(saved);
   if(previous){
     if(observation.worldId!==previous.worldId||
-       !same(sceneIds,previous.sceneIds)||!same(citizenIds,previous.residentIds)||
+       !previous.sceneIds.every(id=>sceneIds.includes(id))||
+       !same(coreIds,previous.coreIds)||
+       !same(citizenIds,previous.residentIds)||
+       !same(bindingIds,previous.bindingIds)||
        observation.clockTick<previous.clockTick)
       throw Error('Hosted world identity or clock moved backward');
     if(observation.instanceId===previous.instanceId){
@@ -56,9 +71,11 @@ export function stageHostedObservation(observation,previous=null){
     }
   }
   const changed=!previous||signature!==previous.signature;
-  return {world:staged,changed,state:{worldId:observation.worldId,
+  const structureChanged=!previous||sceneStructure!==previous.sceneStructure;
+  return {world:staged,changed,structureChanged,state:{worldId:observation.worldId,
     instanceId:observation.instanceId,sequence:observation.sequence,
-    clockTick:observation.clockTick,sceneIds,residentIds:citizenIds,signature}};
+    clockTick:observation.clockTick,sceneIds,coreIds,residentIds:citizenIds,
+    bindingIds,sceneStructure,signature}};
 }
 
 export function applyHostedObservation(world,observation,previous=null){

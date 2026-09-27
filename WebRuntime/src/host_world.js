@@ -5,10 +5,11 @@ import {setTimeout as delay} from 'node:timers/promises';
 import {fileURLToPath} from 'node:url';
 import {MatrixWorld} from './protocol.js';
 import {CitizensSimulation,createCitizensDemo} from './citizens.js';
+import {normalizeProceduralRecipe} from './procedural.js';
 import {restoreStoredWorld,storedWorld} from './scene_store.js';
 
 const WORLD_NAME=/^[A-Za-z0-9][A-Za-z0-9 _-]{0,63}$/;
-const READ_ONLY_ERROR='This hosted Citizens world accepts observation only';
+const UNSUPPORTED_COMMAND='This hosted Citizens world accepts one typed procedural creation only';
 const keys=(value,expected)=>value&&typeof value==='object'&&!Array.isArray(value)&&
   Object.keys(value).sort().join(',')===expected.slice().sort().join(',');
 const fail=message=>{throw Error(message);};
@@ -19,12 +20,8 @@ export function assertHostedFixture(value){
   const scene=value.scene;
   if(!keys(scene,['schemaVersion','roomId','objects'])||scene.schemaVersion!==1||
      scene.roomId!=='web-virtual-room-v1'||!Array.isArray(scene.objects)||
-     scene.objects.length!==4)fail('Hosted world needs the built-in virtual scene');
-  const assets=scene.objects.map(object=>object.assetId).sort();
-  if(assets.join(',')!=='chair,orb,orb,table'||
-     scene.objects.some(object=>!keys(object,['objectId','assetId','anchorId','transform'])||
-       object.anchorId!=='web-floor'))
-    fail('Hosted world supports only two static resident markers and two stations');
+     ![4,5].includes(scene.objects.length))
+    fail('Hosted world needs the built-in virtual scene and at most one construction');
   const citizens=value.citizens;
   if(citizens?.schemaVersion!==12||citizens.clockSpeed!==1||
      !Array.isArray(citizens.residents)||
@@ -33,10 +30,21 @@ export function assertHostedFixture(value){
      citizens.stations.map(item=>item.id).sort().join(',')!=='chair,food')
     fail('Hosted world needs the built-in Ada and Bo Citizens state');
   const byId=new Map(scene.objects.map(object=>[object.objectId,object]));
+  const bound=new Set([...citizens.residents,...citizens.stations].map(item=>item.objectId));
+  if(byId.size!==scene.objects.length||bound.size!==4||
+     [...bound].some(id=>!keys(byId.get(id),['objectId','assetId','anchorId','transform'])||
+       byId.get(id).anchorId!=='web-floor'))
+    fail('Hosted world supports only two static resident markers and two stations');
   if(citizens.residents.some(item=>byId.get(item.objectId)?.assetId!=='orb')||
      citizens.stations.some(item=>byId.get(item.objectId)?.assetId!==
        (item.id==='chair'?'chair':'table')))
     fail('Hosted Citizens bindings do not match the built-in scene');
+  const additions=scene.objects.filter(object=>!bound.has(object.objectId));
+  if(additions.length>1||additions.some(object=>
+    !keys(object,['objectId','assetId','anchorId','transform','procedural'])||
+      object.assetId!=='matrix:procedural'||object.anchorId!=='web-floor'))
+    fail('Hosted world supports one reviewed procedural construction');
+  for(const object of additions)normalizeProceduralRecipe(object.procedural);
   return value;
 }
 
@@ -96,8 +104,15 @@ export class HostedWorld {
       for(const command of response.commands){
         if(typeof command?.requestId!=='string'||!command.requestId)
           fail('Service returned an invalid command');
-        this.results.set(command.requestId,{requestId:command.requestId,ok:false,
-          error:READ_ONLY_ERROR,objectId:''});
+        const canCreate=this.started&&this.simulation&&
+          command.op==='create_procedural'&&
+          keys(command,['requestId','op','anchorId','transform','procedural'])&&
+          this.world.scene.objects.length===4;
+        const result=canCreate?
+          this.world.execute(command,{recordHistory:false}):
+          {requestId:command.requestId,ok:false,error:UNSUPPORTED_COMMAND,objectId:''};
+        if(result.ok)assertHostedFixture(storedWorld(this.world));
+        this.results.set(command.requestId,result);
       }
       if(!this.results.size)return;
     }
