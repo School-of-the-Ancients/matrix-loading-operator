@@ -23,7 +23,8 @@ class FakeConceptCatalog:
         self.image = self.directory / hashlib.sha256(PNG).hexdigest()
         self.image.write_bytes(PNG)
         self.providers = {"worker": {"id": "worker", "type": "comfyui", "enabled": True,
-                                     "workflows": {"krea": {"id": "krea", "seedNode": "55"}}}}
+                                     "workflows": {"krea": {"id": "krea", "title": "Krea2 turbo",
+                                                            "seedNode": "55"}}}}
         self.requests = []
         self.states = {}
         self.unreachable = False
@@ -59,6 +60,27 @@ class FakeConceptCatalog:
             raise ContentError(409, "Only queued jobs can be cancelled")
         self.states[job_id] = "cancelled"
         return {"status": "cancelled"}
+
+
+class FakeNativePortal:
+    def __init__(self, image):
+        self.image = image.with_name("native.png")
+        self.image.write_bytes(image.read_bytes())
+        self.requests = []
+        self.results = {}
+        self.available = True
+
+    def native_image_available(self, session_id):
+        return {"available": self.available, "reason": None if self.available else "Codex unavailable"}
+
+    def start_native_image(self, session_id, prompt):
+        turn_id = "image-turn-" + str(len(self.requests) + 1)
+        self.requests.append((session_id, prompt))
+        self.results[turn_id] = {"status": "generating"}
+        return {"turnId": turn_id}
+
+    def native_image_result(self, session_id, turn_id):
+        return self.results[turn_id]
 
 
 class ConceptStoreTests(unittest.TestCase):
@@ -133,6 +155,20 @@ class ConceptStoreTests(unittest.TestCase):
         self.assertIn("outcome is unknown", recovered.status(self.session)["jobs"][0]["message"])
         self.assertEqual(len(self.catalog.requests), 0)
 
+    def test_existing_comfy_provider_identity_is_migrated_without_losing_workflow(self):
+        job = self.create()
+        from content_catalog import atomic_json
+        saved = self.store.data
+        prior = saved["sessions"][self.session]["jobs"][0]
+        prior["providerId"] = prior.pop("connectorProviderId")
+        atomic_json(self.store.path, saved)
+        reopened = ConceptStore(self.directory / "concepts", lambda: self.catalog)
+        migrated = reopened.status(self.session, refresh=False)["jobs"][0]
+        self.assertEqual(migrated["conceptId"], job["conceptId"])
+        self.assertEqual(migrated["providerId"], "comfyui")
+        self.assertEqual(migrated["connectorProviderId"], "worker")
+        self.assertEqual(migrated["workflowId"], "krea")
+
     def test_pc_storage_error_does_not_expose_private_path(self):
         with patch.object(self.catalog, "submit_workflow",
                           side_effect=OSError("C:/private/token-folder failed")):
@@ -195,6 +231,64 @@ class ConceptStoreTests(unittest.TestCase):
             self.store.record_build(self.session, {"buildRequestId": "b" * 32,
                                                    "conceptId": first["conceptId"],
                                                    "status": "failed"})
+
+    def test_native_default_durable_import_and_cross_provider_variation(self):
+        native = FakeNativePortal(self.catalog.image)
+        store = ConceptStore(self.directory / "native-concepts", lambda: self.catalog,
+                             lambda: native)
+        availability = store.status(self.session, refresh=False)
+        self.assertEqual(availability["defaultProviderId"], "codex-native")
+        self.assertEqual([item["id"] for item in availability["providers"]],
+                         ["codex-native", "comfyui"])
+        self.assertEqual(availability["providers"][1]["label"], "ComfyUI · Krea2 turbo")
+        first = store.create(self.session, "Blue orb", negative_prompt="text")["job"]
+        self.assertEqual(first["providerId"], "codex-native")
+        self.assertEqual(first["status"], "generating")
+        self.assertIn("Avoid: text", native.requests[0][1])
+        self.assertNotIn("nativeTurnId", first)
+        turn_id = store.data["sessions"][self.session]["jobs"][0]["nativeTurnId"]
+        native.results[turn_id] = {"status": "ready", "imagePath": str(native.image),
+                                   "sha256": hashlib.sha256(PNG).hexdigest(),
+                                   "mimeType": "image/png", "revisedPrompt": "One blue orb"}
+        first = store.status(self.session)["concepts"][0]
+        self.assertEqual(first["revisedPrompt"], "One blue orb")
+        self.assertEqual(first["sha256"], hashlib.sha256(PNG).hexdigest())
+        self.assertNotIn(str(native.image), json.dumps(store.status(self.session)))
+        self.assertEqual(store.selected(self.session), None)
+        store.select(self.session, first["conceptId"], "Keep glass material")
+        second = store.create(self.session, None, source_concept_id=first["conceptId"],
+                              provider_id="comfyui")["job"]
+        self.assertEqual(second["providerId"], "comfyui")
+        self.assertEqual(second["version"], 2)
+        self.assertEqual(second["parentConceptId"], first["conceptId"])
+        self.assertEqual(second["connectorProviderId"], "worker")
+        catalog_id = store.data["sessions"][self.session]["jobs"][1]["catalogJobId"]
+        self.catalog.states[catalog_id] = "completed"
+        self.assertEqual(store.status(self.session)["selectedConceptId"], first["conceptId"])
+        reopened = ConceptStore(self.directory / "native-concepts", lambda: self.catalog,
+                                lambda: native)
+        self.assertEqual(len(reopened.status(self.session)["concepts"]), 2)
+        self.assertEqual(reopened.selected(self.session)["designNotes"], "Keep glass material")
+        self.assertEqual(Path(reopened.selected(self.session)["imagePath"]).read_bytes(), PNG)
+
+    def test_native_uncertain_restart_and_mismatched_result_never_ready(self):
+        native = FakeNativePortal(self.catalog.image)
+        store = ConceptStore(self.directory / "native-concepts", lambda: self.catalog,
+                             lambda: native)
+        first = store.create(self.session, "Blue orb")["job"]
+        turn_id = store.data["sessions"][self.session]["jobs"][0]["nativeTurnId"]
+        native.results[turn_id] = {"status": "ready", "imagePath": str(native.image),
+                                   "sha256": "0" * 64, "mimeType": "image/png"}
+        self.assertEqual(store.status(self.session)["jobs"][0]["status"], "failed")
+        self.assertIsNone(store.status(self.session)["selectedConceptId"])
+        second = store.create(self.session, "Another orb")["job"]
+        reopened = ConceptStore(self.directory / "native-concepts", lambda: self.catalog,
+                                lambda: native)
+        jobs = reopened.status(self.session)["jobs"]
+        self.assertEqual(jobs[1]["conceptId"], second["conceptId"])
+        self.assertEqual(jobs[1]["status"], "failed")
+        self.assertIn("outcome is unknown", jobs[1]["message"])
+        self.assertIsNone(reopened.selected(self.session))
 
 
 if __name__ == "__main__":

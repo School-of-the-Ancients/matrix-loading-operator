@@ -29,6 +29,8 @@ IMAGE_TYPES = {"png": "image/png", "jpg": "image/jpeg", "jpeg": "image/jpeg",
                "webp": "image/webp"}
 ACTIVE = {"queued", "generating"}
 TERMINAL = {"ready", "failed", "cancelled"}
+NATIVE_PROVIDER = "codex-native"
+COMFY_PROVIDER = "comfyui"
 
 
 def require(ok, message, status=400):
@@ -64,13 +66,14 @@ def image_type(path: Path, filename: str):
 class ConceptStore:
     """One JSON index plus immutable, content-addressed image files."""
 
-    def __init__(self, directory: str | Path, catalog_factory):
+    def __init__(self, directory: str | Path, catalog_factory, native_factory=None):
         self.directory = Path(directory)
         self.directory.mkdir(parents=True, exist_ok=True)
         self.images = self.directory / "images"
         self.images.mkdir(exist_ok=True)
         self.path = self.directory / "concepts.json"
         self.catalog_factory = catalog_factory
+        self.native_factory = native_factory
         self.lock = threading.RLock()
         self.data = {"schemaVersion": 1, "sessions": {}}
         if self.path.exists():
@@ -85,12 +88,19 @@ class ConceptStore:
                         isinstance(entry.get("jobs"), list) and
                         isinstance(entry.get("builds", []), list),
                         "Saved concepts require PC repair", 503)
-                # An interrupted provider submission has no durable prompt ID.
-                # Do not replay it: ComfyUI may already have accepted the job.
+                # Native image events are not replayed after process restart.
+                # A ComfyUI prompt ID can still be polled from its history.
                 for job in entry["jobs"]:
                     require(isinstance(job, dict) and isinstance(job.get("conceptId"), str),
                             "Saved concepts require PC repair", 503)
-                    if job.get("status") in ACTIVE and not job.get("catalogJobId"):
+                    if job.get("providerId") not in (None, COMFY_PROVIDER, NATIVE_PROVIDER):
+                        job["connectorProviderId"] = job["providerId"]
+                        job["providerId"] = COMFY_PROVIDER
+                        recovered = True
+                    if job.get("status") in ACTIVE and job.get("providerId") == NATIVE_PROVIDER:
+                        job.update(status="failed", message="Native image turn outcome is unknown after service restart; request another version.")
+                        recovered = True
+                    elif job.get("status") in ACTIVE and not job.get("catalogJobId"):
                         job.update(status="failed", message="Submission outcome is unknown after service restart; request another version.")
                         recovered = True
             self.data = document
@@ -117,8 +127,11 @@ class ConceptStore:
     @staticmethod
     def _public(job):
         result = {key: copy.deepcopy(value) for key, value in job.items()
-                  if key not in ("catalogJobId", "imageFile")}
+                  if key not in ("catalogJobId", "nativeTurnId", "nativeError", "imageFile")}
         result["id"] = job["conceptId"]
+        result["cancellable"] = (job["status"] == "queued" and
+                                 job.get("providerId") != NATIVE_PROVIDER and
+                                 bool(job.get("catalogJobId")))
         if job["status"] == "ready":
             result["previewUrl"] = "/api/agent/concepts/" + job["conceptId"] + "/preview"
             result["imageSha256"] = job["sha256"]
@@ -141,7 +154,34 @@ class ConceptStore:
                 "Concept workflow needs a configured KSampler seed input for distinct versions", 409)
         return catalog, chosen_provider, chosen_workflow
 
-    def create(self, session_id, prompt, *, source_concept_id=None, negative_prompt=None):
+    def providers(self, session_id):
+        checked_id(session_id, "Agent session ID", SESSION_ID)
+        native = {"id": NATIVE_PROVIDER, "label": "Codex GPT Image",
+                  "available": False, "reason": "Native image generation is not configured."}
+        if self.native_factory is not None:
+            try:
+                capability = self.native_factory().native_image_available(session_id)
+                native["available"] = capability.get("available") is True
+                native["reason"] = None if native["available"] else str(
+                    capability.get("reason") or "Native image generation is unavailable.")[:240]
+            except Exception:
+                native["reason"] = "Native image generation is unavailable."
+        comfy = {"id": COMFY_PROVIDER, "label": "ComfyUI",
+                 "available": False, "reason": "No configured ComfyUI concept workflow."}
+        try:
+            catalog, connector_id, workflow_id = self._choose_workflow()
+            title = catalog.providers[connector_id]["workflows"][workflow_id].get("title")
+            if isinstance(title, str) and title.strip():
+                comfy["label"] = "ComfyUI · " + title.strip()[:100]
+            comfy.update(available=True, reason=None)
+        except (ContentError, OSError, ValueError):
+            pass
+        return {"providers": [native, comfy],
+                "defaultProviderId": (NATIVE_PROVIDER if native["available"] else
+                                      COMFY_PROVIDER if comfy["available"] else None)}
+
+    def create(self, session_id, prompt, *, source_concept_id=None, negative_prompt=None,
+               provider_id=None):
         checked_id(session_id, "Agent session ID", SESSION_ID)
         if source_concept_id is not None:
             checked_id(source_concept_id, "source concept ID")
@@ -150,15 +190,25 @@ class ConceptStore:
         if negative_prompt is not None:
             negative_prompt = checked_text(negative_prompt, "negative concept prompt", 4096,
                                            empty=True)
+        require(provider_id is None or provider_id in (NATIVE_PROVIDER, COMFY_PROVIDER),
+                "Unknown concept image provider")
+        available = self.providers(session_id)
+        chosen = provider_id or available["defaultProviderId"] or COMFY_PROVIDER
+        if provider_id is not None:
+            selected_provider = next(item for item in available["providers"] if item["id"] == provider_id)
+            require(selected_provider["available"], selected_provider["reason"] or
+                    "Concept image provider is unavailable", 409)
         concept_id = uuid.uuid4().hex
 
         def reserve(data):
             entry = self._session(data, session_id)
             require(len(entry["jobs"]) < MAX_CONCEPTS, "Concept history is full", 409)
-            used_seeds = {existing["seed"] for existing in entry["jobs"]}
-            seed = secrets.randbelow(2**32)
-            while seed in used_seeds:
+            seed = None
+            if chosen == COMFY_PROVIDER:
+                used_seeds = {existing.get("seed") for existing in entry["jobs"]}
                 seed = secrets.randbelow(2**32)
+                while seed in used_seeds:
+                    seed = secrets.randbelow(2**32)
             parent = self._find(entry, source_concept_id) if source_concept_id else None
             require(source_concept_id is None or parent is not None,
                     "Source concept is not in this Agent session", 404)
@@ -166,16 +216,34 @@ class ConceptStore:
             require(actual_prompt is not None, "Concept prompt is required")
             actual_negative = (negative_prompt if negative_prompt is not None else
                                parent.get("negativePrompt", "") if parent else "")
+            if chosen == NATIVE_PROVIDER:
+                require(len(actual_prompt) + (8 + len(actual_negative) if actual_negative else 0) <= 4096,
+                        "Native image prompt is too long", 400)
             job = {"conceptId": concept_id, "version": len(entry["jobs"]) + 1,
                    "parentConceptId": source_concept_id, "prompt": actual_prompt,
                    "negativePrompt": actual_negative, "designNotes": "", "seed": seed,
-                   "generationMode": "text-to-image", "status": "queued",
-                   "message": "Submitting the configured image workflow.",
+                   "providerId": chosen, "generationMode": "text-to-image", "status": "queued",
+                   "message": "Submitting the image request.",
                    "createdAt": time.time()}
             entry["jobs"].append(job)
             return copy.deepcopy(job)
 
         job = self._change(reserve)
+        if chosen == NATIVE_PROVIDER:
+            try:
+                # The same persistent Agent Portal Codex thread owns this turn.
+                # Matrix mutation is blocked by the portal for image-only turns.
+                native_prompt = job["prompt"]
+                if job["negativePrompt"]:
+                    native_prompt += "\nAvoid: " + job["negativePrompt"]
+                submitted = self.native_factory().start_native_image(session_id, native_prompt)
+                turn_id = checked_text(submitted["turnId"], "native image turn ID", 128)
+                return {"job": self._set_fields(session_id, concept_id, nativeTurnId=turn_id,
+                                                status="generating",
+                                                message="Codex is generating the image.")}
+            except Exception:
+                return {"job": self._set_fields(session_id, concept_id, status="failed",
+                                                message="Native image submission could not be confirmed; request another version.")}
         try:
             catalog, provider_id, workflow_id = self._choose_workflow()
             submitted = catalog.submit_workflow(provider_id, workflow_id, job["prompt"],
@@ -193,7 +261,7 @@ class ConceptStore:
                                             message="PC image submission failed; check the service.")}
         return {"job": self._set_fields(session_id, concept_id,
                                         catalogJobId=submitted["id"],
-                                        providerId=provider_id, workflowId=workflow_id,
+                                        connectorProviderId=provider_id, workflowId=workflow_id,
                                         workflowSha256=submitted.get("workflowSha256"),
                                         model=submitted.get("model", []),
                                         status="queued", message="ComfyUI accepted the image job.")}
@@ -226,52 +294,96 @@ class ConceptStore:
                 os.unlink(temporary)
         return destination.name
 
+    def _native_fields(self, session_id, job):
+        result = self.native_factory().native_image_result(session_id, job["nativeTurnId"])
+        require(type(result) is dict, "Invalid native image result", 502)
+        status = result.get("status")
+        if status == "ready":
+            image_path = result.get("imagePath")
+            require(type(image_path) is str and Path(image_path).is_absolute() and
+                    Path(image_path).is_file(),
+                    "Native image artifact is unavailable", 422)
+            source = Path(image_path).resolve(strict=True)
+            mime, extension = image_type(source, source.name)
+            require(result.get("mimeType") == mime,
+                    "Native image format did not match its declared type", 422)
+            size = source.stat().st_size
+            require(0 < size <= MAX_IMAGE_BYTES,
+                    "Generated concept image exceeds the PC concept limit", 413)
+            checksum = hashlib.sha256(source.read_bytes()).hexdigest()
+            require(checksum == result.get("sha256"),
+                    "Native image checksum failed", 422)
+            image_file = self._copy_image(source, checksum, extension)
+            fields = {"status": "ready", "message": "Image ready.",
+                      "sha256": checksum, "imageFile": image_file,
+                      "mimeType": mime, "byteLength": size}
+            revised = result.get("revisedPrompt")
+            if type(revised) is str and revised.strip():
+                fields["revisedPrompt"] = revised.strip()[:4096]
+            return fields
+        if status == "failed":
+            return {"status": "failed", "message": "Codex reported an image generation failure."}
+        if status == "cancelled":
+            return {"status": "cancelled", "message": "Codex cancelled image generation."}
+        require(status in ("queued", "generating"), "Invalid native image status", 502)
+        return {"status": status, "message": "Codex is generating the image."}
+
     def refresh(self, session_id, concept_id=None):
         checked_id(session_id, "Agent session ID", SESSION_ID)
         with self.lock:
             entry = self.data["sessions"].get(session_id)
             jobs = [] if entry is None else [copy.deepcopy(job) for job in entry["jobs"]
-                                     if job["status"] in ACTIVE and job.get("catalogJobId") and
+                                     if job["status"] in ACTIVE and
+                                     (job.get("catalogJobId") or job.get("nativeTurnId")) and
                                      (concept_id is None or job["conceptId"] == concept_id)]
         for job in jobs:
             try:
-                catalog = self.catalog_factory()
-                generation = catalog.poll_generation(job["catalogJobId"])
-                if generation["status"] == "completed":
-                    outputs = [output for output in generation["outputs"]
-                               if Path(output["filename"]).suffix.lower().lstrip(".") in IMAGE_TYPES]
-                    require(len(outputs) == 1 and len(generation["outputs"]) == 1,
-                            "Configured concept workflow must produce exactly one image", 422)
-                    artifact = catalog.prepare_generation_output(job["catalogJobId"], 0)
-                    source = catalog.cached_file(artifact["sha256"])
-                    mime, extension = image_type(source, artifact["filename"])
-                    image_file = self._copy_image(source, artifact["sha256"], extension)
-                    fields = {"status": "ready", "message": "Image ready.",
-                              "sha256": artifact["sha256"], "imageFile": image_file,
-                              "mimeType": mime, "byteLength": artifact["byteLength"]}
-                elif generation["status"] == "failed":
-                    fields = {"status": "failed", "message": "ComfyUI reported an image generation failure."}
-                elif generation["status"] == "cancelled":
-                    fields = {"status": "cancelled", "message": "ComfyUI confirmed cancellation."}
-                elif generation["status"] == "running":
-                    fields = {"status": "generating", "message": "ComfyUI is generating the image."}
-                elif generation["status"] == "missing":
-                    fields = {"message": "ComfyUI has no queue or history entry; completion is unverified. Retry status later."}
+                if job.get("providerId") == NATIVE_PROVIDER:
+                    fields = self._native_fields(session_id, job)
                 else:
-                    fields = {"status": "queued", "message": "Image is queued at ComfyUI."}
+                    catalog = self.catalog_factory()
+                    generation = catalog.poll_generation(job["catalogJobId"])
+                    if generation["status"] == "completed":
+                        outputs = [output for output in generation["outputs"]
+                                   if Path(output["filename"]).suffix.lower().lstrip(".") in IMAGE_TYPES]
+                        require(len(outputs) == 1 and len(generation["outputs"]) == 1,
+                                "Configured concept workflow must produce exactly one image", 422)
+                        artifact = catalog.prepare_generation_output(job["catalogJobId"], 0)
+                        source = catalog.cached_file(artifact["sha256"])
+                        mime, extension = image_type(source, artifact["filename"])
+                        image_file = self._copy_image(source, artifact["sha256"], extension)
+                        fields = {"status": "ready", "message": "Image ready.",
+                                  "sha256": artifact["sha256"], "imageFile": image_file,
+                                  "mimeType": mime, "byteLength": artifact["byteLength"]}
+                    elif generation["status"] == "failed":
+                        fields = {"status": "failed", "message": "ComfyUI reported an image generation failure."}
+                    elif generation["status"] == "cancelled":
+                        fields = {"status": "cancelled", "message": "ComfyUI confirmed cancellation."}
+                    elif generation["status"] == "running":
+                        fields = {"status": "generating", "message": "ComfyUI is generating the image."}
+                    elif generation["status"] == "missing":
+                        fields = {"message": "ComfyUI has no queue or history entry; completion is unverified. Retry status later."}
+                    else:
+                        fields = {"status": "queued", "message": "Image is queued at ComfyUI."}
             except ContentError as error:
                 if error.status == 404:
-                    fields = {"status": "failed", "message": "Saved ComfyUI job is missing; request another version."}
+                    fields = {"status": "failed", "message": (
+                        "Native image artifact is unavailable; request another version." if
+                        job.get("providerId") == NATIVE_PROVIDER else
+                        "Saved ComfyUI job is missing; request another version.")}
                 elif error.status in (413, 422):
                     fields = {"status": "failed", "message": str(error)}
                 else:
                     fields = {"message": "Image status could not be verified: " + str(error)}
             except (OSError, ValueError):
                 fields = {"message": "Image status could not be verified; check the PC service."}
+            except Exception:
+                fields = {"message": "Image status could not be verified; check the PC service."}
             with self.lock:
                 current_entry = self.data["sessions"].get(session_id)
                 current = self._find(current_entry, job["conceptId"]) if current_entry else None
-                if current and current["status"] in ACTIVE and current.get("catalogJobId") == job["catalogJobId"]:
+                token = "nativeTurnId" if job.get("providerId") == NATIVE_PROVIDER else "catalogJobId"
+                if current and current["status"] in ACTIVE and current.get(token) == job.get(token):
                     self._set_fields(session_id, job["conceptId"], **fields)
 
     def status(self, session_id, *, refresh=True):
@@ -284,7 +396,8 @@ class ConceptStore:
             jobs = [self._public(job) for job in entry["jobs"]]
             return {"jobs": jobs, "concepts": [job for job in jobs if job["status"] == "ready"],
                     "selectedConceptId": entry["selectedConceptId"],
-                    "builds": [self._public_build(build) for build in entry.get("builds", [])]}
+                    "builds": [self._public_build(build) for build in entry.get("builds", [])],
+                    **self.providers(session_id)}
 
     def select(self, session_id, concept_id, design_notes=None):
         checked_id(session_id, "Agent session ID", SESSION_ID)
