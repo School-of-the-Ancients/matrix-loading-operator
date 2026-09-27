@@ -1,356 +1,165 @@
 # Matrix repository project map
 
-This repository contains several generations and application tracks that share code and history. It is a **monorepo**, not one linear application.
+Updated September 26, 2026. This repository contains several generations and application tracks sharing code and history; it is a monorepo, not one linear application.
 
-If you are an AI coding agent, read this file before choosing an implementation path. Also read [AGENTS.md](AGENTS.md).
+Start with [VISION.md](VISION.md) for the central product idea, [PRD.md](PRD.md) for requirements, [IMPLEMENTATION_PLAN.md](IMPLEMENTATION_PLAN.md) for current work, [AGENTS.md](AGENTS.md) for working rules, and [RESOURCES.md](RESOURCES.md) for creation references. This map organizes existing work; it is not a second implementation queue.
 
 ## TL;DR
 
-There are four important tracks:
+> **A Three.js/WebXR sandbox. Start blank or load an existing world. Ask Operator to create and change things around you. Save it and return. Some worlds have AI citizens.**
 
-1. **Matrix Unity / Original** — the original Unity Quest/desktop Matrix, White Room, room-aware AR, content packs and historical coursework builds.
-2. **Matrix Web / Current** — the current active platform direction: Three.js + WebXR + the PC-local Codex Agent Portal + Blender + runtime components + interactive web surfaces.
-3. **Matrix World** — persistent/georeferenced world work such as Matrix Boulder, Earth registration and future AR overlays.
-4. **AI Citizens** — characters, animation/embodiment, needs, schedules, GOAP, memory and social simulation.
+White Room is the Matrix-inspired blank-canvas/loading idea, **not an actual Unity prefab or mandatory scene**. Creating does not require a separate room. Continue the existing #122 implementation; do not rebuild the engine, restart the project or discard current work. This documentation change requests no runtime build or service restart.
 
-Matrix Web and Matrix Unity currently use the PC-side **ControlService / Matrix Core** layer. Matrix World and AI Citizens have separate prototype paths and may adopt that shared layer later. These tracks are not interchangeable implementations.
+| Track | Role | Priority boundary |
+| --- | --- | --- |
+| Matrix Web / Current | Three.js, WebXR, PC-local Operator, procedural/reused/Blender content, interactions and displays | Current create → play/learn → revise → save loop under #122 |
+| Matrix Unity / Original | Native Quest/desktop, historical White Room application, MRUK room AR and AssetBundles | Preserve supported builds and course evidence; not the new generalized runtime or a required Web asset |
+| Matrix World | Persistent inhabited worlds, towns and offices; optional georeferenced/Earth-aligned views | Broader world composition, not a prerequisite for a local experience; #125 portals are speculative |
+| AI Citizens | Embodiment, needs, schedules, decisions, memory and social simulation | Preserve existing candidates; optional inhabitants, not required in every world |
+| School of the Ancients | Independent education product consuming reusable experiences | Important learning use case; separate curriculum/learner-state ownership |
+| Dynamic world upgrader | Later inspection and improvement of worlds/assets/interactions | Deferred; no automatic overnight worker in the current slice |
 
----
+Matrix Web and Matrix Unity use the shared PC-side ControlService boundary. On the separately inspected Citizens stack, the opt-in `/web/` panel uses the same `MatrixWorld`, renderer and browser/PC checkpoints; `/web/citizens.html` is an isolated fixture. This docs-only merge does not merge that stack. Track ownership does not establish deployed or device support. Consult [checkpoints](Docs/Current-Checkpoint.md), the relevant PR and [Quest acceptance](WebRuntime/QUEST3_ACCEPTANCE.md).
 
 # 1. Matrix Web / Current active platform
 
-**Status: current default for new generalized Matrix runtime work.**
+**Status: default for new generalized Matrix runtime work and the current immersive creation/learning demo.**
 
-Primary paths:
+Primary homes: `WebRuntime/`, `ControlService/`, and `Start-CodexControlService.ps1`.
 
-- `WebRuntime/` — Three.js browser runtime and WebXR AR/VR client.
-- `ControlService/` — shared PC service, Agent Portal, validation, receipts, asset/component catalogs and Matrix tools.
-- `Start-CodexControlService.ps1` — PC-local Codex-enabled service.
-- Issue [#44](https://github.com/School-of-the-Ancients/matrix-loading-operator/issues/44) — Three.js/WebXR runtime umbrella.
-- Issue [#59](https://github.com/School-of-the-Ancients/matrix-loading-operator/issues/59) — spatial Codex Agent Portal.
-
-Conceptually:
+Feature owners: [#122 Creator Mode](https://github.com/School-of-the-Ancients/matrix-loading-operator/issues/122), [#44 Web runtime](https://github.com/School-of-the-Ancients/matrix-loading-operator/issues/44), [#59 Agent Portal](https://github.com/School-of-the-Ancients/matrix-loading-operator/issues/59), and [#116 runtime-aware prompts](https://github.com/School-of-the-Ancients/matrix-loading-operator/issues/116).
 
 ```text
-Quest / desktop browser
-        |
-        v
-Three.js / WebXR Matrix
-        |
-        v
-Matrix Agent Portal / ControlService
-        |
-        v
-PC-local persistent Codex
-        |
-        +-- repository / shell / GitHub
-        +-- Blender MCP
-        +-- Matrix MCP/tools
-        +-- other configured tools
+Desktop browser / Quest WebXR
+              |
+Three.js Matrix — blank or loaded world / AR view
+              |
+ControlService / persistent Agent Portal
+              |
+PC-local Codex + configured tools
+              +-- Matrix world tools
+              +-- Blender / asset authoring
+              +-- reviewed repository development
 ```
 
-The browser is a **thin spatial client**. Codex remains on the PC with its normal development environment and privileged tools.
-
-The important addition over ordinary remote desktop is Matrix context: selected object, pointing target, room/scene state, viewer context, captures and typed world capabilities.
+The browser/headset is a spatial and interactive client, not a privileged Codex host. Selection, pointing, current world state and observed outcomes ground requests. The PC retains credentials and authority.
 
 ## Current creation direction
 
-The end goal is not a catalog of one-off commands such as “rotate”, “bob”, “wave”, “open door”, etc.
+Create complete usable experiences, not just meshes. A world may combine procedural layouts and geometry, imported assets, reusable behaviors, physics, controls, displays, audio, executable objectives and supported persistent state. Build only missing capabilities required by the selected example; these are product requirements, not a claim that all loaders/mechanics exist.
 
-The intended model is:
+| Creation path | Existing home / meaning |
+| --- | --- |
+| Load existing content | #9/#28 catalogs and current Web GLB path; #21 only for native Unity packs |
+| Generate directly in code | #122/#44 ordinary procedural modules, sharing Matrix identity and lifecycle |
+| Author or refine assets | #28 Blender/source → validated catalog → ordinary world object |
+| Mockup/reference first | #91 concept versions and explicit selection; optional input to Blender or #122's procedural authoring, not a new runtime |
 
-- Codex creates or modifies experiences.
-- Blender is an optional rich 3D asset/rig/animation factory.
-- Three.js/WebXR is the programmable spatial runtime.
-- HTML/CSS/JS can provide ordinary interactive application surfaces.
-- Matrix validates, owns authoritative state and exposes bounded execution/capability boundaries.
+Procedural creation can provide a first version where suitable. Catalog reuse avoids unnecessary authoring. Blender remains an optional rich asset/rig/animation factory. All paths use the same identity, validation, interaction and persistence contracts. Do not require GLB export or a Blender round trip for direct procedural geometry. [Sakuragaoka Station](RESOURCES.md#sakuragaoka-station--procedural-world-construction) is a reference, not a replacement engine or required port.
 
-A Matrix experience may eventually contain:
-
-- HTML UI, notebooks, controls, charts and diagrams;
-- Three.js scenes;
-- WebXR AR/VR presentation;
-- GLB assets;
-- rigs and animation clips;
-- materials, shaders and particles;
-- audio;
-- reusable runtime components/behaviors;
-- simulation state;
-- agent-callable tools;
-- persistence/version metadata.
-
-One experience may expose several surfaces over the **same authoritative state**:
+Start blank or load an existing world, then create there through Operator under appropriate permissions. White Room describes the inspiration, not a required prefab, room asset or separate editor. Desktop, VR and AR are presentation/input modes; Creator and Play/Test are interaction/authority modes. Neither distinction requires another engine.
 
 ```text
-shared experience state
-   |        |        |
-   |        |        +--> WebXR immersive scene
-   |        +-----------> Three.js browser scene
-   +--------------------> HTML application / notebook
+one authoritative experience state
+   |-- HTML controls / results
+   |-- Three.js browser scene
+   |-- WebXR in-world controls / scene
+   +-- bounded agent actions / observations
 ```
 
-Do not create independent HTML and XR simulations when they represent the same experiment.
+An immersive panel must be usable in the tested headset mode; an ordinary HTML page is not automatically an XR display. Reuse an experiment's math and state rather than implementing the same lesson twice.
 
 ## Current implementation
 
-The Agent Portal foundation merged through #60–#73 and #75–#79 establishes:
+The merged foundation through #98/#99 includes Agent Portal/session/tool boundaries, GLB/animation and component paths, world checkpoints and selected desktop/Quest observations. The separately reviewed Citizens stack adds bounded shared-world simulation, authored station interactions and recovery. [Current checkpoints](Docs/Current-Checkpoint.md) and the [pinned candidate runbook](https://github.com/School-of-the-Ancients/matrix-loading-operator/blob/25cde859676b7d752e4ae4118c7f68e67998bfe6/Docs/Citizens-Shared-World.md) preserve evidence and limits; inspect current refs before using them as a baseline.
 
-- PC-local Codex app-server transport;
-- durable Matrix session mapping;
-- thin browser/in-world Agent Portal UI;
-- spatial context;
-- Matrix MCP/tool exposure;
-- native approvals;
-- runtime receipts;
-- GLB registration/spawn;
-- generic bounded WebXR components;
-- validated GLB animation playback and selection binding;
-- virtual-floor asset previews in ready WebXR AR rooms.
-
-The September 26 Web stack merged in #83–#90 and #92–#95 adds the Quest ray and grab
-fixes, PC-owned Agent access/approval modes, the Blender MCP desktop creation
-trace, separate Quest VR/AR acceptance records, visible Codex voice progress,
-serialized VR/AR session entry, reviewed Block Scale Lab, PC whole-world
-checkpoints, virtual-floor GLB drop physics, browser checkpoint integration,
-stable CODEX transcript paging, and typed position/rotation edits to an
-existing virtual-floor object. The release
-[v0.6.0-preview.1](https://github.com/School-of-the-Ancients/matrix-loading-operator/releases/tag/v0.6.0-preview.1)
-preserves an earlier working snapshot; it is not the merged #95 tree.
-
-The [Quest acceptance matrix](WebRuntime/QUEST3_ACCEPTANCE.md) distinguishes
-observed wearer behavior from remaining mode-specific checks. VR Agent
-spawn/revision/reopen and a separate animated floor drop have wearer evidence;
-the full AR workflow, room-origin recovery, camera access, and some panel
-feedback still need their own checks. Inspect current issues and PRs before
-starting another slice; a plan checkbox alone does not show what is already
-implemented.
-
----
+The product description does not convert bounded virtual-floor drop into general rigid-body physics or declare #122 complete. Review actual source, open work and the running build before making support claims. A docs branch does not reveal another session's local or unpushed implementation.
 
 # 2. Matrix Unity / Original
 
-**Status: supported legacy/native implementation and validated historical work. Do not treat it as the default architecture for new generalized features.**
+**Status: supported legacy/native implementation and validated historical work.**
 
-This is the original Matrix Loader / Operator implementation.
+Homes: `Assets/`, `Packages/`, `ProjectSettings/`, `Build-WhiteRoom.ps1`, `Build-RoomAR.ps1`, `Build-Quest.ps1`, `Build-Desktop.ps1`, and Unity content-pack tooling.
 
-Primary paths include:
+This includes the historical White Room application, Quest virtual room, MRUK room-aware AR, voice/text proposals and reviewed Apply, stable IDs/Undo/save, compiled Rotate/Bob, prefab/AssetBundle loading and coursework snapshots. `/` is the original PC Operator surface; the native runtime is a separate application connected to ControlService.
 
-- `Assets/`
-- `Packages/`
-- `ProjectSettings/`
-- `Build-WhiteRoom.ps1`
-- `Build-RoomAR.ps1`
-- `Build-Quest.ps1`
-- `Build-Desktop.ps1`
-- Unity-specific content-pack/export tooling and historical validation.
-
-Major features include:
-
-- Matrix White Room;
-- Quest virtual room;
-- room-aware Quest AR / MRUK work;
-- original voice/text Operator;
-- scene proposal / Apply workflow;
-- stable IDs, Undo, save/restore;
-- Rotate/Bob compiled behaviors;
-- Unity prefab/AssetBundle content loading;
-- Poly Haven and other content-catalog experiments;
-- historical coursework release snapshots.
-
-Routes:
-
-- `/` is the original PC Operator/control surface associated with the Unity-era workflow.
-- The Unity runtime itself is a separate desktop/Quest application connected to ControlService.
-
-Keep this implementation working where practical because it contains useful validated device behavior and course evidence.
-
-However, **do not add new generalized Matrix capabilities to Unity just because older code already exists there**. If the task is about arbitrary AI-generated experiences, runtime components, browser UI, HTML, general Blender output or the current Agent Portal, it normally belongs to Matrix Web.
-
-Unity-specific issues such as AssetBundle restore or old coursework validation may intentionally remain Unity-only.
-
----
+Preserve matching build/runbook/release paths and their actual names. These legacy implementation details do not define what “White Room” means in the current product vision. New generalized voice-created experiences, HTML, procedural content and Blender/GLB authoring normally belong to Matrix Web. No Unity room prefab or scene needs to be ported to realize the blank-start idea.
 
 # 3. Matrix World
 
-**Status: future/persistent-world application layer; not a replacement renderer.**
+**Status: persistent inhabited-world application direction, not a replacement renderer or new immediate task.**
 
-Primary umbrella:
+Matrix World covers persistent settings where AI citizens can live and where humans can load an existing environment to explore, interact and continue creating. Towns, offices and other settings use the same sandbox capabilities as a world started blank. An existing world can also be uninhabited or purely a game/experiment. No outer city or separate creation room is required.
 
-- Issue [#38 Matrix Boulder](https://github.com/School-of-the-Ancients/matrix-loading-operator/issues/38).
-- Issue [#41 Astral Travel](https://github.com/School-of-the-Ancients/matrix-loading-operator/issues/41).
-- `Build-MatrixBoulder.ps1` and existing prototype/history.
+Specific owners: [#38 Matrix Boulder](https://github.com/School-of-the-Ancients/matrix-loading-operator/issues/38) for georeferenced worlds/Earth registration, [#41 Astral Travel](https://github.com/School-of-the-Ancients/matrix-loading-operator/issues/41) for later detached presence, and [#125](https://github.com/School-of-the-Ancients/matrix-loading-operator/issues/125) for speculative portal-linked public offices. Preserve `Build-MatrixBoulder.ps1` prototypes/history. Geography is one specialization, not a requirement for every inhabited world.
 
-Goal:
-
-Create a persistent georeferenced virtual world aligned with the physical world.
-
-Examples:
-
-- virtual Boulder / eventually larger Earth-scale registration;
-- geospatial entity persistence;
-- humans entering through web/VR/AR;
-- AR overlay of virtual entities at physical locations;
-- AI Citizens inhabiting the persistent virtual world;
-- later robotics/physical-world embodiments;
-- detached/“Astral” virtual presence.
-
-Future work should increasingly consume the **Matrix Web / shared Matrix Core** architecture rather than creating another isolated engine-specific Matrix implementation.
-
-Historical Unity/Cesium prototypes are references and evidence, not necessarily the final runtime architecture.
-
----
+World composition consumes shared runtime, content, spatial and Citizens capabilities. Do not create another authoritative scene system. Keep world-instance ownership explicit: reset/load/replacement must not silently erase unrelated worlds, visitor identity or compatible resident/game progress. Public URLs do not establish shared identity, trust or seamless cross-site XR. #125 remains theory/backlog only.
 
 # 4. AI Citizens / Character Body
 
-**Status: separate simulation/application modules built on Matrix capabilities.**
+**Status: existing bounded desktop candidates; preserve their stack, saves and evidence. Further autonomy is separately selected.**
 
-Primary issues:
+Owners: [#29](https://github.com/School-of-the-Ancients/matrix-loading-operator/issues/29), #14 body/animation, #15 interaction/navigation, #16 GOAP, #17 needs/schedules, #18 identity/memory/dialogue, #19 social behavior and #20 persistence/replay. [#109](https://github.com/School-of-the-Ancients/matrix-loading-operator/issues/109) covers resident worldbuilding; [#118](https://github.com/School-of-the-Ancients/matrix-loading-operator/issues/118) covers broader citizen-driven quests.
 
-- [#29 AI Citizens roadmap](https://github.com/School-of-the-Ancients/matrix-loading-operator/issues/29)
-- #14 character body / animation
-- #15 interactions/navigation
-- #16 GOAP
-- #17 needs/schedules/utility
-- #18 identity/memory/dialogue
-- #19 multi-agent/social behavior
-- #20 persistence/replay
+The isolated fixture and opt-in main-world candidate reuse MatrixWorld movement, interaction receipts, stable IDs and checkpoints. Residents own decisions; Matrix owns execution. Preserve bounded retries, reservations, migrations and verified outcomes when creation work touches these contracts.
 
-Conceptual layers:
+A teacher character, creator-authored objective or student experiment does not require a complete needs/schedules/social simulation. Reuse working capabilities without making all Citizens work mandatory.
 
-```text
-Character Body
-- mesh / rig
-- animation
-- navigation
-- finite interactions
-
-AI Citizens
-- identity
-- needs
-- schedules
-- utility
-- GOAP
-- memory
-- dialogue
-- social behavior
-```
-
-Citizens should use Matrix world/runtime capabilities rather than becoming another renderer or another authoritative scene system.
-
-Do not block generic Matrix creation work on Citizens.
-
-Do not put School curriculum or learner records into Citizens.
-
----
+Resident worldbuilding can use shared world-facing capabilities under delegated scope. A simulated citizen, animated character and avatar showing a real coding/research session are different things. Neither a character nor public visitor automatically gets Operator credentials or authority to run fleet jobs. Keep School curriculum and learner records outside Citizens.
 
 # 5. Shared Matrix Core / ControlService
 
-`ControlService/` is currently the shared seam between several generations.
+`ControlService/` coordinates scene identity, validation, tool boundaries, leases, receipts, catalogs, persistence, captures, Agent Portal connectivity and client integration. `WebRuntime/` retains its existing runtime state/execution responsibilities. This is an ownership seam, not a mandate to move all state to a new server.
 
-It owns or coordinates concepts such as:
-
-- scene/object identity;
-- validation;
-- command/tool boundaries;
-- runtime leases;
-- receipts and observed outcomes;
-- asset/component catalogs;
-- persistence;
-- captures;
-- Agent Portal connectivity;
-- client integration.
-
-This directory contains historical and current paths. **Shared location does not mean every subsystem is part of the same product generation.**
-
-When modifying ControlService:
-
-1. Identify which track consumes the change.
-2. Avoid introducing a renderer-specific assumption into a renderer-neutral contract.
-3. Preserve existing Unity behavior unless the task explicitly retires it.
-4. Prefer new generic Matrix Web capabilities to be expressed as reusable state/tool/component contracts rather than one-off endpoints.
-5. Keep privileged credentials and PC tools off browser/headset storage.
-
----
+When changing shared code, identify the consuming track, preserve existing Unity behavior, keep renderer-neutral contracts where practical and avoid parallel catalog/state/queue implementations. Prefer reusable capabilities to object-specific endpoints. Keep credentials off browsers/headsets and private data out of world exports or public evidence.
 
 # 6. School of the Ancients is a separate product
 
-School lives in the separate organization roadmap/repositories.
+**Education is an important use case, not a reason to merge product ownership.**
 
-School may consume Matrix through:
+School owns curriculum, mentor pedagogy, learner records, assessment and lesson orchestration. Matrix owns reusable interactive/spatial execution, world/experiment state, assets and observed actions/results. School remains independently useful; its optional Matrix integration uses a limited API, not Codex credentials.
 
-- ordinary interactive HTML lessons;
-- HTML + Three.js labs;
-- immersive Three.js/WebXR lessons;
-- synchronized multi-surface experiences.
+A physics playground, scale lab, science exhibit or playful demonstration can live in Matrix. Put controls, transitions and observations in reusable modules; a demo adapter does not move a learner database into this repo. Guided lessons and historical mentors belong to School, consuming those capabilities through the existing boundary.
 
-School owns:
-
-- curriculum;
-- mentor pedagogy;
-- learner records;
-- assessment;
-- lesson orchestration.
-
-Matrix owns:
-
-- reusable interactive/spatial runtime capabilities;
-- world state;
-- observed actions/outcomes;
-- asset/component execution.
-
-Do not implement School-specific curriculum directly inside Matrix unless an issue explicitly calls for a compatibility/demo adapter.
-
----
+Use HTML, Three.js and WebXR views over the same experience. Simultaneous multi-device synchronization remains separate work. Label historical emulation and check educational models/sources rather than treating roleplay as historical evidence.
 
 # 7. How to classify a new task
 
-Use this decision order.
+A new resource is normally a reference for an existing owner. A creation method is not automatically a new product. Capability additions need a concrete journey; changing the selected deliverable needs an explicit scope decision.
 
-### Is it about Codex creating/changing an interactive experience?
+## Issue and roadmap map
 
-Use **Matrix Web / #44 / #59**.
+This indexes existing owners; it is **not a dependency chain or a claim that open issues are wholly unimplemented**. Detailed acceptance stays in the linked issues. Numbers refer to this Matrix repository unless labeled otherwise.
 
-Examples:
+| Area | Existing issues | Boundary |
+| --- | --- | --- |
+| Platform and current creator experience | [#12](https://github.com/School-of-the-Ancients/matrix-loading-operator/issues/12), [#44](https://github.com/School-of-the-Ancients/matrix-loading-operator/issues/44), [#122](https://github.com/School-of-the-Ancients/matrix-loading-operator/issues/122) | Foundation ownership, Web runtime and current feature; not three engines |
+| Operator, context and observed repair | [#59](https://github.com/School-of-the-Ancients/matrix-loading-operator/issues/59), [#116](https://github.com/School-of-the-Ancients/matrix-loading-operator/issues/116), [#8](https://github.com/School-of-the-Ancients/matrix-loading-operator/issues/8), [#25](https://github.com/School-of-the-Ancients/matrix-loading-operator/issues/25) | Persistent agent, current capabilities, visual context and receipt-backed recovery |
+| Creation inputs and assets | [#9](https://github.com/School-of-the-Ancients/matrix-loading-operator/issues/9), [#28](https://github.com/School-of-the-Ancients/matrix-loading-operator/issues/28), [#91](https://github.com/School-of-the-Ancients/matrix-loading-operator/issues/91) | Catalogs, direct authoring and optional image iteration; procedural authoring uses #122's runtime |
+| Runtime behaviors and experiments | [#13](https://github.com/School-of-the-Ancients/matrix-loading-operator/issues/13), [#31](https://github.com/School-of-the-Ancients/matrix-loading-operator/issues/31), [#32](https://github.com/School-of-the-Ancients/matrix-loading-operator/issues/32) | Execution/ownership, scoped action/observation access and experiment state |
+| Bodies and resident simulation | [#14](https://github.com/School-of-the-Ancients/matrix-loading-operator/issues/14), [#15](https://github.com/School-of-the-Ancients/matrix-loading-operator/issues/15), [#16](https://github.com/School-of-the-Ancients/matrix-loading-operator/issues/16), [#17](https://github.com/School-of-the-Ancients/matrix-loading-operator/issues/17), [#18](https://github.com/School-of-the-Ancients/matrix-loading-operator/issues/18), [#19](https://github.com/School-of-the-Ancients/matrix-loading-operator/issues/19), [#20](https://github.com/School-of-the-Ancients/matrix-loading-operator/issues/20), [#29](https://github.com/School-of-the-Ancients/matrix-loading-operator/issues/29) | Body/animation/navigation versus resident policy, memory, coordination and persistence |
+| Resident creation and dynamic quests | [#109](https://github.com/School-of-the-Ancients/matrix-loading-operator/issues/109), [#118](https://github.com/School-of-the-Ancients/matrix-loading-operator/issues/118) | Scoped builders and citizen-driven offers; creator-authored objectives need not wait for a society |
+| Spatial presence and physical observations | [#22](https://github.com/School-of-the-Ancients/matrix-loading-operator/issues/22), [#26](https://github.com/School-of-the-Ancients/matrix-loading-operator/issues/26), [#38](https://github.com/School-of-the-Ancients/matrix-loading-operator/issues/38), [#41](https://github.com/School-of-the-Ancients/matrix-loading-operator/issues/41) | Room geometry, camera context, geography and later presence; distinct evidence gates |
+| Independent School integration | [#23](https://github.com/School-of-the-Ancients/matrix-loading-operator/issues/23), #31/#32 and the linked School roadmap | Matrix execution versus School teaching/private learner data |
+| Native content and reproducibility | [#21](https://github.com/School-of-the-Ancients/matrix-loading-operator/issues/21), [#24](https://github.com/School-of-the-Ancients/matrix-loading-operator/issues/24) | Legacy Unity pack acceptance and matching releases/evidence; no Web AssetBundle dependency |
+| Optional providers and future worlds | [#62](https://github.com/School-of-the-Ancients/matrix-loading-operator/issues/62), [#125](https://github.com/School-of-the-Ancients/matrix-loading-operator/issues/125), [upgrader](VISION.md#later-dynamic-world-improvement) | None selected automatically |
 
-- generated Three.js behavior;
-- HTML interactive UI;
-- WebMCP-style tools;
-- Blender → GLB → Matrix;
-- shaders/particles/audio;
-- generic runtime components;
-- WebXR interaction;
-- spatial Agent Portal context.
+## Cross-repository references
 
-### Is it specifically about an existing Unity build, APK, MRUK path or AssetBundle?
+The organization [MODULES.md](https://github.com/School-of-the-Ancients/school-of-the-ancients-roadmap/blob/main/MODULES.md) remains the canonical cross-product responsibility map. Modules are not automatically separate services or repositories. This document navigates those owners, not replaces their contracts.
 
-Use **Matrix Unity / Original**.
+The [School BUILD_PLAN](https://github.com/School-of-the-Ancients/school-of-the-ancients-roadmap/blob/main/BUILD_PLAN.md) and [ROADMAP](https://github.com/School-of-the-Ancients/school-of-the-ancients-roadmap/blob/main/ROADMAP.md) cover School delivery and cross-product integration. S0–S5 and Citizens research C0–C3 are not global prerequisites for Creator Mode. Matrix's active queue stays in its implementation plan.
 
-### Is it about persistent geospatial Boulder/Earth state?
-
-Use **Matrix World / #38**.
-
-### Is it about autonomous residents, character needs/planning/memory/social life?
-
-Use **AI Citizens / #29**.
-
-### Is it about lessons, teaching or learner state?
-
-It probably belongs in **School of the Ancients**, consuming Matrix through an API.
-
----
+The organization [research index](https://github.com/School-of-the-Ancients/school-of-the-ancients-roadmap/blob/main/RESOURCES.md) owns Citizens/motion/community references. [Matrix resources](RESOURCES.md) owns creation references and links back rather than duplicating that catalog. Manfred/private context and external compute remain separately owned integrations, not mandatory demo backends.
 
 # 8. Repository cleanup policy
 
-For now, organize by **documentation and ownership before moving code**.
+Keep the existing project and code. Organize documentation and ownership without mass moves, a new roadmap repository or an engine rewrite. Preserve scripts, active worktrees, PR dependencies, history and save compatibility.
 
-Do not perform a mass directory move merely to make the tree prettier. The repository contains validated scripts and historical release paths; gratuitous moves break runbooks and complicate future reviews.
+Keep one active slice in `IMPLEMENTATION_PLAN.md`: goal, actual base, in-scope outcome, exclusions, acceptance/evidence and blockers. Record and continue an already-selected compatible slice rather than replacing it. New references do not silently change scope or #122 acceptance.
 
-Preferred cleanup order:
+Detailed observations belong in checkpoints, runbooks and `Validation/`; historical “next” suggestions do not override the active queue. Keep exact source/PR links. Open PR, merged source, running service and wearer-tested build are distinct states.
 
-1. maintain this project map;
-2. label/document issue ownership;
-3. make new code follow current track boundaries;
-4. gradually isolate shared contracts;
-5. move legacy code only when there is a concrete maintenance benefit and tests cover the move.
+The documentation review is not blanket code approval or new runtime evidence. Refresh refs before integration. Do not infer unpushed work, merge unrelated runtime PRs or close umbrella issues merely to shrink a board. Pin links to candidate-only files until their owning code is merged.
 
-The goal is that a human or AI agent can enter the repository and understand the architecture without reverse-engineering its historical iterations.
+Portals, the upgrader, full society, global mapping and multiplayer remain future work unless selected. The existing Creator Mode goal remains active. **Do not rebuild or restart the project.**
