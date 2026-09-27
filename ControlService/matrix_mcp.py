@@ -39,29 +39,34 @@ def matrix_scene_summary() -> dict:
                                          idempotentHint=False, openWorldHint=False))
 def matrix_move_object(room_id: str, scene_revision: int, object_id: str,
                        expected_asset_id: str, position: dict[str, float],
-                       rotation: dict[str, float] | None = None) -> dict:
-    """Move or turn one existing virtual-floor object after native approval.
+                       rotation: dict[str, float] | None = None,
+                       scale: dict[str, float] | None = None) -> dict:
+    """Move, turn, or resize one existing virtual-floor object after native approval.
 
     Use current room_id and scene_revision from Matrix context or
     matrix_scene_summary. Position is the target in room metres. Optional
     rotation is a complete x/y/z Euler-degrees target; omitted rotation keeps
-    the current orientation. The asset ID must match the object. The runtime
-    must acknowledge and show the whole requested transform; queued or
-    unconfirmed does not mean changed. This tool does not operate on physical
-    AR surfaces.
+    the current orientation. Optional scale is a complete x/y/z unitless
+    target in [0.01, 20]; omitted scale keeps the current scale. Requires
+    paused Creator Mode. The asset ID and observed transform must still match
+    when the browser executes. A succeeded receipt includes the complete
+    observed transform; queued or unconfirmed does not mean changed. This
+    tool does not operate on physical AR surfaces.
     """
     value = {"room_id": room_id, "scene_revision": scene_revision,
              "object_id": object_id, "expected_asset_id": expected_asset_id,
              "position": position}
     if rotation is not None:
         value["rotation"] = rotation
+    if scale is not None:
+        value["scale"] = scale
     return move_object(os.environ["MATRIX_CONTROL_URL"], os.environ["MATRIX_CONTROL_TOKEN"],
                        value)
 
 
 @server.tool(annotations=ToolAnnotations(readOnlyHint=True))
 def matrix_move_status(request_id: str) -> dict:
-    """Read the runtime receipt for a Matrix move. Never retry a queued move."""
+    """Read the receipt and complete observed transform. Never retry a queued move."""
     return move_status(os.environ["MATRIX_CONTROL_URL"], os.environ["MATRIX_CONTROL_TOKEN"], request_id)
 
 
@@ -249,6 +254,9 @@ def matrix_set_display(room_id: str, scene_revision: int, object_id: str,
 
     Inspect the current object first. Requires paused Creator Mode; the request
     carries the exact observed old descriptor and returns a receipt to verify.
+    Bindings include object-transform (objectId), which shows a referenced
+    object's live pose, unitless scale, and available local dimensions in metres.
+    Inspect the board entity to read the same current observation as the display.
     """
     return display_action(os.environ["MATRIX_CONTROL_URL"],
                           os.environ["MATRIX_CONTROL_TOKEN"],

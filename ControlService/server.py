@@ -110,7 +110,8 @@ def display_descriptor(value):
     require(binding is None or
             type(binding) is dict and
             (set(binding) == {"kind"} and binding["kind"] in ("game-progress", "gravity") or
-             set(binding) == {"kind", "objectId"} and binding["kind"] == "rigid-body" and
+             set(binding) == {"kind", "objectId"} and
+             binding["kind"] in ("rigid-body", "object-transform") and
              plain(binding["objectId"], 1, 128)),
             "Invalid Matrix display binding")
     return copy.deepcopy(value)
@@ -305,10 +306,11 @@ def entity_outcome(value, op, item, current):
             value["schemaVersion"] == 1, "Invalid entity action outcome")
     object_id = item["objectId"]
     if op == "inspect_entity":
-        require(set(value) == {"schemaVersion", "kind", "roomId", "object",
-                               "rigidState", "colliderScope", "availableActions",
-                               "creatorMode", "gameStatus", "gameRoles", "agentGrab",
-                               "roomContext"} and
+        keys = {"schemaVersion", "kind", "roomId", "object",
+                "rigidState", "colliderScope", "availableActions",
+                "creatorMode", "gameStatus", "gameRoles", "agentGrab",
+                "roomContext"}
+        require(set(value) in (keys, keys | {"displayObservation"}) and
                 value["kind"] == "entity-inspection" and
                 value["roomId"] == current["scene"]["roomId"] and
                 type(value["object"]) is dict and
@@ -318,6 +320,30 @@ def entity_outcome(value, op, item, current):
         candidate["objects"] = [value["object"] if obj["objectId"] == object_id else obj
                                 for obj in candidate["objects"]]
         inspected_scene = scene(candidate)
+        if "displayObservation" in value:
+            display = value["object"].get("display")
+            observation = value["displayObservation"]
+            if display is None:
+                require(observation is None, "Unexpected display observation")
+            else:
+                require(type(observation) is dict and set(observation) ==
+                        {"status", "source", "text"},
+                        "Invalid display observation")
+                binding = display["binding"]
+                source = {
+                    None: "authored-text",
+                    "game-progress": "MatrixWorld.game",
+                    "gravity": "MatrixWorld.rigidGravity",
+                    "rigid-body": "MatrixWorld.rigidPhysics",
+                    "object-transform": "MatrixWorld.scene.objects"
+                }[None if binding is None else binding["kind"]]
+                require(observation["source"] == source and
+                        observation["status"] in (
+                            ("static",) if binding is None else
+                            ("current", "unavailable")) and
+                        (observation["text"] == "" if binding is None else
+                         bool(text(observation["text"], "display observation", limit=2048))),
+                        "Invalid display observation")
         require(value["colliderScope"] == ("virtual-floor" if
                 "rigidBody" in value["object"] else None), "Invalid collider scope")
         actions = value["availableActions"]
@@ -1120,7 +1146,7 @@ def command(value, *, allow_precondition=False):
     if op == "spawn":
         allowed |= {"anchorId", "transform", "placement"}
     if op == "set_transform":
-        allowed |= {"anchorId", "placement"}
+        allowed |= {"anchorId", "placement", "expectedAssetId", "expectedCreatorRevision"}
     if allow_precondition and op in RESIDENT_PRECONDITION_OPS:
         allowed.add("expectedTransform")
     if allow_precondition and op == "attach_component":
@@ -1133,6 +1159,8 @@ def command(value, *, allow_precondition=False):
     for key in ("assetId", "objectId", "anchorId", "componentId", "targetObjectId"):
         if key in value:
             result[key] = text(value[key], key, empty=key == "anchorId")
+    if "expectedAssetId" in value:
+        result["expectedAssetId"] = text(value["expectedAssetId"], "expectedAssetId")
     if "transform" in value:
         result["transform"] = transform(value["transform"])
     if "expectedTransform" in value:
@@ -2960,6 +2988,18 @@ class State:
                 elif item["op"] == "set_transform":
                     obj = next((obj for obj in self.latest["scene"]["objects"]
                                 if obj["objectId"] == item["objectId"]), None)
+                    if "expectedAssetId" in item:
+                        mode = self.latest.get("creatorMode") or {}
+                        require(web_virtual_floor_ready(self.latest) and
+                                mode.get("mode") == "creator" and
+                                mode.get("simulation") == "paused" and
+                                not self.pending,
+                                "Edit transforms only in paused Creator Mode", 409)
+                        require(obj is not None and obj["anchorId"] == "web-floor" and
+                                obj["assetId"] == item["expectedAssetId"] and
+                                obj["transform"] == item.get("expectedTransform") and
+                                mode.get("revision") == item.get("expectedCreatorRevision"),
+                                "Transform target changed; inspect it again", 409)
                     if obj is not None and "physics" in obj:
                         require_physics_eligible(obj, self.latest["assets"], self.web_assets.list(),
                                                  item["transform"])
@@ -3057,9 +3097,9 @@ class State:
             return {"commands": copy.deepcopy(checked)}
 
     def agent_move(self, value):
-        """Queue one virtual-floor position or rotation edit through the normal command path."""
+        """Queue one virtual-floor transform edit through the normal command path."""
         required = {"room_id", "scene_revision", "object_id", "expected_asset_id", "position"}
-        require(isinstance(value, dict) and required <= set(value) <= required | {"rotation"},
+        require(isinstance(value, dict) and required <= set(value) <= required | {"rotation", "scale"},
                 "Invalid Matrix move request")
         room_id = text(value["room_id"], "room_id")
         object_id = text(value["object_id"], "object_id")
@@ -3074,6 +3114,11 @@ class State:
             require(isinstance(value["rotation"], dict) and set(value["rotation"]) == {"x", "y", "z"},
                     "Invalid Matrix move rotation")
             rotation = vector(value["rotation"], "rotation")
+        scale = None
+        if "scale" in value:
+            require(isinstance(value["scale"], dict) and set(value["scale"]) == {"x", "y", "z"},
+                    "Invalid Matrix move scale")
+            scale = vector(value["scale"], "scale", True)
         with self.lock:
             self.expire()
             require(self.online() and self.latest is not None, self.room_unavailable_message(), 409)
@@ -3082,6 +3127,9 @@ class State:
                     "Matrix scene changed; inspect the current room and retry", 409)
             require(web_virtual_floor_ready(current),
                     "This Matrix tool requires a ready WebXR virtual floor", 409)
+            mode = current.get("creatorMode") or {}
+            require(mode.get("mode") == "creator" and mode.get("simulation") == "paused",
+                    "Edit transforms only in paused Creator Mode", 409)
             require(not current.get("readOnly") and not self.pending,
                     "Matrix world is not ready for a new move", 409)
             item = next((item for item in current["scene"]["objects"] if item["objectId"] == object_id), None)
@@ -3091,8 +3139,18 @@ class State:
             transform["position"] = position
             if rotation is not None:
                 transform["rotation"] = rotation
+            if scale is not None:
+                transform["scale"] = scale
+            residents = (current.get("citizensState") or {}).get("residents", [])
+            if any(resident["objectId"] == object_id for resident in residents):
+                require(abs(transform["position"]["y"]) <= .05 and
+                        all(transform["scale"][axis] == .7 for axis in ("x", "y", "z")),
+                        "Citizens resident requires floor height and 0.7 scale", 409)
             queued = self.queue([{"op": "set_transform", "objectId": object_id,
-                                  "transform": transform}])["commands"][0]
+                                  "transform": transform,
+                                  "expectedTransform": copy.deepcopy(item["transform"]),
+                                  "expectedAssetId": asset_id,
+                                  "expectedCreatorRevision": mode["revision"]}])["commands"][0]
             request_id = queued["requestId"]
             self.agent_move_ids[request_id] = {"roomId": room_id, "objectId": object_id,
                                                "assetId": asset_id, "transform": transform}
@@ -3119,6 +3177,8 @@ class State:
                      item["assetId"] == issued["assetId"] and item["anchorId"] == "web-floor" and
                      item["transform"] == issued["transform"]), None)
                 result["status"] = "succeeded" if observed else "unconfirmed"
+                if observed:
+                    result["transform"] = copy.deepcopy(observed["transform"])
             elif "outcome unknown" in receipt["error"]:
                 result["status"] = "unconfirmed"
             else:

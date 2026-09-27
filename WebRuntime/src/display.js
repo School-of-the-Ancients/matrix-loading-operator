@@ -15,7 +15,8 @@ export function validDisplay(value){
   const binding=value.binding;
   return binding===null||
     exact(binding,['kind'])&&['game-progress','gravity'].includes(binding.kind)||
-    exact(binding,['kind','objectId'])&&binding.kind==='rigid-body'&&validId(binding.objectId);
+    exact(binding,['kind','objectId'])&&
+      ['rigid-body','object-transform'].includes(binding.kind)&&validId(binding.objectId);
 }
 
 export function displayObservation(world,display){
@@ -40,6 +41,27 @@ export function displayObservation(world,display){
       `Gravity: (${decimal(g.x)}, ${decimal(g.y)}, ${decimal(g.z)}) m/s²`};
   }
   const object=world.scene?.objects?.find(item=>item.objectId===binding.objectId);
+  if(binding.kind==='object-transform'){
+    const source='MatrixWorld.scene.objects';
+    if(!object)return {status:'unavailable',source,text:'Bound object unavailable.'};
+    const pose=object.transform;
+    if(!pose||!['position','rotation','scale'].every(part=>
+       ['x','y','z'].every(axis=>Number.isFinite(pose[part]?.[axis]))))
+      return {status:'unavailable',source,text:'Bound transform unavailable.'};
+    const triple=(part,digits=2)=>['x','y','z'].map(axis=>pose[part][axis].toFixed(digits)).join(', ');
+    let size='';
+    // Catalog bounds are already available. Procedural bounds would rebuild
+    // the mesh on every board repaint, so show its live scale without a size.
+    const asset=world.asset?.(object.assetId);
+    const bounds=asset?.localBounds,spawnScale=asset?.spawnScale??1;
+    if(bounds&&Number.isFinite(spawnScale)&&spawnScale>0&&
+       ['x','y','z'].every(axis=>Number.isFinite(bounds.size?.[axis])&&bounds.size[axis]>0))
+      size=`; local size (m) (${['x','y','z'].map(axis=>
+        (bounds.size[axis]*spawnScale*pose.scale[axis]).toFixed(3)).join(', ')})`;
+    return {status:'current',source,text:
+      `Position (m) (${triple('position')}); rotation (deg) (${triple('rotation')}); `+
+      `scale (unitless) (${triple('scale',3)})${size}.`};
+  }
   if(!object?.rigidBody)
     return {status:'unavailable',source:'MatrixWorld.rigidPhysics',text:'Bound body unavailable.'};
   let state=null;

@@ -31,6 +31,8 @@ class MatrixARVirtualFloorTests(unittest.TestCase):
                                  "animationClips": ["Flight"]}],
                      "anchors": [{"anchorId": "web-floor", "displayName": "Virtual floor"}],
                      "animationSchemaVersion": 1, "componentSchemaVersion": 1,
+                     "creatorMode": {"schemaVersion": 1, "mode": "creator",
+                                     "simulation": "paused", "revision": 0},
                      "roomContext": {"mode": "ar", "state": "ready", "alignmentVerified": False,
                                      "message": "Virtual-floor objects are unanchored previews"}}
         self.exchange()

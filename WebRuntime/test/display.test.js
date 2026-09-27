@@ -2,16 +2,89 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import {displayObservation,validDisplay} from '../src/display.js';
 import {MatrixView} from '../src/view.js';
+import {MatrixWorld} from '../src/protocol.js';
+import {storedWorld,restoreStoredWorld} from '../src/scene_store.js';
 
 const base={schemaVersion:1,title:'Results',body:'Move the objects, then inspect the outcome.',binding:null};
 
 test('display schema accepts data bindings and rejects executable or malformed fields',()=>{
   for(const binding of [null,{kind:'game-progress'},{kind:'gravity'},
-    {kind:'rigid-body',objectId:'orb-1'}])assert.equal(validDisplay({...base,binding}),true);
+    {kind:'rigid-body',objectId:'orb-1'},
+    {kind:'object-transform',objectId:'block-1'}])
+    assert.equal(validDisplay({...base,binding}),true);
   for(const display of [{...base,script:'alert(1)'},
     {...base,binding:{kind:'game-progress',script:'alert(1)'}},
     {...base,binding:{kind:'rigid-body',objectId:''}},
+    {...base,binding:{kind:'object-transform',objectId:''}},
+    {...base,binding:{kind:'object-transform',objectId:'block-1',ratio:2}},
     {...base,title:'\u0000bad'}])assert.equal(validDisplay(display),false);
+});
+
+test('object-transform board, entity inspection, and reopened world share current scale',()=>{
+  let next=0;
+  const world=new MatrixWorld(()=>`exhibit-${++next}`);
+  const pose={position:{x:0,y:0,z:-2},rotation:{x:0,y:0,z:0},
+    scale:{x:1,y:1,z:1}};
+  const specimen=world.execute({requestId:'spawn-block',op:'spawn',assetId:'block',
+    anchorId:'web-floor',transform:pose}).objectId;
+  const board=world.execute({requestId:'spawn-board',op:'spawn',assetId:'wall',
+    anchorId:'web-floor',transform:{...pose,position:{x:2,y:0,z:-2}}}).objectId;
+  const display={...base,binding:{kind:'object-transform',objectId:specimen}};
+  assert.equal(world.execute({requestId:'set-board',op:'set_display',
+    objectId:board,expectedDisplay:null,display}).ok,true);
+  const changed={position:{x:.5,y:0,z:-2},rotation:{x:0,y:30,z:0},
+    scale:{x:2,y:.75,z:1.25}};
+  assert.equal(world.execute({requestId:'scale-block',op:'set_transform',
+    objectId:specimen,transform:changed}).ok,true);
+  const reading=displayObservation(world,display);
+  assert.equal(reading.source,'MatrixWorld.scene.objects');
+  assert.equal(reading.status,'current');
+  assert.match(reading.text,/scale \(unitless\) \(2\.000, 0\.750, 1\.250\)/);
+  assert.match(reading.text,/local size \(m\) \(2\.000, 0\.750, 1\.250\)/);
+  assert.doesNotMatch(reading.text,/ratio|baseline/i);
+  const inspected=world.execute({requestId:'inspect-board',op:'inspect_entity',
+    objectId:board});
+  assert.equal(inspected.ok,true);
+  assert.deepEqual(inspected.outcome.displayObservation,reading);
+
+  const reopened=new MatrixWorld();
+  restoreStoredWorld(reopened,storedWorld(world));
+  assert.equal(reopened.requireObject(specimen).objectId,specimen);
+  assert.deepEqual(reopened.requireObject(specimen).transform,changed);
+  assert.deepEqual(reopened.requireObject(board).display,display);
+  assert.deepEqual(displayObservation(reopened,display),reading);
+  assert.deepEqual(reopened.inspectEntity(board).displayObservation,reading);
+
+  reopened.requireObject(specimen).transform.scale.x=1.5;
+  assert.match(displayObservation(reopened,display).text,
+    /local size \(m\) \(1\.500, 0\.750, 1\.250\)/);
+  reopened.scene.objects=reopened.scene.objects.filter(item=>item.objectId!==specimen);
+  assert.equal(displayObservation(reopened,display).status,'unavailable');
+});
+
+test('procedural transform board refreshes live scale without rebuilding geometry',()=>{
+  let generated=0;
+  const target={objectId:'geometry-1',assetId:'matrix:procedural',
+    transform:{position:{x:0,y:0,z:-2},rotation:{x:0,y:0,z:0},
+      scale:{x:1,y:1,z:1}}};
+  const display={...base,binding:{kind:'object-transform',objectId:'geometry-1'}};
+  const drawn=[];
+  const context={fillRect(){},strokeRect(){},fillText(value){drawn.push(String(value));},
+    measureText(value){return {width:String(value).length*8};}};
+  const board={canvas:{getContext:()=>context},texture:{needsUpdate:false},
+    lastSignature:'',lastUpdated:-Infinity};
+  const view=Object.create(MatrixView.prototype);
+  view.world={scene:{objects:[target,{objectId:'board-1',display}]},
+    asset:()=>({assetId:'matrix:procedural',spawnScale:1}),
+    objectBounds(){generated++;throw Error('Should not generate mesh for board text');}};
+  view.objectRoots=new Map([['board-1',{userData:{displayBoard:board}}]]);
+  view.refreshDisplays(false,1000);
+  assert.ok(drawn.some(text=>text.includes('1.000')));
+  target.transform.scale.x=1.5;drawn.length=0;
+  view.refreshDisplays(false,1300);
+  assert.ok(drawn.some(text=>text.includes('1.500')));
+  assert.equal(generated,0);
+  assert.doesNotMatch(displayObservation(view.world,display).text,/local size/i);
 });
 
 test('challenge board observes shared progress and unlock rather than keeping a second score',()=>{

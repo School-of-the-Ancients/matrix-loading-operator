@@ -1,11 +1,15 @@
 import copy
+import json
 from pathlib import Path
 import tempfile
+import threading
 import unittest
+import urllib.error
+import urllib.request
 
 from matrix_tool_bridge import (MatrixToolBridge, entity_action, entity_status,
                                 inspect_entity, list_entities)
-from server import APIError, State
+from server import APIError, Server, State
 
 
 POSE = {"position": {"x": 0, "y": .5, "z": 0},
@@ -61,6 +65,7 @@ class MatrixEntityActionTests(unittest.TestCase):
                 "colliderScope": "virtual-floor", "availableActions": actions,
                 "creatorMode": copy.deepcopy(self.snapshot["creatorMode"]),
                 "gameStatus": None, "gameRoles": [],
+                "displayObservation": None,
                 "agentGrab": copy.deepcopy(self.snapshot["agentGrab"]),
                 "roomContext": {"mode": "white-room", "state": "ready",
                                 "alignmentVerified": False}}
@@ -182,6 +187,54 @@ class MatrixEntityActionTests(unittest.TestCase):
         self.assertEqual(queued["status"], "queued")
         self.assertEqual(entity_status(bridge.url, bridge.token,
                                        queued["requestId"])["status"], "queued")
+
+    def test_http_exchange_accepts_typed_live_display_inspection(self):
+        display = {"schemaVersion": 1, "title": "Scale reading", "body": "",
+                   "binding": {"kind": "object-transform", "objectId": "block-1"}}
+        self.snapshot["scene"]["objects"][0]["display"] = display
+        self.exchange()
+        queued = self.state.agent_inspect_entity({"room_id": "web-virtual-room-v1",
+                                                  "scene_revision": self.state.revision,
+                                                  "object_id": "block-1"})
+        observation = {"status": "current", "source": "MatrixWorld.scene.objects",
+                       "text": "Position (m) (0.00, 0.50, 0.00); rotation (deg) "
+                               "(0.00, 0.00, 0.00); scale (unitless) "
+                               "(1.000, 1.000, 1.000); local size (m) "
+                               "(1.000, 1.000, 1.000)."}
+        outcome = self.inspection_outcome([])
+        outcome["displayObservation"] = observation
+        server = Server(("127.0.0.1", 0), self.state, "test-owner-secret-at-least-24-characters")
+        thread = threading.Thread(target=server.serve_forever, daemon=True)
+        thread.start()
+        self.addCleanup(thread.join)
+        self.addCleanup(server.server_close)
+        self.addCleanup(server.shutdown)
+        url = f"http://127.0.0.1:{server.server_port}/api/exchange"
+        def post(result):
+            body = {"clientId": "web-client", "snapshot": self.snapshot,
+                    "results": [result]}
+            request = urllib.request.Request(url, data=json.dumps(body).encode(),
+                headers={"Content-Type": "application/json",
+                         "Authorization": "Bearer test-owner-secret-at-least-24-characters"})
+            try:
+                with urllib.request.urlopen(request, timeout=3) as response:
+                    return response.status
+            except urllib.error.HTTPError as error:
+                return error.code
+        receipt = {"requestId": queued["requestId"], "ok": True, "error": "",
+                   "objectId": "block-1", "outcome": outcome}
+        self.assertEqual(post(receipt), 200)
+        confirmed = self.state.agent_entity_status(queued["requestId"])
+        self.assertEqual(confirmed["status"], "succeeded")
+        self.assertEqual(confirmed["outcome"]["displayObservation"], observation)
+
+        second = self.state.agent_inspect_entity({"room_id": "web-virtual-room-v1",
+                                                  "scene_revision": self.state.revision,
+                                                  "object_id": "block-1"})
+        bad = copy.deepcopy(outcome)
+        bad["displayObservation"]["source"] = "untrusted-source"
+        self.assertEqual(post({**receipt, "requestId": second["requestId"],
+                               "outcome": bad}), 400)
 
 
 if __name__ == "__main__":

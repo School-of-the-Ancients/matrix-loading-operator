@@ -3,6 +3,8 @@ import assert from 'node:assert/strict';
 import * as THREE from 'three';
 import {MatrixWorld,ROOM_ID,ANCHOR_ID,ASSETS} from '../src/protocol.js';
 import {instantiateAnimatedAsset} from '../src/asset_animation.js';
+import {createCitizensDemo} from '../src/citizens.js';
+import {storedWorld} from '../src/scene_store.js';
 
 const pose=(x=0,y=0,z=-2)=>({position:{x,y,z},rotation:{x:0,y:0,z:0},scale:{x:1,y:1,z:1}});
 const command=(requestId,op,extra={})=>({requestId,op,...extra});
@@ -34,6 +36,55 @@ test('spawn, transform, behavior, undo and restore preserve stable identity',()=
   assert.equal(world.scene.objects.length,0);
   assert.equal(world.execute(command('7','redo')).ok,true);
   assert.equal(world.scene.objects[0].objectId,'object-1');
+});
+
+test('reviewed full-transform edit checks asset, pose, and Creator revision at execution',()=>{
+  const world=new MatrixWorld(()=> 'specimen-1');
+  assert.equal(world.execute(command('spawn','spawn',
+    {assetId:'block',anchorId:ANCHOR_ID,transform:pose()})).ok,true);
+  const before=structuredClone(world.scene);
+  const guarded={objectId:'specimen-1',transform:{...pose(),
+    scale:{x:2,y:.75,z:1.25}},expectedAssetId:'block',
+    expectedTransform:pose(),expectedCreatorRevision:world.creatorMode.revision};
+  for(const patch of [{expectedAssetId:'orb'},
+    {expectedTransform:pose(1)}, {expectedCreatorRevision:world.creatorMode.revision+1}]){
+    const rejected=world.execute(command('stale-edit','set_transform',
+      {...guarded,...patch}));
+    assert.equal(rejected.ok,false);
+    assert.deepEqual(world.scene,before);
+  }
+  const applied=world.execute(command('scale-edit','set_transform',guarded));
+  assert.equal(applied.ok,true);
+  assert.equal(world.requireObject('specimen-1').transform.scale.x,2);
+  world.creatorMode={...world.creatorMode,mode:'play',simulation:'running',
+    revision:world.creatorMode.revision+1};
+  const play=world.execute(command('play-edit','set_transform',
+    {...guarded,expectedTransform:structuredClone(world.requireObject('specimen-1').transform),
+      expectedCreatorRevision:world.creatorMode.revision}));
+  assert.equal(play.ok,false);
+  assert.match(play.error,/Creator Mode/);
+  assert.equal(world.requireObject('specimen-1').transform.scale.x,2);
+});
+
+test('generic transform edits preserve active Citizens resident size and floor height',()=>{
+  let next=0;
+  const world=new MatrixWorld(()=>`resident-object-${++next}`);
+  const simulation=createCitizensDemo(world,{seed:31});
+  world.citizens=simulation.snapshot();
+  const id=world.citizens.residents[0].objectId;
+  const before=structuredClone(world.scene);
+  const prior=structuredClone(world.requireObject(id).transform);
+  for(const transform of [
+    {...prior,scale:{x:1.4,y:.7,z:.7}},
+    {...prior,position:{...prior.position,y:.2}}
+  ]){
+    const rejected=world.execute(command('incompatible-resident','set_transform',
+      {objectId:id,transform}));
+    assert.equal(rejected.ok,false);
+    assert.match(rejected.error,/Citizens resident/);
+    assert.deepEqual(world.scene,before);
+  }
+  assert.deepEqual(storedWorld(world).scene,before);
 });
 
 test('local observed movement validates and receipts without filling authored Undo history',()=>{

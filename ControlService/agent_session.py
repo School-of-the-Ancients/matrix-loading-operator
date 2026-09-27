@@ -365,7 +365,7 @@ def _mcp_approval_description(params: dict) -> tuple[str, bool]:
             isinstance(arguments, dict) and
             {"room_id", "scene_revision", "object_id", "expected_asset_id", "position"} <=
             set(arguments) <=
-            {"room_id", "scene_revision", "object_id", "expected_asset_id", "position", "rotation"} and
+            {"room_id", "scene_revision", "object_id", "expected_asset_id", "position", "rotation", "scale"} and
             type(arguments["scene_revision"]) is int and arguments["scene_revision"] >= 0 and
             all(isinstance(arguments[key], str) and
                 re.fullmatch(r"[A-Za-z0-9._:-]{1,128}", arguments[key])
@@ -378,13 +378,22 @@ def _mcp_approval_description(params: dict) -> tuple[str, bool]:
              isinstance(arguments["rotation"], dict) and set(arguments["rotation"]) == {"x", "y", "z"} and
              all(type(arguments["rotation"][axis]) in (int, float) and
                  math.isfinite(arguments["rotation"][axis]) and
-                 -36000 <= arguments["rotation"][axis] <= 36000 for axis in ("x", "y", "z")))):
+                 -36000 <= arguments["rotation"][axis] <= 36000 for axis in ("x", "y", "z"))) and
+            ("scale" not in arguments or
+             isinstance(arguments["scale"], dict) and set(arguments["scale"]) == {"x", "y", "z"} and
+             all(type(arguments["scale"][axis]) in (int, float) and
+                 math.isfinite(arguments["scale"][axis]) and
+                 .01 <= arguments["scale"][axis] <= 20 for axis in ("x", "y", "z")))):
         point = arguments["position"]
         rotation = arguments.get("rotation")
+        scale = arguments.get("scale")
         angle = (f" with rotation ({rotation['x']}, {rotation['y']}, {rotation['z']}) degrees"
                  if rotation is not None else "")
-        summary = (f"Move {arguments['expected_asset_id']} ({arguments['object_id']}) in "
-                   f"{arguments['room_id']} to ({point['x']}, {point['y']}, {point['z']}){angle} "
+        size = (f" with unitless scale ({scale['x']}, {scale['y']}, {scale['z']})"
+                if scale is not None else "")
+        summary = (f"Transform {arguments['expected_asset_id']} ({arguments['object_id']}) in "
+                   f"{arguments['room_id']} to position ({point['x']}, {point['y']}, {point['z']})"
+                   f"{angle}{size} "
                    f"at scene revision {arguments['scene_revision']}.")
         if len(summary) <= MAX_XR_APPROVAL_SUMMARY:
             return summary, True

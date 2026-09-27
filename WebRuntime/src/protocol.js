@@ -9,7 +9,7 @@ import {generateProcedural,listProceduralGenerators} from './procedural.js';
 import {eulerDegreesToQuaternion,quaternionToEulerDegrees,RIGID_FLOOR_ID} from './physics_rigid.js';
 import {canPlayWorld,createCreatorMode} from './creator_mode.js';
 import {assertCompatibleGameScene,bindGame,recordGameEvent,updateGame} from './game.js';
-import {validDisplay} from './display.js';
+import {displayObservation,validDisplay} from './display.js';
 export const ROOM_ID = 'web-virtual-room-v1';
 export const ANCHOR_ID = 'web-floor';
 export const PROCEDURAL_ASSET_ID = 'matrix:procedural';
@@ -547,6 +547,7 @@ export class MatrixWorld {
       this.game.bindings[role.roleId]?.includes(objectId)).map(role=>clone(role))||[];
     return {schemaVersion:1,kind:'entity-inspection',roomId:this.scene.roomId,
       object:clone(object),rigidState:rigidState?clone(rigidState):null,
+      displayObservation:object.display?displayObservation(this,object.display):null,
       colliderScope:object.rigidBody?'virtual-floor':null,availableActions,
       creatorMode:clone(this.creatorMode),gameStatus:this.game?{
         phase:this.game.state.phase,score:this.game.state.score,
@@ -723,6 +724,17 @@ export class MatrixWorld {
           throw Error('Invalid expectedTransform precondition');
         if(!sameTransform(this.requireObject(command.objectId).transform,command.expectedTransform))
           throw Error('Object transform changed since command was queued');
+      }
+      if(Object.hasOwn(command,'expectedAssetId')){
+        if(op!=='set_transform'||!validId(command.expectedAssetId)||
+           this.requireObject(command.objectId).assetId!==command.expectedAssetId)
+          throw Error('Object asset changed since command was queued');
+      }
+      if(op==='set_transform'&&Object.hasOwn(command,'expectedCreatorRevision')){
+        if(!Number.isSafeInteger(command.expectedCreatorRevision)||
+           command.expectedCreatorRevision!==this.creatorMode.revision||
+           this.creatorMode.mode!=='creator'||this.creatorMode.simulation!=='paused')
+          throw Error('Creator Mode changed since command was queued');
       }
       if(Object.hasOwn(command,'expectedTargetTransform')){
         if(op!=='attach_component'||!validExpectedTransform(command.expectedTargetTransform))
@@ -1088,6 +1100,10 @@ export class MatrixWorld {
           if (!validTransform(command.transform)) throw Error('Invalid transform');
           if (command.anchorId && command.anchorId!==object.anchorId) throw Error('Changing an object anchor is not supported');
           {const resolved=this.resolvedTransform(command,object.assetId,object.anchorId);
+            if(this.citizens?.residents?.some(resident=>resident.objectId===object.objectId)&&
+               (Math.abs(resolved.position.y)>.05||
+                !['x','y','z'].every(axis=>resolved.scale[axis]===.7)))
+              throw Error('Citizens resident requires floor height and 0.7 scale');
             if(object.physics)this.assertPhysicsEligible(object,resolved,{verified:!this.spatial});
             if(object.rigidBody&&this.rigidSceneReference===this.scene&&
                this.rigidPhysics?.state(object.objectId)?.held)

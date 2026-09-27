@@ -3,6 +3,7 @@ from pathlib import Path
 import tempfile
 import unittest
 
+from agent_session import _mcp_approval_description
 from matrix_tool_bridge import MatrixToolBridge, display_action, display_status, scene_summary
 from server import APIError, State, command, display_descriptor, scene
 
@@ -53,13 +54,17 @@ class MatrixDisplayTests(unittest.TestCase):
 
     def test_descriptor_matches_plain_text_versioned_contract(self):
         for binding in (None, {"kind": "game-progress"}, {"kind": "gravity"},
-                        {"kind": "rigid-body", "objectId": "block-1"}):
+                        {"kind": "rigid-body", "objectId": "block-1"},
+                        {"kind": "object-transform", "objectId": "block-1"}):
             self.assertEqual(display_descriptor({**DISPLAY, "binding": binding})["binding"],
                              binding)
         for bad in ({**DISPLAY, "title": ""}, {**DISPLAY, "body": "x" * 601},
                     {**DISPLAY, "title": "\x00"},
                     {**DISPLAY, "schemaVersion": True},
                     {**DISPLAY, "binding": {"kind": "rigid-body", "objectId": ""}},
+                    {**DISPLAY, "binding": {"kind": "object-transform", "objectId": ""}},
+                    {**DISPLAY, "binding": {"kind": "object-transform",
+                                             "objectId": "block-1", "ratio": 2}},
                     {**DISPLAY, "binding": {"kind": "game-progress", "extra": 1}}):
             with self.assertRaises(APIError):
                 display_descriptor(bad)
@@ -124,6 +129,38 @@ class MatrixDisplayTests(unittest.TestCase):
         reopened = self.state.load_world_checkpoint("display-board")["world"]
         self.assertEqual(reopened, world)
         self.assertEqual(reopened["scene"]["objects"][0]["display"], DISPLAY)
+
+    def test_transform_binding_and_specimen_pose_survive_checkpoint(self):
+        specimen = {"objectId": "specimen-1", "assetId": "block",
+                    "anchorId": "web-floor", "transform": {**copy.deepcopy(POSE),
+                        "scale": {"x": 2, "y": .75, "z": 1.25}}}
+        self.snapshot["scene"]["objects"].append(specimen)
+        self.snapshot["assets"].append({"assetId": "block", "displayName": "Block"})
+        self.exchange()
+        board = {**DISPLAY, "title": "Scale Exhibit",
+                 "binding": {"kind": "object-transform", "objectId": "specimen-1"}}
+        queued = self.state.agent_display_action(self.request("set", display=board))
+        self.exchange(display=board, request_id=queued["requestId"])
+        self.assertEqual(self.state.agent_display_status(queued["requestId"])["status"],
+                         "succeeded")
+        objects = scene_summary(self.state)["objects"]
+        self.assertEqual(objects[0]["display"], board)
+        self.assertEqual(objects[1]["transform"]["scale"], specimen["transform"]["scale"])
+        world = {"version": 2, "scene": copy.deepcopy(self.state.latest["scene"]),
+                 "game": None, "creatorMode": copy.deepcopy(self.snapshot["creatorMode"]),
+                 "rigidGravity": copy.deepcopy(self.snapshot["rigidGravity"])}
+        self.state.save_world_checkpoint("scale-exhibit", world)
+        reopened = self.state.load_world_checkpoint("scale-exhibit")["world"]
+        self.assertEqual(reopened["scene"]["objects"], world["scene"]["objects"])
+
+        args = {"room_id": "web-virtual-room-v1", "scene_revision": self.state.revision,
+                "object_id": "board", "display": board}
+        approval = {"serverName": "matrix_webxr",
+                    "message": 'Allow the matrix_webxr MCP server to run tool "matrix_set_display"?',
+                    "_meta": {"codex_approval_kind": "mcp_tool_call", "tool_params": args}}
+        summary, reviewable = _mcp_approval_description(approval)
+        self.assertTrue(reviewable)
+        self.assertIn("object-transform:specimen-1", summary)
 
 
 if __name__ == "__main__":

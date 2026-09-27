@@ -19,7 +19,9 @@ Citizens. Version 3 requires those fields plus a non-null `citizens` section.
 The Immersive Creator Mode candidate permits optional `creatorMode` and
 `rigidGravity` fields in either envelope; old files without them restore to
 paused Creator Mode and default gravity. Scene objects may carry validated
-procedural recipes, rigid configurations, and world-display definitions. Game
+procedural recipes, rigid configurations, and world-display definitions,
+including a board bound to another object's current transform. A generic
+reviewed scale edit remains in that object's ordinary saved transform. Game
 version 2 saves its existing-ID role bindings, credited delivery events,
 objective progress and unlocked exit IDs in the same `game` field. Browser and
 PC validators reject invalid or unavailable pinned generator versions before
@@ -93,7 +95,12 @@ for these routes. Restore requires a second click within ten seconds. The
 browser validates the returned world, exchanges it with the PC service, and
 then writes its local recovery copy. If the exchange fails, it keeps the
 previous browser world. The in-world **Save World** button still creates a
-browser checkpoint and a labeled scene-only PC backup.
+browser checkpoint and a labeled scene-only PC backup. The [isolated Dimensions
+Exhibit trace](../Validation/Immersive-Creator-Desktop-2026-09-26.md#connected-codex-agent-non-physics-dimensions-exhibit)
+saved a block and transform-bound board as `creator-dimensions-exhibit`, changed
+the block's scale after reload, then used the two-step PC UI restore. The same
+block ID and saved `(2, 3, 4)` scale returned; the board again read its current
+local dimensions. This was a desktop run, not a Quest wearer test.
 
 The JSON file under `--scenes/world_checkpoints/` is the PC export. Keep it
 with the matching `--web-assets` catalog to restore its registered GLBs after
