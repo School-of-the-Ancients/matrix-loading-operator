@@ -2433,6 +2433,14 @@ def agent_capability_context(current):
             "creatorMode": current.get("creatorMode")}
 
 
+def agent_room_status(current):
+    """Bounded room readiness from the server-validated runtime snapshot."""
+    room = current.get("roomContext") or {}
+    return {"mode": room.get("mode", "unknown"), "state": room.get("state", "unknown"),
+            "alignmentVerified": room.get("alignmentVerified", False),
+            "readOnly": current.get("readOnly", False)}
+
+
 def agent_runtime_context(state):
     """Refresh metadata for a text turn whose wearer did not opt into spatial data."""
     with state.lock:
@@ -2443,7 +2451,8 @@ def agent_runtime_context(state):
                 **(agent_capability_context(current) if current else
                    {"runtimeDescriptor": None, "capabilityVersions": {},
                     "assetCatalogCount": None, "proceduralGeneratorCount": 0,
-                    "creatorMode": None})}
+                    "creatorMode": None}),
+                "room": agent_room_status(current) if current else None}
 
 
 def agent_turn_context(state, value):
@@ -2491,10 +2500,17 @@ def agent_turn_context(state, value):
             except PlannerError as error:
                 raise APIError(400, str(error)) from None
             frame = checked["frames"][0]
-        def object_summary(item):
-            return {"objectId": item["objectId"], "assetId": item["assetId"],
-                    "anchorId": item["anchorId"], "transform": item["transform"],
-                    **({"procedural": item["procedural"]} if "procedural" in item else {})}
+        asset_names = {item["assetId"]: item["displayName"] for item in current["assets"]}
+        def object_summary(item, *, target=False):
+            result = {"objectId": item["objectId"], "assetId": item["assetId"],
+                      "anchorId": item["anchorId"], "transform": item["transform"],
+                      **({"procedural": item["procedural"]} if "procedural" in item else {})}
+            if target:
+                if item["assetId"] in asset_names:
+                    result["assetDisplayName"] = asset_names[item["assetId"]]
+                if "animation" in item:
+                    result["animation"] = item["animation"]
+            return result
         scene_objects = current["scene"]["objects"]
         priority_ids = [identifier for identifier in
                         (selected_id, target["objectId"] if target else None) if identifier]
@@ -2510,19 +2526,17 @@ def agent_turn_context(state, value):
             if item["objectId"] not in included:
                 summary_objects.append(item)
                 included.add(item["objectId"])
-        room = current.get("roomContext") or {}
         return {"schemaVersion": 1, "kind": "matrix_spatial_context",
                 "inputSource": value["inputSource"], "roomId": room_id,
                 "sceneRevision": state.revision,
                 **agent_capability_context(current),
                 "gameStatus": current.get("gameStatus"),
-                "room": {"mode": room.get("mode", "unknown"), "state": room.get("state", "unknown"),
-                         "alignmentVerified": room.get("alignmentVerified", False),
-                         "readOnly": current.get("readOnly", False)},
-                "selectedObject": object_summary(objects[selected_id]) if selected_id else None,
+                "room": agent_room_status(current),
+                "selectedObject": object_summary(objects[selected_id], target=True) if selected_id else None,
                 "pointingTarget": target, "viewerFrame": frame,
                 "sceneSummary": {"objectCount": len(scene_objects),
-                                 "objects": [object_summary(item) for item in summary_objects],
+                                 "objects": [object_summary(item, target=item["objectId"] in priority_ids)
+                                             for item in summary_objects],
                                  "omittedObjectCount": max(0, len(scene_objects) - 8)}}
 
 
