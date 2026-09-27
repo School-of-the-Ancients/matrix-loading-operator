@@ -1,0 +1,52 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <meta name="theme-color" content="#09141c" />
+  <title>Matrix Citizens · Desktop Simulation</title>
+</head>
+<body>
+  <div class="app-shell">
+    <header class="topbar">
+      <div class="brand"><span class="brand-symbol" aria-hidden="true">◈</span><div><strong>MATRIX CITIZENS</strong><span>Desktop simulation · seeded scenario</span></div></div>
+      <div class="topbar-right"><span class="environment-tag">LOCAL WORLD</span><a href="/web/">Open Matrix Web</a></div>
+    </header>
+
+    <main class="layout">
+      <section class="world-panel" aria-label="Three-dimensional Citizens world">
+        <div id="view" class="world-view"></div>
+        <div class="world-caption"><span class="live-dot" aria-hidden="true"></span><span id="run-state">Starting…</span><span id="clock" class="clock">Day 1 · 00:00</span></div>
+        <p class="world-note">The two colored figures are temporary resident markers. The chair is a shared, one-person resource. Use WASD or arrow keys to move the camera; right-drag to look around.</p>
+      </section>
+
+      <aside class="dashboard" aria-label="Citizens simulation inspector">
+        <section class="dashboard-section control-section">
+          <div class="section-heading"><div><span class="eyebrow">SCENARIO</span><h1>Residents choose what to do</h1></div><span id="tick-count" class="tick-count">Tick 0</span></div>
+          <p class="intro">Needs change over simulated time. Residents choose available activities, travel, and update their needs only when an interaction succeeds.</p>
+          <div class="seed-row"><label for="seed">Seed</label><input id="seed" inputmode="numeric" type="number" min="1" max="4294967295" step="1" value="29" /><button id="reset" type="button">Reset seed</button></div>
+          <div class="controls"><button id="toggle-run" class="primary" type="button">Pause</button><button id="step" type="button">Step one minute</button><button id="save" type="button">Save</button><button id="load" type="button">Load saved</button></div>
+          <p id="feedback" role="status" aria-live="polite">Loading the isolated demo…</p>
+          <p id="latest-event" class="latest-event" aria-live="polite"></p>
+        </section>
+
+        <section class="dashboard-section" aria-labelledby="residents-heading">
+          <div class="section-heading"><div><span class="eyebrow">INSPECT</span><h2 id="residents-heading">Residents</h2></div><span class="subtle">Needs · activity · outcome</span></div>
+          <div id="residents" class="resident-list"></div>
+        </section>
+
+        <section class="dashboard-section" aria-labelledby="resources-heading">
+          <div class="section-heading"><div><span class="eyebrow">SHARED WORLD</span><h2 id="resources-heading">Activities &amp; resources</h2></div></div>
+          <div id="stations" class="station-list"></div>
+        </section>
+
+        <section class="dashboard-section log-section" aria-labelledby="log-heading">
+          <div class="section-heading"><div><span class="eyebrow">OBSERVED</span><h2 id="log-heading">Decision &amp; action log</h2></div><span class="subtle">Newest first</span></div>
+          <ol id="event-log" class="event-log" aria-live="polite"></ol>
+        </section>
+      </aside>
+    </main>
+  </div>
+  <script type="module" src="/src/citizens_demo.js"></script>
+</body>
+</html>

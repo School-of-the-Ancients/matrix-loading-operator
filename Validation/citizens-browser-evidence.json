@@ -1,0 +1,26 @@
+{
+  "url": "http://127.0.0.1:19837/web/citizens.html",
+  "chromeVersion": "153.0.8010.53",
+  "initial": {
+    "tick": "Tick 0",
+    "residents": "Ada\nada\nChoosing next activity\nFullness\n72%\nEnergy\n20%\nFun\n62%\nBo\nbo\nChoosing next activity\nFullness\n42%\nEnergy\n29%\nFun\n54%",
+    "stations": "Chair · Rest\nCapacity 1\nAvailable\nTable · Eat\nCapacity 1\nAvailable",
+    "log": "Run or step the world to see decisions and observed outcomes.",
+    "state": "Paused"
+  },
+  "atTick45": {
+    "tick": "Tick 45",
+    "residents": "Ada\nada\nGoing to explore\nFullness\n95%\nEnergy\n32%\nFun\n78%\n\nCompleted eat at minute 38\n\nBo\nbo\nUsing rest\nchair\nFullness\n65%\nEnergy\n41%\nFun\n97%\n\nCompleted explore at minute 33",
+    "stations": "Chair · Rest\nCapacity 1\nReserved by Bo\nTable · Eat\nCapacity 1\nAvailable",
+    "log": "m 39\nARRIVED · Bo reached chair.\nm 39\nSELECTED · Ada chose explore: fun 79.25, score 11.72 (gap 20.75, travel 2m).\nm 39\nBLOCKED · Ada: chair occupied by bo; rest score 73.13.\nm 38\nCOMPLETED · Ada completed eat; observed outcome updated needs.\nm 34\nSELECTED · Bo chose rest at chair: energy 47.3, score 56.19 (gap 52.7, travel 1.59m).\nm 33\nCOMPLETED · Bo completed explore; observed outcome updated needs.\nm 33\nARRIVED · Ada reached food.\nm 32\nARRIVED · Bo reached an exploration point.\nm 27\nSELECTED · Bo chose explore: fun 74.25, score 16.8 (gap 25.75, travel 2m).\nm 27\nBLOCKED · Bo: food occupied by ada; eat score 23.92.\nm 26\nCOMPLETED · Bo completed rest; observed outcome updated needs.\nm 22\nSELECTED · Ada chose eat at food: hunger 62.1, score 27.61 (gap 37.9, travel 3.15m).\nm 22\nBLOCKED · Ada: chair occupied by bo; rest score 65.75.\nm 21\nCOMPLETED · Ada completed explore; observed outcome updated needs."
+  },
+  "reopenMatched": true,
+  "fixedSeedReplayMatched": true,
+  "corruptSaveRejectedWithoutWorldLoss": true,
+  "normalMatrixWorldUntouched": true,
+  "pageErrors": [],
+  "screenshots": [
+    "citizens-desktop-demo.png",
+    "citizens-decision-log.png"
+  ]
+}

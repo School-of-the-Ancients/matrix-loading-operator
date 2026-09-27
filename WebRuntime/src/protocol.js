@@ -8,8 +8,8 @@ export const ROOM_ID = 'web-virtual-room-v1';
 export const ANCHOR_ID = 'web-floor';
 export const MAX_OBJECTS = 100;
 export const ASSETS = [
-  {assetId:'chair', displayName:'Chair', description:'A wooden chair with a seat and back, about 0.6 by 0.9 metres.', spawnScale:1, localBounds:{center:{x:0,y:.45,z:0},size:{x:.6,y:.9,z:.6}}},
-  {assetId:'table', displayName:'Table', description:'A wooden table about 1.5 metres wide and 0.75 metres high.', spawnScale:1, localBounds:{center:{x:0,y:.375,z:0},size:{x:1.5,y:.75,z:.9}}},
+  {assetId:'chair', displayName:'Chair', description:'A wooden chair with a seat and back, about 0.6 by 0.9 metres.', spawnScale:1, localBounds:{center:{x:0,y:.45,z:0},size:{x:.6,y:.9,z:.6}},interactions:[{kind:'rest',rangeMeters:.8}]},
+  {assetId:'table', displayName:'Table', description:'A wooden table about 1.5 metres wide and 0.75 metres high.', spawnScale:1, localBounds:{center:{x:0,y:.375,z:0},size:{x:1.5,y:.75,z:.9}},interactions:[{kind:'eat',rangeMeters:.9}]},
   {assetId:'wall', displayName:'Wall', description:'A straight wall panel 2 metres wide and 2 metres high.', spawnScale:1, localBounds:{center:{x:0,y:1,z:0},size:{x:2,y:2,z:.12}}},
   {assetId:'pedestal', displayName:'Pedestal', description:'A stone display pedestal.', spawnScale:1, localBounds:{center:{x:0,y:.5,z:0},size:{x:.6,y:1,z:.6}}},
   {assetId:'block', displayName:'Block', description:'A one metre cube.', spawnScale:1, localBounds:{center:{x:0,y:.5,z:0},size:{x:1,y:1,z:1}}},
@@ -62,7 +62,7 @@ export class MatrixWorld {
     const anchors=this.availableAnchors();
     const context=this.spatial?{mode:'ar',state:this.spatial.originUnavailable||this.spatial.stale?'missing':'ready',message:this.spatial.originUnavailable?'Saved room origin is unavailable. The old world is hidden and editing is paused until it is restored or explicitly archived for a new room.':this.spatial.stale?'A plane holding a scene object is no longer tracked; keep the scene for recovery and recheck the room.':this.spatial.anchors.length?`${this.spatial.anchors.length} WebXR room plane(s) detected. Virtual-floor objects remain visible as unanchored previews.`:'Waiting for Quest room planes. Virtual-floor objects remain visible as unanchored previews.',alignmentVerified:this.spatial.alignmentVerified&&!this.spatial.originUnavailable}
       :{mode:'white-room',state:'ready',message:'Browser virtual floor; physical room alignment is not verified.',alignmentVerified:false};
-    const snapshot={scene:clone(this.scene),assets:clone([...ASSETS,...this.externalAssets].map(({assetId,displayName,description,spawnScale,localBounds,geometry})=>({assetId,displayName,description,spawnScale,...(localBounds?{localBounds}:{}),...(geometry?.animationClips?{animationClips:geometry.animationClips.map(clip=>clip.name)}:{})}))),anchors:clone(anchors),selection:clone(this.selection),behaviorKinds:['rotate','bob'],componentSchemaVersion:1,animationSchemaVersion:1,physicsSchemaVersion:1,physicsStates:this.physicsStates(),roomContext:context};
+    const snapshot={scene:clone(this.scene),assets:clone([...ASSETS,...this.externalAssets].map(({assetId,displayName,description,spawnScale,localBounds,geometry,interactions})=>({assetId,displayName,description,spawnScale,...(localBounds?{localBounds}:{}),...(interactions?{interactions}:{}),...(geometry?.animationClips?{animationClips:geometry.animationClips.map(clip=>clip.name)}:{})}))),anchors:clone(anchors),selection:clone(this.selection),behaviorKinds:['rotate','bob'],componentSchemaVersion:1,animationSchemaVersion:1,physicsSchemaVersion:1,physicsStates:this.physicsStates(),roomContext:context};
     if(this.spatial?.stale||this.spatial?.originUnavailable)snapshot.readOnly=true;
     if (viewer) snapshot.viewer=viewer;
     return snapshot;
@@ -319,7 +319,7 @@ export class MatrixWorld {
     }
     return transform;
   }
-  execute(command) {
+  execute(command,{recordHistory=true}={}) {
     const result={requestId:command?.requestId||'',ok:false,error:'',objectId:''};
     try {
       if (!command || !validId(command.requestId)) throw Error('Invalid requestId');
@@ -329,7 +329,9 @@ export class MatrixWorld {
       if(this.spatial?.stale&&['spawn','duplicate','set_transform','set_behavior','remove_behavior','attach_component','stop_component','remove_component','bind_animation','set_physics','remove_physics','delete','load','undo','redo','select'].includes(op))
         throw Error('Room tracking is stale; editing is paused until the room is recovered');
       const mutation=['spawn','duplicate','set_transform','set_behavior','remove_behavior','attach_component','stop_component','remove_component','bind_animation','set_physics','remove_physics','delete','clear','load'].includes(op);
-      const before=mutation?clone(this.scene):null;
+      // Local finite simulation steps use the same validation and receipt path
+      // without filling the user's scene Undo history with each movement tick.
+      const before=mutation&&recordHistory?clone(this.scene):null;
       let object;
       switch(op) {
         case 'get_scene': case 'list_assets': case 'list_targets': break;
@@ -347,6 +349,25 @@ export class MatrixWorld {
         case 'select':
           object=this.requireObject(command.objectId); result.objectId=object.objectId;
           this.setSelection(object.objectId,object.transform.position,object.anchorId); break;
+        case 'interact':
+          // A finite local outcome: check the advertised action and the current
+          // observed actor pose. Citizens owns intent and resource reservations.
+          if(this.spatial||this.scene.roomId!==ROOM_ID)throw Error('Interaction requires the virtual room');
+          {const actor=this.requireObject(command.actorObjectId);
+            const target=this.requireObject(command.targetObjectId);
+            const advertised=ASSETS.find(asset=>asset.assetId===target.assetId)?.interactions
+              ?.find(item=>item.kind===command.kind);
+            if(actor.objectId===target.objectId||actor.anchorId!==ANCHOR_ID||
+               target.anchorId!==ANCHOR_ID||!advertised)
+              throw Error('Interaction is not advertised by this virtual-floor target');
+            const a=actor.transform.position,b=target.transform.position;
+            const distance=Math.hypot(a.x-b.x,a.z-b.z);
+            if(Math.abs(a.y-b.y)>.3||distance>advertised.rangeMeters)
+              throw Error('Actor is out of interaction range');
+            result.objectId=actor.objectId;
+            result.outcome={kind:command.kind,actorObjectId:actor.objectId,
+              targetObjectId:target.objectId,observedDistanceMeters:Math.round(distance*1000)/1000};}
+          break;
         case 'duplicate':
           object=this.requireObject(command.objectId);
           if (this.scene.objects.length>=MAX_OBJECTS) throw Error('Scene object limit reached');
@@ -452,7 +473,9 @@ export class MatrixWorld {
         case 'redo': this.replay(this.redo,this.undo); break;
         default: throw Error('Unknown operation');
       }
-      if (before) {this.undo.push(before); if(this.undo.length>32)this.undo.shift(); this.redo=[];}
+      if (before) {this.undo.push(before); if(this.undo.length>32)this.undo.shift();}
+      // An unrecorded simulation edit still supersedes any undone future.
+      if (mutation)this.redo=[];
       result.ok=true;
     } catch(error) {result.error=error.message||String(error);}
     return result;

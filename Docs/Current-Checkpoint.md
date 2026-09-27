@@ -1,17 +1,40 @@
 # Matrix Operator checkpoints
 
+## AI Citizens desktop demo candidate (September 26, 2026)
+
+The `codex/ai-citizens-desktop-demo` branch adds an isolated
+[`/web/citizens.html` demo](Citizens-Desktop-Demo.md) under [#29](https://github.com/School-of-the-Ancients/matrix-loading-operator/issues/29).
+Two simple colored residents choose activities from changing needs, move through
+validated local `MatrixWorld` actions, interact with an advertised chair/table,
+and apply need benefits only after matching observed receipts. The chair has
+capacity one; the page shows activity, needs, reservations, and a decision/action
+log. Seeded replay, pause/run/step, and a separate versioned browser-local
+save/reopen are included. This branch candidate is not a claim that the live
+`/web/` Agent Portal world now runs Citizens.
+
+The WebRuntime Node suite passed **155/155**, the Vite build passed, and the
+ControlService Python suite passed **643/643**. In Chrome **153.0.8010.53** on
+the built page at isolated port **19837**, 45 manual ticks showed both resident
+actions and chair contention in the DOM/storage. Close/reopen matched the saved
+state, the same seed replay matched, a corrupt save was rejected without losing
+the active world, and the page reported no errors. See the [demo runbook](Citizens-Desktop-Demo.md)
+for exact commands and limits. This is desktop evidence. The unfinished
+[M4 Quest acceptance checks](../WebRuntime/QUEST3_ACCEPTANCE.md) remain open.
+
 ## Current Matrix Web snapshot (September 26, 2026)
 
 The current generalized Matrix runtime is the [Three.js/WebXR client](../WebRuntime/README.md)
 at `/web/`, backed by the PC-local ControlService and Codex Agent Portal. The
 [project map](../PROJECTS.md) separates it from the supported original Unity
-apps, Matrix World, and AI Citizens. At this snapshot, `main` contains the
-merged Web stack through [PR #98](https://github.com/School-of-the-Ancients/matrix-loading-operator/pull/98)
-at commit `2f6554c`. The earlier
+apps, Matrix World, and AI Citizens. The Web stack through
+[PR #98](https://github.com/School-of-the-Ancients/matrix-loading-operator/pull/98)
+merged at `2f6554c`, followed by [PR #99](https://github.com/School-of-the-Ancients/matrix-loading-operator/pull/99)
+checkpoint documentation at `0cb8c23`. The earlier
 [v0.6.0-preview.1 release](https://github.com/School-of-the-Ancients/matrix-loading-operator/releases/tag/v0.6.0-preview.1)
 freezes commit `add6e299`; it predates these merges and remains a preserved
-working checkpoint. At this snapshot, `v0.7.0-preview.1` was planned as the
-next release checkpoint.
+working checkpoint. The
+[v0.7.0-preview.1 release](https://github.com/School-of-the-Ancients/matrix-loading-operator/releases/tag/v0.7.0-preview.1)
+tags `0cb8c23` and predates this Citizens candidate.
 
 The merged Web stack includes Blender/GLB registration and animation, a
 persistent Codex conversation in the Operator panel, bounded numeric

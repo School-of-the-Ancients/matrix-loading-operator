@@ -37,6 +37,8 @@ Also demonstrate a different interactive exhibit/experiment using the same world
 
 The learner should be able to change an input, observe a result and ask about it. Show units, assumptions and simplifications; check equations/models independently. An engaging explanation alone does not establish scientific accuracy. A historical mentor is a labeled simulation, with sourced facts separated from invented dialogue. Mentor pedagogy and learner records remain School responsibilities.
 
+The September 26 priority change starts Citizens development now at `/web/citizens.html`, an isolated page that reuses WebRuntime/MatrixWorld code but keeps its world and browser storage separate from the main `/web/` Agent Portal. Integration into that live world remains future work. Unfinished M4 wearer checks stay open and can be resumed separately; they are not prerequisites for a desktop simulation. A browser result does not count as Quest acceptance.
+
 ## Keep the architecture we already have
 
 | Part | Existing home | Responsibility |
@@ -50,6 +52,15 @@ The learner should be able to change an input, observe a result and ask about it
 These are responsibilities, not new services. Preserve the existing state owners, API boundaries and [module ownership reference](https://github.com/School-of-the-Ancients/school-of-the-ancients-roadmap/blob/main/MODULES.md). `/web/` remains the current client; `/` and native Unity builds remain supported for their own workflows. Referenced Citizens candidates have separate review/merge status.
 
 **White Room is inspiration, not an engine dependency, prefab identity or required place.** Keep shared HTML/Three.js/WebXR views and agent operations on the same tested state transitions. Creator/Play authority is independent of desktop/VR/AR presentation.
+
+## Current AI Citizens journey
+
+1. Open a small desktop Three.js world with one visible resident and simple existing props. Observe changing needs, available activities, selected goal, movement, interaction and the resulting state change.
+2. Read the resident's current activity, needs and decision/action log. Pause and resume the simulation; repeat a seeded scenario to diagnose the same decisions and outcomes.
+3. Add a second resident sharing the world and objects. Show different choices and one capacity-limited interaction, such as competing for a seat. A failed, cancelled or occupied action must not grant an unobserved benefit.
+4. Save and reopen the supported simulation. Restore resident identities, needs, relevant world objects and valid intent without replaying a stale success. Report missing or incompatible dependencies without overwriting the current world.
+
+Use [#29](https://github.com/School-of-the-Ancients/matrix-loading-operator/issues/29) and its linked issues for the detailed acceptance. Build only missing prerequisites needed by this example. Basic activity continues without an LLM request per frame. Richer character authoring and ComfyUI-to-Blender assets are optional follow-ups.
 
 ## Requirements and evidence
 
