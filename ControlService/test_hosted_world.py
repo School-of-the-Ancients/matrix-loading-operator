@@ -198,6 +198,42 @@ class HostedWorldTests(unittest.TestCase):
                 self.assertNotIn(raw, json.dumps(projected))
                 validate_citizens_checkpoint(projected, world["scene"])
 
+    def test_public_status_keeps_fifo_contention_distinct_from_failure(self):
+        snapshot, world = self.requested_construction()
+        citizens = world["citizens"]
+        citizens["log"].extend([
+            {"tick": 1, "residentId": "bo", "event": "blocked",
+             "message": "Bo is FIFO waiter 1 for chair while Ada holds it."},
+            {"tick": 1, "residentId": "bo", "event": "paused",
+             "message": "Navigation paused: D:/private/owner-route.log"},
+            {"tick": 1, "residentId": "ada", "event": "resumed",
+             "message": "Resumed from D:/private/owner-route.log"},
+        ])
+        citizens["residents"][1]["lastOutcome"] = (
+            "Waiting for D:/private/owner-route.log")
+        validate_citizens_checkpoint(citizens, world["scene"])
+        snapshot["citizensState"] = copy.deepcopy(citizens)
+        self.exchange(snapshot)
+        self.state.save_world_checkpoint("AdaBo", world)
+
+        observation = self.state.hosted_observation()
+        public = observation["world"]["citizens"]
+        self.assertEqual(public, public_hosted_citizens(citizens))
+        self.assertEqual(public_hosted_citizens(public), public)
+        self.assertEqual(public["stations"][0]["claim"]["residentId"], "ada")
+        self.assertEqual(public["stations"][0]["waiters"][0]["residentId"], "bo")
+        self.assertEqual(public["log"][-3]["event"], "blocked")
+        self.assertIn("waiting", public["log"][-3]["message"])
+        self.assertNotIn("failed", public["log"][-3]["message"].lower())
+        self.assertEqual(public["log"][-2]["event"], "paused")
+        self.assertNotIn("failed", public["log"][-2]["message"].lower())
+        self.assertEqual(public["log"][-1]["event"], "resumed")
+        self.assertNotIn("failed", public["log"][-1]["message"].lower())
+        self.assertNotIn("D:/private/", json.dumps(observation))
+        self.assertIn("D:/private/", json.dumps(self.state.latest["citizensState"]))
+        self.assertIn("D:/private/", self.state.world_checkpoint_path("AdaBo").read_text())
+        validate_citizens_checkpoint(public, world["scene"])
+
     def ready_generated_job(self):
         snapshot, world, request = self.generated_service()
         calls = []

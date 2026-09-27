@@ -8,6 +8,7 @@ import {CITIZEN_BENCH_INTERACTION,CITIZEN_BENCH_TRANSFORM,
 import {createProceduralRecipe} from '../src/procedural.js';
 import {storedWorld} from '../src/scene_store.js';
 import {applyHostedObservation,stageHostedObservation} from '../src/hosted_visit.js';
+import {projectCitizensInspector} from '../src/citizens_inspector.js';
 import {MatrixView} from '../src/view.js';
 
 const instance='a'.repeat(32);
@@ -74,6 +75,33 @@ function legacyObservation(observation){
   delete copy.world.citizens.generatedConstruction;
   return copy;
 }
+
+test('visitor accepts public FIFO status while owner contention stays checkpointed',()=>{
+  const {owner,simulation,observe}=fixture();
+  owner.citizens=simulation.step();
+  const ownerState=structuredClone(owner.citizens);
+  assert.ok(ownerState.log.some(item=>item.event==='blocked'&&
+    item.message.includes('chair occupied')));
+  const publicObservation=observe(1);
+  for(const event of publicObservation.world.citizens.log){
+    if(event.event==='blocked')
+      event.message='Citizen is waiting for a station or clear route';
+  }
+  const visitor=new MatrixWorld();
+  applyHostedObservation(visitor,publicObservation);
+  const bo=projectCitizensInspector(visitor.citizens).residents.find(item=>
+    item.id==='bo');
+  assert.equal(bo.reservation.mode,'queue');
+  assert.equal(bo.reservation.holderId,'ada');
+  assert.match(bo.currentSummary,/waiting for rest.*Ada holds it/);
+  assert.ok(visitor.citizens.log.some(item=>item.event==='blocked'&&
+    item.message.includes('waiting')));
+  assert.ok(!visitor.citizens.log.some(item=>item.event==='blocked'&&
+    item.message.includes('failed')));
+  assert.deepEqual(owner.citizens,ownerState);
+  assert.notDeepEqual(visitor.citizens,ownerState,
+    'the visitor is compared with the public projection, not owner diagnostics');
+});
 
 test('desktop and AR visitor project the same checkpointed IDs and later Citizens tick',()=>{
   const {owner,simulation,observe}=fixture();

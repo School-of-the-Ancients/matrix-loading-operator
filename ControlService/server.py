@@ -1211,16 +1211,22 @@ def public_hosted_citizens(citizens):
             if not receipt.get("ok"):
                 receipt["error"] = "Matrix operation failed; inspect PC diagnostics"
     for resident in public.get("residents", []):
-        if (resident.get("lastOutcome", "").startswith("Failed:") or
-                PRIVATE_HOSTED_TEXT.search(resident.get("lastOutcome", ""))):
+        if resident.get("lastOutcome", "").startswith("Failed:"):
             resident["lastOutcome"] = "A previous action failed; inspect PC diagnostics"
+        elif PRIVATE_HOSTED_TEXT.search(resident.get("lastOutcome", "")):
+            resident["lastOutcome"] = "Action details are available on PC"
         for appointment in resident.get("appointments", []):
             if PRIVATE_HOSTED_TEXT.search(appointment.get("reason", "")):
-                appointment["reason"] = "Appointment failed; inspect PC diagnostics"
+                appointment["reason"] = "Appointment details are available on PC"
     for event in public.get("log", []):
-        if (event.get("event") in ("failed", "blocked", "paused") or
-                PRIVATE_HOSTED_TEXT.search(event.get("message", ""))):
+        if event.get("event") == "failed":
             event["message"] = "Citizen work failed; inspect PC diagnostics"
+        elif event.get("event") == "blocked":
+            event["message"] = "Citizen is waiting for a station or clear route"
+        elif event.get("event") == "paused":
+            event["message"] = "Citizen activity paused; inspect PC diagnostics"
+        elif PRIVATE_HOSTED_TEXT.search(event.get("message", "")):
+            event["message"] = "Citizen event details are available on PC"
     return public
 
 
@@ -3861,10 +3867,23 @@ class State:
             return self.capture_status()
 
     def queue(self, raw_commands, *, ordered=False, hosted_procedural=False,
-              reviewed_request_id=None):
+              reviewed_request_id=None, expected_context=None):
         require(isinstance(raw_commands, list) and 0 < len(raw_commands) <= MAX_BATCH,
                 f"Expected 1-{MAX_BATCH} commands")
         checked = [command(item, allow_precondition=True) for item in raw_commands]
+        if expected_context is not None:
+            require(type(expected_context) is dict and set(expected_context) ==
+                    {"expectedClientId", "expectedRevision", "expectedRoomId",
+                     "expectedRuntimeGeneration"} and
+                    len(checked) == 1 and checked[0]["op"] == "spawn",
+                    "Guarded command requires one spawn and four expectations")
+            text(expected_context["expectedClientId"], "expectedClientId")
+            text(expected_context["expectedRoomId"], "expectedRoomId")
+            require(type(expected_context["expectedRevision"]) is int and
+                    0 <= expected_context["expectedRevision"] <= 9007199254740991 and
+                    type(expected_context["expectedRuntimeGeneration"]) is int and
+                    0 <= expected_context["expectedRuntimeGeneration"] <= 9007199254740991,
+                    "Invalid guarded command revision or runtime generation")
         if any(item["op"] in {"create_procedural", "update_procedural"} for item in checked):
             require(len(checked) == 1,
                     "Review one procedural world edit at a time", 409)
@@ -3901,6 +3920,15 @@ class State:
                     "Review conflicting physics and scene commands separately", 409)
         with self.lock:
             self.expire()
+            if expected_context is not None:
+                require(self.online() and self.latest is not None and
+                        self.client_id == expected_context["expectedClientId"] and
+                        self.revision == expected_context["expectedRevision"] and
+                        self.latest["scene"]["roomId"] ==
+                        expected_context["expectedRoomId"] and
+                        self.runtime_generation ==
+                        expected_context["expectedRuntimeGeneration"],
+                        "Connected Matrix client, revision, room or runtime changed; inspect and retry", 409)
             require(not self.learning or not self.learning.restore, "Finish the pending lesson restore before editing", 409)
             require(self.online(), "Headset client is offline", 409)
             require(self.latest is not None, self.room_unavailable_message(), 409)
@@ -6033,6 +6061,7 @@ class State:
         with self.lock:
             self.expire()
             return {"online": self.online(), "clientId": self.client_id, "revision": self.revision,
+                    "runtimeGeneration": self.runtime_generation,
                     "hostWorldId": self.host_world_id,
                     "contentLibrary": True, "snapshot": copy.deepcopy(self.latest),
                     "runtime": copy.deepcopy(self.runtime),
@@ -6524,6 +6553,40 @@ def wants_blender_asset(prompt):
     return bool(re.search(r"\b(blender|blend|3d model|3d asset|mesh|new prefab|new model)\b", prompt, re.I))
 
 
+def offline_web_capability_guidance(prompt, current, *, voice=False):
+    """Explain the current Web capability when the finite CHAT parser refuses it."""
+    explicit = re.search(
+        r"\b(blender|glb|gltf|mesh|animate|animation|clip|flight|flying|loop)\b|"
+        r"\b3d\s+(?:model|asset)\b", prompt, re.I)
+    creative = re.search(
+        r"\b(create|make|build|generate|design)\b|"
+        r"^\s*(?:load|spawn|add|summon|place)\s+(?!(?:scene|room)\b)",
+        prompt, re.I)
+    if not explicit and not creative:
+        return None
+    if not explicit:
+        normalized = re.sub(r"\s+", " ", prompt.strip().lower().rstrip(".!?"))
+        simple = re.fullmatch(r"(?:create|make|build|load|spawn|add|summon|place)\s+(.+)",
+                              normalized)
+        if simple:
+            reference = re.split(r"\s+here$|\s+on\s+", simple[1], maxsplit=1)[0]
+            reference = re.sub(r"^(?:a|an|the|one|another)\s+", "", reference)
+            if any(reference in (asset.get("assetId", "").lower(),
+                                 asset.get("displayName", "").lower())
+                   for asset in current.get("assets", [])):
+                return None
+    return {"commands": [], "requiresApply": False,
+            "status": "needs_clarification",
+            "mode": "capability-guidance" if voice else "offline-rules",
+            "provider": ("Matrix CHAT capability guidance" if voice else
+                         "Offline command parser (not an AI model)"),
+            "assumptions": [],
+            "summary": ("CHAT handles named catalog placement and simple edits. "
+                        "Use CODEX and the current Matrix tools to register or spawn a GLB "
+                        "or bind a named animation clip such as Flight; confirm the Matrix receipt "
+                        "and live scene before treating the change as complete.")}
+
+
 _BLENDER_SESSION_SELECTION = object()
 
 
@@ -6621,6 +6684,10 @@ def plan(state, body, request_context=None, content_stage=0, progress=None, canc
         proposed = (scale_experiment.plan(body, current, request_context[3] if request_context is not None and len(request_context) > 3 else None)
                     if experiment else Planner().plan(prompt, current, saved_scenes=saved_names, mode=mode, **options))
     except PlannerError as error:
+        if web_runtime and mode == "offline-rules" and not experiment:
+            guidance = offline_web_capability_guidance(prompt, current)
+            if guidance is not None:
+                return guidance
         raise APIError(error.status, str(error)) from None
     check_cancelled()
     values = proposed.get("commands")
@@ -6832,6 +6899,8 @@ def cancel_voice(state, body):
 def start_voice(state, body):
     client_id = text(body.get("clientId"), "clientId")
     prior_turns = conversation(body.get("conversation"))
+    web_runtime = body.get("webRuntime", False)
+    require(type(web_runtime) is bool, "Invalid webRuntime flag")
     captured = snapshot(body.get("snapshot"))
     audio = speech.decode_audio(body.get("audioBase64"))
     speech.configuration()
@@ -6873,15 +6942,21 @@ def start_voice(state, body):
                     return
                 public.update(phase="planning", transcript=transcript)
             request = {"text": transcript, "mode": "codex-cli", "codex": preferences,
-                       "conversation": prior_turns, "webRuntime": body.get("webRuntime", False)}
+                       "conversation": prior_turns, "webRuntime": web_runtime}
             if voice_capture_id is not None:
                 request["captureId"] = voice_capture_id
             def progress(phase, detail):
                 with state.lock:
                     if not job["cancelled"]:
                         public.update(phase=phase, progress=detail)
-            result = plan(state, request, request_context=context, progress=progress,
-                          cancelled=lambda: job["cancelled"])
+            # A disconnected Web CHAT voice request reaches this worker rather than
+            # the browser's CODEX route. Keep creative GLB/clip requests out of
+            # the finite planner and give the same capability guidance as text CHAT.
+            guidance = (offline_web_capability_guidance(transcript, captured, voice=True)
+                        if web_runtime and not wants_game(transcript) else None)
+            result = guidance if guidance is not None else plan(
+                state, request, request_context=context, progress=progress,
+                cancelled=lambda: job["cancelled"])
             with state.lock:
                 if job["cancelled"]:
                     state.proposals.pop(result.get("planId"), None)
@@ -7231,8 +7306,21 @@ class Handler(BaseHTTPRequestHandler):
             elif path.startswith("/api/agent/"):
                 data = agent_portal_action(state, path, body)
             elif path == "/api/command":
+                guard_fields = {"expectedClientId", "expectedRevision",
+                                "expectedRoomId", "expectedRuntimeGeneration"}
+                if "commands" in body:
+                    require(set(body) in ({"commands"}, {"commands"} | guard_fields),
+                            "Invalid command envelope")
+                    expected_context = ({key: body[key] for key in guard_fields}
+                                        if guard_fields <= set(body) else None)
+                    commands = body["commands"]
+                else:
+                    require(not guard_fields.intersection(body),
+                            "Invalid command envelope")
+                    expected_context, commands = None, [body]
                 data = self.expected_native_client(
-                    state, lambda: state.queue(body["commands"] if set(body) == {"commands"} else [body]))
+                    state, lambda: state.queue(commands,
+                                               expected_context=expected_context))
             elif path == "/api/save":
                 data = self.expected_native_client(state, lambda: state.save(body.get("name")))
             elif path == "/api/load":

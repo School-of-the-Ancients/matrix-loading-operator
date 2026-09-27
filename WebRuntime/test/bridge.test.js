@@ -28,6 +28,31 @@ test('read-only entity queries return receipts without resetting the live view',
   }finally{globalThis.sessionStorage=previousStorage;}
 });
 
+test('a queued Blender spawn rechecks its request-time guard before execute and sends the failed receipt to the PC',async()=>{
+  const previousStorage=globalThis.sessionStorage;
+  globalThis.sessionStorage={getItem:()=>null,setItem:()=>{}};
+  try{
+    const world=new MatrixWorld(()=> 'must-not-spawn');
+    const bridge=new MatrixBridge(world,()=>'',()=>{});
+    const queued={requestId:'guarded-blender-spawn',op:'spawn',assetId:'block',
+      anchorId:'web-floor',transform:{position:{x:0,y:0,z:-2},
+        rotation:{x:0,y:0,z:0},scale:{x:1,y:1,z:1}}};
+    const exchanges=[];
+    bridge.request=async(_path,body)=>{exchanges.push(body);
+      return {commands:exchanges.length===1?[queued]:[]};};
+    bridge.guardCommand(queued.requestId,()=>{throw Error('Request-time target changed');});
+    const pending=bridge.waitForReceipt(queued.requestId);
+    await bridge.exchange(null);
+    const receipt=await pending;
+    assert.equal(receipt.ok,false);
+    assert.match(receipt.error,/target changed/);
+    assert.equal(world.scene.objects.length,0);
+    await bridge.exchange(null);
+    assert.deepEqual(exchanges[1].results,[receipt]);
+    assert.equal(bridge.commandGuards.has(queued.requestId),false);
+  }finally{globalThis.sessionStorage=previousStorage;}
+});
+
 test('an Operator command delivered after Citizens motion gets a failed receipt without mutation',async()=>{
   const previousStorage=globalThis.sessionStorage;
   globalThis.sessionStorage={getItem:()=>null,setItem:()=>{}};
@@ -364,7 +389,8 @@ test('PC restore waits for an earlier exchange before staging and pauses periodi
       return {commands:[]};
     };
     const first=bridge.tick(true);
-    const restoring=bridge.withExclusiveExchange(()=>applyPCWorld(world,saved,()=>bridge.sync(7)));
+    const restoring=bridge.withExclusiveExchange(syncExclusive=>
+      applyPCWorld(world,saved,()=>syncExclusive(7)));
     assert.equal(bridge.exchangePaused,true);
     await bridge.tick(true);
     assert.equal(requests.length,1,'a periodic pump must stay paused');
@@ -381,6 +407,32 @@ test('PC restore waits for an earlier exchange before staging and pauses periodi
     assert.equal(requests.length,3);
     assert.equal(requests[2].results[0].requestId,'queued-first');
     assert.equal(bridge.receipts.size,0);
+  }finally{globalThis.sessionStorage=previousStorage;}
+});
+
+test('a concurrent sync waits for an exclusive queued-command guard',async()=>{
+  const previousStorage=globalThis.sessionStorage;
+  globalThis.sessionStorage={getItem:()=>null,setItem:()=>{}};
+  try{
+    const bridge=new MatrixBridge(new MatrixWorld(()=> 'guarded-object'),()=>'',()=>{});
+    bridge.running=true;
+    let exchangeCount=0,guardInstalled=false,releaseQueue;
+    bridge.request=async path=>{
+      assert.equal(path,'/api/exchange');
+      assert.equal(guardInstalled,true,'sync must not fetch a command before its guard exists');
+      exchangeCount++;
+      return {commands:[]};
+    };
+    const exclusive=bridge.withExclusiveExchange(async()=>{
+      await new Promise(resolve=>{releaseQueue=resolve;});
+      guardInstalled=true;
+    });
+    const concurrent=bridge.sync();
+    await new Promise(resolve=>setTimeout(resolve,10));
+    assert.equal(exchangeCount,0);
+    releaseQueue();
+    await Promise.all([exclusive,concurrent]);
+    assert.equal(exchangeCount,1);
   }finally{globalThis.sessionStorage=previousStorage;}
 });
 

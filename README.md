@@ -48,6 +48,11 @@ The original Unity Matrix/White Room implementation is preserved in [Archive/Uni
 - [#122 Immersive Creator Mode](https://github.com/School-of-the-Ancients/matrix-loading-operator/issues/122) — current implementation focus.
 
 Detailed technical runbooks and evidence live under `Docs/` and `Validation/`.
+The ordinary `/web/` page is an interactive browser-owned world. The
+separately started PC-owned Ada/Bo fixture is observed read-only at
+`/web/hosted.html`; see [the host runbook](Docs/Persistent-World-Host.md).
+To freeze a WebXR/PC preview from an exact commit, use the
+[release builder](Tools/README-WebXR-Release.md).
 
 ## Runtime
 

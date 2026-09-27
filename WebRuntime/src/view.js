@@ -346,6 +346,7 @@ export function operatorPanel(){
 }
 const v3=v=>new THREE.Vector3(v.x,v.y,v.z);
 const plain=v=>({x:Number(v.x.toFixed(3)),y:Number(v.y.toFixed(3)),z:Number(v.z.toFixed(3))});
+const advanceRoomTrackingEpoch=view=>{view.roomTrackingEpoch=(view.roomTrackingEpoch||0)+1;};
 function setRoomContentVisible(view,visible){
   const shown=visible&&!view.observationStale;
   view.virtualFloorRoot.visible=shown;
@@ -353,11 +354,12 @@ function setRoomContentVisible(view,visible){
 }
 
 export class MatrixView {
+  static XR_VIEWER_MAX_AGE_MS=1000;
   constructor(container,world,onSelection,getToken=()=>'',onAssetError=()=>{},onSceneEdit=()=>{},onRuntimeChange=()=>{},onVoiceStart=()=>{},onVoiceEnd=()=>{},onVoiceOutputToggle=()=>{},onVisualReview=()=>{},onNewChat=()=>{},options={}){
     this.world=world;this.onSelection=onSelection;this.getToken=getToken;this.onAssetError=onAssetError;this.onSceneEdit=onSceneEdit;this.onRuntimeChange=onRuntimeChange;this.onVoiceStart=onVoiceStart;this.onVoiceEnd=onVoiceEnd;this.onVoiceOutputToggle=onVoiceOutputToggle;this.onVisualReview=onVisualReview;this.onNewChat=onNewChat;this.onPanelAction=()=>{};this.onFrame=()=>{};this.onAssetReadinessChange=()=>{};this.onPhysicsContacts=()=>{};this.onPlayInteraction=()=>{};
     this.readOnly=options.readOnly===true;
     this.observationStale=false;
-    this.container=container;this.objectRoots=new Map();this.anchorRoots=new Map();this.planeOutlines=new Map();this.planeIds=new WeakMap();this.nextPlaneId=0;this.hitSource=null;this.reticleVisible=false;this.xrViewer=null;this.reticleAnchorId='';this.lastPlaneTime=0;
+    this.container=container;this.objectRoots=new Map();this.anchorRoots=new Map();this.planeOutlines=new Map();this.planeIds=new WeakMap();this.nextPlaneId=0;this.hitSource=null;this.reticleVisible=false;this.xrViewer=null;this.xrViewerCapturedAt=0;this.roomTrackingEpoch=0;this.reticleAnchorId='';this.lastPlaneTime=0;
     this.modelCache=new Map();
     this.scene=new THREE.Scene();this.scene.background=new THREE.Color(0x0a1b29);
     this.virtualFloorRoot=new THREE.Group();this.scene.add(this.virtualFloorRoot);
@@ -443,6 +445,8 @@ export class MatrixView {
   exitXR(){return this.xrControls?.exit();}
   async onSessionStart(){
     const session=this.renderer.xr.getSession();this.isAR=session.environmentBlendMode!=='opaque';
+    advanceRoomTrackingEpoch(this);
+    this.xrViewer=null;this.xrViewerCapturedAt=0;
     this.world.runtimePresentation=this.isAR?'ar':'vr';
     document.getElementById('xr-exit').textContent=this.isAR?'Exit AR':'Exit VR';
     if(session.domOverlayState)document.getElementById('xr-overlay').style.display='';
@@ -526,6 +530,7 @@ export class MatrixView {
     }).finally(()=>{if(this.renderer.xr.getSession()===session)this.roomAnchorPending=false;});
   }
   markRoomOriginUnavailable(message){
+    advanceRoomTrackingEpoch(this);
     this.roomAnchorRestoreFailed=true;setRoomContentVisible(this,false);
     this.world.setOriginUnavailable(true);
     this.onAssetError(message);
@@ -604,7 +609,7 @@ export class MatrixView {
     const pose=frame.getPose(this.roomAnchor.anchorSpace,ref);
     if(!pose){
       if(!this.isAR)return;
-      if(!this.roomPoseMissingSince)this.roomPoseMissingSince=performance.now();
+      if(!this.roomPoseMissingSince){this.roomPoseMissingSince=performance.now();advanceRoomTrackingEpoch(this);}
       if(this.roomAnchorLocated||this.world.digitalWorldVisit&&
          !this.world.spatial?.originUnavailable){
         this.roomAnchorLocated=false;setRoomContentVisible(this,false);
@@ -639,6 +644,7 @@ export class MatrixView {
     if(wasUnavailable||newlyBound)this.onRuntimeChange();
   }
   onSessionEnd(){
+    advanceRoomTrackingEpoch(this);
     if(this.operatorVoiceController)this.releaseOperatorVoice(this.operatorVoiceController);
     this.operatorPanel.group.visible=false;this.operatorMount={kind:'head'};
     this.operatorThumbstickHeld=false;
@@ -646,7 +652,7 @@ export class MatrixView {
     if(this.grab)this.releaseGrab(this.grab.controller);
     for(const ray of this.controllerRays)ray.visible=false;
     this.hitSource?.cancel();this.hitSource=null;this.reticle.visible=false;this.reticleVisible=false;this.reticleAnchorId='';
-    this.xrViewer=null;this.planeIds=new WeakMap();this.nextPlaneId=0;this.clearPlanes();this.isAR=false;
+    this.xrViewer=null;this.xrViewerCapturedAt=0;this.planeIds=new WeakMap();this.nextPlaneId=0;this.clearPlanes();this.isAR=false;
     this.roomAnchor=null;this.roomAnchorPending=false;this.roomAnchorPersistent=false;this.roomAnchorRestoredHandle=null;this.roomAnchorRestoreFailed=false;this.roomAnchorLocated=false;this.roomAnchorHandleAvailable=false;this.roomPoseMissingSince=0;
     setRoomContentVisible(this,true);this.virtualFloorRoot.position.set(0,0,0);this.virtualFloorRoot.quaternion.identity();this.virtualFloorCalibrated=false;
     this.world.leaveAR();this.world.runtimePresentation='desktop';this.sync();this.onRuntimeChange();
@@ -665,6 +671,15 @@ export class MatrixView {
   setOperatorAgentStatus(status){this.operatorPanel.setAgentStatus(status);}
   setOperatorVoiceInputLabel(label){this.operatorPanel.setVoiceInputLabel(label);}
   isOperatorAgentMode(){return this.operatorPanel.isAgentMode();}
+  showOperatorAgentMode(){
+    if(this.readOnly)return false;
+    if(!this.operatorPanel.isAgentMode())this.operatorPanel.toggleAgent();
+    if(this.renderer.xr.isPresenting){
+      this.operatorPanel.group.visible=true;
+      this.positionOperatorPanel();
+    }
+    return true;
+  }
   setVoiceOutputEnabled(enabled){this.operatorPanel.setVoiceLabel(enabled?'VOICE ON':'VOICE OFF');}
   positionOperatorPanel(){
     if(!this.xrViewer)return;
@@ -1219,6 +1234,7 @@ export class MatrixView {
   }
   pointingTarget(){
     if(this.isAR&&this.world.spatial?.originUnavailable)return null;
+    if(this.renderer.xr.isPresenting&&!this.hasFreshXrViewer())return null;
     if(this.renderer.xr.isPresenting){
       const controller=this.lastPointingController;
       if(!controller)return null;
@@ -1262,7 +1278,20 @@ export class MatrixView {
     return ['x','y','z'].every(axis=>Math.abs(position[axis])<=100)?
       {anchorId:'web-floor',objectId:null,position}:null;
   }
+  hasFreshXrViewer(now=performance.now()){
+    const age=now-this.xrViewerCapturedAt;
+    return !!this.renderer.xr.isPresenting&&!!this.xrViewer&&
+      Number.isFinite(age)&&age>=0&&age<=MatrixView.XR_VIEWER_MAX_AGE_MS;
+  }
+  captureXrViewer(frame,referenceSpace,now=performance.now()){
+    const previous=this.xrViewer;
+    this.xrViewer=frame&&referenceSpace?viewerPose(frame,referenceSpace):null;
+    this.xrViewerCapturedAt=this.xrViewer?now:0;
+    if(previous&&!this.xrViewer)advanceRoomTrackingEpoch(this);
+    return this.xrViewer;
+  }
   viewer(){
+    if(this.renderer.xr.isPresenting&&!this.hasFreshXrViewer())return null;
     if(this.isAR){if(!this.xrViewer)return null;const frames=[];
       this.virtualFloorRoot.updateMatrixWorld(true);
       const virtualPosition=this.virtualFloorRoot.worldToLocal(this.xrViewer.position.clone());
@@ -1277,8 +1306,12 @@ export class MatrixView {
       }
       return frames.length?{frames}:null;
     }
-    const camera=this.renderer.xr.isPresenting?this.renderer.xr.getCamera():this.camera;
-    const position=camera.getWorldPosition(new THREE.Vector3());const direction=new THREE.Vector3(0,0,-1).applyQuaternion(camera.getWorldQuaternion(new THREE.Quaternion()));
+    const presenting=this.renderer.xr.isPresenting;
+    const position=presenting?this.xrViewer.position.clone():
+      this.camera.getWorldPosition(new THREE.Vector3());
+    const direction=presenting?this.xrViewer.direction.clone():
+      new THREE.Vector3(0,0,-1).applyQuaternion(
+        this.camera.getWorldQuaternion(new THREE.Quaternion()));
     this.virtualFloorRoot.updateMatrixWorld(true);
     this.virtualFloorRoot.worldToLocal(position);
     direction.applyQuaternion(this.virtualFloorRoot.getWorldQuaternion(new THREE.Quaternion()).invert());
@@ -1289,7 +1322,7 @@ export class MatrixView {
     const width=960,height=720,started=performance.now();
     const camera=new THREE.PerspectiveCamera(70,width/height,.02,100);
     if(this.renderer.xr.isPresenting){
-      if(!this.xrViewer)throw Error('Tracked headset view is not ready');
+      if(!this.hasFreshXrViewer())throw Error('Tracked headset view is not ready');
       camera.position.copy(this.xrViewer.position);camera.quaternion.copy(this.xrViewer.quaternion);
     }else{
       camera.position.copy(this.camera.position);camera.quaternion.copy(this.camera.quaternion);
@@ -1377,7 +1410,8 @@ export class MatrixView {
       const contacts=this.world.advanceRigidPhysics?.(delta)||[];
       if(contacts.length)this.onPhysicsContacts(contacts);
     }
-    if(frame&&this.renderer.xr.isPresenting){const ref=this.renderer.xr.getReferenceSpace();if(ref){this.xrViewer=viewerPose(frame,ref);if(!this.readOnly){this.updateOperatorShortcut();this.positionOperatorPanel();}this.updatePlanes(time,frame,ref);this.updateRoomAnchor(frame,ref);
+    if(this.renderer.xr.isPresenting&&!frame)this.captureXrViewer(null,null);
+    if(frame&&this.renderer.xr.isPresenting){const ref=this.renderer.xr.getReferenceSpace();if(ref){this.captureXrViewer(frame,ref);if(!this.readOnly){this.updateOperatorShortcut();this.positionOperatorPanel();}this.updatePlanes(time,frame,ref);this.updateRoomAnchor(frame,ref);
       if(!this.isAR&&!this.virtualFloorCalibrated&&this.xrViewer&&this.measuredEyeHeight!==null){
         this.virtualFloorRoot.position.y=this.xrViewer.position.y-this.measuredEyeHeight;
         this.virtualFloorCalibrated=true;
@@ -1387,7 +1421,7 @@ export class MatrixView {
         this.operatorPanel.setOriginLabel(origin);
         document.getElementById('view-label').textContent=`WEBXR VR · ${origin}`;
       }
-    }}
+    }else this.captureXrViewer(null,null);}
     if(this.hitSource&&frame){const hits=frame.getHitTestResults(this.hitSource);const ref=this.renderer.xr.getReferenceSpace();const pose=ref&&hits[0]?.getPose(ref);
       this.reticleVisible=!!pose;this.reticle.visible=!!pose;this.reticleAnchorId='';if(pose){this.reticle.position.setFromMatrixPosition(new THREE.Matrix4().fromArray(pose.transform.matrix));
         for(const anchor of this.world.spatial?.anchors||[]){if(anchor.surface.kind!=='support')continue;const root=this.planeOutlines.get(anchor.anchorId);if(!root)continue;

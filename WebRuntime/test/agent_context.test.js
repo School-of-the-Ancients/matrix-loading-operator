@@ -23,3 +23,33 @@ test('does not invent a pointing hit or head pose for a plain request',()=>{
   assert.equal(context.pointingTarget,null);
   assert.equal(context.viewerFrame,null);
 });
+
+test('empty world includes a current floor viewpoint without inventing a target',()=>{
+  const world={scene:{roomId:'web-virtual-room-v1',objects:[]},
+    selection:{objectId:''}};
+  const floor={anchorId:'web-floor',position:{x:0,y:1.7,z:0},
+    forward:{x:0,y:0,z:-1},lookDirection:{x:0,y:0,z:-1}};
+  const view={pointingTarget:()=>null,viewer:()=>({frames:[floor]})};
+  const context=captureAgentContext(world,view,'client-1','voice_transcript');
+  assert.equal(context.selectedObjectId,null);
+  assert.equal(context.pointingTarget,null);
+  assert.deepEqual(context.viewerFrame,floor);
+});
+
+test('pointing anchor outranks selection, which outranks the floor frame',()=>{
+  const world={scene:{roomId:'webxr-session-1',objects:[
+    {objectId:'chair-1',anchorId:'table-1'}]},selection:{objectId:'chair-1'}};
+  const frame=anchorId=>({anchorId,position:{x:0,y:1.7,z:0},
+    forward:{x:0,y:0,z:-1}});
+  const floor=frame('web-floor'),table=frame('table-1'),wall=frame('wall-1');
+  let target={anchorId:'wall-1',objectId:null,position:{x:1,y:1,z:1}};
+  const view={pointingTarget:()=>target,viewer:()=>({frames:[floor,table,wall]})};
+  assert.equal(captureAgentContext(world,view,'client-1','text')
+    .viewerFrame.anchorId,'wall-1');
+  target=null;
+  assert.equal(captureAgentContext(world,view,'client-1','text')
+    .viewerFrame.anchorId,'table-1');
+  world.selection.objectId='';
+  assert.equal(captureAgentContext(world,view,'client-1','text')
+    .viewerFrame.anchorId,'web-floor');
+});
