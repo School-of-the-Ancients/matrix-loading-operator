@@ -30,6 +30,7 @@ const stepUntil=(sim,predicate,limit=600)=>{
 };
 const stripV9Fields=state=>{
   delete state.construction;
+  delete state.capabilityRequests;
   for(const resident of state.residents){
     delete resident.needs.social;
     delete resident.preferences.converse;
@@ -111,7 +112,7 @@ test('v6 worlds gain bounded daily routines without changing saved claims or sce
     delete resident.lastDecision;
   }
   const restored=CitizensSimulation.restore(matrix,old).exportState();
-  assert.equal(restored.schemaVersion,13);
+  assert.equal(restored.schemaVersion,14);
   assert.equal(restored.clockSpeed,1);
   assert.deepEqual(restored.residents[0].routines.map(item=>item.id),
     ['morning-meal','morning-walk','daytime-walk','evening-rest']);
@@ -130,7 +131,7 @@ test('v7 virtual-day checkpoint migrates to v12 without changing its execution',
   old.schemaVersion=7;
   stripV9Fields(old);
   const migrated=CitizensSimulation.restore(matrix,old).exportState();
-  assert.equal(migrated.schemaVersion,13);
+  assert.equal(migrated.schemaVersion,14);
   const comparable=structuredClone(migrated);
   comparable.schemaVersion=7;
   stripV9Fields(comparable);
@@ -146,7 +147,7 @@ test('v8 egress checkpoint migrates to v12 without changing claims or scene',()=
   old.schemaVersion=8;
   stripV9Fields(old);
   const migrated=CitizensSimulation.restore(matrix,old).exportState();
-  assert.equal(migrated.schemaVersion,13);
+  assert.equal(migrated.schemaVersion,14);
   const comparable=structuredClone(migrated);
   comparable.schemaVersion=8;
   stripV9Fields(comparable);
@@ -163,18 +164,20 @@ test('v9 social-needs state gains empty v11 appointments without changing execut
   const old=sim.exportState(),scene=structuredClone(matrix.scene);
   old.schemaVersion=9;
   delete old.construction;
+  delete old.capabilityRequests;
   for(const resident of old.residents){
     delete resident.appointments;
     delete resident.appointmentSequence;
   }
   const migrated=CitizensSimulation.restore(matrix,old).exportState();
-  assert.equal(migrated.schemaVersion,13);
+  assert.equal(migrated.schemaVersion,14);
   assert.ok(migrated.residents.every(item=>
     Array.isArray(item.appointments)&&item.appointments.length===0&&
     item.appointmentSequence===0));
   const comparable=structuredClone(migrated);
   comparable.schemaVersion=9;
   delete comparable.construction;
+  delete comparable.capabilityRequests;
   for(const resident of comparable.residents){
     delete resident.appointments;
     delete resident.appointmentSequence;
@@ -187,6 +190,7 @@ test('v10 terminal appointments migrate with a monotonic sequence and permit day
   const matrix=world(),state=createCitizensDemo(matrix,{seed:29}).exportState();
   state.schemaVersion=10;
   delete state.construction;
+  delete state.capabilityRequests;
   state.clockTick=1447;
   for(const resident of state.residents)delete resident.appointmentSequence;
   state.residents[0].appointments=[2,3,4].map((deadline,index)=>({
@@ -196,7 +200,7 @@ test('v10 terminal appointments migrate with a monotonic sequence and permit day
   const before=structuredClone(state),scene=structuredClone(matrix.scene);
   const sim=CitizensSimulation.restore(matrix,state);
   const migrated=sim.exportState();
-  assert.equal(migrated.schemaVersion,13);
+  assert.equal(migrated.schemaVersion,14);
   assert.equal(migrated.residents[0].appointmentSequence,3);
   assert.equal(migrated.residents[0].appointments.length,3);
   assert.deepEqual(state,before);
@@ -218,7 +222,7 @@ test('a due appointment selects a hard goal and completes only with its Matrix r
   };
   const scheduled=sim.scheduleAppointment('ada',{
     kind:'eat',startTick:1,deadlineTick:60});
-  assert.equal(scheduled.schemaVersion,13);
+  assert.equal(scheduled.schemaVersion,14);
   assert.deepEqual(appointmentOf(scheduled),{
     id:'appointment-1',kind:'eat',startTick:1,deadlineTick:60,
     status:'pending',executionId:null,resolvedTick:null,requestId:null,reason:''});
@@ -2090,7 +2094,7 @@ test('v1 mid-action state migrates atomically and replays deletion and FIFO hand
   const a=restore(),b=restore();
   for(const copy of [a,b]){
     const migrated=copy.sim.exportState();
-    assert.equal(migrated.schemaVersion,13);
+    assert.equal(migrated.schemaVersion,14);
     assert.equal(migrated.actionSequence,1);
     assert.equal(migrated.stations.find(station=>station.kind==='rest').claim.executionId,
       migrated.residents.find(resident=>resident.id==='ada').activity.executionId);
@@ -2399,7 +2403,7 @@ test('v2 checkpoints migrate to v12 without changing active claims or Matrix obj
   for(const station of saved.stations)delete station.interaction;
   const scene=structuredClone(matrix.scene);
   const migrated=CitizensSimulation.restore(matrix,saved).exportState();
-  assert.equal(migrated.schemaVersion,13);
+  assert.equal(migrated.schemaVersion,14);
   assert.deepEqual(migrated.stations,saved.stations.map(station=>
     ({...station,interaction:null})));
   assert.deepEqual(migrated.relationships,[{a:'ada',b:'bo',score:50,completed:[]}]);
@@ -2878,6 +2882,7 @@ test('v11 social sessions migrate to a zero retry count without changing intent'
   const old=structuredClone(active),scene=structuredClone(matrix.scene);
   old.schemaVersion=11;
   delete old.construction;
+  delete old.capabilityRequests;
   delete old.socialSession.routeRetries;
   const replayWorld=world();
   assert.equal(replayWorld.execute({requestId:'load-v11-social',op:'load',

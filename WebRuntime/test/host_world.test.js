@@ -22,27 +22,33 @@ class FakeService {
     this.revision=0;this.worlds=new Map();this.commands=[];this.results=[];
     this.saveCount=0;this.failSave=false;this.failExchange=false;
     this.citizenConstructionBudget=1;this.citizenRequests=[];
-    this.failCitizenPolicy=false;
+    this.failCitizenPolicy=false;this.badCitizenCommand=false;
     this.request=this.request.bind(this);
   }
   async request(method,path,body){
     if(path==='/api/state')return {online:this.online,pendingCount:this.commands.length,
       snapshot:copy(this.snapshot),hostWorldId:this.hostWorldId};
     if(path==='/api/web/worlds')return {worlds:[...this.worlds.keys()]};
-    if(path==='/api/citizens/construction'){
+    if(path==='/api/citizens/capabilities'){
       if(this.failCitizenPolicy)throw Error('policy unavailable');
       this.citizenRequests.push(copy(body));
-      const construction=this.snapshot?.citizensState?.construction;
-      assert.deepEqual(body,{intentId:construction.intentId,residentId:'bo'});
+      const journal=this.snapshot?.citizensState?.capabilityRequests;
+      assert.deepEqual(body,journal?.find(item=>
+        item.request.citizenRequestId===body.citizenRequestId)?.request);
+      if(body.capability!=='procedural'||body.action!=='create')
+        return {allowed:false,requestId:null,
+          reason:'Citizen capability unavailable',checkpointSequence:2};
       if(this.citizenConstructionBudget===0||this.snapshot.scene.objects.length!==4)
-        return {allowed:false,reason:'Citizen construction budget exhausted'};
+        return {allowed:false,requestId:null,
+          reason:'Citizen capability budget exhausted',checkpointSequence:2};
       this.citizenConstructionBudget--;
-      const transform=copy(this.snapshot.scene.objects[0].transform);
-      transform.position={x:1.5,y:0,z:1.5};
+      const transform=copy(body.parameters.transform);
+      if(this.badCitizenCommand)transform.position.x+=1;
       this.commands.push({requestId:'c'.repeat(32),op:'create_procedural',
         anchorId:'web-floor',transform,
-        procedural:createProceduralRecipe('curved-bench')});
-      return {allowed:true,requestId:'c'.repeat(32)};
+        procedural:createProceduralRecipe(body.parameters.generatorId,
+          body.parameters.parameters)});
+      return {allowed:true,requestId:'c'.repeat(32),reason:'',checkpointSequence:2};
     }
     if(path==='/api/exchange'){
       if(this.failExchange)throw Error('exchange unavailable');
@@ -190,6 +196,10 @@ test('Bo requests one reviewed bench from chair contention, uses it, and retains
   let state=host.simulation.snapshot();
   const record=state.construction;
   assert.equal(service.citizenRequests.length,1);
+  assert.deepEqual(service.citizenRequests[0],state.capabilityRequests[0].request);
+  assert.equal(state.capabilityRequests[0].status,'succeeded');
+  assert.equal(state.capabilityRequests[0].policy.requestId,'c'.repeat(32));
+  assert.equal(state.capabilityRequests[0].receipts.length,2);
   assert.equal(record.residentId,'bo');
   assert.equal(record.blockedStationId,'chair');
   assert.equal(record.requestId,'c'.repeat(32));
@@ -201,6 +211,12 @@ test('Bo requests one reviewed bench from chair contention, uses it, and retains
   assert.deepEqual(host.world.scene.objects.slice(0,2),core.slice(0,2));
   assert.equal(service.results.find(item=>item.requestId===record.requestId).objectId,
     record.objectId);
+  assert.deepEqual(state.capabilityRequests[0].receipts[0],
+    service.results.find(item=>item.requestId===record.requestId));
+  const tampered=copy(service.worlds.get('AdaBo'));
+  tampered.scene.objects[4].procedural.parameters.lengthMeters+=.1;
+  assert.throws(()=>assertHostedFixture(tampered),
+    /differs from its reviewed capability request/);
   let use=null;
   const execute=host.world.execute.bind(host.world);
   host.world.execute=(command,options)=>{
@@ -223,8 +239,33 @@ test('Bo requests one reviewed bench from chair contention, uses it, and retains
     request:service.request});
   await resumed.start();
   assert.deepEqual(resumed.simulation.snapshot().construction,state.construction);
+  assert.deepEqual(resumed.simulation.snapshot().capabilityRequests,
+    state.capabilityRequests);
   assert.deepEqual(resumed.simulation.snapshot().residents.map(item=>item.objectId),residents);
   assert.equal(resumed.world.scene.objects[4].objectId,record.objectId);
+  await resumed.tick();
+  assert.equal(service.citizenRequests.length,1);
+});
+
+test('a v13 completed bench restores into v14 without inventing Matrix receipts',async()=>{
+  const service=new FakeService();
+  const first=new HostedWorld({name:'AdaBo',seed:29,citizenCapabilities:true,
+    request:service.request});
+  await first.start();
+  await first.tick();
+  const previous=copy(service.worlds.get('AdaBo'));
+  previous.citizens.schemaVersion=13;
+  delete previous.citizens.capabilityRequests;
+  service.worlds.set('AdaBo',previous);
+  service.online=false;
+  const resumed=new HostedWorld({name:'AdaBo',citizenCapabilities:true,
+    request:service.request});
+  await resumed.start();
+  assert.equal(resumed.simulation.snapshot().schemaVersion,14);
+  assert.deepEqual(resumed.simulation.snapshot().capabilityRequests,[]);
+  assert.deepEqual(resumed.simulation.snapshot().construction,previous.citizens.construction);
+  assert.equal(resumed.world.scene.objects[4].objectId,
+    previous.scene.objects[4].objectId);
   await resumed.tick();
   assert.equal(service.citizenRequests.length,1);
 });
@@ -239,6 +280,8 @@ test('a zero citizen construction budget denies Bo safely without creating an ob
   await host.tick();
   const denied=host.simulation.snapshot().construction;
   assert.equal(denied.status,'denied');
+  assert.equal(host.simulation.snapshot().capabilityRequests[0].status,'denied');
+  assert.equal(host.simulation.snapshot().capabilityRequests[0].policy.allowed,false);
   assert.equal(denied.residentId,'bo');
   assert.equal(denied.requestId,null);
   assert.match(denied.reason,/budget/);
@@ -247,6 +290,87 @@ test('a zero citizen construction budget denies Bo safely without creating an ob
   assert.equal(service.citizenRequests.length,1);
   assert.deepEqual(host.simulation.snapshot().residents.map(item=>item.objectId),ids);
   assert.deepEqual(service.worlds.get('AdaBo').citizens.construction,denied);
+});
+
+test('shared host path records denial for another scoped action without constructing',async()=>{
+  const service=new FakeService();
+  const host=new HostedWorld({name:'AdaBo',citizenCapabilities:true,
+    request:service.request});
+  await host.start();
+  const original=copy(host.world.scene.objects);
+  const entry=host.simulation.requestCapability({intentId:'bo-move-intent-1',
+    residentId:'bo',capability:'move',action:'set',
+    parameters:{objectId:original[0].objectId}});
+  host.world.citizens=host.simulation.snapshot();
+  await host.exchange();
+  await host.save();
+  await host.fulfillCapability(entry);
+  assert.equal(host.simulation.snapshot().construction,null);
+  assert.equal(host.simulation.snapshot().capabilityRequests[0].status,'denied');
+  assert.deepEqual(host.world.scene.objects,original);
+  assert.deepEqual(service.worlds.get('AdaBo').scene.objects,original);
+  assert.deepEqual(service.citizenRequests,[entry.request]);
+});
+
+test('two sequential scoped denials retain both requests without world edits',async()=>{
+  const service=new FakeService();
+  const host=new HostedWorld({name:'AdaBo',citizenCapabilities:true,
+    request:service.request});
+  await host.start();
+  const original=copy(host.world.scene.objects);
+  for(const [intentId,capability] of [
+    ['bo-move-intent-1','move'],['bo-physics-intent-2','physics']]){
+    const entry=host.simulation.requestCapability({intentId,residentId:'bo',
+      capability,action:'set',parameters:{objectId:original[0].objectId}});
+    host.world.citizens=host.simulation.snapshot();
+    await host.exchange();
+    await host.save();
+    await host.fulfillCapability(entry);
+  }
+  const journal=host.simulation.snapshot().capabilityRequests;
+  assert.equal(journal.length,2);
+  assert.deepEqual(journal.map(item=>item.status),['denied','denied']);
+  assert.deepEqual(service.citizenRequests,journal.map(item=>item.request));
+  assert.deepEqual(host.world.scene.objects,original);
+  assert.deepEqual(service.worlds.get('AdaBo').scene.objects,original);
+});
+
+test('a later denied capability keeps the completed bench and its receipts',async()=>{
+  const service=new FakeService();
+  const host=new HostedWorld({name:'AdaBo',seed:29,citizenCapabilities:true,
+    request:service.request});
+  await host.start();
+  await host.tick();
+  const created=copy(host.world.scene.objects);
+  const first=copy(host.simulation.snapshot().capabilityRequests[0]);
+  const entry=host.simulation.requestCapability({intentId:'bo-move-intent-2',
+    residentId:'bo',capability:'move',action:'set',
+    parameters:{objectId:created[0].objectId}});
+  host.world.citizens=host.simulation.snapshot();
+  await host.exchange();
+  await host.save();
+  await host.fulfillCapability(entry);
+  const journal=host.simulation.snapshot().capabilityRequests;
+  assert.deepEqual(journal.map(item=>item.status),['succeeded','denied']);
+  assert.deepEqual(journal[0],first);
+  assert.deepEqual(host.world.scene.objects,created);
+  assert.deepEqual(service.worlds.get('AdaBo').scene.objects,created);
+});
+
+test('host refuses a typed command that differs from the approved capability',async()=>{
+  const service=new FakeService();
+  service.badCitizenCommand=true;
+  const host=new HostedWorld({name:'AdaBo',seed:29,citizenCapabilities:true,
+    request:service.request});
+  await host.start();
+  await host.tick();
+  const journal=host.simulation.snapshot().capabilityRequests[0];
+  assert.equal(journal.status,'failed');
+  assert.equal(journal.receipts.length,1);
+  assert.equal(journal.receipts[0].requestId,journal.policy.requestId);
+  assert.equal(journal.receipts[0].ok,false);
+  assert.equal(host.world.scene.objects.length,4);
+  assert.deepEqual(service.worlds.get('AdaBo').citizens.capabilityRequests[0],journal);
 });
 
 test('a long Matrix creation failure saves a bounded failed record',async()=>{
@@ -262,6 +386,8 @@ test('a long Matrix creation failure saves a bounded failed record',async()=>{
   await host.tick();
   const record=host.simulation.snapshot().construction;
   assert.equal(record.status,'failed');
+  assert.equal(host.simulation.snapshot().capabilityRequests[0].status,'failed');
+  assert.equal(host.simulation.snapshot().capabilityRequests[0].receipts.length,1);
   assert.equal(record.reason,error.slice(0,160));
   assert.equal(record.reason.length,160);
   assert.equal(record.objectId,null);
@@ -284,12 +410,12 @@ test('an unresolved saved intent stops restart without risking a second policy r
   assert.equal(service.worlds.get('AdaBo').scene.objects.length,4);
   service.online=false;
   const disabled=new HostedWorld({name:'AdaBo',request:service.request});
-  await assert.rejects(disabled.start(),/unresolved Citizen construction request/);
+  await assert.rejects(disabled.start(),/unresolved Citizen capability request/);
   service.online=false;
   service.failCitizenPolicy=false;
   const resumed=new HostedWorld({name:'AdaBo',citizenConstruction:true,
     request:service.request});
-  await assert.rejects(resumed.start(),/unresolved Citizen construction request/);
+  await assert.rejects(resumed.start(),/unresolved Citizen capability request/);
   assert.equal(service.worlds.get('AdaBo').citizens.construction.status,'requested');
   assert.equal(service.worlds.get('AdaBo').scene.objects.length,4);
   assert.equal(service.citizenRequests.length,0);

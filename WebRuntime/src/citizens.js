@@ -3,8 +3,10 @@
 import {ANCHOR_ID,CITIZENS_VISIT_AUTHORITY,INTERACTION_USE_MARGIN_METRES,MAX_OBJECTS,ROOM_ID,
   interactionSourceMatches,interactionWorldPoint,validInteractionDescriptor} from './protocol.js';
 import {checkedMove,planPath,segmentClear} from './citizens_navigation.js';
+import {createProceduralRecipe} from './procedural.js';
 
-const VERSION=13;
+const VERSION=14;
+const CONSTRUCTION_VERSION=13;
 const SOCIAL_ROUTE_VERSION=12;
 const APPOINTMENT_SEQUENCE_VERSION=11;
 const APPOINTMENT_VERSION=10;
@@ -85,6 +87,36 @@ const validUtf16=value=>{
 };
 const boundedText=(value,max)=>typeof value==='string'&&value.length<=max&&
   !/[\x00-\x1f]/.test(value)&&validUtf16(value);
+// The journal is sent through JSON and then saved by the PC service. Refuse
+// values whose JSON encoding would change their shape or silently lose data.
+function jsonSafe(value,visiting=new Set()){
+  if(value===null||typeof value==='boolean')return true;
+  if(typeof value==='string')return validUtf16(value);
+  if(typeof value==='number')return Number.isFinite(value)&&!Object.is(value,-0);
+  if(typeof value!=='object'||visiting.has(value))return false;
+  const array=Array.isArray(value);
+  if(Object.getPrototypeOf(value)!==(array?Array.prototype:Object.prototype))
+    return false;
+  visiting.add(value);
+  try{
+    if(array){
+      if(Reflect.ownKeys(value).length!==value.length+1)return false;
+      for(let index=0;index<value.length;index++){
+        const descriptor=Object.getOwnPropertyDescriptor(value,String(index));
+        if(!descriptor||!Object.hasOwn(descriptor,'value')||
+           !jsonSafe(descriptor.value,visiting))return false;
+      }
+      return true;
+    }
+    for(const key of Reflect.ownKeys(value)){
+      if(typeof key!=='string'||!validUtf16(key))return false;
+      const descriptor=Object.getOwnPropertyDescriptor(value,key);
+      if(!descriptor?.enumerable||!Object.hasOwn(descriptor,'value')||
+         !jsonSafe(descriptor.value,visiting))return false;
+    }
+    return true;
+  }finally{visiting.delete(value);}
+}
 const boundedPrefix=(value,max)=>{
   let end=Math.min(value.length,max);
   const last=value.charCodeAt(end-1);
@@ -1117,11 +1149,11 @@ function validAppointmentState(world,state,version,
 
 function migrateV12(world,saved){
   validStateV12(world,saved);
-  return {...clone(saved),schemaVersion:VERSION,construction:null};
+  return {...clone(saved),schemaVersion:CONSTRUCTION_VERSION,construction:null};
 }
 
 function validStateV13(world,state){
-  if(!state||state.schemaVersion!==VERSION||
+  if(!state||state.schemaVersion!==CONSTRUCTION_VERSION||
     !keys(state,['schemaVersion','world','seed','rngState','requestSequence',
       'actionSequence','clockTick','paused','clockSpeed','residents',
       'retiredResidentIds','stations','log','socialSession','socialEvents',
@@ -1206,6 +1238,146 @@ function validStateV13(world,state){
   validStateV12(world,prior,bound);
 }
 
+function migrateV13(world,saved){
+  validStateV13(world,saved);
+  // V13 kept receipt IDs, not the exact Matrix receipts. Do not invent them.
+  return {...clone(saved),schemaVersion:VERSION,capabilityRequests:[]};
+}
+
+const capabilityParameters=()=>({generatorId:'curved-bench',parameters:{},
+  transform:clone(CITIZEN_BENCH_TRANSFORM),
+  interaction:clone(CITIZEN_BENCH_INTERACTION)});
+const validCapabilityReceipt=receipt=>
+  (keys(receipt,['requestId','ok','error','objectId'])||
+   keys(receipt,['requestId','ok','error','objectId','outcome']))&&
+  boundedText(receipt.requestId,128)&&receipt.requestId.length>0&&
+  typeof receipt.ok==='boolean'&&boundedText(receipt.error,2048)&&
+  boundedText(receipt.objectId,128)&&
+  (receipt.ok?receipt.error==='':receipt.error.length>0)&&
+  (!Object.hasOwn(receipt,'outcome')||plain(receipt.outcome)&&
+    jsonSafe(receipt.outcome)&&
+    new TextEncoder().encode(JSON.stringify(canonical(receipt.outcome))).length<=4096);
+
+function validStateV14(world,state){
+  if(!state||state.schemaVersion!==VERSION||
+    !keys(state,['schemaVersion','world','seed','rngState','requestSequence',
+      'actionSequence','clockTick','paused','clockSpeed','residents',
+      'retiredResidentIds','stations','log','socialSession','socialEvents',
+      'relationships','nextSocialTick','construction','capabilityRequests'])||
+    !Array.isArray(state.capabilityRequests)||state.capabilityRequests.length>4)
+    throw Error('Invalid Citizens capability state');
+  const projected=clone(state);
+  projected.schemaVersion=CONSTRUCTION_VERSION;
+  delete projected.capabilityRequests;
+  validStateV13(world,projected);
+  const ids=new Set();
+  for(const entry of state.capabilityRequests){
+    const request=entry?.request;
+    const checkpoint=request?.checkpoint;
+    if(!keys(entry,['request','status','policy','receipts','reason'])||
+       !keys(request,['citizenRequestId','intentId','residentId','capability',
+         'action','parameters','checkpoint'])||
+       !keys(checkpoint,['roomId','clockTick','objectIds'])||
+       !boundedText(request.citizenRequestId,128)||!request.citizenRequestId||
+       ids.has(request.citizenRequestId)||
+       !boundedText(request.intentId,128)||!request.intentId||
+       !boundedText(request.residentId,32)||!request.residentId||
+       !state.residents.some(item=>item.id===request.residentId)||
+       !boundedText(request.capability,64)||
+       !/^[a-z][a-z0-9-]*$/.test(request.capability)||
+       !boundedText(request.action,64)||
+       !/^[a-z][a-z0-9-]*$/.test(request.action)||
+       !plain(request.parameters)||!jsonSafe(request.parameters)||
+       new TextEncoder().encode(JSON.stringify(canonical(request.parameters))).length>4096||
+       checkpoint.roomId!==world.scene.roomId||
+       !integer(checkpoint.clockTick,0,state.clockTick)||
+       !Array.isArray(checkpoint.objectIds)||
+       checkpoint.objectIds.length<1||checkpoint.objectIds.length>32||
+       checkpoint.objectIds.some(id=>!boundedText(id,128)||!id)||
+       new Set(checkpoint.objectIds).size!==checkpoint.objectIds.length||
+       !sameJson(checkpoint.objectIds,
+         [...checkpoint.objectIds].sort())||
+       checkpoint.objectIds.some(id=>!objectById(world,id))||
+       !['requested','queued','succeeded','denied','failed'].includes(entry.status)||
+       !Array.isArray(entry.receipts)||entry.receipts.length>3||
+       !entry.receipts.every(validCapabilityReceipt)||
+       new Set(entry.receipts.map(item=>item.requestId)).size!==
+         entry.receipts.length||
+       !boundedText(entry.reason,160))
+      throw Error('Invalid Citizens capability request');
+    ids.add(request.citizenRequestId);
+    const policy=entry.policy;
+    if(policy!==null&&(!keys(policy,['allowed','requestId','reason',
+        'checkpointSequence'])||typeof policy.allowed!=='boolean'||
+       !integer(policy.checkpointSequence,0,Number.MAX_SAFE_INTEGER)||
+       !boundedText(policy.reason,160)||
+       (policy.allowed?!/^[0-9a-f]{32}$/.test(policy.requestId)||
+         policy.reason!=='':policy.requestId!==null||!policy.reason)))
+      throw Error('Invalid Citizens capability policy');
+    if(entry.status==='requested'){
+      if(policy!==null||entry.receipts.length||entry.reason)
+        throw Error('Invalid requested Citizens capability');
+    }else if(entry.status==='denied'){
+      if(policy?.allowed!==false||entry.receipts.length||
+         entry.reason!==policy.reason)
+        throw Error('Invalid denied Citizens capability');
+    }else if(entry.status==='queued'){
+      if(policy?.allowed!==true||entry.receipts.length||entry.reason)
+        throw Error('Invalid queued Citizens capability');
+    }else if(entry.status==='succeeded'){
+      if(policy?.allowed!==true||entry.receipts.length===0||entry.reason||
+         entry.receipts[0].requestId!==policy.requestId||
+         !entry.receipts.every(receipt=>receipt.ok)||
+         state.construction?.intentId!==request.intentId||
+         request.capability!=='procedural'||request.action!=='create')
+        throw Error('Invalid completed Citizens capability');
+    }else if(policy?.allowed!==true||!entry.reason||
+      entry.receipts.length===0||
+      entry.receipts[0].requestId!==policy.requestId||
+      !entry.receipts.some(receipt=>!receipt.ok)&&
+        entry.receipts.length===1)
+      throw Error('Invalid failed Citizens capability');
+  }
+  const construction=state.construction;
+  const entry=state.capabilityRequests.find(item=>
+    item.request.intentId===construction?.intentId);
+  if(entry){
+    const request=entry.request;
+    const status=construction.status==='created'||construction.status==='used'?
+      'succeeded':construction.status;
+    const originalIds=[...state.residents,...state.stations.filter(item=>
+      item.id!==CONSTRUCTION_STATION_ID)].map(item=>item.objectId).sort();
+    if(state.capabilityRequests.filter(item=>
+       item.request.intentId===construction.intentId).length!==1||
+       request.citizenRequestId!==`${construction.intentId}/procedural.create/1`||
+       request.residentId!==construction.residentId||
+       request.capability!=='procedural'||request.action!=='create'||
+       !sameJson(request.parameters,capabilityParameters())||
+       request.checkpoint.clockTick!==construction.requestedTick||
+       !sameJson(request.checkpoint.objectIds,originalIds)||
+       entry.status!==status||entry.reason!==construction.reason||
+       (entry.policy?.requestId??null)!==construction.requestId)
+      throw Error('Citizens capability and construction provenance disagree');
+    if(status==='succeeded'){
+      const object=objectById(world,construction.objectId);
+      if(entry.receipts.length!==2||
+         entry.receipts[0].requestId!==construction.requestId||
+         entry.receipts[0].objectId!==construction.objectId||
+         entry.receipts[1].requestId!==construction.interactionRequestId||
+         entry.receipts[1].objectId!==construction.objectId)
+        throw Error('Citizens construction lacks exact capability receipts');
+      if(!sameJson(object?.procedural,createProceduralRecipe(
+        request.parameters.generatorId,request.parameters.parameters)))
+        throw Error('Citizens construction recipe differs from its saved request');
+    }else if(status==='failed'&&entry.receipts.length>1){
+      if(entry.receipts[0].ok!==true||
+         entry.receipts.at(-1).ok!==true||
+         entry.receipts.at(-1).requestId!==`${construction.requestId}-rollback`)
+        throw Error('Citizens capability rollback receipt is missing');
+    }
+  }
+}
+
 function pose(x,z,scale=1){
   return {position:{x,y:0,z},rotation:{x:0,y:0,z:0},scale:{x:scale,y:scale,z:scale}};
 }
@@ -1227,7 +1399,7 @@ function initialState(world,seed,adaId,boId,stations){
         cooldowns:{rest:0,eat:0,explore:0},lastOutcome:'',socialSessionId:null,
         routines:defaultRoutines('bo'),lastDecision:null,appointments:[],
         appointmentSequence:0}
-    ],stations,log:[],construction:null};
+    ],stations,log:[],construction:null,capabilityRequests:[]};
 }
 
 function selectedStation(world,objectId){
@@ -1404,7 +1576,9 @@ export class CitizensSimulation {
       current=migrateV11(world,current);
     if(current?.schemaVersion===SOCIAL_ROUTE_VERSION)
       current=migrateV12(world,current);
-    validStateV13(world,current);
+    if(current?.schemaVersion===CONSTRUCTION_VERSION)
+      current=migrateV13(world,current);
+    validStateV14(world,current);
     this.world=world;
     this.state=clone(current);
     // Runtime-only baseline: the serialized scene supplies it again on restore.
@@ -1454,7 +1628,7 @@ export class CitizensSimulation {
       `${changes.startMinute}–${changes.endMinute} (${changes.priority}).`,160);
     next.log.push({tick:next.clockTick,residentId,event:'selected',message});
     if(next.log.length>MAX_LOG)next.log.shift();
-    validStateV13(this.world,next);
+    validStateV14(this.world,next);
     this.state=next;
     return this.snapshot();
   }
@@ -1471,7 +1645,7 @@ export class CitizensSimulation {
         this.observedTransforms.get(bound.objectId)))
         throw Error('A Citizens object moved or disappeared; review bindings first');
     }
-    validStateV13(this.world,this.state);
+    validStateV14(this.world,this.state);
   }
   validateAppointmentWindow(details){
     if(!keys(details,['kind','startTick','deadlineTick'])||
@@ -1520,7 +1694,7 @@ export class CitizensSimulation {
       `${details.startTick} through ${details.deadlineTick}.`,160);
     next.log.push({tick:next.clockTick,residentId,event:'selected',message});
     if(next.log.length>MAX_LOG)next.log.shift();
-    validStateV13(this.world,next);
+    validStateV14(this.world,next);
     this.state=next;
     return this.snapshot();
   }
@@ -1537,7 +1711,7 @@ export class CitizensSimulation {
       message:boundedPrefix(`${resident.name} revised ${id} to ${changes.kind} from minute `+
         `${changes.startTick} through ${changes.deadlineTick}.`,160)});
     if(next.log.length>MAX_LOG)next.log.shift();
-    validStateV13(this.world,next);
+    validStateV14(this.world,next);
     this.state=next;
     return this.snapshot();
   }
@@ -1555,12 +1729,50 @@ export class CitizensSimulation {
       message:boundedPrefix(`${resident.name} cancelled ${id} ${appointment.kind} from minute `+
         `${appointment.startTick} through ${appointment.deadlineTick}.`,160)});
     if(next.log.length>MAX_LOG)next.log.shift();
-    validStateV13(this.world,next);
+    validStateV14(this.world,next);
     this.state=next;
     return this.snapshot();
   }
+  appendCapabilityRequest(next,{intentId,residentId,capability,action,parameters}){
+    if(next.paused||this.invalidBindings.size||
+       !boundedText(intentId,128)||!intentId||
+       !boundedText(residentId,32)||!residentId||
+       !next.residents.some(item=>item.id===residentId)||
+       !boundedText(capability,64)||!(/^[a-z][a-z0-9-]*$/).test(capability)||
+       !boundedText(action,64)||!(/^[a-z][a-z0-9-]*$/).test(action)||
+       !plain(parameters)||!jsonSafe(parameters)||
+       new TextEncoder().encode(JSON.stringify(canonical(parameters))).length>4096||
+       next.capabilityRequests.length>=4||
+       next.capabilityRequests.some(item=>
+         ['requested','queued'].includes(item.status)))
+      throw Error('Citizen capability request is unavailable or invalid');
+    const number=next.capabilityRequests.filter(item=>
+      item.request.intentId===intentId&&
+      item.request.capability===capability&&
+      item.request.action===action).length+1;
+    const citizenRequestId=`${intentId}/${capability}.${action}/${number}`;
+    if(!boundedText(citizenRequestId,128))
+      throw Error('Citizen capability request ID exceeds its limit');
+    const entry={request:{citizenRequestId,intentId,residentId,capability,
+      action,parameters:clone(parameters),
+      checkpoint:{roomId:this.world.scene.roomId,clockTick:next.clockTick,
+        objectIds:this.world.scene.objects.map(item=>item.objectId).sort()}},
+    status:'requested',policy:null,receipts:[],reason:''};
+    next.capabilityRequests.push(entry);
+    return entry;
+  }
+  requestCapability(details){
+    const next=this.snapshot();
+    const entry=this.appendCapabilityRequest(next,details);
+    validStateV14(this.world,next);
+    this.state=next;
+    return clone(entry);
+  }
   proposeConstruction(){
     if(this.state.construction!==null||this.state.paused||this.invalidBindings.size||
+       this.state.capabilityRequests.length>=4||
+       this.state.capabilityRequests.some(item=>
+         ['requested','queued'].includes(item.status))||
        this.world.scene.objects.length!==4||this.state.stations.length!==2)
       return null;
     const bound=new Set([...this.state.residents,...this.state.stations]
@@ -1579,55 +1791,99 @@ export class CitizensSimulation {
       waitExecutionId:waiter.executionId,requestedTick:next.clockTick,
       status:'requested',requestId:null,objectId:null,
       interactionRequestId:null,useRequestId:null,reason:''};
+    this.appendCapabilityRequest(next,{intentId:next.construction.intentId,
+      residentId:'bo',capability:'procedural',action:'create',
+      parameters:capabilityParameters()});
     next.log.push({tick:next.clockTick,residentId:'bo',event:'selected',
       message:'Bo requested a second rest station while Ada held the chair.'});
     if(next.log.length>MAX_LOG)next.log.shift();
-    validStateV13(this.world,next);
+    validStateV14(this.world,next);
     this.state=next;
     return clone(next.construction);
   }
-  constructionQueued(requestId){
-    if(this.state.construction?.status!=='requested'||
-       !boundedText(requestId,128)||!requestId)
-      throw Error('Citizens construction is not ready to queue');
+  pendingCapabilityRequest(){
+    const pending=this.state.capabilityRequests.filter(item=>item.status==='requested');
+    if(pending.length>1)throw Error('Citizens has multiple unresolved capability requests');
+    return pending.length?clone(pending[0]):null;
+  }
+  capabilityDecision(decision){
+    const pending=this.pendingCapabilityRequest();
+    if(!pending||
+       !keys(decision,['allowed','requestId','reason','checkpointSequence'])||
+       typeof decision.allowed!=='boolean'||
+       !integer(decision.checkpointSequence,0,Number.MAX_SAFE_INTEGER)||
+       !boundedText(decision.reason,160)||
+       (decision.allowed?!/^[0-9a-f]{32}$/.test(decision.requestId)||
+         decision.reason!=='':decision.requestId!==null||!decision.reason))
+      throw Error('Citizens capability policy decision is invalid');
     const next=this.snapshot();
-    next.construction.status='queued';
-    next.construction.requestId=requestId;
-    validStateV13(this.world,next);
+    const entry=next.capabilityRequests.find(item=>
+      item.request.citizenRequestId===pending.request.citizenRequestId);
+    entry.policy=clone(decision);
+    entry.status=decision.allowed?'queued':'denied';
+    entry.reason=decision.allowed?'':decision.reason;
+    if(next.construction?.intentId===entry.request.intentId){
+      if(next.construction.status!=='requested')
+        throw Error('Citizens construction changed before policy decision');
+      next.construction.status=entry.status;
+      next.construction.requestId=decision.requestId;
+      next.construction.reason=entry.reason;
+    }
+    if(!decision.allowed){
+      const name=next.residents.find(item=>
+        item.id===pending.request.residentId)?.name||pending.request.residentId;
+      next.log.push({tick:next.clockTick,residentId:pending.request.residentId,
+        event:'blocked',message:
+          `${name}'s capability request was denied: ${decision.reason}`.slice(0,160)});
+      if(next.log.length>MAX_LOG)next.log.shift();
+    }
+    validStateV14(this.world,next);
     this.state=next;
     return this.snapshot();
   }
-  constructionDenied(reason){
-    if(this.state.construction?.status!=='requested'||
+  capabilityFailed(receipts,reason){
+    const entry=this.state.capabilityRequests.find(item=>item.status==='queued');
+    if(!entry||
+       !Array.isArray(receipts)||receipts.length<1||receipts.length>3||
+       !receipts.every(validCapabilityReceipt)||
+       receipts[0].requestId!==entry.policy?.requestId||
        !boundedText(reason,160)||!reason)
-      throw Error('Citizens construction denial is invalid');
+      throw Error('Citizens capability failure is invalid');
     const next=this.snapshot();
-    next.construction.status='denied';
-    next.construction.reason=reason;
-    next.log.push({tick:next.clockTick,residentId:'bo',event:'blocked',
-      message:`Bo's construction request was denied: ${reason}`.slice(0,160)});
+    const failed=next.capabilityRequests.find(item=>
+      item.request.citizenRequestId===entry.request.citizenRequestId);
+    failed.status='failed';failed.receipts=clone(receipts);failed.reason=reason;
+    if(next.construction?.intentId===entry.request.intentId){
+      if(next.construction.status!=='queued')
+        throw Error('Citizens construction changed before Matrix failure');
+      next.construction.status='failed';next.construction.reason=reason;
+    }
+    const name=next.residents.find(item=>
+      item.id===entry.request.residentId)?.name||entry.request.residentId;
+    next.log.push({tick:next.clockTick,residentId:entry.request.residentId,
+      event:'failed',message:`${name}'s capability request failed: ${reason}`.slice(0,160)});
     if(next.log.length>MAX_LOG)next.log.shift();
-    validStateV13(this.world,next);
+    validStateV14(this.world,next);
     this.state=next;
     return this.snapshot();
   }
-  constructionFailed(reason){
-    if(!['requested','queued'].includes(this.state.construction?.status)||
-       !boundedText(reason,160)||!reason)
-      throw Error('Citizens construction failure is invalid');
-    const next=this.snapshot();
-    next.construction.status='failed';
-    next.construction.reason=reason;
-    next.log.push({tick:next.clockTick,residentId:'bo',event:'failed',
-      message:`Bo's construction request failed: ${reason}`.slice(0,160)});
-    if(next.log.length>MAX_LOG)next.log.shift();
-    validStateV13(this.world,next);
-    this.state=next;
-    return this.snapshot();
-  }
-  constructionCreated(createReceipt,interactionReceipt){
+  capabilityCompleted(receipts){
+    if(!Array.isArray(receipts)||receipts.length<1||receipts.length>3||
+       !receipts.every(validCapabilityReceipt)||
+       !receipts.every(item=>item.ok))
+      throw Error('Citizens capability needs exact Matrix receipts');
+    const entry=this.state.capabilityRequests.find(item=>item.status==='queued');
+    if(!entry||entry.policy?.requestId!==receipts[0].requestId)
+      throw Error('Citizens capability needs its approved Matrix receipt');
     const record=this.state.construction;
-    if(record?.status!=='queued'||!createReceipt?.ok||
+    if(record?.intentId!==entry.request.intentId)
+      throw Error('Citizen capability has no observed-world verifier');
+    if(entry.request.capability!=='procedural'||entry.request.action!=='create'||
+       receipts.length!==2)
+      throw Error('Citizens construction needs create and interaction receipts');
+    const [createReceipt,interactionReceipt]=receipts;
+    if(entry.policy?.requestId!==record?.requestId||
+       record?.status!=='queued'||!createReceipt?.ok||
        createReceipt.error!==''||
        createReceipt.requestId!==record.requestId||
        !boundedText(createReceipt.objectId,128)||!createReceipt.objectId||
@@ -1640,6 +1896,8 @@ export class CitizensSimulation {
     const object=objectById(this.world,createReceipt.objectId);
     if(this.world.scene.objects.length!==5||!object||
        object.assetId!=='matrix:procedural'||object.anchorId!==ANCHOR_ID||
+       !sameJson(object.procedural,createProceduralRecipe(
+         entry.request.parameters.generatorId,entry.request.parameters.parameters))||
        !sameTransform(object.transform,CITIZEN_BENCH_TRANSFORM)||
        !sameJson(object.interaction,CITIZEN_BENCH_INTERACTION)||
        !interactionSourceMatches(object,this.world.asset?.(object.assetId),
@@ -1673,9 +1931,13 @@ export class CitizensSimulation {
       this.state.construction={...record,status:'created',
         objectId:createReceipt.objectId,
         interactionRequestId:interactionReceipt.requestId};
+      const completed=this.state.capabilityRequests.find(item=>
+        item.request.citizenRequestId===entry.request.citizenRequestId);
+      completed.status='succeeded';
+      completed.receipts=clone(receipts);
       this.log(record.residentId,'completed',
         `Bo observed Matrix construction receipt ${record.requestId} for ${object.objectId}.`);
-      validStateV13(this.world,this.state);
+      validStateV14(this.world,this.state);
       this.observedTransforms.set(object.objectId,clone(object.transform));
       this.observedProceduralRecipes.set(object.objectId,
         proceduralRecipeSignature(object));
@@ -1700,7 +1962,7 @@ export class CitizensSimulation {
     if(checkRoutes){
       if(this.world.scene!==this.observedScene)
         throw Error('The scene changed; review Citizens bindings before adding a station');
-      validStateV13(this.world,this.state);
+      validStateV14(this.world,this.state);
       for(const bound of [...this.state.residents,...this.state.stations]){
         const object=objectById(this.world,bound.objectId);
         if(!object||!sameTransform(object.transform,
@@ -1734,7 +1996,7 @@ export class CitizensSimulation {
       this.observedProceduralRecipes.set(station.objectId,
         proceduralRecipeSignature(objectById(this.world,station.objectId)));
       this.log('','selected',`Reviewed ${station.id} station added to the shared world.`);
-      validStateV13(this.world,this.state);
+      validStateV14(this.world,this.state);
       return this.snapshot();
     }catch(error){
       this.state=previous;
@@ -1746,7 +2008,7 @@ export class CitizensSimulation {
   exportState(){
     this.reconcileWorld();
     if(this.invalidBindings.size)throw Error('Citizens binding is missing or incompatible');
-    validStateV13(this.world,this.state);
+    validStateV14(this.world,this.state);
     return this.snapshot();
   }
   reconcileWorld(){this.reconcileBindings();return this.snapshot();}
