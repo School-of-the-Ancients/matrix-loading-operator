@@ -277,7 +277,11 @@ class ContentCatalog:
                         "id": workflow_id, "title": string(workflow.get("title", workflow_id), "workflow title"),
                         "path": (self.config_path.parent / string(workflow.get("path"), "workflow path", 2048)).resolve(),
                         "promptNode": string(workflow.get("promptNode", ""), "promptNode", 96, True),
-                        "promptInput": string(workflow.get("promptInput", "text"), "promptInput", 96)}
+                        "promptInput": string(workflow.get("promptInput", "text"), "promptInput", 96),
+                        "seedNode": string(workflow.get("seedNode", ""), "seedNode", 96, True),
+                        "seedInput": string(workflow.get("seedInput", "seed"), "seedInput", 96),
+                        "negativePromptNode": string(workflow.get("negativePromptNode", ""), "negativePromptNode", 96, True),
+                        "negativePromptInput": string(workflow.get("negativePromptInput", "text"), "negativePromptInput", 96)}
             else:
                 provider["reason"] = string(raw.get("reason", "Configure and verify the provider API/model before execution."), "handoff reason", 2048)
             configured[provider_id] = provider
@@ -769,7 +773,8 @@ class ContentCatalog:
             atomic_json(self.state_path, self.state)
         return self.import_queue()
 
-    def submit_workflow(self, provider_id, workflow_id, prompt="", approved=False):
+    def submit_workflow(self, provider_id, workflow_id, prompt="", approved=False, *, seed=None,
+                        negative_prompt=None, validate_image=False):
         provider = self._provider(provider_id)
         require(provider["type"] == "comfyui", "Provider cannot execute a local ComfyUI workflow", 409)
         require(approved is True, "Review and approve the configured workflow before submitting", 409)
@@ -780,10 +785,43 @@ class ContentCatalog:
         graph = read_json(workflow["path"])
         require(isinstance(graph, dict) and graph and all(isinstance(node, dict) and isinstance(node.get("class_type"), str)
                     and isinstance(node.get("inputs"), dict) for node in graph.values()), "Workflow must use ComfyUI API graph format")
+        workflow_sha256 = hashlib.sha256(json_bytes(graph)).hexdigest()
         if prompt:
             node = graph.get(workflow["promptNode"])
             require(node is not None and workflow["promptInput"] in node["inputs"], "Configured workflow does not expose this prompt input")
             node["inputs"][workflow["promptInput"]] = prompt
+        if seed is not None:
+            require(type(seed) is int and 0 <= seed < 2**53, "Invalid generation seed")
+            node = graph.get(workflow["seedNode"])
+            require(node is not None and node.get("class_type") == "KSampler" and
+                    workflow["seedInput"] in node["inputs"],
+                    "Configured image workflow does not expose a KSampler seed", 409)
+            node["inputs"][workflow["seedInput"]] = seed
+        if negative_prompt is not None:
+            negative_prompt = string(negative_prompt, "negative generation prompt", 4096, True)
+            if workflow["negativePromptNode"]:
+                node = graph.get(workflow["negativePromptNode"])
+                require(node is not None and node.get("class_type") == "CLIPTextEncode" and
+                        workflow["negativePromptInput"] in node["inputs"],
+                        "Configured image workflow does not expose a negative prompt", 409)
+                node["inputs"][workflow["negativePromptInput"]] = negative_prompt
+            else:
+                require(not negative_prompt, "Configured image workflow does not support a negative prompt", 409)
+        model_names = sorted({value for node in graph.values() for value in node["inputs"].values()
+                              if isinstance(value, str) and value.lower().endswith((".safetensors", ".ckpt"))})
+        if validate_image:
+            require(any(node["class_type"] == "SaveImage" for node in graph.values()),
+                    "Configured concept workflow has no image output", 409)
+            require(not any(value in ("%prompt%", "%seed%", "%negative_prompt%")
+                            for node in graph.values() for value in node["inputs"].values()
+                            if isinstance(value, str)),
+                    "Configured concept workflow has an unresolved input placeholder", 409)
+            # Only the reviewed image-node subset is eligible for concept work.
+            # Worker metadata also checks that its current models and inputs exist.
+            from comfy_workflow import validate_api_graph
+            object_info = self._json_request(provider, provider["baseUrl"] + "/object_info",
+                                             limit=8 * MAX_MANIFEST)
+            validate_api_graph(graph, object_info)
         job_id = uuid.uuid4().hex
         with self.lock:
             require(len(self.state["generations"]) + len(self.pending_generations) < MAX_QUEUE,
@@ -796,6 +834,10 @@ class ContentCatalog:
             prompt_id = identifier(response["prompt_id"], "ComfyUI prompt id")
             job = {"id": job_id, "providerId": provider_id, "workflowId": workflow_id,
                    "promptId": prompt_id, "status": "queued", "createdAt": time.time(), "outputs": []}
+            if seed is not None:
+                job["seed"] = seed
+            job["workflowSha256"] = workflow_sha256
+            job["model"] = model_names
             with self.lock:
                 # Transfer the slot to history atomically so it is never counted twice.
                 self.pending_generations.remove(job_id)

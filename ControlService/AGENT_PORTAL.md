@@ -141,6 +141,51 @@ an edit. Source changes on `main` do not update an already-running service,
 MCP subprocess, or headset page. See the [prompt-source audit](../Validation/Operator-Prompt-Audit-2026-09-27.md)
 for the exact source boundaries and remaining verification work under #116.
 
+## Optional ComfyUI concept versions
+
+The Agent Portal can generate a 2D concept before a separate creation turn.
+Configure one enabled `comfyui` provider in the existing PC-side
+`MATRIX_CONTENT_CONFIG` and one reviewed image API graph. The workflow entry
+needs `promptNode`, `promptInput`, `seedNode`, and `seedInput`; it may also set
+`negativePromptNode` and `negativePromptInput`. For the reviewed Krea2 image
+graph, these map to text node `53`, KSampler seed node `55`, and optional
+negative text node `78`. Keep the worker address, graph, and any credential
+environment variables in PC-private configuration. When several workflows are
+enabled, set `MATRIX_CONCEPT_PROVIDER_ID` and `MATRIX_CONCEPT_WORKFLOW_ID` on
+the PC to choose exactly one. The concept path checks the current worker's
+`/object_info` against the reviewed image-node subset before each submission;
+configuration alone does not establish that generation will succeed.
+
+The authenticated Operator API uses the existing Agent session ID:
+
+| Action | Route | JSON body/result |
+| --- | --- | --- |
+| Generate | `POST /api/agent/concepts` | `{sessionId,prompt,negativePrompt?}` → `{job}` |
+| Vary | `POST /api/agent/concepts/variation` | `{sessionId,sourceConceptId,prompt?,negativePrompt?}` → `{job}` |
+| List and refresh | `GET /api/agent/concepts?sessionId=...` | `{jobs,concepts,selectedConceptId,builds}` |
+| Select | `POST /api/agent/concepts/select` | `{sessionId,conceptId,designNotes?}` → `{selectedConceptId,concept}` |
+| Cancel queued | `POST /api/agent/concepts/cancel` | `{sessionId,conceptId}` → `{job}` |
+| Preview | `GET /api/agent/concepts/<conceptId>/preview` | Authenticated image bytes |
+
+Each job gets an immutable `conceptId`, a one-based `version`, a random seed,
+and a `parentConceptId` for variations. Omitting `prompt` on a variation reuses
+the parent's text with a new seed; supplying it is a complete new text prompt,
+not an image-conditioned edit. A ready concept has a content SHA-256 and a
+private, durable PC image file; the preview route never exposes the worker URL
+or local path. Jobs report `queued`, `generating`, `ready`, `failed`, or
+`cancelled`. Worker outages after submission leave completion unverified for
+later polling. A result finishing later never changes the selected concept.
+Only explicit selection updates it, and omitting design notes preserves the
+notes already stored on that version. A separate explicit build request is
+required before the selected image enters the existing Codex Agent turn.
+
+Selection, versions, notes, and build provenance are persisted under the
+service scene directory's `.agent_portal/concepts/`. Image files are immutable
+and named by their SHA-256; build provenance records the captured concept and
+request-time world context, with verified Matrix receipt and object IDs only
+after a world action actually succeeds. Generated images are art direction,
+not physical room measurements, geometry, or automatic Matrix placement.
+
 ## Dated installed-version observations
 
 The observations below describe their specific installed versions and isolated
