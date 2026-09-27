@@ -55,6 +55,8 @@ export class ConceptUI {
     return result;
   }
   async generate(prompt){
+    this.notice='Submitting image request on the PC…';this.noticeError=false;
+    this.render();this.onChange();
     const sessionId=await this._session();
     const job=await this.client.generate(sessionId,prompt);
     this.els.prompt.value=prompt.trim();
@@ -64,6 +66,8 @@ export class ConceptUI {
     return job;
   }
   async vary(notes=''){
+    this.notice='Starting another image version on the PC…';this.noticeError=false;
+    this.render();this.onChange();
     const sessionId=await this._session();
     if(!this.client.concepts.length)await this.client.refresh(sessionId);
     const source=this.client.selected||latest(this.client.concepts);
@@ -132,7 +136,8 @@ export class ConceptUI {
   statusForWorld(){
     const selected=this.selected,active=this.client.activeJobs.at(-1);
     const newest=latest(this.client.concepts);
-    return [active?`Image ${label(active)}: ${active.status}.`:'',
+    return [this.busy&&this.notice?this.notice:'',
+      active?`Image ${label(active)}: ${active.status}.`:'',
       newest?`Image ${label(newest)} ready.`:'',
       selected?`Selected design: ${label(selected)}. ${short(selected.designNotes||selected.prompt)}`:
         this.client.concepts.length?'No image selected. Choose a version before asking Codex to build from it.':'',
