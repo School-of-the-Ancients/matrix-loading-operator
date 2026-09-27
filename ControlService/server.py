@@ -39,6 +39,7 @@ from web_components import ComponentError, validate_attachment, validate_package
 from web_component_catalog import WebComponentCatalog
 from web_authoring import WebAuthoringJobs, WebAuthoringError
 from blender_authoring import BlenderAuthoringJobs, BlenderAuthoringError
+from citizen_asset_profile import PROFILE_ID as CITIZEN_ASSET_PROFILE_ID
 from web_game import GamePlanError, design_game, wants_game, validate_game_plan, validate_saved_game
 from content_service import ContentBridge, runtime_capabilities
 from content_catalog import ContentError
@@ -1150,6 +1151,19 @@ CITIZEN_BENCH_GENERATORS = [{
 }]
 
 
+def citizen_generated_rest_interaction(sha256):
+    require(type(sha256) is str and GLB_SHA.fullmatch(sha256),
+            "Invalid Citizen generated GLB SHA")
+    return {"schemaVersion": 1, "interactionId": "citizen-generated-rest",
+            "kind": "rest", "assetSha256": sha256,
+            "requiredCapabilities": ["static-virtual-floor", "verified-rendered-bounds"],
+            "availability": ["target-static", "floor-aligned", "rendered-verified"],
+            "approachPose": {"x": 0, "z": -.62},
+            "usePose": {"x": 0, "z": -.05}, "rangeMeters": .7,
+            "durationTicks": 4, "capacity": 1,
+            "effect": {"need": "energy", "delta": 31}}
+
+
 def hosted_fixture(current):
     """A headless claim keeps Ada/Bo and at most one reviewed construction."""
     objects = current["scene"]["objects"]
@@ -1166,7 +1180,7 @@ def hosted_fixture(current):
     if citizens is None:
         require(not objects, "Hosted bootstrap must have an empty scene")
         return False
-    require(type(citizens) is dict and citizens.get("schemaVersion") in (12, 13, 14) and
+    require(type(citizens) is dict and citizens.get("schemaVersion") in (12, 13, 14, 15) and
              citizens.get("clockSpeed") == 1 and
              type(citizens.get("residents")) is list and
              type(citizens.get("stations")) is list and
@@ -1174,7 +1188,7 @@ def hosted_fixture(current):
              {item["id"] for item in citizens["residents"]} == {"ada", "bo"} and
              [item["id"] for item in citizens["stations"][:2]] == ["chair", "food"] and
              (len(citizens["stations"]) == 2 or
-              citizens["schemaVersion"] in (13, 14) and
+              citizens["schemaVersion"] in (13, 14, 15) and
               citizens["stations"][2]["id"] == "citizen-bench") and
              len(objects) in (4, 5),
             "Hosted world supports Ada, Bo and at most one reviewed bench station")
@@ -1192,6 +1206,35 @@ def hosted_fixture(current):
             "Hosted Citizens bindings do not match the scene")
     additions = [item for item in objects if item["objectId"] not in bound]
     bench_bound = len(citizens["stations"]) == 3
+    generated = citizens.get("generatedConstruction") if citizens["schemaVersion"] == 15 else None
+    generated_succeeded = type(generated) is dict and generated.get("status") in ("created", "used")
+    if generated_succeeded:
+        require(bench_bound and len(additions) == 1 and
+                all(set(item) == {"objectId", "assetId", "anchorId", "transform",
+                                  "interaction"} and
+                    item["assetId"] == generated["assetId"] and
+                    item["anchorId"] == "web-floor" and
+                    item["objectId"] == generated["objectId"] and
+                    item["transform"] == CITIZEN_BENCH_TRANSFORM and
+                    item["interaction"] ==
+                    citizen_generated_rest_interaction(generated["sha256"])
+                    for item in additions) and
+                any(asset["assetId"] == generated["assetId"] and
+                    asset.get("sha256") == generated["sha256"]
+                    for asset in current.get("assets", [])),
+                "Hosted generated seat lacks its reviewed GLB catalog and interaction")
+        return True
+    if type(generated) is dict and generated.get("status") == "spawning" and additions:
+        require(len(additions) == 1 and
+                set(additions[0]) == {"objectId", "assetId", "anchorId", "transform"} and
+                additions[0]["assetId"] == generated["assetId"] and
+                additions[0]["anchorId"] == "web-floor" and
+                additions[0]["transform"] == CITIZEN_BENCH_TRANSFORM and
+                any(asset["assetId"] == generated["assetId"] and
+                    asset.get("sha256") == generated["sha256"]
+                    for asset in current.get("assets", [])),
+                "Hosted spawning GLB differs from its reviewed profile")
+        return True
     require((not bench_bound or len(additions) == 1) and len(additions) <= 1 and
             all(set(item) == {"objectId", "assetId", "anchorId", "transform", "procedural"} |
                 ({"interaction"} if bench_bound else set()) and
@@ -1738,9 +1781,209 @@ def validate_citizens_checkpoint(value, checked_scene, *, _allow_citizen_bench=F
         return type(item) in (int, float) and minimum <= item <= maximum and math.isfinite(item)
 
     require(type(value) is dict and type(value.get("schemaVersion")) is int and
-            value["schemaVersion"] in (1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14),
+            value["schemaVersion"] in (1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15),
             "Unsupported Citizens schemaVersion")
     version = value["schemaVersion"]
+    if version == 15:
+        require("generatedConstruction" in value,
+                "Invalid Citizens generated capability state")
+        record = value["generatedConstruction"]
+        if record is None:
+            projected = copy.deepcopy(value)
+            projected["schemaVersion"] = 14
+            del projected["generatedConstruction"]
+            validate_citizens_checkpoint(projected, checked_scene)
+            return
+        fields = ("intentId", "residentId", "blockedStationId",
+                  "waitExecutionId", "requestedTick", "status", "jobId",
+                  "assetId", "sha256", "spawnRequestId", "objectId",
+                  "interactionRequestId", "useRequestId", "reason")
+        shape(record, fields, "generated construction record")
+        require(value.get("construction") is None and
+                type(value.get("capabilityRequests")) is list and
+                len(value["capabilityRequests"]) == 1 and
+                record["residentId"] == "bo" and
+                record["blockedStationId"] == "chair" and
+                type(value.get("seed")) is int and
+                integer(record["waitExecutionId"], 1,
+                        value.get("actionSequence", -1)) and
+                record["intentId"] ==
+                f'citizens-{value["seed"]}-generated-{record["waitExecutionId"]}' and
+                integer(record["requestedTick"], 1, value.get("clockTick", -1)) and
+                record["status"] in ("requested", "generating", "registered",
+                                     "spawning", "created", "used", "denied",
+                                     "failed", "unconfirmed"),
+                "Invalid Citizens generated construction provenance")
+        for key in ("intentId", "residentId", "reason"):
+            citizens_text(record[key], "Citizens generated " + key,
+                          empty=(key == "reason"),
+                          limit=160 if key == "reason" else 32 if key == "residentId" else 128)
+        work_fields = ("jobId", "assetId", "sha256", "spawnRequestId",
+                       "objectId", "interactionRequestId")
+        for key in work_fields + ("useRequestId",):
+            if record[key] is not None:
+                citizens_text(record[key], "Citizens generated " + key)
+        entry = value["capabilityRequests"][0]
+        shape(entry, ("request", "status", "policy", "receipts", "reason", "work"),
+              "generated capability entry")
+        request = entry["request"]
+        shape(request, ("citizenRequestId", "intentId", "residentId",
+                        "capability", "action", "parameters", "checkpoint"),
+              "generated capability request")
+        shape(entry["work"], work_fields, "generated capability work")
+        checkpoint = request["checkpoint"]
+        shape(checkpoint, ("roomId", "clockTick", "objectIds"),
+              "generated capability checkpoint")
+        core = value.get("residents", []) + value.get("stations", [])[:2]
+        core_ids = sorted(item["objectId"] for item in core)
+        require(request["citizenRequestId"] ==
+                f'{record["intentId"]}/asset.generate/1' and
+                request["intentId"] == record["intentId"] and
+                request["residentId"] == record["residentId"] and
+                request["capability"] == "asset" and
+                request["action"] == "generate" and
+                json.dumps(request["parameters"], sort_keys=True,
+                           separators=(",", ":")) ==
+                json.dumps({"profileId": CITIZEN_ASSET_PROFILE_ID,
+                            "transform": CITIZEN_BENCH_TRANSFORM},
+                           sort_keys=True, separators=(",", ":")) and
+                checkpoint["roomId"] == checked_scene["roomId"] and
+                checkpoint["clockTick"] == record["requestedTick"] and
+                checkpoint["objectIds"] == core_ids and
+                all(item["objectId"] in {obj["objectId"] for obj in
+                    checked_scene["objects"]} for item in core) and
+                all(entry["work"][key] == record[key] for key in work_fields) and
+                entry["status"] == ("succeeded" if record["status"] in
+                                    ("created", "used") else record["status"]) and
+                entry["reason"] == record["reason"],
+                "Citizens generated request and work provenance disagree")
+        receipts = entry["receipts"]
+        require(type(receipts) is list and len(receipts) <= 3,
+                "Invalid Citizens generated Matrix receipts")
+        for receipt in receipts:
+            require(type(receipt) is dict and
+                    set(receipt) in ({"requestId", "ok", "error", "objectId"},
+                                     {"requestId", "ok", "error", "objectId", "outcome"}) and
+                    type(receipt["ok"]) is bool and
+                    type(receipt["error"]) is str and
+                    (receipt["error"] == "" if receipt["ok"] else bool(receipt["error"])),
+                    "Invalid Citizens generated Matrix receipt")
+            citizens_text(receipt["requestId"], "Citizens generated receipt ID")
+            citizens_text(receipt["objectId"], "Citizens generated receipt object ID",
+                          empty=True)
+            if "outcome" in receipt:
+                require(type(receipt["outcome"]) is dict,
+                        "Invalid Citizens generated Matrix outcome")
+                try:
+                    json.dumps(receipt["outcome"], allow_nan=False).encode("utf-8")
+                except (TypeError, ValueError, UnicodeError, RecursionError):
+                    raise APIError(400, "Invalid Citizens generated Matrix outcome") from None
+        require(len({item["requestId"] for item in receipts}) == len(receipts),
+                "Duplicate Citizens generated Matrix receipt")
+        policy = entry["policy"]
+        if record["status"] == "requested":
+            require(policy is None and not receipts and record["reason"] == "" and
+                    all(record[key] is None for key in work_fields) and
+                    record["useRequestId"] is None,
+                    "Invalid requested Citizens generated capability")
+        else:
+            shape(policy, ("allowed", "requestId", "reason", "checkpointSequence"),
+                  "generated capability policy")
+            require(type(policy["allowed"]) is bool and
+                    integer(policy["checkpointSequence"], 0, 9007199254740991) and
+                    type(policy["reason"]) is str,
+                    "Invalid Citizens generated policy decision")
+            if record["status"] == "denied":
+                require(policy["allowed"] is False and policy["requestId"] is None and
+                        policy["reason"] == record["reason"] and bool(record["reason"]) and
+                        not receipts and all(record[key] is None for key in work_fields) and
+                        record["useRequestId"] is None,
+                        "Invalid denied Citizens generated capability")
+            else:
+                require(policy["allowed"] is True and policy["reason"] == "" and
+                        type(policy["requestId"]) is str and
+                        re.fullmatch(r"[0-9a-f]{32}", policy["requestId"]) and
+                        record["jobId"] == policy["requestId"] and
+                        (record["status"] == "used" or
+                         record["useRequestId"] is None),
+                        "Invalid approved Citizens generated capability")
+                if record["status"] in ("generating", "registered", "spawning",
+                                        "created", "used"):
+                    require(record["reason"] == "",
+                            "Invalid active Citizens generated capability reason")
+                if record["status"] == "generating":
+                    require(not receipts and all(record[key] is None for key in
+                            work_fields[1:]),
+                            "Invalid generating Citizens capability")
+                if record["status"] in ("registered", "spawning", "created", "used"):
+                    require(type(record["assetId"]) is str and
+                            re.fullmatch(r"web:[a-z0-9][a-z0-9-]{0,39}:[0-9a-f]{12}",
+                                         record["assetId"]) and
+                            type(record["sha256"]) is str and
+                            GLB_SHA.fullmatch(record["sha256"]) and
+                            record["assetId"].endswith(":" + record["sha256"][:12]),
+                            "Invalid Citizens generated GLB identity")
+                if record["status"] == "registered":
+                    require(not receipts and all(record[key] is None for key in
+                            ("spawnRequestId", "objectId", "interactionRequestId")),
+                            "Invalid registered Citizens capability")
+                if record["status"] in ("spawning", "created", "used"):
+                    require(type(record["spawnRequestId"]) is str and
+                            re.fullmatch(r"[0-9a-f]{32}", record["spawnRequestId"]),
+                            "Invalid Citizens generated spawn ID")
+                if record["status"] == "spawning":
+                    require(not receipts and record["objectId"] is None and
+                            record["interactionRequestId"] is None,
+                            "Invalid spawning Citizens capability")
+                if record["status"] in ("created", "used"):
+                    obj = next((item for item in checked_scene["objects"]
+                                if item["objectId"] == record["objectId"]), None)
+                    descriptor = citizen_generated_rest_interaction(record["sha256"])
+                    station = next((item for item in value["stations"]
+                                    if item["id"] == "citizen-bench"), None)
+                    require(obj is not None and obj["assetId"] == record["assetId"] and
+                            obj["anchorId"] == "web-floor" and
+                            obj["transform"] == request["parameters"]["transform"] and
+                            obj.get("interaction") == descriptor and
+                            len(value["stations"]) == 3 and
+                            value["stations"][2] == station and
+                            station["objectId"] == record["objectId"] and
+                            station["kind"] == "rest" and
+                            station.get("approachMode") == "selected" and
+                            station.get("interaction") == descriptor and
+                            len(receipts) == 2 and all(item["ok"] for item in receipts) and
+                            receipts[0]["requestId"] == record["spawnRequestId"] and
+                            receipts[0]["objectId"] == record["objectId"] and
+                            record["interactionRequestId"] ==
+                            record["spawnRequestId"] + "-interaction" and
+                            receipts[1]["requestId"] == record["interactionRequestId"] and
+                            receipts[1]["objectId"] == record["objectId"] and
+                            (record["useRequestId"] is not None) ==
+                            (record["status"] == "used"),
+                            "Citizens generated success lacks exact Matrix provenance")
+                if record["status"] in ("failed", "unconfirmed"):
+                    require(bool(record["reason"]) and
+                            (not receipts or record["spawnRequestId"] is not None and
+                             receipts[0]["requestId"] == record["spawnRequestId"]),
+                            "Invalid failed Citizens generated capability")
+                    if receipts and receipts[0]["ok"] and record["status"] == "failed":
+                        require(len(receipts) >= 2 and receipts[-1]["ok"] and
+                                receipts[-1]["requestId"] ==
+                                record["spawnRequestId"] + "-rollback" and
+                                all(obj["objectId"] != receipts[0]["objectId"]
+                                    for obj in checked_scene["objects"]),
+                                "Citizens generated failure lacks rollback")
+        succeeded = record["status"] in ("created", "used")
+        require(len(value.get("stations", [])) == (3 if succeeded else 2) and
+                (record["useRequestId"] is None if not succeeded else True),
+                "Citizens generated station and state disagree")
+        projected = copy.deepcopy(value)
+        projected["schemaVersion"] = 12
+        for field in ("construction", "capabilityRequests", "generatedConstruction"):
+            del projected[field]
+        validate_citizens_checkpoint(projected, checked_scene,
+                                     _allow_citizen_bench=succeeded)
+        return
     if version == 14:
         # Capability requests are a bounded, durable Citizen-to-Matrix journal.
         # Validate the generic envelope before projecting to the established
@@ -3089,7 +3332,8 @@ class State:
         self.web_assets = WebAssetCatalog(web_assets_directory or Path(__file__).with_name("web_assets"))
         self.web_components = WebComponentCatalog(self.directory / "web_components")
         self.web_authoring = WebAuthoringJobs(self.web_assets)
-        self.blender_authoring = BlenderAuthoringJobs(self.web_assets)
+        self.blender_authoring = BlenderAuthoringJobs(
+            self.web_assets, citizen_directory=self.directory / "citizen_blender_jobs")
         self.matrix_tool_bridge = None
         self.agent_portal = AgentPortal(self.directory / ".agent_portal", lambda: local_agent_backend(self))
         self.clock = clock
@@ -3110,6 +3354,7 @@ class State:
         self.agent_procedural_ids = collections.OrderedDict()
         self.citizen_capability_budget = citizen_capability_budget
         self.citizen_capability_issued = 0
+        self.citizen_asset_spawns = self._load_citizen_asset_spawns()
         self.agent_game_ids = collections.OrderedDict()
         self.agent_display_ids = collections.OrderedDict()
         self.agent_control_ids = collections.OrderedDict()
@@ -3154,6 +3399,50 @@ class State:
     @citizen_construction_issued.setter
     def citizen_construction_issued(self, value):
         self.citizen_capability_issued = value
+
+    def _load_citizen_asset_spawns(self):
+        path = self.directory / "citizen_asset_spawns.json"
+        require(not path.is_symlink(), "Citizen asset spawn ledger is a link", 503)
+        if not path.is_file():
+            return {}
+        try:
+            records = json.loads(path.read_text(encoding="utf-8"))
+        except (OSError, ValueError, UnicodeError):
+            raise APIError(503, "Citizen asset spawn ledger is unreadable") from None
+        require(type(records) is dict and len(records) <= 4,
+                "Citizen asset spawn ledger is invalid", 503)
+        for key, record in records.items():
+            require(type(key) is str and re.fullmatch(r"[0-9a-f]{64}", key) and
+                    type(record) is dict and set(record) ==
+                    {"hostWorldId", "citizenRequestId", "jobId", "assetId",
+                     "sha256", "requestId", "status"} and
+                    all(type(record[key]) is str for key in record) and
+                    key == self._citizen_asset_spawn_key(
+                        record["hostWorldId"], record["citizenRequestId"]) and
+                    re.fullmatch(r"[0-9a-f]{32}", record["jobId"]) and
+                    re.fullmatch(r"[0-9a-f]{32}", record["requestId"]) and
+                    re.fullmatch(r"[0-9a-f]{64}", record["sha256"]) and
+                    record["status"] in ("reserved", "queued"),
+                    "Citizen asset spawn ledger is invalid", 503)
+        return records
+
+    @staticmethod
+    def _citizen_asset_spawn_key(world_id, citizen_request_id):
+        return hashlib.sha256((world_id + "\0" + citizen_request_id).encode(
+            "utf-8")).hexdigest()
+
+    def _save_citizen_asset_spawns(self):
+        path = self.directory / "citizen_asset_spawns.json"
+        require(not path.is_symlink(), "Citizen asset spawn ledger is a link", 503)
+        with tempfile.NamedTemporaryFile(mode="w", encoding="utf-8",
+                                         dir=self.directory, prefix=".citizen-spawn-",
+                                         delete=False) as handle:
+            staged = Path(handle.name)
+            json.dump(self.citizen_asset_spawns, handle, ensure_ascii=False,
+                      allow_nan=False, sort_keys=True)
+            handle.flush()
+            os.fsync(handle.fileno())
+        os.replace(staged, path)
 
     @staticmethod
     def _agent_scale_public(value):
@@ -3511,7 +3800,8 @@ class State:
             self.voice_capture_id = body["captureId"]
             return self.capture_status()
 
-    def queue(self, raw_commands, *, ordered=False, hosted_procedural=False):
+    def queue(self, raw_commands, *, ordered=False, hosted_procedural=False,
+              reviewed_request_id=None):
         require(isinstance(raw_commands, list) and 0 < len(raw_commands) <= MAX_BATCH,
                 f"Expected 1-{MAX_BATCH} commands")
         checked = [command(item, allow_precondition=True) for item in raw_commands]
@@ -4003,9 +4293,16 @@ class State:
                 require(projected_count <= MAX_PHYSICS_BODIES,
                         "Scene physics body limit reached", 409)
             require(len(self.pending) + len(checked) <= MAX_PENDING, "Command queue full", 409)
+            require(reviewed_request_id is None or
+                    len(checked) == 1 and type(reviewed_request_id) is str and
+                    re.fullmatch(r"[0-9a-f]{32}", reviewed_request_id) and
+                    reviewed_request_id not in self.pending and
+                    not any(item["requestId"] == reviewed_request_id
+                            for item in self.results),
+                    "Invalid reviewed Matrix request ID")
             previous_request_id = None
             for item in checked:
-                item["requestId"] = uuid.uuid4().hex
+                item["requestId"] = reviewed_request_id or uuid.uuid4().hex
                 if ordered and previous_request_id is not None:
                     # Only the reviewed Apply path supplies ordered=True. The
                     # planner and raw command endpoint cannot choose or forge
@@ -4107,7 +4404,7 @@ class State:
                 result["error"] = receipt["error"][:200]
             return result
 
-    def agent_spawn(self, value):
+    def agent_spawn(self, value, *, reviewed_request_id=None):
         """Queue a registered GLB on the virtual floor through the normal runtime."""
         require(isinstance(value, dict) and set(value) ==
                 {"room_id", "scene_revision", "asset_id", "transform"},
@@ -4136,7 +4433,8 @@ class State:
             except WebAssetError as error:
                 raise APIError(409, str(error)) from None
             queued = self.queue([{"op": "spawn", "assetId": asset_id,
-                                  "anchorId": "web-floor", "transform": pose}])["commands"][0]
+                                  "anchorId": "web-floor", "transform": pose}],
+                                reviewed_request_id=reviewed_request_id)["commands"][0]
             request_id = queued["requestId"]
             self.agent_spawn_ids[request_id] = {"roomId": room_id, "assetId": asset_id,
                                                 "transform": pose,
@@ -4254,19 +4552,15 @@ class State:
                         "reason": (str(reason) or "Citizen capability denied")[:160],
                         "checkpointSequence": self.host_sequence}
 
-            if self.citizen_capability_issued >= self.citizen_capability_budget:
-                return denied("Citizen capability budget is exhausted")
             current = self.latest
             if not self.online() or self.host_world_id is None or current is None:
                 return denied("Hosted Citizens world is unavailable")
             if self.host_saved_sequence != self.host_sequence:
                 return denied("Hosted Citizens state needs a durable checkpoint")
-            if self.pending or self.content.busy():
-                return denied("Matrix world has a pending edit")
             if (current.get("runtimeDescriptor") or {}).get("client") != "matrix-world-host":
                 return denied("Citizen capability requires the hosted Matrix owner")
             citizens = current.get("citizensState")
-            if type(citizens) is not dict or citizens.get("schemaVersion") != 14:
+            if type(citizens) is not dict or citizens.get("schemaVersion") not in (14, 15):
                 return denied("Citizen capability journal is unavailable")
             entries = citizens.get("capabilityRequests")
             if type(entries) is not list:
@@ -4286,6 +4580,19 @@ class State:
                 return denied("Invalid Citizen capability request")
             if actual != saved:
                 return denied("Citizen capability request differs from saved intent")
+            kind = (value["capability"], value["action"])
+            existing_job_id = (self.blender_authoring.citizen_ids.get(
+                (self.host_world_id, value["citizenRequestId"]))
+                if kind == ("asset", "generate") else None)
+            spent = max(self.citizen_capability_issued,
+                        len(self.blender_authoring.citizen_ids),
+                        sum(item.get("policy", {}).get("allowed") is True
+                            for item in entries if type(item) is dict and
+                            type(item.get("policy")) is dict))
+            if spent >= self.citizen_capability_budget and existing_job_id is None:
+                return denied("Citizen capability budget is exhausted")
+            if self.pending or self.content.busy():
+                return denied("Matrix world has a pending edit")
             checkpoint = value["checkpoint"]
             scene = current["scene"]
             if (checkpoint.get("roomId") != scene["roomId"] or
@@ -4293,9 +4600,20 @@ class State:
                     checkpoint.get("objectIds") != sorted(item["objectId"] for item in
                                                          scene["objects"])):
                 return denied("Citizen capability checkpoint is stale")
+            if kind == ("asset", "generate"):
+                if citizens["schemaVersion"] != 15:
+                    return denied("Citizen asset generation needs the v15 journal")
+                try:
+                    job = self._citizen_asset_generate(
+                        current, value, hashlib.sha256(actual.encode("utf-8")).hexdigest())
+                except (APIError, BlenderAuthoringError) as error:
+                    return denied(str(error))
+                if existing_job_id is None:
+                    self.citizen_capability_issued += 1
+                return {"allowed": True, "requestId": job["jobId"],
+                        "reason": "", "checkpointSequence": self.host_sequence}
             handler = {("procedural", "create"):
-                       self._citizen_procedural_create}.get(
-                           (value["capability"], value["action"]))
+                       self._citizen_procedural_create}.get(kind)
             if handler is None:
                 return denied("Citizen capability is not allowed")
             try:
@@ -4318,6 +4636,155 @@ class State:
             self.citizen_capability_issued += 1
             return {"allowed": True, "requestId": request_id,
                     "reason": "", "checkpointSequence": self.host_sequence}
+
+    def _citizen_asset_generate(self, current, value, request_sha256):
+        parameters = value["parameters"]
+        require(json.dumps(parameters, sort_keys=True, separators=(",", ":")) ==
+                json.dumps({"profileId": CITIZEN_ASSET_PROFILE_ID,
+                            "transform": CITIZEN_BENCH_TRANSFORM},
+                           sort_keys=True, separators=(",", ":")),
+                "Citizen Blender parameters are outside the reviewed profile", 409)
+        require(len(current["scene"]["objects"]) == 4,
+                "Citizen Blender generation requires the four-object hosted world", 409)
+        citizens = current["citizensState"]
+        record = citizens.get("generatedConstruction")
+        require(type(record) is dict and record.get("status") == "requested" and
+                record.get("intentId") == value["intentId"] and
+                record.get("residentId") == value["residentId"] == "bo" and
+                record.get("blockedStationId") == "chair" and
+                record.get("requestedTick") == citizens["clockTick"],
+                "Resident generated-rest intent is unavailable or changed", 409)
+        chair = next((item for item in citizens["stations"] if item["id"] == "chair"), None)
+        bo = next((item for item in citizens["residents"] if item["id"] == "bo"), None)
+        claim = chair.get("claim") if chair else None
+        waiting = next((item for item in (chair.get("waiters") if chair else [])
+                        if item.get("residentId") == "bo" and
+                        item.get("executionId") == record.get("waitExecutionId")), None)
+        require(type(claim) is dict and claim.get("residentId") == "ada" and
+                bo is not None and bo.get("activity") is None and
+                bo.get("needs", {}).get("energy", 101) <= 40 and waiting is not None,
+                "Bo is no longer waiting for the occupied chair", 409)
+        return self.blender_authoring.submit_profile(
+            self.host_world_id, value["citizenRequestId"], request_sha256,
+            parameters["profileId"])
+
+    def citizen_capability_dispatch(self, value):
+        """Issue one saved generated-asset spawn through the typed Matrix path."""
+        require(type(value) is dict and set(value) ==
+                {"citizenRequestId", "jobId", "assetId", "sha256"},
+                "Invalid Citizen generated asset dispatch")
+        request_id = text(value["citizenRequestId"], "citizenRequestId", limit=256)
+        job_id = value["jobId"]
+        digest = value["sha256"]
+        asset_id = value["assetId"]
+        require(type(job_id) is str and re.fullmatch(r"[0-9a-f]{32}", job_id) and
+                type(digest) is str and GLB_SHA.fullmatch(digest) and
+                type(asset_id) is str and
+                re.fullmatch(r"web:[a-z0-9][a-z0-9-]{0,39}:[0-9a-f]{12}", asset_id),
+                "Invalid Citizen generated asset identity")
+        with self.lock:
+            self.expire()
+            require(self.online() and self.host_world_id is not None and
+                    self.latest is not None and
+                    self.host_saved_sequence == self.host_sequence and
+                    (self.latest.get("runtimeDescriptor") or {}).get("client") ==
+                    "matrix-world-host", "Hosted Citizen dispatch needs a saved owner world", 409)
+            current = self.latest
+            citizens = current.get("citizensState")
+            require(type(citizens) is dict and citizens.get("schemaVersion") == 15,
+                    "Citizen generated capability journal is unavailable", 409)
+            entries = citizens.get("capabilityRequests")
+            entry = next((item for item in entries or [] if
+                          type(item) is dict and type(item.get("request")) is dict and
+                          item["request"].get("citizenRequestId") == request_id), None)
+            work = entry.get("work") if entry else None
+            record = citizens.get("generatedConstruction")
+            require(type(entry) is dict and type(work) is dict and
+                    entry.get("status") in ("registered", "spawning") and
+                    type(record) is dict and
+                    record.get("intentId") == entry["request"].get("intentId") and
+                    entry.get("policy", {}).get("allowed") is True and
+                    entry["policy"]["requestId"] == job_id and
+                    work.get("jobId") == job_id and
+                    work.get("assetId") == asset_id and
+                    work.get("sha256") == digest and
+                    record.get("jobId") == job_id and
+                    record.get("assetId") == asset_id and
+                    record.get("sha256") == digest and
+                    json.dumps(entry["request"].get("parameters"),
+                               sort_keys=True, separators=(",", ":")) ==
+                    json.dumps({"profileId": CITIZEN_ASSET_PROFILE_ID,
+                                "transform": CITIZEN_BENCH_TRANSFORM},
+                               sort_keys=True, separators=(",", ":")),
+                    "Citizen generated dispatch differs from saved intent", 409)
+            job = self.blender_authoring.status(job_id)
+            saved_request_sha = hashlib.sha256(json.dumps(
+                entry["request"], ensure_ascii=False, sort_keys=True,
+                allow_nan=False, separators=(",", ":")).encode("utf-8")).hexdigest()
+            require(job.get("phase") == "ready" and
+                    job.get("hostWorldId") == self.host_world_id and
+                    job.get("citizenRequestId") == request_id and
+                    job.get("profileId") == CITIZEN_ASSET_PROFILE_ID and
+                    job.get("requestSha256") == saved_request_sha and
+                    job.get("asset", {}).get("assetId") == asset_id and
+                    job.get("sha256") == digest and
+                    job["asset"].get("sha256") == digest,
+                    "Citizen generated Blender job is not registered", 409)
+            registered = next((item for item in self.web_assets.list()
+                               if item["assetId"] == asset_id and
+                               item["sha256"] == digest), None)
+            require(registered is not None and
+                    any(item["assetId"] == asset_id and
+                        item.get("sha256") == digest for item in current["assets"]),
+                    "Citizen generated GLB is not in the connected Matrix catalog", 409)
+            try:
+                self.web_assets.file(digest)
+            except WebAssetError as error:
+                raise APIError(409, str(error)) from None
+            key = self._citizen_asset_spawn_key(self.host_world_id, request_id)
+            prior = self.citizen_asset_spawns.get(key)
+            if prior is not None:
+                require(prior["hostWorldId"] == self.host_world_id and
+                        prior["citizenRequestId"] == request_id and
+                        prior["jobId"] == job_id and prior["assetId"] == asset_id and
+                        prior["sha256"] == digest and
+                        (entry["status"] != "spawning" or
+                         work.get("spawnRequestId") == prior["requestId"]),
+                        "Citizen spawn provenance changed", 409)
+                if prior["requestId"] in self.agent_spawn_ids:
+                    return self.agent_spawn_status(prior["requestId"])
+                return {"requestId": prior["requestId"], "status": "unconfirmed",
+                        "assetId": asset_id, "roomId": current["scene"]["roomId"],
+                        "sceneRevision": self.revision}
+            require(entry["status"] == "registered" and
+                    record.get("status") == "registered" and
+                    len(current["scene"]["objects"]) == 4 and
+                    work.get("spawnRequestId") is None and
+                    not self.pending and not self.content.busy(),
+                    "Citizen generated world is not ready for one spawn", 409)
+            spawn_id = hashlib.sha256(("citizen-asset-spawn\0" + key).encode(
+                "ascii")).hexdigest()[:32]
+            self.citizen_asset_spawns[key] = {
+                "hostWorldId": self.host_world_id, "citizenRequestId": request_id,
+                "jobId": job_id, "assetId": asset_id, "sha256": digest,
+                "requestId": spawn_id, "status": "reserved"}
+            self._save_citizen_asset_spawns()
+            queued = self.agent_spawn({
+                "room_id": current["scene"]["roomId"],
+                "scene_revision": self.revision,
+                "asset_id": asset_id,
+                "transform": entry["request"]["parameters"]["transform"]},
+                reviewed_request_id=spawn_id)
+            self.citizen_asset_spawns[key]["status"] = "queued"
+            self._save_citizen_asset_spawns()
+            issued = self.agent_spawn_ids[spawn_id]
+            issued.update(citizenRequestId=request_id,
+                          citizenIntentId=entry["request"]["intentId"],
+                          residentId=entry["request"]["residentId"],
+                          citizenCapability="asset", citizenAction="generate",
+                          jobId=job_id, sha256=digest,
+                          checkpointSequence=self.host_sequence)
+            return queued
 
     def _citizen_procedural_create(self, current, value):
         """The first reviewed policy profile uses the existing procedural tool."""
@@ -5523,12 +5990,78 @@ class State:
             require(self.host_saved_sequence == self.host_sequence,
                     "Hosted Citizens tick is not checkpointed", 409)
             require(hosted_fixture(current), "Hosted Citizens world is unavailable", 409)
+            assets = self._saved_hosted_assets(include_pending=True)
             return {"schemaVersion": 1, "worldId": self.host_world_id,
                     "instanceId": self.host_instance, "sequence": self.host_sequence,
                     "clockTick": current["citizensState"]["clockTick"], "online": True,
-                    "readOnly": True, "world": {"version": 3,
+                    "readOnly": True, "assets": assets, "world": {"version": 3,
                     "scene": copy.deepcopy(current["scene"]), "game": None,
                     "citizens": copy.deepcopy(current["citizensState"])}}
+
+    def _saved_hosted_assets(self, *, include_pending=False):
+        """Expose catalog entries only for the durable hosted checkpoint."""
+        require(self.host_world_id is not None and
+                self.host_saved_sequence == self.host_sequence and
+                self.latest is not None, "Hosted checkpoint is unavailable", 409)
+        path = self.world_checkpoint_path(self.host_world_id)
+        require(path.is_file(), "Hosted checkpoint is unavailable", 409)
+        try:
+            document = json.loads(path.read_text(encoding="utf-8"))
+        except (OSError, ValueError, UnicodeError):
+            raise APIError(409, "Hosted checkpoint is unreadable") from None
+        require(type(document) is dict and type(document.get("dependencies")) is list,
+                "Hosted checkpoint is unreadable", 409)
+        world = document.get("world") if type(document) is dict else None
+        try:
+            digest = world_checkpoint_digest(world, document["dependencies"])
+        except (TypeError, ValueError, UnicodeError, RecursionError):
+            raise APIError(409, "Hosted checkpoint is unreadable") from None
+        require(document.get("hostedWorldId") == self.host_world_id and
+                type(world) is dict and world.get("scene") == self.latest["scene"] and
+                world.get("citizens") == self.latest.get("citizensState") and
+                document.get("payloadSha256") == digest,
+                "Hosted checkpoint differs from the observed world", 409)
+        scene_referenced = {item["assetId"] for item in world["scene"]["objects"]
+                            if item["assetId"].startswith("web:")}
+        checkpoint_referenced = set(scene_referenced)
+        generated = world.get("citizens", {}).get("generatedConstruction")
+        if (type(generated) is dict and
+                type(generated.get("assetId")) is str):
+            checkpoint_referenced.add(generated["assetId"])
+        catalog = {item["assetId"]: item for item in self.web_assets.list()}
+        assets = []
+        dependencies = []
+        for asset_id in sorted(checkpoint_referenced):
+            entry = catalog.get(asset_id)
+            require(entry is not None,
+                    "Hosted GLB dependency is unavailable", 409)
+            try:
+                self.web_assets.file(entry["sha256"])
+            except WebAssetError as error:
+                raise APIError(409, str(error)) from None
+            clips = [clip["name"] for clip in entry["geometry"].get("animationClips", [])]
+            dependencies.append({"assetId": asset_id, "sha256": entry["sha256"],
+                                 "spawnScale": entry.get("spawnScale", 1),
+                                 "animationClips": clips,
+                                 **({"localBounds": entry["localBounds"]}
+                                    if "localBounds" in entry else {})})
+            if include_pending or asset_id in scene_referenced:
+                assets.append(copy.deepcopy(entry))
+        require(document["dependencies"] == dependencies,
+                "Hosted GLB dependency changed since checkpoint", 409)
+        return assets
+
+    def hosted_asset_file(self, sha256):
+        require(type(sha256) is str and GLB_SHA.fullmatch(sha256),
+                "Unknown hosted GLB", 404)
+        with self.lock:
+            require(any(item["sha256"] == sha256 for item in
+                        self._saved_hosted_assets()),
+                    "GLB is not referenced by the saved hosted world", 404)
+            try:
+                return self.web_assets.file(sha256)
+            except WebAssetError as error:
+                raise APIError(404, str(error)) from None
 
     def room_unavailable_message(self):
         if self.online() and self.runtime and self.runtime.get("mode") == "ar":
@@ -5553,10 +6086,48 @@ class State:
         require(not target.is_symlink(), "World checkpoint links are not supported")
         return target
 
-    def _world_checkpoint_ready(self):
+    def _world_checkpoint_ready(self, *, allow_citizen_spawn=False):
         self.expire()
         require(self.online() and self.latest is not None, "Web runtime is offline; reconnect before using a world checkpoint", 409)
-        require(not self.pending and not self.content.busy(), "Wait for pending world commands before using a checkpoint", 409)
+        citizen_spawn_pending = False
+        if (allow_citizen_spawn and len(self.pending) == 1 and
+                self.host_world_id is not None):
+            current = self.latest
+            citizens = current.get("citizensState")
+            entry = (citizens.get("capabilityRequests", [None])[0]
+                     if type(citizens) is dict and
+                     type(citizens.get("capabilityRequests")) is list and
+                     len(citizens["capabilityRequests"]) == 1 else None)
+            work = entry.get("work") if type(entry) is dict else None
+            command = next(iter(self.pending.values()))
+            request = entry.get("request") if type(entry) is dict else None
+            key = (self._citizen_asset_spawn_key(
+                self.host_world_id, request["citizenRequestId"])
+                if type(request) is dict and
+                type(request.get("citizenRequestId")) is str else None)
+            ledger = self.citizen_asset_spawns.get(key)
+            citizen_spawn_pending = (
+                type(citizens) is dict and
+                citizens.get("schemaVersion") == 15 and
+                type(entry) is dict and type(request) is dict and
+                entry.get("status") == "spawning" and
+                type(work) is dict and type(ledger) is dict and
+                command.get("op") == "spawn" and
+                command.get("requestId") == work.get("spawnRequestId") ==
+                ledger.get("requestId") and
+                command.get("assetId") == work.get("assetId") ==
+                ledger.get("assetId") and
+                command.get("transform") ==
+                request.get("parameters", {}).get("transform") and
+                work.get("jobId") == ledger.get("jobId") and
+                work.get("sha256") == ledger.get("sha256") and
+                ledger.get("status") == "queued" and
+                len(current["scene"]["objects"]) == 4 and
+                not any(item["requestId"] == command["requestId"]
+                        for item in self.results))
+        require((not self.pending or citizen_spawn_pending) and
+                not self.content.busy(),
+                "Wait for pending world commands before using a checkpoint", 409)
         current = self.latest
         require(current["scene"]["roomId"] == "web-virtual-room-v1" and
                 (current.get("roomContext") or {}).get("mode") == "white-room" and
@@ -5618,6 +6189,13 @@ class State:
             raise APIError(400, str(error) or "Invalid saved game") from None
         if value["game"] is not None:
             referenced.update(role["assetId"] for role in value["game"]["spec"]["roles"])
+        if value["version"] == 3:
+            generated = value["citizens"].get("generatedConstruction")
+            if (type(generated) is dict and
+                    type(generated.get("assetId")) is str):
+                # A registered GLB is a checkpoint dependency before its
+                # Matrix spawn, and remains one if that spawn later fails.
+                referenced.add(generated["assetId"])
         available = {item["assetId"] for item in current["assets"]}
         require(referenced <= available, "World checkpoint asset is unavailable in the connected browser", 409)
         browser_assets = {item["assetId"]: item for item in current["assets"]}
@@ -5652,7 +6230,7 @@ class State:
     def save_world_checkpoint(self, name, world):
         target = self.world_checkpoint_path(name)
         with self.lock:
-            current = self._world_checkpoint_ready()
+            current = self._world_checkpoint_ready(allow_citizen_spawn=True)
             dependencies = self._checked_world_checkpoint(world, current)
             require(world["scene"] == current["scene"],
                     "Browser world changed since the last exchange; sync it and retry saving", 409)
@@ -6462,6 +7040,17 @@ class Handler(BaseHTTPRequestHandler):
                 self.authenticate_world_view()
                 self.send_data(200, self.server.state.hosted_observation())
                 return
+            if (path.startswith("/api/web/assets/") and
+                    self.server.world_view_token and
+                    hmac.compare_digest(self.headers.get("Authorization", ""),
+                                        "Bearer " + self.server.world_view_token)):
+                self.authenticate_world_view()
+                name = path[len("/api/web/assets/"):]
+                require(bool(re.fullmatch(r"[0-9a-f]{64}\.glb", name)),
+                        "Unknown hosted GLB", 404)
+                asset = self.server.state.hosted_asset_file(name[:-4])
+                self.send_data(200, asset.read_bytes(), "model/gltf-binary")
+                return
             self.authenticate()
             if path == "/api/state":
                 data = self.server.state.status()
@@ -6599,6 +7188,12 @@ class Handler(BaseHTTPRequestHandler):
                 require(loopback(self.client_address[0]),
                         "Citizen capabilities require the local world host", 403)
                 data = state.citizen_capability_request(body)
+            elif path == "/api/citizens/capabilities/dispatch":
+                require(bool(self.server.token),
+                        "Citizen capabilities require an owner token", 503)
+                require(loopback(self.client_address[0]),
+                        "Citizen capabilities require the local world host", 403)
+                data = state.citizen_capability_dispatch(body)
             elif path == "/api/plan":
                 data = plan(state, body)
             elif path == "/api/capture":

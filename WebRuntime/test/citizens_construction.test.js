@@ -26,6 +26,7 @@ test('an existing v12 Ada and Bo checkpoint gains an empty construction record',
   old.schemaVersion=12;
   delete old.construction;
   delete old.capabilityRequests;
+  delete old.generatedConstruction;
   const restored=CitizensSimulation.restore(world,old).exportState();
   assert.deepEqual(restored,current);
   assert.equal(restored.construction,null);
@@ -309,8 +310,9 @@ test('v13 completed construction migrates without inventing historical receipts'
   const legacy=clone(completed);
   legacy.schemaVersion=13;
   delete legacy.capabilityRequests;
+  delete legacy.generatedConstruction;
   const restored=CitizensSimulation.restore(world,legacy).exportState();
-  assert.equal(restored.schemaVersion,14);
+  assert.equal(restored.schemaVersion,15);
   assert.deepEqual(restored.capabilityRequests,[]);
   assert.deepEqual(restored.construction,legacy.construction);
   assert.deepEqual(restored.residents.map(item=>item.objectId),

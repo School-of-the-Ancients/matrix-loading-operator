@@ -28,7 +28,7 @@ sidebar.addEventListener('click',()=>{
   sidebar.textContent=expanded?'Show details':'Hide details';
 });
 try{
-  view=new MatrixView($('view'),world,()=>{},()=>'',message=>feedback(message,true),
+  view=new MatrixView($('view'),world,()=>{},()=>token,message=>feedback(message,true),
     ()=>{},()=>{},()=>{},()=>{},()=>{},()=>{},()=>{},
     {readOnly:true});
   view.sync();

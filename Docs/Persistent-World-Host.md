@@ -6,9 +6,11 @@ Quest visitor. One Node process runs the existing `MatrixWorld` and
 virtual tick with the PC `ControlService`, then saves the version 3 world
 checkpoint atomically. The scene starts with two orb resident markers, one
 chair, and one table. The owner can add one reviewed procedural construction
-through the existing Agent Portal and typed Matrix tool. With the optional
-Citizen capability flag, Bo can request one bench after encountering chair
-contention. There is no renderer in this process.
+through the existing Agent Portal and typed Matrix tool. In separate optional
+Citizen modes, Bo can request either a procedural bench or one
+Blender-generated rest seat after encountering chair contention. The host has
+no browser renderer; for a generated GLB it loads the registered bytes and
+measures the mesh with Three.js before authoring an interaction.
 
 ## Run an isolated local world
 
@@ -53,20 +55,29 @@ restores the last atomic checkpoint and continues from that tick, without
 advancing through downtime. A paused checkpoint requires inspection and an
 explicit `--resume-paused` on restart.
 
-Pass `--citizen-capabilities` to enable the bounded autonomous case. The
-earlier `--citizen-construction` flag remains an alias. Without
-that flag, the existing human Operator creation slot remains available.
+Pass `--citizen-capabilities` for the procedural Citizen case, or
+`--citizen-generated-asset` for the reviewed Blender-generated rest seat.
+These modes are mutually exclusive and use the same one-addition slot. The
+earlier `--citizen-construction` flag remains an alias for the procedural
+case. A fresh generated-asset demonstration needs a fresh isolated world
+checkpoint and a PC Blender installation (`MATRIX_BLENDER_EXE` can select it).
+For example, after starting the isolated service above, run the host with
+`--name AdaBoGenerated --citizen-generated-asset`. The reviewed Citizen
+profile contains a fixed blueprint, so this path does not give Bo arbitrary
+prompt-to-Blender access. Without either Citizen flag, the existing human
+Operator creation slot remains available.
 `--interval-ms` can set the tick interval for an isolated demonstration.
 
 Each world has one named PC checkpoint under the chosen scene directory. A
 hosted exchange publishes a headless runtime descriptor
 `matrix-world-host/none/host`. The service accepts the four built-in Citizens
-objects and at most one floor-aligned `matrix:procedural` object under that
-descriptor. It checks the versioned recipe against the host generator registry
-on restore. The host executes only one `create_procedural` command after its
-first checkpoint; other Operator commands receive explicit failure receipts.
-A second creation, revision, or deletion is outside this prototype's hosted
-edit contract.
+objects and at most one floor-aligned addition: a `matrix:procedural` object
+or the registered `web:` GLB from the approved Citizen job. It checks the
+versioned procedural recipe or the GLB catalog identity against the saved
+world on restore. The host executes one approved `create_procedural` or
+`spawn` command after its first checkpoint; unsupported Operator commands
+receive explicit failure receipts. A second creation, revision, or deletion
+is outside this prototype's hosted edit contract.
 
 ## PC Operator creation
 
@@ -93,49 +104,70 @@ flow.
 
 ## Optional Citizen capability requests
 
-With `--citizen-capabilities`, the existing seed-29 Ada/Bo schedule creates a
-chair reservation conflict: Ada holds the chair while Bo waits to rest. Bo
-records one construction intent and a version 14 capability request in the
+With either Citizen mode, the existing seed-29 Ada/Bo schedule creates a chair
+reservation conflict: Ada holds the chair while Bo waits to rest. Bo records
+one construction intent and a version 15 capability request in the
 hosted checkpoint. The owner host submits the exact saved request to the
 owner-only `POST /api/citizens/capabilities` endpoint. The request names the
-resident, intent, capability (`procedural`), action (`create`), bounded
+resident, intent, capability and action, bounded
 parameters, and the room, tick, and object IDs from the checkpoint where Bo
 made the request. Neither resident receives an owner token, Agent session,
 MCP bridge, or tool credentials.
 
 The service matches the entire request to the durable checkpoint, then applies
-the policy for its capability and action. This slice allows only one reviewed
-`procedural.create` request: the fixed bench recipe, pose, and rest interaction
-must match; chair contention, pending work, and a one-request budget must still
-hold. The policy response has an explicit allow/deny decision, exact Matrix
-request ID on allow, reason, and checkpoint sequence. A rejection records its
-reason and creates nothing. The allowed action invokes the existing typed
-procedural service capability, whose command the host executes through
-`MatrixWorld.execute`. The host matches the exact creation receipt and attaches
-the reviewed interaction from the approved request through Matrix's existing
+the policy for its capability and action. Both modes enforce the exact reviewed
+parameters, chair contention at request time, pending-work checks, and a
+one-request budget. A rejection records its reason and creates nothing.
+
+For `procedural.create`, the approved parameters fix the bench recipe, pose,
+and rest interaction. The policy response names the exact Matrix request ID;
+the existing typed procedural service capability queues the command, and the
+host executes it through `MatrixWorld.execute`. The host matches the creation
+receipt and attaches the reviewed interaction through Matrix's existing
 interaction command. Only after both receipts match the object does Bo observe
-the new station and resume his rest interaction there. His checked use receipt
-marks the construction used.
+the new station. His checked rest-use receipt marks the construction used.
 
-The version 14 Citizens checkpoint retains the full request, policy decision,
-exact Matrix creation and interaction receipts, and the older construction/use
-record. Restart restores that provenance, the bench, Ada and Bo, and the same
-read-only visitor scene. The request remains one-shot across restart.
-If a process stops with a saved but unresolved request, startup stops for
-inspection instead of risking a duplicate policy submission.
+For `asset.generate`, the saved request fixes `rest-seat-v1` and the world
+pose. The service reserves a durable Blender job ID before invoking its
+existing `BlenderAuthoringJobs` worker with the reviewed blueprint. The job
+ledger records queued, building, generated, registered, ready, error, or
+unconfirmed outcomes; generated GLB bytes and the content-addressed asset
+catalog are checked by SHA-256. Citizens records the policy's job ID as
+`generating`, then the registered asset ID and SHA as `registered`. Job
+submission alone is never success. The owner calls
+`POST /api/citizens/capabilities/dispatch`,
+which checks the saved request, job, asset catalog, and one-object budget before
+queuing the existing typed Matrix spawn capability. The spawn request ID is
+checkpointed as `spawning` before the host executes it.
 
-The shared endpoint dispatches by `capability` and `action` to an explicitly
-reviewed policy adapter. Adding a later action means validating its parameters
-against the saved world, granting a bounded budget, invoking an existing typed
-Matrix capability, and specifying the receipt/world checks. It does not require
-a new endpoint for each Citizen behavior. The hosted fixture currently permits
-only the procedural bench addition; other actions remain denied. A bounded
-Blender-generated asset request is a next step for issue #109: the current PC
-Blender/GLB authoring job is asynchronous, catalog registration precedes world
-spawn, the hosted fixture and visitor currently admit only a procedural
-addition, and the job needs durable restart provenance before a Citizen may
-rely on its result. See `Validation/Citizen-Capabilities-2026-09-27.md` for the
-generic path's isolated live proof.
+After an exact spawn receipt, the headless host loads the immutable GLB bytes,
+checks their digest and measured geometry, then asks `MatrixWorld` to attach
+the fixed SHA-bound rest interaction. The two exact Matrix receipts and the
+observed object, asset ID, SHA, pose, and interaction must agree before
+Citizens marks the capability `succeeded`. Bo later reaches the created
+station and uses it through the normal Matrix interaction; its use request ID
+is saved. An interaction failure needs a confirmed Matrix rollback before a
+failed state is saved. Ambiguous Blender or spawn outcomes are retained as
+unconfirmed for inspection, without an automatic duplicate generation or
+spawn.
+
+The version 15 Citizens checkpoint retains the full request, policy decision,
+generated work IDs and SHA where applicable, exact Matrix receipts, and the
+construction/use record. Existing version 13/14 worlds migrate without
+inventing historical receipts. Restart restores the same Ada and Bo identities,
+world object, catalog dependency, and read-only visitor scene. A generated
+request still at `requested`, `generating`, or `registered` can resume against
+its durable job and saved request. A queued Matrix mutation or unconfirmed
+outcome stops startup for inspection rather than issuing it again.
+
+The shared endpoint dispatches by `capability` and `action` to explicitly
+reviewed policy adapters. This demonstration permits one of the two bounded
+creations; other actions remain denied. The generated path extends the
+existing capability journal and Blender, GLB registration, Matrix spawn, and
+interaction machinery. The human Operator procedural path remains available
+in a world with no autonomous addition. See
+`Validation/Citizen-Capabilities-2026-09-27.md` for the procedural proof and
+`Validation/Citizen-Generated-Asset-2026-09-27.md` for generated-asset evidence.
 
 ## Read-only observation contract
 
@@ -143,19 +175,23 @@ generic path's isolated live proof.
 `SANDBOX_WORLD_VIEW_TOKEN` bearer token. It returns an envelope with
 `schemaVersion`, `worldId`, `instanceId`, monotonically increasing `sequence`
 within that instance, `clockTick`, `online`, `readOnly`, and a version 3
-`world` containing `scene`, `game: null`, and `citizens`. The endpoint returns
+`world` containing `scene`, `game: null`, and `citizens`, plus `assets` for
+registered GLBs referenced by the saved hosted scene. The endpoint returns
 409 while the host is offline, bootstrapping, or between a tick exchange and
 its completed checkpoint save. The view token cannot call the owner API.
 
 Open `/web/hosted.html` on that service and enter the **view token**, never the
 owner token. The page keeps the token in memory for that tab, polls only the
 read-only observation endpoint, and renders the existing Matrix scene and
-resident IDs through `MatrixView`. Closing every visitor does not stop the PC
-host. Returning on desktop displays a later virtual clock and the same world
+resident IDs through `MatrixView`. The view token may fetch only GLB bytes
+whose digest belongs to an asset referenced by the saved hosted world; it
+cannot list the general catalog, open an Agent session, or call owner mutation
+routes. Closing every visitor does not stop the PC host. Returning on desktop
+displays a later virtual clock and the same world
 IDs. The visitor does not exchange as a writer, run a Citizens timer, edit the
 scene, or save a competing browser checkpoint. A newly checkpointed procedural
-object rebuilds the visitor's mesh; ordinary Citizen motion updates only
-transforms. The ordinary `/web/` Creator world and older Citizens desktop
+or generated GLB object rebuilds the visitor's mesh; ordinary Citizen motion
+updates only transforms. The ordinary `/web/` Creator world and older Citizens desktop
 fixture keep their existing save contracts;
 they are not silently replaced by the hosted visitor.
 

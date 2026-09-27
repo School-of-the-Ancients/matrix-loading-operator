@@ -139,11 +139,12 @@ test('a persistently blocked route fails after three retries and releases the se
 test('v4 active checkpoints migrate and v12 retry state rejects forged values',()=>{
   const {matrix,sim}=selected();
   const state=sim.exportState();
-  assert.equal(state.schemaVersion,14);
+  assert.equal(state.schemaVersion,15);
   const v4=structuredClone(state);
   v4.schemaVersion=4;
   delete v4.construction;
   delete v4.capabilityRequests;
+  delete v4.generatedConstruction;
   delete v4.clockSpeed;
   for(const resident of v4.residents){
     delete resident.needs.social;
@@ -159,7 +160,7 @@ test('v4 active checkpoints migrate and v12 retry state rejects forged values',(
   }
   for(const station of v4.stations)delete station.interaction;
   const migrated=CitizensSimulation.restore(matrix,v4).exportState();
-  assert.equal(migrated.schemaVersion,14);
+  assert.equal(migrated.schemaVersion,15);
   assert.equal(migrated.residents.find(resident=>resident.id==='ada').activity.routeRetries,0);
   assert.equal(migrated.residents.find(resident=>resident.id==='ada').activity.routeGeometryId,null);
   for(const value of [4,-1,1.5,true]){
