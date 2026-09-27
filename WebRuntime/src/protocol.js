@@ -4,6 +4,7 @@
 import {footprintInsideBoundary} from './spatial.js';
 import {validateAttachment,validatePackage} from './components.js';
 import {advanceFloorBody,createFloorBody,publicPhysicsState,validPhysicsConfig,validRenderedPhysicsSize} from './physics_floor.js';
+import {segmentClear} from './citizens_navigation.js';
 export const ROOM_ID = 'web-virtual-room-v1';
 export const ANCHOR_ID = 'web-floor';
 export const MAX_OBJECTS = 100;
@@ -26,6 +27,15 @@ const validBehavior = b => b && ['rotate','bob'].includes(b.kind) && typeof b.en
   ['x','y','z'].includes(b.axis) && finite(b.speedDegreesPerSecond,-180,180) && finite(b.amplitudeMeters,0,.25) && finite(b.frequencyHz,.05,2);
 const sameVector=(a,b)=>a&&b&&['x','y','z'].every(axis=>a[axis]===b[axis]);
 const sameTransform=(a,b)=>a&&b&&['position','rotation','scale'].every(key=>sameVector(a[key],b[key]));
+const exactKeys=(value,keys)=>value&&typeof value==='object'&&!Array.isArray(value)&&
+  Object.keys(value).sort().join(',')===keys.slice().sort().join(',');
+const validExpectedTransform=transform=>
+  exactKeys(transform,['position','rotation','scale'])&&
+  ['position','rotation','scale'].every(key=>exactKeys(transform[key],['x','y','z']))&&
+  validTransform(transform);
+const expectedTransformOps=new Set(['set_transform','set_behavior','remove_behavior',
+  'attach_component','stop_component','remove_component','bind_animation',
+  'set_physics','remove_physics','delete','duplicate','select']);
 const samePhysics=(a,b)=>a&&b&&['schemaVersion','kind','collider','restitution'].every(key=>a[key]===b[key]);
 const physicsAssetSignature=asset=>JSON.stringify([asset?.sha256,asset?.url,asset?.spawnScale,
   ...['center','size'].flatMap(group=>['x','y','z'].map(axis=>asset?.localBounds?.[group]?.[axis]))]);
@@ -48,6 +58,12 @@ export class MatrixWorld {
     this.externalAssets=[];
     this.scene={schemaVersion:1,roomId:ROOM_ID,objects:[]};
     this.game=null;
+    // An exchange may resume with the same browser clientId after a reload.
+    // Give each world a fresh authored generation so observed Citizens poses
+    // cannot hide an authored restore across that boundary.
+    const generation=new Uint32Array(2);
+    crypto.getRandomValues(generation);
+    this.authoredGeneration=(generation[0]&0xffff)*0x100000000+generation[1];
     // Browser world provenance is separate from the renderer-neutral scene.
     this.originBinding='virtual';
     this.originAnchorHandle=null;
@@ -63,9 +79,21 @@ export class MatrixWorld {
     const context=this.spatial?{mode:'ar',state:this.spatial.originUnavailable||this.spatial.stale?'missing':'ready',message:this.spatial.originUnavailable?'Saved room origin is unavailable. The old world is hidden and editing is paused until it is restored or explicitly archived for a new room.':this.spatial.stale?'A plane holding a scene object is no longer tracked; keep the scene for recovery and recheck the room.':this.spatial.anchors.length?`${this.spatial.anchors.length} WebXR room plane(s) detected. Virtual-floor objects remain visible as unanchored previews.`:'Waiting for Quest room planes. Virtual-floor objects remain visible as unanchored previews.',alignmentVerified:this.spatial.alignmentVerified&&!this.spatial.originUnavailable}
       :{mode:'white-room',state:'ready',message:'Browser virtual floor; physical room alignment is not verified.',alignmentVerified:false};
     const snapshot={scene:clone(this.scene),assets:clone([...ASSETS,...this.externalAssets].map(({assetId,displayName,description,spawnScale,localBounds,geometry,interactions})=>({assetId,displayName,description,spawnScale,...(localBounds?{localBounds}:{}),...(interactions?{interactions}:{}),...(geometry?.animationClips?{animationClips:geometry.animationClips.map(clip=>clip.name)}:{})}))),anchors:clone(anchors),selection:clone(this.selection),behaviorKinds:['rotate','bob'],componentSchemaVersion:1,animationSchemaVersion:1,physicsSchemaVersion:1,physicsStates:this.physicsStates(),roomContext:context};
+    if(!this.spatial&&this.scene.roomId===ROOM_ID&&Array.isArray(this.citizens?.residents)){
+      const residentObjectIds=[...new Set(this.citizens.residents.map(resident=>resident.objectId))]
+        .filter(id=>this.scene.objects.some(object=>object.objectId===id&&
+          object.assetId==='orb'&&object.anchorId===ANCHOR_ID&&
+          !object.component&&!object.physics&&
+          !object.behaviors?.some(behavior=>behavior.enabled&&!behavior.paused))).sort();
+      if(residentObjectIds.length&&residentObjectIds.length<=4)
+        snapshot.citizensObservation={residentObjectIds,authoredGeneration:this.authoredGeneration};
+    }
     if(this.spatial?.stale||this.spatial?.originUnavailable)snapshot.readOnly=true;
     if (viewer) snapshot.viewer=viewer;
     return snapshot;
+  }
+  markAuthoredSceneChange(){
+    this.authoredGeneration=(this.authoredGeneration+1)%Number.MAX_SAFE_INTEGER;
   }
   registerAssets(entries) {
     if(!Array.isArray(entries)||entries.length>256)throw Error('Invalid web asset catalog');
@@ -328,6 +356,18 @@ export class MatrixWorld {
         throw Error('Saved room origin is unavailable; restore it or archive the old world before editing');
       if(this.spatial?.stale&&['spawn','duplicate','set_transform','set_behavior','remove_behavior','attach_component','stop_component','remove_component','bind_animation','set_physics','remove_physics','delete','load','undo','redo','select'].includes(op))
         throw Error('Room tracking is stale; editing is paused until the room is recovered');
+      if(Object.hasOwn(command,'expectedTransform')){
+        if(!expectedTransformOps.has(op)||!validExpectedTransform(command.expectedTransform))
+          throw Error('Invalid expectedTransform precondition');
+        if(!sameTransform(this.requireObject(command.objectId).transform,command.expectedTransform))
+          throw Error('Object transform changed since command was queued');
+      }
+      if(Object.hasOwn(command,'expectedTargetTransform')){
+        if(op!=='attach_component'||!validExpectedTransform(command.expectedTargetTransform))
+          throw Error('Invalid expectedTargetTransform precondition');
+        if(!sameTransform(this.requireObject(command.targetObjectId).transform,command.expectedTargetTransform))
+          throw Error('Component target transform changed since command was queued');
+      }
       const mutation=['spawn','duplicate','set_transform','set_behavior','remove_behavior','attach_component','stop_component','remove_component','bind_animation','set_physics','remove_physics','delete','clear','load'].includes(op);
       // Local finite simulation steps use the same validation and receipt path
       // without filling the user's scene Undo history with each movement tick.
@@ -360,10 +400,62 @@ export class MatrixWorld {
             if(actor.objectId===target.objectId||actor.anchorId!==ANCHOR_ID||
                target.anchorId!==ANCHOR_ID||!advertised)
               throw Error('Interaction is not advertised by this virtual-floor target');
+            const moving=item=>!!(item.physics||item.component?.status==='running'||
+              item.behaviors?.some(behavior=>behavior.enabled&&!behavior.paused));
+            if(moving(actor)||moving(target))
+              throw Error('Interaction actor or target has another transform owner');
             const a=actor.transform.position,b=target.transform.position;
             const distance=Math.hypot(a.x-b.x,a.z-b.z);
             if(Math.abs(a.y-b.y)>.3||distance>advertised.rangeMeters)
               throw Error('Actor is out of interaction range');
+            // The finite outcome must use current measured geometry, not just
+            // proximity. An authored obstacle can appear after an actor arrives.
+            const distanceToUseLine=point=>{
+              const dx=b.x-a.x,dz=b.z-a.z,lengthSquared=dx*dx+dz*dz;
+              const fraction=lengthSquared>0?Math.max(0,Math.min(1,
+                ((point.x-a.x)*dx+(point.z-a.z)*dz)/lengthSquared)):0;
+              return Math.hypot(point.x-a.x-fraction*dx,
+                point.z-a.z-fraction*dz);
+            };
+            const blockers=[];
+            for(const item of this.scene.objects){
+              if(item.objectId===actor.objectId||item.objectId===target.objectId)continue;
+              const asset=this.asset(item.assetId),bounds=asset?.localBounds;
+              const transform=item.transform,scale=asset?.spawnScale??1;
+              const uncertainPose=Math.abs(transform.rotation.x)>.01||
+                Math.abs(transform.rotation.z)>.01;
+              const dynamic=moving(item)||uncertainPose||!!item.animation?.loopClip;
+              // Loaded GLBs are recentered by MatrixView and verified at <=20 m
+              // per model axis. Unknown bounds can therefore matter only near
+              // this short use segment, after the saved object scale is applied.
+              // A component controlling horizontal position can move anywhere.
+              const radius=bounds?Math.hypot(
+                bounds.size.x*transform.scale.x*scale/2,
+                bounds.size.z*transform.scale.z*scale/2,
+                dynamic?(Math.abs(bounds.center.y)+bounds.size.y/2)*
+                  transform.scale.y*scale:0):asset?.url?
+                    20*scale*Math.hypot(transform.scale.x,transform.scale.z,
+                      dynamic?transform.scale.y:0):Infinity;
+              const componentOutputs=item.component?.status==='running'?
+                item.component.package?.outputs:null;
+              const unboundedMotion=componentOutputs&&
+                ['position.x','position.z','scale.x','scale.z'].some(
+                  channel=>Object.hasOwn(componentOutputs,channel));
+              if(!unboundedMotion&&distanceToUseLine(transform.position)>radius+1e-9)
+                continue;
+              if(item.anchorId!==ANCHOR_ID||dynamic||
+                 !bounds||Math.abs(transform.position.y)>.05||
+                 !Number.isFinite(radius))
+                throw Error('Interaction clearance is unavailable for moving or unmeasured geometry');
+              const yaw=transform.rotation.y*Math.PI/180;
+              blockers.push({id:item.objectId,
+                cx:transform.position.x,cz:transform.position.z,
+                halfX:bounds.size.x*transform.scale.x*scale/2,
+                halfZ:bounds.size.z*transform.scale.z*scale/2,
+                yawRadians:yaw});
+            }
+            if(!segmentClear(a,b,blockers,0))
+              throw Error('Interaction use point is occluded');
             if(command.kind==='converse'&&!validId(command.sessionId))
               throw Error('Invalid social sessionId');
             result.objectId=actor.objectId;
@@ -479,6 +571,7 @@ export class MatrixWorld {
       if (before) {this.undo.push(before); if(this.undo.length>32)this.undo.shift();}
       // An unrecorded simulation edit still supersedes any undone future.
       if (mutation)this.redo=[];
+      if(recordHistory&&(mutation||op==='undo'||op==='redo'))this.markAuthoredSceneChange();
       result.ok=true;
     } catch(error) {result.error=error.message||String(error);}
     return result;

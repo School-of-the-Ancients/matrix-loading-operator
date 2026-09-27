@@ -1,7 +1,7 @@
 // Bounded desktop Citizens fixture. Policy and needs live here; MatrixWorld owns
 // scene objects and validates every placement/move. No Agent Portal access.
 import {ANCHOR_ID,MAX_OBJECTS,ROOM_ID} from './protocol.js';
-import {checkedMove,planPath} from './citizens_navigation.js';
+import {checkedMove,planPath,segmentClear} from './citizens_navigation.js';
 
 const VERSION=4;
 const SOCIAL_VERSION=3;
@@ -1053,12 +1053,16 @@ export class CitizensSimulation {
   }
   requestInteraction(resident,station){
     const actor=positionOf(this.world,resident.objectId);
+    const target=positionOf(this.world,station.objectId);
     let obstacles;
     try{obstacles=navigationObstacles(this.world,resident.objectId);}
     catch(error){return {ok:false,error:error.message};}
     const clear=actor&&planPath({start:actor,goal:actor,obstacles,
       actorRadius:ACTOR_RADIUS});
     if(!clear?.ok)return {ok:false,error:clear?.reason||'Interaction actor is missing'};
+    if(!target||!segmentClear(actor,target,
+      obstacles.filter(item=>item.id!==station.objectId),0))
+      return {ok:false,error:'Interaction use point is occluded or missing'};
     const requestId=`citizens-${this.state.seed}-action-${resident.activity.executionId}-${++this.state.requestSequence}`;
     let receipt;
     try{receipt=this.world.execute({requestId,op:'interact',

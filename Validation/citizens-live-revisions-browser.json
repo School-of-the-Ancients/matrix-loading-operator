@@ -1,0 +1,74 @@
+{
+  "service": "isolated loopback ControlService port 19844",
+  "page": "http://127.0.0.1:19844/web/",
+  "scenario": "seed 29, ordinary /web/ two-resident fixture with a separate authored pedestal",
+  "reviewedUnrelatedEdit": {
+    "mode": "offline-rules",
+    "targetObjectId": "cd6e64285a204809a09f2041c904bb2f",
+    "targetAssetId": "pedestal",
+    "requested": "Move it 20 cm left",
+    "proposedX": 2.8,
+    "reviewedFromMinute": 550,
+    "appliedAtMinute": 583,
+    "observedRuntimeReceipt": "73494fa3a4b0436bab38aca94bb2219e",
+    "receiptOk": true,
+    "pedestalXBefore": 3,
+    "pedestalXAfter": 2.8,
+    "simulationContinuedDuringReview": true
+  },
+  "movingResidentProposal": {
+    "selectedResidentObjectId": "2f9be46fb50a4994b16cf5025144f76c",
+    "requested": "Move it 20 cm left",
+    "proposedAtMinute": 637,
+    "residentMovedWhileUnderReview": true,
+    "applyAtMinute": 663,
+    "result": "HTTP 409: Scene or selection changed; create a new proposal",
+    "transformQueued": false
+  },
+  "changedObstacle": {
+    "startedFromNamedCheckpointMinute": 947,
+    "insertedWallObjectId": "8903f325e647485c82655f80fa17d081",
+    "insertedWallPosition": {"x": -0.06, "y": 0, "z": -1.7},
+    "wallReceipt": "03ad6b6eb8054f00995ffd656b1135c4",
+    "stepResultMinute": 956,
+    "adaOutcome": "completion rejected: Interaction use point is occluded or missing",
+    "adaEnergyBefore": 86,
+    "adaEnergyAfter": 81,
+    "chairClaimAfter": "Bo, execution 116",
+    "cleanCheckpointRestoredAfterward": true
+  },
+  "persistence": {
+    "namedPcCheckpoint": "live-revisions-947",
+    "worldVersion": 3,
+    "nestedCitizensSchemaVersion": 4,
+    "savedObjectCount": 5,
+    "savedMinute": 947,
+    "browserReloadMinute": 947,
+    "stepMinute": 948,
+    "boEnergyAt947": 82,
+    "boEnergyAt948": 81,
+    "pcRestoreMinute": 947,
+    "replayedBoEnergyAt948": 81,
+    "finalPausedMinute": 947
+  },
+  "finalBuildRecheck": {
+    "isolatedServiceRestarted": true,
+    "browserReloaded": true,
+    "operatorConnected": true,
+    "savedObjectCount": 5,
+    "pausedMinuteAfterReload": 947,
+    "stepMinute": 948,
+    "boEnergyAfterStep": 81,
+    "namedPcCheckpointRestored": "live-revisions-947",
+    "finalPausedMinute": 947,
+    "servicePendingCount": 0,
+    "consoleErrors": []
+  },
+  "validation": {
+    "webRuntimeTests": "241/241 passed",
+    "controlServiceTests": "672/672 passed",
+    "viteBuild": "passed",
+    "browserErrors": []
+  },
+  "scope": "Desktop virtual room only; no Quest wearer validation"
+}

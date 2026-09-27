@@ -109,7 +109,7 @@ class ClientAPI:
             for request in session["requests"].values():
                 if request["status"] == "ready":
                     plan = self.state.proposals.get(request["proposal"]["planId"])
-                    if (plan is None or plan["revision"] != self.state.revision or now > plan["expires"]):
+                    if plan is None or not self.state.proposal_is_current(plan):
                         self._drop_proposal(request)
                         self._change(request, "stale", error="Scene, selection, or proposal changed; create a new request after reviewing the current scene.")
 

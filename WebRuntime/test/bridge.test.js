@@ -2,8 +2,246 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import {MatrixWorld} from '../src/protocol.js';
 import {MatrixBridge} from '../src/bridge.js';
+import {createCitizensDemo} from '../src/citizens.js';
 import {applyPCWorld} from '../src/world_checkpoint.js';
 import {storedWorld} from '../src/scene_store.js';
+
+test('an Operator command delivered after Citizens motion gets a failed receipt without mutation',async()=>{
+  const previousStorage=globalThis.sessionStorage;
+  globalThis.sessionStorage={getItem:()=>null,setItem:()=>{}};
+  try{
+    let nextId=0;
+    const world=new MatrixWorld(()=>`citizen-object-${++nextId}`);
+    const simulation=createCitizensDemo(world,{seed:31});
+    world.citizens=simulation.snapshot();
+    const residentId=simulation.snapshot().residents[0].objectId;
+    const expectedTransform=structuredClone(world.requireObject(residentId).transform);
+    const desired=structuredClone(expectedTransform);
+    desired.position.x+=1;
+    const queued={requestId:'delayed-resident-edit',op:'set_transform',
+      objectId:residentId,expectedTransform,transform:desired};
+    const events=[];
+    const bridge=new MatrixBridge(world,()=>'',event=>events.push(event));
+    let deliver;
+    bridge.request=async()=>new Promise(resolve=>{deliver=resolve;});
+    const exchange=bridge.exchange(null);
+    let moved=false;
+    for(let step=0;step<10&&!moved;step++){
+      simulation.step();world.citizens=simulation.snapshot();
+      moved=JSON.stringify(world.requireObject(residentId).transform)!==
+        JSON.stringify(expectedTransform);
+    }
+    assert.equal(moved,true,'the resident must actually move before delivery');
+    const scene=structuredClone(world.scene),selection=structuredClone(world.selection);
+    const undo=structuredClone(world.undo),generation=world.authoredGeneration;
+    deliver({commands:[queued]});
+    await exchange;
+    const receipt=bridge.receipts.get(queued.requestId);
+    assert.equal(receipt.ok,false);
+    assert.match(receipt.error,/transform changed since command was queued/);
+    assert.equal(events.some(event=>event.type==='receipt'&&event.result===receipt),true);
+    assert.deepEqual(world.scene,scene);
+    assert.deepEqual(world.selection,selection);
+    assert.deepEqual(world.undo,undo);
+    assert.equal(world.authoredGeneration,generation);
+  }finally{globalThis.sessionStorage=previousStorage;}
+});
+
+test('a delayed component attachment cannot take over a resident after Citizens motion',async()=>{
+  const previousStorage=globalThis.sessionStorage;
+  globalThis.sessionStorage={getItem:()=>null,setItem:()=>{}};
+  try{
+    let nextId=0;
+    const world=new MatrixWorld(()=>`citizen-object-${++nextId}`);
+    const simulation=createCitizensDemo(world,{seed:37});
+    world.citizens=simulation.snapshot();
+    const residentId=simulation.snapshot().residents[0].objectId;
+    const targetObjectId=simulation.snapshot().stations[0].objectId;
+    const expectedTransform=structuredClone(world.requireObject(residentId).transform);
+    const queued={requestId:'delayed-attachment',op:'attach_component',
+      objectId:residentId,targetObjectId,expectedTransform,
+      componentId:'webcomp:drift:0123456789ab',
+      package:{schemaVersion:1,name:'Drift',outputs:{
+        'position.x':{op:'const',value:0}}}};
+    const bridge=new MatrixBridge(world,()=>'',()=>{});
+    let deliver;
+    bridge.request=async(_path,body)=>{
+      assert.deepEqual(body.snapshot.scene.objects.find(item=>item.objectId===residentId).transform,
+        expectedTransform);
+      return new Promise(resolve=>{deliver=resolve;});
+    };
+    const exchange=bridge.exchange(null);
+    let moved=false;
+    for(let step=0;step<10&&!moved;step++){
+      simulation.step();world.citizens=simulation.snapshot();
+      moved=JSON.stringify(world.requireObject(residentId).transform)!==
+        JSON.stringify(expectedTransform);
+    }
+    assert.equal(moved,true,'the resident must actually move before delivery');
+    const scene=structuredClone(world.scene),undo=structuredClone(world.undo);
+    const generation=world.authoredGeneration;
+    deliver({commands:[queued]});
+    await exchange;
+    const receipt=bridge.receipts.get(queued.requestId);
+    assert.equal(receipt.ok,false);
+    assert.match(receipt.error,/transform changed since command was queued/);
+    assert.deepEqual(world.scene,scene);
+    assert.deepEqual(world.undo,undo);
+    assert.equal(world.authoredGeneration,generation);
+    assert.equal(world.requireObject(residentId).component,undefined);
+    const fresh={...queued,requestId:'fresh-attachment',
+      expectedTransform:structuredClone(world.requireObject(residentId).transform)};
+    assert.equal(world.execute(fresh).ok,true,'a current guarded attachment remains valid');
+  }finally{globalThis.sessionStorage=previousStorage;}
+});
+
+test('a delayed static-host attachment cannot bind a resident target after Citizens motion',async()=>{
+  const previousStorage=globalThis.sessionStorage;
+  globalThis.sessionStorage={getItem:()=>null,setItem:()=>{}};
+  try{
+    let nextId=0;
+    const world=new MatrixWorld(()=>`citizen-object-${++nextId}`);
+    const simulation=createCitizensDemo(world,{seed:43});
+    const host=world.execute({requestId:'static-host',op:'spawn',assetId:'block',
+      anchorId:'web-floor',transform:{position:{x:4,y:0,z:-2},
+        rotation:{x:0,y:0,z:0},scale:{x:1,y:1,z:1}}},{recordHistory:false});
+    assert.equal(host.ok,true);
+    world.citizens=simulation.snapshot();
+    const residentId=simulation.snapshot().residents[0].objectId;
+    const expectedTargetTransform=structuredClone(world.requireObject(residentId).transform);
+    const hostTransform=structuredClone(world.requireObject(host.objectId).transform);
+    const queued={requestId:'delayed-target-attachment',op:'attach_component',
+      objectId:host.objectId,targetObjectId:residentId,expectedTargetTransform,
+      componentId:'webcomp:drift:0123456789ab',
+      package:{schemaVersion:1,name:'Drift',outputs:{
+        'position.x':{op:'const',value:0}}}};
+    const bridge=new MatrixBridge(world,()=>'',()=>{});
+    let deliver;
+    bridge.request=async(_path,body)=>{
+      assert.deepEqual(body.snapshot.scene.objects.find(item=>item.objectId===residentId).transform,
+        expectedTargetTransform);
+      return new Promise(resolve=>{deliver=resolve;});
+    };
+    const exchange=bridge.exchange(null);
+    let moved=false;
+    for(let step=0;step<10&&!moved;step++){
+      simulation.step();world.citizens=simulation.snapshot();
+      moved=JSON.stringify(world.requireObject(residentId).transform)!==
+        JSON.stringify(expectedTargetTransform);
+    }
+    assert.equal(moved,true,'the target resident must move before delivery');
+    assert.deepEqual(world.requireObject(host.objectId).transform,hostTransform,
+      'the component host must stay still');
+    const scene=structuredClone(world.scene),undo=structuredClone(world.undo);
+    const generation=world.authoredGeneration;
+    deliver({commands:[queued]});
+    await exchange;
+    const receipt=bridge.receipts.get(queued.requestId);
+    assert.equal(receipt.ok,false);
+    assert.match(receipt.error,/target transform changed since command was queued/);
+    assert.deepEqual(world.scene,scene);
+    assert.deepEqual(world.undo,undo);
+    assert.equal(world.authoredGeneration,generation);
+    assert.equal(world.requireObject(host.objectId).component,undefined);
+    const fresh={...queued,requestId:'fresh-target-attachment',
+      expectedTargetTransform:structuredClone(world.requireObject(residentId).transform)};
+    assert.equal(world.execute(fresh).ok,true,'a current guarded target remains valid');
+  }finally{globalThis.sessionStorage=previousStorage;}
+});
+
+test('a failed resident edit skips later batch commands even when their pose guard matches',async()=>{
+  const previousStorage=globalThis.sessionStorage;
+  globalThis.sessionStorage={getItem:()=>null,setItem:()=>{}};
+  try{
+    let nextId=0;
+    const world=new MatrixWorld(()=>`citizen-object-${++nextId}`);
+    const simulation=createCitizensDemo(world,{seed:47});
+    const host=world.execute({requestId:'static-host',op:'spawn',assetId:'block',
+      anchorId:'web-floor',transform:{position:{x:4,y:0,z:-2},
+        rotation:{x:0,y:0,z:0},scale:{x:1,y:1,z:1}}},{recordHistory:false});
+    assert.equal(host.ok,true);
+    world.citizens=simulation.snapshot();
+    const residentId=simulation.snapshot().residents[0].objectId;
+    const originalPose=structuredClone(world.requireObject(residentId).transform);
+    const bridge=new MatrixBridge(world,()=>'',()=>{});
+    let deliver;
+    bridge.request=async()=>new Promise(resolve=>{deliver=resolve;});
+    const exchange=bridge.exchange(null);
+    let moved=false;
+    for(let step=0;step<10&&!moved;step++){
+      simulation.step();world.citizens=simulation.snapshot();
+      moved=JSON.stringify(world.requireObject(residentId).transform)!==
+        JSON.stringify(originalPose);
+    }
+    assert.equal(moved,true);
+    const observedPose=structuredClone(world.requireObject(residentId).transform);
+    const first={requestId:'stale-move',op:'set_transform',objectId:residentId,
+      expectedTransform:originalPose,transform:observedPose};
+    const attach={requestId:'dependent-attach',op:'attach_component',
+      objectId:host.objectId,targetObjectId:residentId,
+      expectedTargetTransform:observedPose,requiresSuccessOf:first.requestId,
+      componentId:'webcomp:drift:0123456789ab',
+      package:{schemaVersion:1,name:'Drift',outputs:{
+        'position.x':{op:'const',value:0}}}};
+    const behavior={requestId:'dependent-behavior',op:'set_behavior',
+      objectId:host.objectId,requiresSuccessOf:attach.requestId,
+      behavior:{kind:'rotate',enabled:true,paused:false,axis:'y',
+        speedDegreesPerSecond:30,amplitudeMeters:0,frequencyHz:.5}};
+    const scene=structuredClone(world.scene),selection=structuredClone(world.selection);
+    const undo=structuredClone(world.undo),generation=world.authoredGeneration;
+    deliver({commands:[first,attach,behavior]});
+    await exchange;
+    assert.match(bridge.receipts.get(first.requestId).error,
+      /transform changed since command was queued/);
+    for(const requestId of [attach.requestId,behavior.requestId]){
+      const receipt=bridge.receipts.get(requestId);
+      assert.equal(receipt.ok,false);
+      assert.match(receipt.error,/Skipped because prerequisite command/);
+    }
+    assert.deepEqual(world.scene,scene);
+    assert.deepEqual(world.selection,selection);
+    assert.deepEqual(world.undo,undo);
+    assert.equal(world.authoredGeneration,generation);
+    assert.equal(world.requireObject(host.objectId).component,undefined);
+    const {requiresSuccessOf,...independentAttach}=attach;
+    assert.equal(world.execute({...independentAttach,requestId:'independent-attach'}).ok,true,
+      'the matching target pose alone would have allowed this attachment');
+  }finally{globalThis.sessionStorage=previousStorage;}
+});
+
+test('bridge validates batch dependencies and accepts a sent predecessor receipt',async()=>{
+  const previousStorage=globalThis.sessionStorage;
+  globalThis.sessionStorage={getItem:()=>null,setItem:()=>{}};
+  try{
+    const world=new MatrixWorld(()=> 'object-1');
+    const pose=x=>({position:{x,y:0,z:-2},rotation:{x:0,y:0,z:0},
+      scale:{x:1,y:1,z:1}});
+    assert.equal(world.execute({requestId:'spawn',op:'spawn',assetId:'orb',
+      anchorId:'web-floor',transform:pose(0)}).ok,true);
+    const bridge=new MatrixBridge(world,()=>'',()=>{});
+    let calls=0;
+    bridge.request=async()=>++calls===1?{commands:[
+      {requestId:'move-first',op:'set_transform',objectId:'object-1',transform:pose(1)}
+    ]}:{commands:[
+      {requestId:'select-second',op:'select',objectId:'object-1',
+        requiresSuccessOf:'move-first'},
+      {requestId:'bad-dependency',op:'delete',objectId:'object-1',
+        requiresSuccessOf:42},
+      {requestId:'missing-dependency',op:'delete',objectId:'object-1',
+        requiresSuccessOf:'unknown-request'}
+    ]};
+    await bridge.exchange(null);
+    assert.equal(bridge.receipts.get('move-first').ok,true);
+    await bridge.exchange(null);
+    assert.equal(bridge.receipts.get('select-second').ok,true);
+    assert.match(bridge.receipts.get('bad-dependency').error,/Invalid requiresSuccessOf/);
+    assert.match(bridge.receipts.get('missing-dependency').error,
+      /Skipped because prerequisite command/);
+    assert.equal(world.scene.objects.length,1);
+    assert.equal(world.scene.objects[0].transform.position.x,1);
+    assert.equal(world.selection.objectId,'object-1');
+  }finally{globalThis.sessionStorage=previousStorage;}
+});
 
 test('WebXR advertises a camera probe rather than hardcoding mixed as unsupported',async()=>{
   const previousStorage=globalThis.sessionStorage;

@@ -109,6 +109,43 @@ test('selected chair residents detour around an authored wall before an observed
   assert.equal(sim.snapshot().stations[0].objectId,chairId);
 });
 
+test('a wall moved into the seat use lane cancels the claim without a need benefit',()=>{
+  const matrix=world();
+  const chairId=spawn(matrix,'chair',pose(0,0));
+  const wallId=spawn(matrix,'wall',pose(4,4));
+  const sim=createCitizensWithSelectedFurniture(matrix,{seed:3,objectId:chairId});
+  const ready=stepUntil(sim,state=>state.residents.some(resident=>
+    resident.activity?.kind==='rest'&&resident.activity.phase==='use'),80);
+  const resident=ready.residents.find(item=>item.activity?.kind==='rest'&&
+    item.activity.phase==='use');
+  const actor=matrix.requireObject(resident.objectId).transform.position;
+  const target=matrix.requireObject(chairId).transform.position;
+  const dx=target.x-actor.x,dz=target.z-actor.z;
+  const yaw=Math.atan2(dz,dx)*180/Math.PI+90;
+  const wallPose=pose((actor.x+target.x)/2,(actor.z+target.z)/2,yaw,.5);
+  assert.equal(matrix.execute({requestId:'move-wall-into-use-lane',
+    op:'set_transform',objectId:wallId,transform:wallPose}).ok,true);
+  const wall={id:wallId,cx:wallPose.position.x,cz:wallPose.position.z,
+    halfX:.5,halfZ:.03,yawRadians:yaw*Math.PI/180};
+  assert.equal(segmentClear(actor,actor,[wall],.18),true,
+    'the barrier must obstruct use without engulfing the actor');
+  assert.equal(segmentClear(actor,target,[wall],0),false);
+  const energyBefore=resident.needs.energy;
+  const logLength=ready.log.length;
+  let after;
+  for(let i=0;i<8;i++){
+    after=sim.step();
+    if(after.residents.find(item=>item.id===resident.id)?.activity===null)break;
+  }
+  assert.ok(after.log.slice(logLength).some(entry=>entry.residentId===resident.id&&
+    entry.event==='failed'&&entry.message.includes('occluded')));
+  assert.ok(!after.log.slice(logLength).some(entry=>entry.residentId===resident.id&&
+    entry.event==='completed'&&entry.message.includes('rest')));
+  assert.ok(after.residents.find(item=>item.id===resident.id).needs.energy<energyBefore);
+  assert.notEqual(holder(after.stations.find(station=>station.id==='chair')),
+    resident.id,'the failed user must release its claim for the waiter');
+});
+
 test('selected furniture readiness rejects unsupported, moving and unknown scene geometry',()=>{
   const matrix=world();
   const chairId=spawn(matrix,'chair',pose(0,0));
