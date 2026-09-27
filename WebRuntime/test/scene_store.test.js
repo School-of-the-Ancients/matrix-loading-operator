@@ -78,6 +78,9 @@ test('forged rigid motion rejects restore before changing the active world',asyn
   const world=await movingWorld();
   try{
     const saved=storedWorld(world),solver=world.rigidPhysics.snapshot();
+    const tab=storage(),durable=storage();
+    assert.equal(saveStoredWorld(saved,tab,durable),'');
+    const original=durable.getItem(WORLD_KEY);
     const corruptions=[
       body=>{body.objectId='unknown';},
       body=>{body.position.y+=1;},
@@ -90,6 +93,8 @@ test('forged rigid motion rejects restore before changing the active world',asyn
       const forged=structuredClone(saved);
       corrupt(forged.rigidMotion.bodies[0]);
       assert.throws(()=>restoreStoredWorld(world,forged),/rigid motion|Sleeping/);
+      assert.match(saveStoredWorld(forged,tab,durable),/could not be serialized/i);
+      assert.equal(durable.getItem(WORLD_KEY),original);
       assert.deepEqual(storedWorld(world),saved);
       assert.deepEqual(world.rigidPhysics.snapshot(),solver);
     }

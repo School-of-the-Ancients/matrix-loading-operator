@@ -161,6 +161,7 @@ export function saveStoredWorld(value,tabStorage,durableStorage){
   let json,latest;
   try{
     if(!validEnvelope(value))throw Error('Invalid world save envelope');
+    if(Object.hasOwn(value,'rigidMotion'))checkedRigidMotion(value.scene,value.rigidMotion);
     latest=loadStoredWorld(tabStorage,durableStorage);
     lastSavedAtMs=Math.max(lastSavedAtMs,savedAt(latest?.value));
     lastSavedAtMs=Math.max(Date.now(),lastSavedAtMs+1);

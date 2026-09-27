@@ -16,8 +16,8 @@ POST /api/web/world/save
 
 Version 2 requires `version`, `scene`, and `game` and loads as a world without
 Citizens. Version 3 requires those fields plus a non-null `citizens` section.
-The merged Immersive Creator Mode implementation permits optional `creatorMode` and
-`rigidGravity` fields in either envelope; old files without them restore to
+The Immersive Creator Mode implementation permits optional `creatorMode`,
+`rigidGravity`, and `rigidMotion` fields in either envelope; old files without them restore to
 paused Creator Mode and default gravity. Scene objects may carry validated
 procedural recipes, rigid configurations, and world-display definitions,
 including a board bound to another object's current transform. A generic
@@ -25,8 +25,14 @@ reviewed scale edit remains in that object's ordinary saved transform. Game
 version 2 saves its existing-ID role bindings, credited delivery events,
 objective progress and unlocked exit IDs in the same `game` field. Browser and
 PC validators reject invalid or unavailable pinned generator versions before
-replacing a world. A checkpoint saves the latest authored/simulated object pose,
-not Rapier's transient velocities and contact cache. Keep the matching reviewed
+replacing a world. A new save with dynamic rigid objects includes `rigidMotion`
+schema 1: one bounded entry per dynamic object with its solver pose, linear and
+angular velocity, and sleep state. Static colliders, grabbed state, contacts,
+and Rapier's internal caches are not checkpoint data. Browser and PC validators
+reject missing, stale, mismatched, or nonfinite motion before replacing a world;
+the PC also compares a new save with the latest paused browser observation.
+Older checkpoints without motion still load at their authored scene pose with
+zero velocity. Keep the matching reviewed
 generator source with the checkpoint; the JSON file does not contain it. See
 the [Creator Mode runbook](../Docs/Procedural-Creation.md).
 
