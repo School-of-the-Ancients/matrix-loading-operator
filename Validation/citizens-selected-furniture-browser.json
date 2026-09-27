@@ -1,0 +1,49 @@
+{
+  "service": "isolated loopback ControlService port 19843",
+  "page": "http://127.0.0.1:19843/web/",
+  "seed": 29,
+  "authoredScene": {
+    "createdThroughBrowserOfflinePlanner": true,
+    "chairObjectId": "2bea2f5c6eff471292a92268ced7572e",
+    "wallObjectId": "f9d22f5491464dcfaaca780c7314d674",
+    "selectedThroughThreeJsView": true,
+    "objectCountBeforeCitizens": 2,
+    "objectCountAfterCitizens": 4
+  },
+  "observedActivity": {
+    "minute23": "Bo completed rest; observed outcome updated needs. Ada queued for chair as execution 4.",
+    "minute88": "Ada claimed chair while Bo waited in queue position 1.",
+    "minute308": "Ada and Bo completed a conversation with receipt citizens-29-social-37-242.",
+    "relationshipAtMinute319": 55
+  },
+  "pcCheckpoint": {
+    "name": "authored-citizens-319",
+    "worldVersion": 3,
+    "nestedCitizensSchemaVersion": 4,
+    "clockTick": 319,
+    "sceneAssets": ["chair", "wall", "orb", "orb"],
+    "selectedStationObjectId": "2bea2f5c6eff471292a92268ced7572e",
+    "completedSocialRequestId": "citizens-29-social-37-242"
+  },
+  "browserReload": {
+    "status": "Paused · minute 319 · seed 29",
+    "objectCount": 4,
+    "chairClaim": "Bo · execution 39 · expires m 389",
+    "relationship": "Ada ↔ Bo: 55/100"
+  },
+  "pcRestoreAndReplay": {
+    "beforeRestoreMinute320AdaEnergy": 98,
+    "restoredMinute319AdaEnergy": 99,
+    "replayedMinute320AdaEnergy": 98,
+    "objectCount": 4,
+    "relationshipScore": 55
+  },
+  "browserErrors": [],
+  "screenshot": "citizens-selected-furniture-browser.png",
+  "validation": {
+    "webRuntimeTests": "223/223 passed",
+    "controlServiceTests": "658/658 passed",
+    "viteBuild": "passed"
+  },
+  "scope": "Desktop virtual room only; no Quest wearer validation"
+}

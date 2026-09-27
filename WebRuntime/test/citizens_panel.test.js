@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {MatrixWorld} from '../src/protocol.js';
-import {createCitizensDemo} from '../src/citizens.js';
+import {createCitizensDemo,citizensFurnitureReadiness} from '../src/citizens.js';
 import {CitizensPanel} from '../src/citizens_panel.js';
 import {CITIZENS_DELETION_RECOVERY_KEY,WORLD_KEY,restoreStoredWorld,
   saveStoredWorld,storedBrowserWorld,storedWorld} from '../src/scene_store.js';
@@ -20,6 +20,45 @@ function stubDocument(){
     else globalThis.document=previousDocument;
   }};
 }
+
+test('panel enables selected authored furniture and preserves other world objects',()=>{
+  const dom=stubDocument();
+  let panel;
+  try{
+    let sequence=0;
+    const world=new MatrixWorld(()=>`selected-panel-${++sequence}`);
+    const transform=(x,z)=>({position:{x,y:0,z},rotation:{x:0,y:0,z:0},
+      scale:{x:1,y:1,z:1}});
+    const chair=world.execute({requestId:'chair-for-panel',op:'spawn',assetId:'chair',
+      anchorId:'web-floor',transform:transform(0,-2)});
+    const block=world.execute({requestId:'block-for-panel',op:'spawn',assetId:'block',
+      anchorId:'web-floor',transform:transform(4,-2)});
+    assert.equal(chair.ok,true);
+    assert.equal(block.ok,true);
+    const feedback=[];
+    panel=new CitizensPanel(world,{onChange(){},
+      canStart:mode=>mode==='selected'?
+        citizensFurnitureReadiness(world,world.selection.objectId):
+        'The fixture needs an empty world.',
+      onFeedback(message){feedback.push(message);}});
+    assert.equal(dom.elements.get('citizens-bind-selected').disabled,true);
+    world.setSelection(chair.objectId,{x:0,y:0,z:-2});
+    panel.render();
+    assert.equal(dom.elements.get('citizens-bind-selected').disabled,false);
+    assert.match(dom.elements.get('citizens-selection-status').textContent,/ready/i);
+    panel.start('selected');
+    assert.equal(world.scene.objects.length,4);
+    assert.ok(world.scene.objects.some(object=>object.objectId===block.objectId));
+    assert.deepEqual(world.citizens.stations.map(station=>station.objectId),
+      [chair.objectId]);
+    assert.equal(world.citizens.residents.length,2);
+    assert.equal(dom.elements.get('citizens-bind-selected').disabled,true);
+    assert.match(feedback.at(-1),/existing Matrix world/);
+  }finally{
+    if(panel)clearInterval(panel.timer);
+    dom.restore();
+  }
+});
 
 test('panel renders execution claims, FIFO waiters, and retired and missing bindings',()=>{
   const dom=stubDocument();

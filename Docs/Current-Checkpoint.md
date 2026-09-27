@@ -1,5 +1,49 @@
 # Matrix Operator checkpoints
 
+## Selected existing Citizens furniture candidate (September 26, 2026)
+
+Open [PR #104](https://github.com/School-of-the-Ancients/matrix-loading-operator/pull/104)
+stacks this candidate on the open social-session PR #103. The current
+[#15](https://github.com/School-of-the-Ancients/matrix-loading-operator/issues/15)
+slice adds an explicit **Use selected chair or table** path to the ordinary
+`/web/` desktop virtual room. A selected, existing built-in chair or table
+becomes the simulation's rest or food station by its Matrix object ID. Two orb
+residents are added; the user's existing scene objects and furniture remain.
+An active game must be finished or removed before starting this path.
+The original **Start here** two-station fixture still requires an empty floor,
+and `/web/citizens.html` remains a separate seeded fixture.
+
+This path checks the selection and bounded virtual-floor navigation before
+starting or acting. Resident movement and interaction go through finite
+`MatrixWorld` commands and observed receipts; blocked, unavailable, changed,
+or unsupported targets must produce a visible refusal or cancellation without
+an unobserved need benefit. The existing capacity-one reservation and finite
+social-session rules remain. Browser and named PC whole-world checkpoints
+carry the scene and Citizens bindings together; restore rejects incompatible
+dependencies before replacing the active world.
+
+An isolated browser run on loopback port 19843 created a chair and wall through
+the ordinary offline planner, selected the chair in Three.js, and added exactly
+two resident orbs. Bo completed rest at minute 23 while Ada queued; a later
+conversation completed at minute 308 with Matrix receipt
+`citizens-29-social-37-242`, raising the pair score to 55. The scene retained
+the chair and wall IDs. A browser reload retained the paused minute-319 state,
+and named PC checkpoint restore returned the same four objects and state after
+one step; replay reproduced Ada's minute-320 energy. The page had no captured
+errors. [Browser evidence](../Validation/citizens-selected-furniture-browser.json)
+and [screenshot](../Validation/citizens-selected-furniture-browser.png) record
+the observations. The final local WebRuntime suite passed **223/223**, the
+ControlService suite **658/658**, and Vite built. The obstacle detour and
+blocked-start assertions are unit tests; the browser run demonstrates the
+selected chair in a nonempty world rather than a full #15 obstacle fixture.
+
+Issue #15 still requires general versioned object affordances and their
+capabilities/predicates/poses/effects, tested changing-route recovery and
+navigation readiness, a complete motion-owner contract, and its full obstacle,
+missing-dependency, and real-room acceptance. This selected built-in
+chair/table path does not make arbitrary authored GLBs interactive or close
+Quest wearer checks.
+
 ## Bilateral Citizens social session candidate (September 26, 2026)
 
 Open [PR #103](https://github.com/School-of-the-Ancients/matrix-loading-operator/pull/103)
@@ -46,8 +90,9 @@ The fixed-seed fixture has one active bilateral session at a time. Deletion,
 authored movement, scene replacement, AR entry, Stop, and rejected interaction
 cancel it without a relationship benefit. The open [#19](https://github.com/School-of-the-Ancients/matrix-loading-operator/issues/19)
 still covers broader multi-resource ordering and future social policy. This
-candidate adds no dialogue generation, multiplayer synchronization, selected
-furniture binding, obstacle-aware paths, or Quest wearer validation.
+candidate adds no dialogue generation, multiplayer synchronization, or Quest
+wearer validation. Selected furniture and bounded paths are a subsequent #15
+candidate described above.
 
 After rebasing on the PR #102 AR deletion recovery fix, the local WebRuntime
 suite passed **203/203** and the Vite build passed. The full ControlService

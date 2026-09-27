@@ -1,12 +1,16 @@
 // Bounded desktop Citizens fixture. Policy and needs live here; MatrixWorld owns
 // scene objects and validates every placement/move. No Agent Portal access.
 import {ANCHOR_ID,MAX_OBJECTS,ROOM_ID} from './protocol.js';
+import {checkedMove,planPath} from './citizens_navigation.js';
 
 const VERSION=4;
 const SOCIAL_VERSION=3;
 const RESERVATION_VERSION=2;
 const LEGACY_VERSION=1;
 const MOVE_METRES=.28;
+const ACTOR_RADIUS=.18;
+const APPROACH_MARGIN=.06;
+const FLOOR_TARGET_LIMIT=99.8;
 const ARRIVAL_METRES=.08;
 const MAX_TRAVEL_TICKS=60;
 const LEASE_TICKS=MAX_TRAVEL_TICKS+12;
@@ -39,6 +43,7 @@ const boundedText=(value,max)=>typeof value==='string'&&value.length<=max&&
   !/[\x00-\x1f]/.test(value)&&validUtf16(value);
 const clone=value=>structuredClone(value);
 const round=value=>Math.round(value*100)/100;
+const round6=value=>Math.round(value*1000000)/1000000;
 const clamp=value=>Math.max(0,Math.min(100,round(value)));
 const distance=(a,b)=>Math.hypot(a.x-b.x,a.z-b.z);
 const sameTransform=(a,b)=>a&&b&&['position','rotation','scale'].every(part=>
@@ -50,6 +55,84 @@ const positionOf=(world,id)=>objectById(world,id)?.transform?.position;
 const hasActiveTransformOwner=object=>!!(object?.physics||
   object?.component?.status==='running'||
   object?.behaviors?.some(behavior=>behavior.enabled&&!behavior.paused));
+const supportedResident=object=>object?.assetId==='orb'&&
+  object.anchorId===ANCHOR_ID&&!object.component&&!hasActiveTransformOwner(object)&&
+  Math.abs(object.transform?.position?.y)<=.05&&
+  ['x','y','z'].every(axis=>object.transform?.scale?.[axis]===.7);
+
+function navigationObstacles(world,actorObjectId=''){
+  if(world.game!==null&&world.game!==undefined)
+    throw Error('Pause or remove the active game before Citizens navigates');
+  const obstacles=[];
+  for(const object of world.scene.objects){
+    if(object.objectId===actorObjectId)continue;
+    if(object.anchorId!==ANCHOR_ID||hasActiveTransformOwner(object))
+      throw Error(`Navigation cannot use moving or anchored object ${object.objectId}`);
+    const asset=world.asset?.(object.assetId),bounds=asset?.localBounds;
+    const transform=object.transform;
+    const scale=asset?.spawnScale??1;
+    if(!bounds||!transform||!finite(scale)||scale<=0||
+      !finite(transform.position?.x)||!finite(transform.position?.y)||
+      !finite(transform.position?.z)||
+      !finite(transform.rotation?.y)||Math.abs(transform.rotation?.x)>0.01||
+      Math.abs(transform.rotation?.z)>0.01||
+      !finite(transform.scale?.x)||!finite(transform.scale?.z)||
+      !finite(bounds.size?.x)||!finite(bounds.size?.z))
+      throw Error(`Navigation needs upright measured bounds for ${object.objectId}`);
+    if(Math.abs(transform.position.y)>.05)
+      throw Error(`Navigation needs floor-aligned object ${object.objectId}`);
+    const halfX=bounds.size.x*transform.scale.x*scale/2;
+    const halfZ=bounds.size.z*transform.scale.z*scale/2;
+    if(halfX<=0||halfZ<=0||halfX>20||halfZ>20)
+      throw Error(`Navigation bounds for ${object.objectId} are unsupported`);
+    obstacles.push({id:object.objectId,cx:transform.position.x,
+      cz:transform.position.z,halfX,halfZ,
+      yawRadians:transform.rotation.y*Math.PI/180});
+  }
+  return obstacles;
+}
+
+function stationApproach(world,actorObjectId,station,actorPosition=null,
+  extraObstacles=[],preferredGoal=null){
+  const actor=actorPosition||positionOf(world,actorObjectId);
+  const object=objectById(world,station.objectId);
+  if(!actor||!object)return {ok:false,reason:'Interaction actor or target is missing'};
+  let obstacles;
+  try{obstacles=[...navigationObstacles(world,actorObjectId),...extraObstacles];}
+  catch(error){return {ok:false,reason:error.message};}
+  const footprint=obstacles.find(item=>item.id===station.objectId);
+  if(!footprint)return {ok:false,reason:'Interaction target has no navigation bounds'};
+  const range=station.kind==='eat'?.9:.8;
+  if(preferredGoal&&distance(preferredGoal,object.transform.position)<=range-.01){
+    const route=planPath({start:actor,goal:preferredGoal,obstacles,
+      actorRadius:ACTOR_RADIUS});
+    if(route.ok)return {ok:true,target:preferredGoal,route,index:-1};
+  }
+  const directions=[
+    {x:0,z:footprint.halfZ+ACTOR_RADIUS+APPROACH_MARGIN},
+    {x:-footprint.halfX-ACTOR_RADIUS-APPROACH_MARGIN,z:0},
+    {x:footprint.halfX+ACTOR_RADIUS+APPROACH_MARGIN,z:0},
+    {x:0,z:-footprint.halfZ-ACTOR_RADIUS-APPROACH_MARGIN}
+  ];
+  const cos=Math.cos(footprint.yawRadians),sin=Math.sin(footprint.yawRadians);
+  let best=null,reason='No reachable interaction pose';
+  for(const [index,offset] of directions.entries()){
+    const goal={x:round6(footprint.cx+offset.x*cos-offset.z*sin),
+      z:round6(footprint.cz+offset.x*sin+offset.z*cos)};
+    if(distance(goal,object.transform.position)>range-.01)continue;
+    const route=planPath({start:actor,goal,obstacles,actorRadius:ACTOR_RADIUS});
+    if(!route.ok){reason=route.reason;continue;}
+    if(!best||route.lengthMeters<best.route.lengthMeters-1e-6||
+      Math.abs(route.lengthMeters-best.route.lengthMeters)<=1e-6&&index<best.index)
+      best={ok:true,target:goal,route,index};
+  }
+  return best||{ok:false,reason};
+}
+
+function fixtureApproach(world,station){
+  const point=positionOf(world,station.objectId);
+  return point?{x:point.x,z:point.z+(station.kind==='rest'?.62:.68)}:null;
+}
 
 function assertWorld(world){
   if(!world||typeof world.execute!=='function'||world.scene?.schemaVersion!==1||
@@ -72,9 +155,10 @@ function validActivity(activity,version=LEGACY_VERSION){
     ...(version>=RESERVATION_VERSION?['executionId']:[])])||
      !ACTIVITIES.includes(activity.kind)||!['travel','use'].includes(activity.phase)||
      !integer(activity.remainingTicks,0,12)||!integer(activity.travelTicks,0,MAX_TRAVEL_TICKS))return false;
+  const targetLimit=version>=VERSION?100:5;
   if(activity.kind==='explore')return activity.stationId===null&&
     keys(activity.target,['x','z'])&&finite(activity.target.x)&&finite(activity.target.z)&&
-    Math.abs(activity.target.x)<=5&&Math.abs(activity.target.z)<=5;
+    Math.abs(activity.target.x)<=targetLimit&&Math.abs(activity.target.z)<=targetLimit;
   return boundedText(activity.stationId,32)&&activity.stationId.length>0&&activity.target===null;
 }
 
@@ -100,8 +184,7 @@ function validStateV1(world,state){
          integer(resident.cooldowns[key],0,1000000012))||
        !boundedText(resident.lastOutcome,160))throw Error('Invalid Citizens resident');
     const object=objectById(world,resident.objectId);
-    if(object?.assetId!=='orb'||object.anchorId!==ANCHOR_ID||object.component||
-       hasActiveTransformOwner(object))
+    if(!supportedResident(object))
       throw Error('Citizens resident object is missing or incompatible');
     residentIds.add(resident.id);objectIds.add(resident.objectId);
   }
@@ -161,7 +244,7 @@ function migrateV1(world,saved){
   return state;
 }
 
-function validStateV2(world,state){
+function validStateV2(world,state,activityVersion=RESERVATION_VERSION){
   assertWorld(world);
   if(!keys(state,['schemaVersion','world','seed','rngState','requestSequence',
     'actionSequence','clockTick','paused','residents','retiredResidentIds',
@@ -193,7 +276,7 @@ function validStateV2(world,state){
       !boundedText(resident.name,40)||!resident.name||
       !boundedText(resident.objectId,128)||objectIds.has(resident.objectId)||
       !validNeeds(resident.needs)||!validPreferences(resident.preferences)||
-      !validActivity(action,RESERVATION_VERSION)||!keys(resident.cooldowns,ACTIVITIES)||
+      !validActivity(action,activityVersion)||!keys(resident.cooldowns,ACTIVITIES)||
       !ACTIVITIES.every(key=>integer(resident.cooldowns[key],0,1000000012))||
       !boundedText(resident.lastOutcome,160))throw Error('Invalid Citizens resident');
     if(action){
@@ -202,8 +285,7 @@ function validStateV2(world,state){
       executionIds.add(action.executionId);
     }
     const object=objectById(world,resident.objectId);
-    if(object?.assetId!=='orb'||object.anchorId!==ANCHOR_ID||object.component||
-      hasActiveTransformOwner(object))
+    if(!supportedResident(object))
       throw Error('Citizens resident object is missing or incompatible');
     residentIds.add(resident.id);objectIds.add(resident.objectId);
   }
@@ -284,7 +366,7 @@ function migrateV2(world,saved){
   return state;
 }
 
-function validStateV3(world,state){
+function validStateV3(world,state,activityVersion=SOCIAL_VERSION){
   if(!keys(state,['schemaVersion','world','seed','rngState','requestSequence',
     'actionSequence','clockTick','paused','residents','retiredResidentIds',
     'stations','log','socialSession','socialEvents','relationships','nextSocialTick'])||
@@ -304,7 +386,7 @@ function validStateV3(world,state){
       throw Error('Invalid Citizens social resident');
     delete resident.socialSessionId;
   }
-  validStateV2(world,v2);
+  validStateV2(world,v2,activityVersion);
   const ids=new Set([...state.residents.map(resident=>resident.id),
     ...state.retiredResidentIds]);
   const relationshipPairs=new Set();
@@ -419,7 +501,7 @@ function validStateV4(world,state){
   v3.schemaVersion=SOCIAL_VERSION;
   for(const relation of v3.relationships)if(relation&&typeof relation==='object')
     delete relation.completed;
-  validStateV3(world,v3);
+  validStateV3(world,v3,VERSION);
   const bySession=new Map(),requestIds=new Set();
   for(const relation of state.relationships){
     if(!keys(relation,['a','b','score','completed'])||
@@ -465,6 +547,137 @@ function pose(x,z,scale=1){
   return {position:{x,y:0,z},rotation:{x:0,y:0,z:0},scale:{x:scale,y:scale,z:scale}};
 }
 
+function initialState(world,seed,adaId,boId,stations){
+  return {schemaVersion:VERSION,world:{schemaVersion:1,roomId:world.scene.roomId},
+    seed,rngState:seed,requestSequence:0,actionSequence:0,clockTick:0,paused:true,
+    retiredResidentIds:[],socialSession:null,socialEvents:[],
+    relationships:[{a:'ada',b:'bo',score:50,completed:[]}],nextSocialTick:35,
+    residents:[
+      {id:'ada',name:'Ada',objectId:adaId,needs:{hunger:72,energy:20,fun:62},
+        preferences:{rest:1.2,eat:.85,explore:.75},activity:null,
+        cooldowns:{rest:0,eat:0,explore:0},lastOutcome:'',socialSessionId:null},
+      {id:'bo',name:'Bo',objectId:boId,needs:{hunger:42,energy:29,fun:54},
+        preferences:{rest:1.1,eat:1,explore:.75},activity:null,
+        cooldowns:{rest:0,eat:0,explore:0},lastOutcome:'',socialSessionId:null}
+    ],stations,log:[]};
+}
+
+function selectedFurnitureSetup(world,objectId,{checkRoutes=true}={}){
+  assertWorld(world);
+  if(world.citizens!==null&&world.citizens!==undefined)
+    throw Error('Citizens is already active in this world');
+  if(world.game!==null&&world.game!==undefined)
+    throw Error('Finish or remove the active game before starting Citizens');
+  if(world.scene.objects.length+2>MAX_OBJECTS)
+    throw Error('Citizens needs two free Matrix scene slots');
+  if(!objectId)throw Error('Select an existing chair or table first');
+  const object=objectById(world,objectId);
+  if(!object)throw Error('The selected furniture is no longer in the world');
+  if(!['chair','table'].includes(object.assetId)||object.anchorId!==ANCHOR_ID)
+    throw Error('Select a built-in virtual-floor chair or table');
+  if(hasActiveTransformOwner(object))
+    throw Error('Selected furniture is moving or has physics');
+  navigationObstacles(world);
+  const station={id:object.assetId==='chair'?'chair':'food',
+    kind:object.assetId==='chair'?'rest':'eat',objectId,capacity:1,
+    claim:null,waiters:[]};
+  // Panel rendering calls readiness frequently. Route searches belong to the
+  // explicit start operation, which repeats every check before mutating.
+  if(!checkRoutes)return {station,positions:null};
+  const candidates=[[-1.8,0],[1.8,0],[-1.8,-1.4],[1.8,-1.4],
+    [0,-2],[0,2],[-2.8,0],[2.8,0],[-2,-2],[2,-2],
+    [-2,2],[2,2],[-3.5,-2],[3.5,-2],[0,-3.5],[0,3.5]];
+  const positions=[],planned=[];
+  let lastReason='No clear resident spawn and route to selected furniture';
+  for(const [dx,dz] of candidates){
+    const point={x:round6(object.transform.position.x+dx),
+      z:round6(object.transform.position.z+dz)};
+    const approach=stationApproach(world,'',station,point,planned);
+    if(!approach.ok){lastReason=approach.reason;continue;}
+    positions.push(point);
+    planned.push({id:`citizens-planned-${positions.length}`,cx:point.x,cz:point.z,
+      halfX:.175,halfZ:.175,yawRadians:0});
+    if(positions.length===2)return {station,positions};
+  }
+  throw Error(`Citizens cannot start here: ${lastReason}`);
+}
+
+export function citizensFurnitureReadiness(world,objectId){
+  try{selectedFurnitureSetup(world,objectId,{checkRoutes:false});return '';}
+  catch(error){return error.message||String(error);}
+}
+
+export function createCitizensWithSelectedFurniture(world,{seed=1,objectId}={}){
+  if(!integer(seed,1,0xffffffff))throw Error('Invalid Citizens seed');
+  const {station,positions}=selectedFurnitureSetup(world,objectId);
+  const sceneBefore=clone(world.scene);
+  const before=clone(world.scene.objects),originalIds=new Set(before.map(item=>item.objectId));
+  const undoBefore=clone(world.undo),redoBefore=clone(world.redo);
+  const created=new Set();
+  const selection=clone(world.selection);
+  const restoreSelection=()=>world.setSelection(selection.objectId,selection.position,
+    selection.anchorId);
+  const authoredUnchanged=()=>before.every((item,index)=>
+    JSON.stringify(world.scene.objects[index])===JSON.stringify(item));
+  const spawn=(label,point)=>{
+    const requestId=`citizens-${seed}-selected-${label}`;
+    const transform=pose(point.x,point.z,.7);
+    const priorIds=new Set(world.scene.objects.map(item=>item.objectId));
+    let receipt,added=[],expected=[];
+    try{receipt=world.execute({requestId,op:'spawn',assetId:'orb',
+      anchorId:ANCHOR_ID,transform},{recordHistory:false});}
+    finally{
+      added=world.scene.objects.filter(item=>!priorIds.has(item.objectId));
+      expected=added.filter(item=>item.assetId==='orb'&&
+        item.anchorId===ANCHOR_ID&&sameTransform(item.transform,transform));
+      // A command may add the requested orb and then return a bad receipt or
+      // alter its transform. Retain its ID for rollback even when validation
+      // below rejects it. Do not claim unrelated additions from a wrapper.
+      if(receipt?.objectId&&added.some(item=>item.objectId===receipt.objectId))
+        created.add(receipt.objectId);
+      if(expected.length===1)created.add(expected[0].objectId);
+      if(added.length===1)created.add(added[0].objectId);
+    }
+    if(!receipt?.ok||receipt.requestId!==requestId||!receipt.objectId||
+      originalIds.has(receipt.objectId)||added.length!==1||expected.length!==1||
+      receipt.objectId!==expected[0].objectId||
+      !authoredUnchanged())
+      throw Error(`Citizens ${label} spawn failed: ${receipt?.error||'missing runtime receipt or changed authored object'}`);
+    return receipt.objectId;
+  };
+  try{
+    const adaId=spawn('ada',positions[0]);
+    const boId=spawn('bo',positions[1]);
+    if(world.scene.objects.length!==before.length+2||!authoredUnchanged())
+      throw Error('Citizens setup changed authored objects');
+    const simulation=new CitizensSimulation(world,
+      initialState(world,seed,adaId,boId,[station]));
+    restoreSelection();
+    return simulation;
+  }catch(error){
+    const failures=[];
+    for(const objectId of [...created].reverse()){
+      const object=objectById(world,objectId);
+      if(!object||originalIds.has(objectId)||object.assetId!=='orb')continue;
+      try{
+        const receipt=world.execute({requestId:`citizens-${seed}-rollback-${objectId}`,
+          op:'delete',objectId},{recordHistory:false});
+        if(!receipt?.ok||objectById(world,objectId))failures.push(objectId);
+      }catch(rollbackError){failures.push(objectId);}
+    }
+    try{restoreSelection();}catch(selectionError){failures.push('selection');}
+    if(!authoredUnchanged())failures.push('authored scene');
+    const sceneRestored=JSON.stringify(world.scene)===JSON.stringify(sceneBefore);
+    if(!sceneRestored)failures.push('scene');
+    if(!failures.length){
+      world.undo=undoBefore;
+      world.redo=redoBefore;
+    }
+    if(failures.length)throw Error(`${error.message}; rollback incomplete for ${failures.join(', ')}`);
+    throw error;
+  }
+}
+
 export function createCitizensDemo(world,{seed=1}={}){
   assertWorld(world);
   if(!integer(seed,1,0xffffffff))throw Error('Invalid Citizens seed');
@@ -484,21 +697,10 @@ export function createCitizensDemo(world,{seed=1}={}){
     const foodId=spawn('food','table',pose(2.15,-2,.7));
     const adaId=spawn('ada','orb',pose(-2.2,-.9,.7));
     const boId=spawn('bo','orb',pose(2.3,-.85,.7));
-    const state={schemaVersion:VERSION,world:{schemaVersion:1,roomId:world.scene.roomId},
-      seed,rngState:seed,requestSequence:0,actionSequence:0,clockTick:0,paused:true,
-      retiredResidentIds:[],socialSession:null,socialEvents:[],
-      relationships:[{a:'ada',b:'bo',score:50,completed:[]}],nextSocialTick:35,
-      residents:[
-        {id:'ada',name:'Ada',objectId:adaId,needs:{hunger:72,energy:20,fun:62},
-          preferences:{rest:1.2,eat:.85,explore:.75},activity:null,
-          cooldowns:{rest:0,eat:0,explore:0},lastOutcome:'',socialSessionId:null},
-        {id:'bo',name:'Bo',objectId:boId,needs:{hunger:42,energy:29,fun:54},
-          preferences:{rest:1.1,eat:1,explore:.75},activity:null,
-          cooldowns:{rest:0,eat:0,explore:0},lastOutcome:'',socialSessionId:null}
-      ],stations:[
-        {id:'chair',kind:'rest',objectId:chairId,capacity:1,claim:null,waiters:[]},
-        {id:'food',kind:'eat',objectId:foodId,capacity:1,claim:null,waiters:[]}
-      ],log:[]};
+    const state=initialState(world,seed,adaId,boId,[
+      {id:'chair',kind:'rest',objectId:chairId,capacity:1,claim:null,waiters:[]},
+      {id:'food',kind:'eat',objectId:foodId,capacity:1,claim:null,waiters:[]}
+    ]);
     return new CitizensSimulation(world,state);
   }catch(error){
     for(const objectId of placed.reverse())world.execute({
@@ -566,8 +768,7 @@ export class CitizensSimulation {
         continue;
       }
       const compatible=kind==='resident'
-        ?object.assetId==='orb'&&object.anchorId===ANCHOR_ID&&!object.component&&
-          !hasActiveTransformOwner(object)
+        ?supportedResident(object)
         :object.assetId===(bound.kind==='rest'?'chair':'table')&&
           object.anchorId===ANCHOR_ID&&!hasActiveTransformOwner(object);
       if(!compatible){
@@ -687,8 +888,7 @@ export class CitizensSimulation {
   eligibleForSocial(resident){
     const object=objectById(this.world,resident.objectId);
     return !resident.activity&&!resident.socialSessionId&&!this.waitingFor(resident)&&
-      object?.assetId==='orb'&&object.anchorId===ANCHOR_ID&&!object.component&&
-      !hasActiveTransformOwner(object)&&!this.invalidBindings.has(resident.objectId);
+      supportedResident(object)&&!this.invalidBindings.has(resident.objectId);
   }
   beginSocial(){
     if(this.state.socialSession||this.state.clockTick<this.state.nextSocialTick||
@@ -744,8 +944,13 @@ export class CitizensSimulation {
     const actor=positionOf(this.world,pair.initiator.objectId);
     const target=positionOf(this.world,pair.invitee.objectId);
     if(!actor||!target){this.finishSocial('interrupted','a participant is missing');return true;}
-    const side=actor.x<target.x?-1:1;
-    const goal={x:round(target.x+side*.62),z:round(target.z)};
+    const approach=stationApproach(this.world,pair.initiator.objectId,
+      {objectId:pair.invitee.objectId,kind:'converse'});
+    if(!approach.ok){
+      this.finishSocial('interrupted',`conversation path unavailable: ${approach.reason}`);
+      return true;
+    }
+    const goal=approach.target;
     if(distance(actor,goal)>ARRIVAL_METRES){
       if(session.travelTicks>=MAX_TRAVEL_TICKS){
         this.finishSocial('timed_out','conversation travel exceeded its limit');return true;
@@ -811,15 +1016,28 @@ export class CitizensSimulation {
   }
   requestMove(resident,target,executionId=resident.activity?.executionId,domain='action'){
     const object=objectById(this.world,resident.objectId);
-    if(!object||object.anchorId!==ANCHOR_ID)return {ok:false,error:'resident object is missing'};
+    if(!object||object.anchorId!==ANCHOR_ID)
+      return {ok:false,error:'resident object is missing'};
     if(object.component||hasActiveTransformOwner(object))
       return {ok:false,error:'resident transform is owned by another runtime capability'};
+    if(!supportedResident(object))
+      return {ok:false,error:'resident object has unsupported size/height'};
     const current=object.transform.position;
-    const gap=distance(current,target);
-    const fraction=gap>MOVE_METRES?MOVE_METRES/gap:1;
+    let obstacles;
+    try{obstacles=navigationObstacles(this.world,resident.objectId);}
+    catch(error){return {ok:false,error:error.message};}
+    const route=planPath({start:current,goal:target,obstacles,
+      actorRadius:ACTOR_RADIUS});
+    if(!route.ok)return {ok:false,error:`${route.code}: ${route.reason}`};
+    const waypoint=route.waypoints[0]||target;
+    const gap=distance(current,waypoint);
+    const fraction=gap>MOVE_METRES-.00001?(MOVE_METRES-.00001)/gap:1;
     const transform=clone(object.transform);
-    transform.position.x=round(current.x+(target.x-current.x)*fraction);
-    transform.position.z=round(current.z+(target.z-current.z)*fraction);
+    transform.position.x=round6(current.x+(waypoint.x-current.x)*fraction);
+    transform.position.z=round6(current.z+(waypoint.z-current.z)*fraction);
+    const swept=checkedMove({from:current,to:transform.position,obstacles,
+      actorRadius:ACTOR_RADIUS});
+    if(!swept.ok)return {ok:false,error:`${swept.code}: ${swept.reason}`};
     const requestId=`citizens-${this.state.seed}-${domain}-${executionId}-${++this.state.requestSequence}`;
     let receipt;
     try{receipt=this.world.execute({requestId,op:'set_transform',objectId:resident.objectId,
@@ -828,11 +1046,19 @@ export class CitizensSimulation {
     if(!receipt?.ok||receipt.requestId!==requestId||receipt.objectId!==resident.objectId)
       return {ok:false,error:receipt?.error||'missing or mismatched Matrix receipt'};
     const observed=objectById(this.world,resident.objectId);
-    if(!observed)return {ok:false,error:'resident object is missing after movement'};
+    if(!observed||!sameTransform(observed.transform,transform))
+      return {ok:false,error:'Matrix movement receipt did not match the observed pose'};
     this.observedTransforms.set(resident.objectId,clone(observed.transform));
     return {ok:true};
   }
   requestInteraction(resident,station){
+    const actor=positionOf(this.world,resident.objectId);
+    let obstacles;
+    try{obstacles=navigationObstacles(this.world,resident.objectId);}
+    catch(error){return {ok:false,error:error.message};}
+    const clear=actor&&planPath({start:actor,goal:actor,obstacles,
+      actorRadius:ACTOR_RADIUS});
+    if(!clear?.ok)return {ok:false,error:clear?.reason||'Interaction actor is missing'};
     const requestId=`citizens-${this.state.seed}-action-${resident.activity.executionId}-${++this.state.requestSequence}`;
     let receipt;
     try{receipt=this.world.execute({requestId,op:'interact',
@@ -849,6 +1075,13 @@ export class CitizensSimulation {
     return {ok:true};
   }
   requestSocialInteraction(initiator,invitee,session){
+    const actor=positionOf(this.world,initiator.objectId);
+    let obstacles;
+    try{obstacles=navigationObstacles(this.world,initiator.objectId);}
+    catch(error){return {ok:false,error:error.message};}
+    const clear=actor&&planPath({start:actor,goal:actor,obstacles,
+      actorRadius:ACTOR_RADIUS});
+    if(!clear?.ok)return {ok:false,error:clear?.reason||'Conversation actor is missing'};
     const requestId=`citizens-${this.state.seed}-social-${session.executionId}-${++this.state.requestSequence}`;
     let receipt;
     try{receipt=this.world.execute({requestId,op:'interact',
@@ -867,14 +1100,15 @@ export class CitizensSimulation {
   }
   targetFor(resident){
     const action=resident.activity;
-    if(action.kind==='explore')return action.target;
+    if(action.kind==='explore')return {ok:true,target:action.target};
     const station=this.station(action.stationId);
     const object=station&&objectById(this.world,station.objectId);
     if(!object||object.anchorId!==ANCHOR_ID||
       station.claim?.residentId!==resident.id||
-      station.claim.executionId!==action.executionId)return null;
-    const p=object.transform.position;
-    return {x:p.x,z:p.z+(station.kind==='rest'?.62:.68)};
+      station.claim.executionId!==action.executionId)
+      return {ok:false,reason:'Interaction target is missing or claim changed'};
+    return stationApproach(this.world,resident.objectId,station,null,[],
+      this.state.stations.length===2?fixtureApproach(this.world,station):null);
   }
   nextExecutionId(){
     if(this.state.actionSequence>=1000000000){
@@ -885,13 +1119,39 @@ export class CitizensSimulation {
     return ++this.state.actionSequence;
   }
   beginActivity(resident,kind,station,executionId,description){
-    const target=kind==='explore'?{
-      x:round((this.nextRandom()-.5)*5),z:round(-.5-this.nextRandom()*3)
-    }:null;
+    let target=null;
+    if(kind==='explore'){
+      const actor=positionOf(this.world,resident.objectId);
+      let obstacles;
+      try{obstacles=navigationObstacles(this.world,resident.objectId);}
+      catch(error){
+        this.log(resident.id,'blocked',`${resident.name}: explore unavailable; ${error.message}.`);
+        resident.cooldowns.explore=this.state.clockTick+4;
+        return false;
+      }
+      let reason='No reachable exploration point';
+      for(let attempt=0;attempt<4;attempt++){
+        const candidate={
+          x:round(Math.max(-FLOOR_TARGET_LIMIT,Math.min(FLOOR_TARGET_LIMIT,
+            actor.x+(this.nextRandom()-.5)*5))),
+          z:round(Math.max(-FLOOR_TARGET_LIMIT,Math.min(FLOOR_TARGET_LIMIT,
+            actor.z-.5-this.nextRandom()*3)))};
+        const route=planPath({start:actor,goal:candidate,obstacles,
+          actorRadius:ACTOR_RADIUS});
+        if(route.ok){target=candidate;break;}
+        reason=route.reason;
+      }
+      if(!target){
+        this.log(resident.id,'blocked',`${resident.name}: explore unavailable; ${reason}.`);
+        resident.cooldowns.explore=this.state.clockTick+4;
+        return false;
+      }
+    }
     resident.activity={kind,stationId:station?.id||null,phase:'travel',
       remainingTicks:kind==='rest'?7:kind==='eat'?5:1,travelTicks:0,target,
       executionId};
     this.log(resident.id,'selected',`${resident.name} chose ${kind}${station?` at ${station.id}`:''}: ${description}`);
+    return true;
   }
   progressWaiting(resident,station,entry){
     if(this.state.clockTick-entry.enqueuedTick>=MAX_WAIT_TICKS){
@@ -939,6 +1199,12 @@ export class CitizensSimulation {
           this.log(resident.id,'blocked',`${resident.name}: ${kind} unavailable; station is missing.`);
           resident.cooldowns[kind]=this.state.clockTick+4;continue;
         }
+        const approach=stationApproach(this.world,resident.objectId,station,null,[],
+          this.state.stations.length===2?fixtureApproach(this.world,station):null);
+        if(!approach.ok){
+          this.log(resident.id,'blocked',`${resident.name}: ${kind} unavailable; ${approach.reason}.`);
+          resident.cooldowns[kind]=this.state.clockTick+4;continue;
+        }
         if(station.claim||station.waiters.length){
           const executionId=this.nextExecutionId();
           if(executionId===null)return;
@@ -955,16 +1221,20 @@ export class CitizensSimulation {
       if(station)station.claim={residentId:resident.id,executionId,
         expiresTick:this.state.clockTick+LEASE_TICKS};
       const need=kind==='rest'?'energy':kind==='eat'?'hunger':'fun';
-      this.beginActivity(resident,kind,station,executionId,
-        `${need} ${round(resident.needs[need])}, score ${round(candidate.score)} (gap ${round(candidate.deficit)}, travel ${round(candidate.travel)}m); execution ${executionId}.`);
+      if(!this.beginActivity(resident,kind,station,executionId,
+        `${need} ${round(resident.needs[need])}, score ${round(candidate.score)} (gap ${round(candidate.deficit)}, travel ${round(candidate.travel)}m); execution ${executionId}.`)){
+        if(station)station.claim=null;
+        continue;
+      }
       return;
     }
   }
   progress(resident){
     const action=resident.activity;
     if(!action)return;
-    const target=this.targetFor(resident);
-    if(!target){this.fail(resident,'interaction target is missing or unavailable');return;}
+    const resolved=this.targetFor(resident);
+    if(!resolved.ok){this.fail(resident,resolved.reason);return;}
+    const target=resolved.target;
     if(action.phase==='travel'){
       if(action.travelTicks>=MAX_TRAVEL_TICKS){this.fail(resident,'travel timed out');return;}
       const receipt=this.requestMove(resident,target);

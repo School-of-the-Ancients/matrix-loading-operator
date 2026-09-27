@@ -552,6 +552,11 @@ def validate_citizens_checkpoint(value, checked_scene):
                 not any(behavior["enabled"] and not behavior["paused"]
                         for behavior in obj.get("behaviors", [])),
                 "Citizens resident object is missing or incompatible")
+        if version >= 4:
+            transform = obj["transform"]
+            require(abs(transform["position"]["y"]) <= .05 and
+                    all(transform["scale"][axis] == .7 for axis in ("x", "y", "z")),
+                    "Citizens resident object has unsupported size or height")
         for field, minimum, maximum in (("needs", 0, 100), ("preferences", .2, 2)):
             expected = ("hunger", "energy", "fun") if field == "needs" else ("rest", "eat", "explore")
             shape(resident[field], expected, f"resident {field}")
@@ -576,8 +581,10 @@ def validate_citizens_checkpoint(value, checked_scene):
                 active_execution_ids.add(execution_id)
             if activity["kind"] == "explore":
                 shape(activity["target"], ("x", "z"), "exploration target")
+                explore_limit = 100 if version >= 4 else 5
                 require(activity["stationId"] is None and
-                        all(number(activity["target"][axis], -5, 5) for axis in ("x", "z")),
+                        all(number(activity["target"][axis], -explore_limit, explore_limit)
+                            for axis in ("x", "z")),
                         "Invalid Citizens exploration target")
             else:
                 citizens_text(activity["stationId"], "Citizens activity station ID", limit=32)
