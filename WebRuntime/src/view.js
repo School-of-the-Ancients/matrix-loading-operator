@@ -470,7 +470,11 @@ export class MatrixView {
     this.roomAnchor=null;this.roomAnchorPending=false;this.roomAnchorPersistent=false;this.roomAnchorRestoredHandle=null;this.roomAnchorHandleAvailable=false;this.roomPoseMissingSince=0;
     // A digital world visit gets a fresh view anchor. The existing saved AR
     // room handle belongs to physical placement, not to the digital scene.
-    if(this.world.digitalWorldVisit)return;
+    if(this.world.digitalWorldVisit){
+      setRoomContentVisible(this,false);
+      this.world.setOriginUnavailable(true);
+      return;
+    }
     // A world explicitly saved as virtual has no proven relationship to the
     // browser's last AR anchor. Keep its virtual-floor preview visible even if
     // that unrelated handle is stale, inaccessible, or restores successfully.
@@ -557,9 +561,17 @@ export class MatrixView {
     const session=frame.session;
     let created;
     try{created=frame.createAnchor(new XRRigidTransform(position,orientation),ref);}
-    catch(error){this.roomAnchorPending=false;this.roomAnchorCreationFailed=true;this.onAssetError(`Room anchor: ${error.message}`);return;}
+    catch(error){
+      this.roomAnchorPending=false;this.roomAnchorCreationFailed=true;
+      if(this.world.digitalWorldVisit){
+        setRoomContentVisible(this,false);this.world.setOriginUnavailable(true);this.onRuntimeChange();
+      }
+      this.onAssetError(`Room anchor: ${error.message}`);return;
+    }
     Promise.resolve(created).then(async anchor=>{
       if(this.renderer.xr.getSession()!==session)return;
+      if(this.world.digitalWorldVisit&&!anchor?.anchorSpace)
+        throw Error('Quest returned no AR view anchor space');
       this.roomAnchor=anchor;
       if(this.world.digitalWorldVisit)return;
       if(typeof anchor.requestPersistentHandle==='function'){
@@ -575,7 +587,13 @@ export class MatrixView {
           if(newlyBound&&hasWorldToProtect(this.world))this.onRuntimeChange();
         }
       }
-    }).catch(error=>{if(this.renderer.xr.getSession()===session){this.roomAnchorCreationFailed=true;this.onAssetError(`Room anchor: ${error.message}`);}})
+    }).catch(error=>{if(this.renderer.xr.getSession()===session){
+      this.roomAnchorCreationFailed=true;
+      if(this.world.digitalWorldVisit){
+        setRoomContentVisible(this,false);this.world.setOriginUnavailable(true);this.onRuntimeChange();
+      }
+      this.onAssetError(`Room anchor: ${error.message}`);
+    }})
       .finally(()=>{if(this.renderer.xr.getSession()===session)this.roomAnchorPending=false;});
   }
   updateRoomAnchor(frame,ref){
@@ -584,13 +602,19 @@ export class MatrixView {
     if(!pose){
       if(!this.isAR)return;
       if(!this.roomPoseMissingSince)this.roomPoseMissingSince=performance.now();
-      if(this.roomAnchorLocated){
+      if(this.roomAnchorLocated||this.world.digitalWorldVisit&&
+         !this.world.spatial?.originUnavailable){
         this.roomAnchorLocated=false;setRoomContentVisible(this,false);
         this.world.setOriginUnavailable(true);this.onRuntimeChange();
       }
       if(!this.roomAnchorRestoreFailed&&performance.now()-this.roomPoseMissingSince>10000){
-        this.roomAnchorRestoreFailed=true;
-        this.onAssetError('Room anchor pose has been unavailable for ten seconds; old world remains hidden.');
+        if(this.world.digitalWorldVisit){
+          this.roomAnchorCreationFailed=true;this.roomAnchor=null;
+          this.onAssetError('AR view anchor pose has been unavailable for ten seconds; the digital overlay remains hidden.');
+        }else{
+          this.roomAnchorRestoreFailed=true;
+          this.onAssetError('Room anchor pose has been unavailable for ten seconds; old world remains hidden.');
+        }
         this.onRuntimeChange();
       }
       return;

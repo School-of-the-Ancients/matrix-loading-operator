@@ -1313,8 +1313,12 @@ def snapshot(value):
     if visit:
         require(descriptor is not None and descriptor["presentation"] == "ar" and
                 room is not None and room["mode"] == "ar" and
+                room["alignmentVerified"] is False and
                 result["scene"]["roomId"] == "web-virtual-room-v1" and
                 all(item["anchorId"] == "web-floor" for item in result["scene"]["objects"]) and
+                not any("physics" in item or "rigidBody" in item
+                        for item in result["scene"]["objects"]) and
+                not result.get("physicsStates") and not result.get("rigidStates") and
                 result.get("worldSlotSchemaVersion") == 1 and
                 result.get("citizensState") is not None,
                 "AR visit requires one canonical virtual Citizens world")
@@ -5046,6 +5050,8 @@ class State:
             self.expire()
             require(self.online() and self.latest is not None, self.room_unavailable_message(), 409)
             require(not self.pending, "Wait for all queued commands to finish before saving", 409)
+            require(not self.latest.get("digitalWorldVisit"),
+                    "Leave the AR digital-world visit before saving a scene", 409)
             saved = copy.deepcopy(self.latest)
             saved.pop("viewer", None)
             saved.pop("pointing", None)

@@ -34,6 +34,18 @@ test('eligible Citizens AR visit retains canonical scene and rejects ordinary ed
   assert.deepEqual(world.scene.objects.map(object=>object.objectId),ids);
   assert.deepEqual(world.citizens,state);
   assert.equal(world.snapshot().digitalWorldVisit,true);
+  assert.equal(world.snapshot().readOnly,true);
+  assert.match(world.snapshot().roomContext.message,/overlay is hidden/);
+  world.setSpatialAnchors([{anchorId:'visit-support',displayName:'Detected floor',
+    source:'webxr-plane',semanticLabels:['FLOOR'],
+    roomPose:{position:{x:0,y:0,z:0},rotation:{x:0,y:0,z:0},
+      scale:{x:1,y:1,z:1}},
+    surface:{kind:'support',boundary:[{x:0,y:0,z:0},{x:1,y:0,z:0},
+      {x:1,y:0,z:1}]}}]);
+  const confirm=world.execute(command('visitor-confirm-room','confirm_room'));
+  assert.equal(confirm.ok,false);
+  assert.match(confirm.error,/AR visit/);
+  assert.equal(world.snapshot().roomContext.alignmentVerified,false);
   const resident=world.citizens.residents[0];
   const transform=structuredClone(world.requireObject(resident.objectId).transform);
   transform.position.x+=.1;
@@ -63,6 +75,66 @@ test('AR-bound Citizens keep the legacy placement and origin guard',()=>{
   world.leaveAR();
   assert.deepEqual(world.scene,before);
   assert.equal(world.originAnchorHandle,'saved-handle');
+});
+
+test('Citizens worlds with authored physics use the legacy AR entry',()=>{
+  let sequence=0;
+  const world=new MatrixWorld(()=>`physics-visit-${++sequence}`);
+  world.citizens=createCitizensDemo(world,{seed:17}).snapshot();
+  const sha='e'.repeat(64);
+  const asset={assetId:'web:visit-drop:eeeeeeeeeeee',displayName:'Drop',
+    description:'Measured GLB',spawnScale:1,sha256:sha,byteLength:1024,
+    url:`/api/web/assets/${sha}.glb`,
+    localBounds:{center:{x:0,y:.5,z:0},size:{x:1,y:1,z:1}}};
+  world.registerAssets([asset]);
+  const drop=world.execute(command('spawn-drop','spawn',
+    {assetId:asset.assetId,anchorId:ANCHOR_ID,transform:pose(10,2,-2)}));
+  assert.equal(drop.ok,true,drop.error);
+  assert.equal(world.verifyPhysicsAsset(asset.assetId,{x:1,y:1,z:1},drop.objectId),true);
+  const configured=world.execute(command('set-drop','set_physics',
+    {objectId:drop.objectId,physics:{schemaVersion:1,kind:'gravity-floor',
+      collider:'rendered-bounds-box',restitution:0}}));
+  assert.equal(configured.ok,true,configured.error);
+  assert.equal(world.physicsStates().length,1);
+  assert.equal(world.canVisitDigitalWorld(),false);
+  world.enterAR();
+  assert.equal(world.digitalWorldVisit,false);
+  assert.match(world.scene.roomId,/^webxr-session-/);
+  assert.equal(world.snapshot().digitalWorldVisit,undefined);
+  world.leaveAR();
+  world.requireObject(drop.objectId).rigidBody={schemaVersion:1,type:'dynamic',
+    collider:'bounds-box',restitution:0,friction:.8,sensor:false};
+  delete world.requireObject(drop.objectId).physics;
+  assert.equal(world.canVisitDigitalWorld(),false,
+    'a rigid body also requires an explicit live AR policy before visiting');
+});
+
+test('Citizens visit eligibility excludes moving geometry and animated imports',()=>{
+  let sequence=0;
+  const world=new MatrixWorld(()=>`moving-visit-${++sequence}`);
+  world.citizens=createCitizensDemo(world,{seed:17}).snapshot();
+  const station=world.scene.objects.find(object=>object.assetId==='chair');
+  assert.equal(world.canVisitDigitalWorld(),true);
+  station.component={status:'running'};
+  assert.equal(world.canVisitDigitalWorld(),false);
+  delete station.component;
+  station.behaviors=[{kind:'rotate',enabled:true,paused:true}];
+  assert.equal(world.canVisitDigitalWorld(),false);
+  delete station.behaviors;
+  station.animation={loopClip:'Idle'};
+  assert.equal(world.canVisitDigitalWorld(),false);
+  delete station.animation;
+  const sha='d'.repeat(64);
+  const asset={assetId:'web:visit-loop:dddddddddddd',displayName:'Animated GLB',
+    description:'Animated imported obstacle',spawnScale:1,sha256:sha,
+    byteLength:1024,url:`/api/web/assets/${sha}.glb`,
+    localBounds:{center:{x:0,y:.5,z:0},size:{x:1,y:1,z:1}},
+    geometry:{animationClips:[{name:'Idle',durationSeconds:1}]}};
+  world.registerAssets([asset]);
+  const spawned=world.execute(command('spawn-animated','spawn',
+    {assetId:asset.assetId,anchorId:ANCHOR_ID,transform:pose(10,0,-2)}));
+  assert.equal(spawned.ok,true,spawned.error);
+  assert.equal(world.canVisitDigitalWorld(),false);
 });
 
 test('spawn, transform, behavior, undo and restore preserve stable identity',()=>{

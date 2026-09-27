@@ -129,6 +129,9 @@ class WorldCheckpointTests(unittest.TestCase):
         self.state.exchange({"clientId": "browser", "snapshot": visit, "results": []})
         revision = self.state.revision
         self.assertTrue(self.state.latest["digitalWorldVisit"])
+        with self.assertRaises(APIError) as blocked_save:
+            self.state.save("VisitScene")
+        self.assertEqual(blocked_save.exception.status, 409)
         moved = copy.deepcopy(visit)
         moved["scene"]["objects"][-4]["transform"]["position"]["x"] += .2
         self.state.exchange({"clientId": "browser", "snapshot": moved, "results": []})
@@ -164,6 +167,9 @@ class WorldCheckpointTests(unittest.TestCase):
         invalid.append(changed)
         changed = copy.deepcopy(visit)
         changed["runtimeDescriptor"]["presentation"] = "desktop"
+        invalid.append(changed)
+        changed = copy.deepcopy(visit)
+        changed["roomContext"]["alignmentVerified"] = True
         invalid.append(changed)
         changed = copy.deepcopy(visit)
         changed.pop("citizensObservation")

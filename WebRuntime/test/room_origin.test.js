@@ -103,6 +103,8 @@ test('digital Citizens visit anchors only its view and cannot reset the world on
       renderer:{xr:{getSession:()=>session}},onRuntimeChange(){},onAssetError(){}};
     MatrixView.prototype.restoreRoomAnchor.call(view,session);
     assert.equal(view.roomAnchor,null);
+    assert.equal(view.virtualFloorRoot.visible,false);
+    assert.equal(world.snapshot().readOnly,true);
     MatrixView.prototype.createRoomAnchor.call(view,
       {session,createAnchor:()=>Promise.resolve(anchor)}, {},0);
     await new Promise(resolve=>setImmediate(resolve));
@@ -122,6 +124,67 @@ test('digital Citizens visit anchors only its view and cannot reset the world on
   }finally{
     if(priorStorage===undefined)delete globalThis.localStorage;else globalThis.localStorage=priorStorage;
     if(priorTransform===undefined)delete globalThis.XRRigidTransform;else globalThis.XRRigidTransform=priorTransform;
+  }
+});
+
+test('a never-located Citizens visit anchor keeps its overlay hidden and can retry',()=>{
+  let sequence=0,updates=0;
+  const world=new MatrixWorld(()=>`unlocated-visit-${++sequence}`);
+  world.citizens=createCitizensDemo(world,{seed:17}).snapshot();
+  world.enterAR();
+  const session={};
+  const view={world,isAR:true,virtualFloorRoot:new THREE.Group(),anchorRoots:new Map(),
+    roomAnchor:null,roomAnchorLocated:false,roomAnchorCreationFailed:false,
+    roomAnchorRestoreFailed:false,roomPoseMissingSince:0,
+    renderer:{xr:{getSession:()=>session}},
+    onRuntimeChange(){updates++;},onAssetError(){}};
+  MatrixView.prototype.restoreRoomAnchor.call(view,session);
+  assert.equal(view.virtualFloorRoot.visible,false);
+  assert.equal(world.snapshot().readOnly,true);
+  view.roomAnchor={anchorSpace:{}};
+  MatrixView.prototype.updateRoomAnchor.call(view,{getPose:()=>null},{});
+  assert.equal(view.virtualFloorRoot.visible,false);
+  assert.equal(world.snapshot().roomContext.state,'missing');
+  view.roomPoseMissingSince=performance.now()-11000;
+  MatrixView.prototype.updateRoomAnchor.call(view,{getPose:()=>null},{});
+  assert.equal(view.roomAnchorCreationFailed,true);
+  assert.equal(view.roomAnchor,null);
+  assert.equal(MatrixView.prototype.retryRoomOrigin.call(view),true);
+  assert.equal(view.roomAnchorCreationFailed,false);
+  view.roomAnchor={anchorSpace:{}};
+  MatrixView.prototype.updateRoomAnchor.call(view,{getPose:()=>({transform:{
+    position:{x:1,y:0,z:2},orientation:{x:0,y:0,z:0,w:1}}})},{});
+  assert.equal(view.virtualFloorRoot.visible,true);
+  assert.equal(world.snapshot().readOnly,undefined);
+  assert.match(world.snapshot().roomContext.message,/tracked view anchor/);
+  assert.ok(updates>=2);
+});
+
+test('failed Citizens visit anchor creation remains hidden and read-only',()=>{
+  const priorTransform=globalThis.XRRigidTransform;
+  globalThis.XRRigidTransform=class {};
+  try{
+    let sequence=0,updates=0;
+    const world=new MatrixWorld(()=>`failed-visit-${++sequence}`);
+    world.citizens=createCitizensDemo(world,{seed:17}).snapshot();
+    world.enterAR();
+    const view={world,isAR:true,roomAnchor:null,roomAnchorPending:false,
+      roomAnchorCreationFailed:false,roomAnchorRestoreFailed:false,
+      xrViewer:{position:new THREE.Vector3(0,1.7,0),
+        direction:new THREE.Vector3(0,0,-1)},
+      virtualFloorRoot:new THREE.Group(),anchorRoots:new Map(),
+      onRuntimeChange(){updates++;},onAssetError(){}};
+    MatrixView.prototype.restoreRoomAnchor.call(view,{});
+    MatrixView.prototype.createRoomAnchor.call(view,
+      {session:{},createAnchor(){throw Error('anchor unavailable');}}, {},0);
+    assert.equal(view.roomAnchorCreationFailed,true);
+    assert.equal(view.virtualFloorRoot.visible,false);
+    assert.equal(world.snapshot().readOnly,true);
+    assert.equal(world.snapshot().roomContext.state,'missing');
+    assert.ok(updates>=1);
+  }finally{
+    if(priorTransform===undefined)delete globalThis.XRRigidTransform;
+    else globalThis.XRRigidTransform=priorTransform;
   }
 });
 

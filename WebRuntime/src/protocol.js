@@ -350,7 +350,7 @@ export class MatrixWorld {
     if(this.rigidPhysics&&this.rigidSceneReference!==this.scene)
       this.rebuildRigidPhysics({preserve:false});
     const anchors=this.availableAnchors();
-    const context=this.spatial?{mode:'ar',state:this.spatial.originUnavailable||this.spatial.stale?'missing':'ready',message:this.digitalWorldVisit?(this.spatial.originUnavailable?'AR view origin unavailable. The digital world continues; its overlay is hidden until tracking returns.':this.spatial.anchors.length?`Visiting the digital world in AR with ${this.spatial.anchors.length} room plane(s). The overlay uses a view anchor; physical collision is not implied.`:'Visiting the digital world in AR. Waiting for room planes; the overlay is a preview.'):
+    const context=this.spatial?{mode:'ar',state:this.spatial.originUnavailable||this.spatial.stale?'missing':'ready',message:this.digitalWorldVisit?(this.spatial.originUnavailable?'AR view origin is not tracked. The digital world continues; its overlay is hidden until tracking is available.':this.spatial.anchors.length?`Visiting the digital world in AR with ${this.spatial.anchors.length} room plane(s). The overlay uses a tracked view anchor; physical collision is not implied.`:'Visiting the digital world in AR with a tracked view anchor. Room planes are unavailable; physical collision is not implied.'):
       this.spatial.originUnavailable?'Saved room origin is unavailable. The old world is hidden and editing is paused until it is restored or explicitly archived for a new room.':this.spatial.stale?'A plane holding a scene object is no longer tracked; keep the scene for recovery and recheck the room.':this.spatial.anchors.length?`${this.spatial.anchors.length} WebXR room plane(s) detected. Virtual-floor objects remain visible as unanchored previews.`:'Waiting for Quest room planes. Virtual-floor objects remain visible as unanchored previews.',alignmentVerified:this.spatial.alignmentVerified&&!this.spatial.originUnavailable}
       :{mode:'white-room',state:'ready',message:'Browser virtual floor; physical room alignment is not verified.',alignmentVerified:false};
     const snapshot={scene:clone(this.scene),assets:clone([...ASSETS,proceduralAsset,...this.externalAssets].map(({assetId,displayName,description,spawnScale,localBounds,geometry,interactions,sha256})=>({assetId,displayName,description,spawnScale,...(localBounds?{localBounds}:{}),...(interactions?{interactions}:{}),...(sha256?{sha256}:{}),...(geometry?.animationClips?{animationClips:geometry.animationClips.map(clip=>clip.name)}:{})}))),anchors:clone(anchors),selection:clone(this.selection),behaviorKinds:['rotate','bob'],componentSchemaVersion:1,animationSchemaVersion:1,physicsSchemaVersion:1,interactionSchemaVersion:2,physicsStates:this.physicsStates(),rigidSchemaVersion:1,rigidGravity:clone(this.rigidGravity),rigidStates:this.rigidPhysics?.states().filter(state=>this.scene.objects.some(item=>item.objectId===state.objectId))||[],entityActionSchemaVersion:1,agentGrab:clone(this.agentGrab),controlSchemaVersion:1,controlStates:clone(this.controlStates),proceduralGenerators:listProceduralGenerators(),creatorMode:clone(this.creatorMode),game:clone(this.game),gameStatus:this.game?{phase:this.game.state.phase,score:this.game.state.score,objectiveProgress:clone(this.game.state.objectiveProgress),unlockedObjectIds:clone(this.game.state.unlockedObjectIds||[])}:null,roomContext:context,runtimeDescriptor:{schemaVersion:1,client:'matrix-web',renderer:'threejs-webxr',presentation:this.runtimePresentation}};
@@ -750,6 +750,12 @@ export class MatrixWorld {
     return !this.spatial&&this.originBinding==='virtual'&&
       this.scene.roomId===ROOM_ID&&this.game===null&&
       this.scene.objects.every(object=>object.anchorId===ANCHOR_ID)&&
+      !this.scene.objects.some(object=>object.physics||object.rigidBody||
+        object.component?.status==='running'||
+        object.behaviors?.some(behavior=>behavior.enabled)||
+        object.animation?.loopClip||
+        (this.asset(object.assetId)?.url&&
+          this.asset(object.assetId)?.geometry?.animationClips?.length))&&
       this.citizens?.world?.roomId===ROOM_ID&&Array.isArray(residents)&&
       residents.length>0&&residents.length<=4&&
       new Set(residents.map(resident=>resident.objectId)).size===residents.length&&
@@ -770,7 +776,7 @@ export class MatrixWorld {
       // The physical room is presentation state. The digital scene and running
       // Citizens simulation keep their object identities and exact progress.
       this.digitalWorldVisit=true;
-      this.spatial={anchors:[],alignmentVerified:false,originUnavailable:false};
+      this.spatial={anchors:[],alignmentVerified:false,originUnavailable:true};
       return;
     }
     this.physicsBodies.clear();this.physicsVerification.clear();
@@ -902,7 +908,7 @@ export class MatrixWorld {
          op==='interact'&&visitResidentIds.has(command.actorObjectId)&&
            (visitResidentIds.has(command.targetObjectId)||visitStationIds.has(command.targetObjectId)));
       if(this.digitalWorldVisit&&!citizenVisitAction&&
-         !['get_scene','list_assets','list_targets','inspect_entity','select','confirm_room'].includes(op))
+         !['get_scene','list_assets','list_targets','inspect_entity','select'].includes(op))
         throw Error('AR visit is a view of the digital world; edit it from the desktop virtual room');
       if(this.pendingRigidMotion&&!this.rigidPhysics&&
          !['get_scene','list_assets','list_targets','inspect_entity','select'].includes(op))
