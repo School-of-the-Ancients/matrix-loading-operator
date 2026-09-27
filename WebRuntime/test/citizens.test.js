@@ -590,7 +590,11 @@ test('v1 mid-action state migrates atomically and replays deletion and FIFO hand
   delete legacy.nextSocialTick;
   for(const resident of legacy.residents){
     delete resident.socialSessionId;
-    if(resident.activity)delete resident.activity.executionId;
+    if(resident.activity){
+      delete resident.activity.executionId;
+      delete resident.activity.routeRetries;
+      delete resident.activity.routeGeometryId;
+    }
   }
   legacy.stations=legacy.stations.map(station=>({id:station.id,kind:station.kind,
     objectId:station.objectId,capacity:station.capacity,
@@ -607,7 +611,7 @@ test('v1 mid-action state migrates atomically and replays deletion and FIFO hand
   const a=restore(),b=restore();
   for(const copy of [a,b]){
     const migrated=copy.sim.exportState();
-    assert.equal(migrated.schemaVersion,4);
+    assert.equal(migrated.schemaVersion,5);
     assert.equal(migrated.actionSequence,1);
     assert.equal(migrated.stations.find(station=>station.kind==='rest').claim.executionId,
       migrated.residents.find(resident=>resident.id==='ada').activity.executionId);
@@ -895,17 +899,23 @@ test('deleting the last resident yields a valid paused zero-resident state',()=>
   assert.deepEqual(sim.resume(),after,'empty simulation cannot run');
 });
 
-test('v2 checkpoints migrate to v4 without changing active claims or Matrix objects',()=>{
+test('v2 checkpoints migrate to v5 without changing active claims or Matrix objects',()=>{
   const matrix=world(),sim=createCitizensDemo(matrix,{seed:31});
   sim.step();
   const saved=sim.exportState();
   saved.schemaVersion=2;
   delete saved.socialSession;delete saved.socialEvents;
   delete saved.relationships;delete saved.nextSocialTick;
-  for(const resident of saved.residents)delete resident.socialSessionId;
+  for(const resident of saved.residents){
+    delete resident.socialSessionId;
+    if(resident.activity){
+      delete resident.activity.routeRetries;
+      delete resident.activity.routeGeometryId;
+    }
+  }
   const scene=structuredClone(matrix.scene);
   const migrated=CitizensSimulation.restore(matrix,saved).exportState();
-  assert.equal(migrated.schemaVersion,4);
+  assert.equal(migrated.schemaVersion,5);
   assert.deepEqual(migrated.stations,saved.stations);
   assert.deepEqual(migrated.relationships,[{a:'ada',b:'bo',score:50,completed:[]}]);
   assert.equal(migrated.socialSession,null);
@@ -921,8 +931,17 @@ test('v3 social checkpoints migrate only when visible ended receipts explain the
   const old=structuredClone(current);
   old.schemaVersion=3;
   for(const relation of old.relationships)delete relation.completed;
+  for(const resident of old.residents)if(resident.activity){
+    delete resident.activity.routeRetries;
+    delete resident.activity.routeGeometryId;
+  }
   const scene=structuredClone(matrix.scene);
-  assert.deepEqual(CitizensSimulation.restore(matrix,old).exportState(),current);
+  const expected=structuredClone(current);
+  for(const resident of expected.residents)if(resident.activity){
+    resident.activity.routeRetries=0;
+    resident.activity.routeGeometryId=null;
+  }
+  assert.deepEqual(CitizensSimulation.restore(matrix,old).exportState(),expected);
   assert.deepEqual(matrix.scene,scene);
 
   const inflated=structuredClone(old);

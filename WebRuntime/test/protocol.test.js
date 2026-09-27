@@ -394,6 +394,90 @@ test('GLB navigation evidence is per object, catalog-scoped and cleared by repla
     'navigation requires a registered conservative footprint');
 });
 
+test('navigation geometry identity is stable across resident motion but tracks static edits',()=>{
+  let n=0;const world=new MatrixWorld(()=>`geometry-${++n}`);
+  const chair=world.execute(command('geometry-chair','spawn',
+    {assetId:'chair',anchorId:ANCHOR_ID,transform:pose(0,0,-2)}));
+  const wall=world.execute(command('geometry-wall','spawn',
+    {assetId:'wall',anchorId:ANCHOR_ID,transform:pose(2,0,-2)}));
+  const resident=world.execute(command('geometry-resident','spawn',
+    {assetId:'orb',anchorId:ANCHOR_ID,transform:pose(-2,0,-2)}));
+  assert.ok(chair.ok&&wall.ok&&resident.ok);
+  const options={excludeObjectIds:[resident.objectId]};
+  const original=world.navigationGeometryIdentity(options);
+  assert.match(original,/^nav1-[0-9a-f]{32}$/);
+  assert.ok(original.length<=128);
+  assert.equal(world.navigationGeometryIdentity(options),original);
+  let repeated=0;const sameWorld=new MatrixWorld(()=>`geometry-${++repeated}`);
+  for(const [requestId,assetId,transform] of [
+    ['same-chair','chair',pose(0,0,-2)],
+    ['same-wall','wall',pose(2,0,-2)],
+    ['same-resident','orb',pose(-2,0,-2)]])
+    assert.equal(sameWorld.execute(command(requestId,'spawn',
+      {assetId,anchorId:ANCHOR_ID,transform})).ok,true);
+  assert.equal(sameWorld.navigationGeometryIdentity(options),original,
+    'equal geometry survives a new world with a different authored generation');
+  const allObjects=world.navigationGeometryIdentity();
+  const authored=world.authoredGeneration;
+  assert.equal(world.execute(command('move-resident','set_transform',
+    {objectId:resident.objectId,transform:pose(-1.5,0,-2)}),
+  {recordHistory:false}).ok,true);
+  assert.equal(world.authoredGeneration,authored);
+  assert.equal(world.navigationGeometryIdentity(options),original);
+  assert.notEqual(world.navigationGeometryIdentity(),allObjects);
+  assert.equal(world.execute(command('move-wall','set_transform',
+    {objectId:wall.objectId,transform:pose(2.5,0,-2)}),
+  {recordHistory:false}).ok,true);
+  assert.equal(world.authoredGeneration,authored);
+  assert.notEqual(world.navigationGeometryIdentity(options),original,
+    'even unrecorded nonresident geometry changes invalidate the route identity');
+  assert.equal(world.execute(command('restore-wall','set_transform',
+    {objectId:wall.objectId,transform:pose(2,0,-2)}),
+  {recordHistory:false}).ok,true);
+  world.scene.objects.reverse();
+  assert.equal(world.navigationGeometryIdentity(options),original,
+    'object order does not change the content identity');
+  assert.throws(()=>world.navigationGeometryIdentity(
+    {excludeObjectIds:[chair.objectId]}),/resident orbs/);
+});
+
+test('navigation geometry identity includes catalog and rendered readiness',()=>{
+  let n=0;const world=new MatrixWorld(()=>`geometry-glb-${++n}`);
+  const sha='2'.repeat(64);
+  const asset={assetId:'web:route-box',displayName:'Route box',
+    description:'Static obstacle',spawnScale:1,
+    localBounds:{center:{x:0,y:.5,z:0},size:{x:1,y:1,z:1}},
+    sha256:sha,byteLength:1024,url:`/api/web/assets/${sha}.glb`};
+  world.registerAssets([asset]);
+  const spawned=world.execute(command('geometry-glb','spawn',
+    {assetId:asset.assetId,anchorId:ANCHOR_ID,transform:pose(1,0,-2)}));
+  assert.equal(spawned.ok,true);
+  const pending=world.navigationGeometryIdentity();
+  assert.equal(world.verifyPhysicsAsset(asset.assetId,{x:1,y:1,z:1},spawned.objectId),true);
+  const verified=world.navigationGeometryIdentity();
+  assert.notEqual(verified,pending);
+  world.invalidatePhysicsAsset(spawned.objectId);
+  assert.equal(world.navigationGeometryIdentity(),verified,
+    'a routine view redraw keeps valid navigation measurement');
+  world.invalidateRenderedAsset(spawned.objectId);
+  assert.equal(world.navigationGeometryIdentity(),pending);
+  assert.equal(world.verifyPhysicsAsset(asset.assetId,{x:1,y:1,z:1},spawned.objectId),true);
+  assert.equal(world.navigationGeometryIdentity(),verified);
+  assert.deepEqual(world.registerAssets([asset]),[]);
+  assert.equal(world.navigationGeometryIdentity(),verified);
+  world.registerAssets([{...asset,spawnScale:1.1}]);
+  const changedCatalog=world.navigationGeometryIdentity();
+  assert.notEqual(changedCatalog,pending);
+  assert.notEqual(changedCatalog,verified);
+  assert.equal(world.verifyPhysicsAsset(asset.assetId,{x:1,y:1,z:1},spawned.objectId),true);
+  const changedAndVerified=world.navigationGeometryIdentity();
+  assert.notEqual(changedAndVerified,changedCatalog);
+  const scene=structuredClone(world.scene);
+  assert.equal(world.execute(command('replace-route-scene','load',{scene})).ok,true);
+  assert.equal(world.navigationGeometryIdentity(),changedCatalog,
+    'scene replacement revokes per-object renderer verification');
+});
+
 test('a bound looping GLB has no proven motion envelope even when remote',()=>{
   let n=0;const world=new MatrixWorld(()=>`object-${++n}`);
   const sha='c'.repeat(64);

@@ -3,7 +3,8 @@
 import {ANCHOR_ID,MAX_OBJECTS,ROOM_ID} from './protocol.js';
 import {checkedMove,planPath,segmentClear} from './citizens_navigation.js';
 
-const VERSION=4;
+const VERSION=5;
+const COMPLETION_VERSION=4;
 const SOCIAL_VERSION=3;
 const RESERVATION_VERSION=2;
 const LEGACY_VERSION=1;
@@ -13,6 +14,7 @@ const APPROACH_MARGIN=.06;
 const FLOOR_TARGET_LIMIT=99.8;
 const ARRIVAL_METRES=.08;
 const MAX_TRAVEL_TICKS=60;
+const MAX_ROUTE_RETRIES=3;
 const LEASE_TICKS=MAX_TRAVEL_TICKS+12;
 const MAX_WAIT_TICKS=96;
 const MAX_LOG=80;
@@ -41,6 +43,12 @@ const validUtf16=value=>{
 };
 const boundedText=(value,max)=>typeof value==='string'&&value.length<=max&&
   !/[\x00-\x1f]/.test(value)&&validUtf16(value);
+const boundedPrefix=(value,max)=>{
+  let end=Math.min(value.length,max);
+  const last=value.charCodeAt(end-1);
+  if(last>=0xd800&&last<=0xdbff)end--;
+  return value.slice(0,end);
+};
 const clone=value=>structuredClone(value);
 const round=value=>Math.round(value*100)/100;
 const round6=value=>Math.round(value*1000000)/1000000;
@@ -137,7 +145,7 @@ function stationApproach(world,actorObjectId,station,actorPosition=null,
       Math.abs(route.lengthMeters-best.route.lengthMeters)<=1e-6&&index<best.index)
       best={ok:true,target:goal,route,index};
   }
-  return best||{ok:false,reason};
+  return best||{ok:false,reason,code:'no_path'};
 }
 
 function fixtureApproach(world,station){
@@ -163,10 +171,14 @@ function validPreferences(preferences){
 function validActivity(activity,version=LEGACY_VERSION){
   if(activity===null)return true;
   if(!keys(activity,['kind','stationId','phase','remainingTicks','travelTicks','target',
-    ...(version>=RESERVATION_VERSION?['executionId']:[])])||
+    ...(version>=RESERVATION_VERSION?['executionId']:[]),
+    ...(version>=VERSION?['routeRetries','routeGeometryId']:[])])||
      !ACTIVITIES.includes(activity.kind)||!['travel','use'].includes(activity.phase)||
      !integer(activity.remainingTicks,0,12)||!integer(activity.travelTicks,0,MAX_TRAVEL_TICKS))return false;
-  const targetLimit=version>=VERSION?100:5;
+  if(version>=VERSION&&(!integer(activity.routeRetries,0,MAX_ROUTE_RETRIES)||
+    (activity.routeGeometryId!==null&&
+      (!boundedText(activity.routeGeometryId,128)||!activity.routeGeometryId))))return false;
+  const targetLimit=version>=COMPLETION_VERSION?100:5;
   if(activity.kind==='explore')return activity.stationId===null&&
     keys(activity.target,['x','z'])&&finite(activity.target.x)&&finite(activity.target.z)&&
     Math.abs(activity.target.x)<=targetLimit&&Math.abs(activity.target.z)<=targetLimit;
@@ -354,7 +366,8 @@ function validStateV2(world,state,activityVersion=RESERVATION_VERSION){
     }
   }
   const events=new Set(['selected','blocked','arrived','completed','failed',
-    'paused','resumed','waiting','released','retired','expired']);
+    'paused','resumed','waiting','released','retired','expired',
+    ...(activityVersion>=VERSION?['rerouted']:[])]);
   for(const entry of state.log)if(!keys(entry,['tick','residentId','event','message'])||
     !integer(entry.tick,0,state.clockTick)||!boundedText(entry.residentId,32)||
     (entry.residentId!==''&&!residentIds.has(entry.residentId)&&
@@ -500,19 +513,19 @@ function migrateV3(world,saved){
   for(const relation of state.relationships)
     if(relation.score!==Math.min(100,50+5*relation.completed.length))
       throw Error('Citizens v3 relationship history is incomplete or inconsistent');
-  state.schemaVersion=VERSION;
+  state.schemaVersion=COMPLETION_VERSION;
   validStateV4(world,state);
   return state;
 }
 
-function validStateV4(world,state){
-  if(!state||state.schemaVersion!==VERSION||!Array.isArray(state.relationships))
+function validStateV4(world,state,activityVersion=COMPLETION_VERSION){
+  if(!state||state.schemaVersion!==COMPLETION_VERSION||!Array.isArray(state.relationships))
     throw Error('Invalid Citizens completed social state');
   const v3=clone(state);
   v3.schemaVersion=SOCIAL_VERSION;
   for(const relation of v3.relationships)if(relation&&typeof relation==='object')
     delete relation.completed;
-  validStateV3(world,v3,VERSION);
+  validStateV3(world,v3,activityVersion);
   const bySession=new Map(),requestIds=new Set();
   for(const relation of state.relationships){
     if(!keys(relation,['a','b','score','completed'])||
@@ -552,6 +565,26 @@ function validStateV4(world,state){
       match.record.tick!==completion.tick)
       throw Error('Invalid Citizens completed social event');
   }
+}
+
+function migrateV4(world,saved){
+  validStateV4(world,saved);
+  const state=clone(saved);
+  state.schemaVersion=VERSION;
+  for(const resident of state.residents)if(resident.activity){
+    resident.activity.routeRetries=0;
+    resident.activity.routeGeometryId=null;
+  }
+  validStateV5(world,state);
+  return state;
+}
+
+function validStateV5(world,state){
+  if(!state||state.schemaVersion!==VERSION)
+    throw Error('Invalid Citizens route recovery state');
+  const v4=clone(state);
+  v4.schemaVersion=COMPLETION_VERSION;
+  validStateV4(world,v4,VERSION);
 }
 
 function pose(x,z,scale=1){
@@ -727,7 +760,8 @@ export class CitizensSimulation {
     if(current?.schemaVersion===LEGACY_VERSION)current=migrateV1(world,current);
     if(current?.schemaVersion===RESERVATION_VERSION)current=migrateV2(world,current);
     if(current?.schemaVersion===SOCIAL_VERSION)current=migrateV3(world,current);
-    validStateV4(world,current);
+    if(current?.schemaVersion===COMPLETION_VERSION)current=migrateV4(world,current);
+    validStateV5(world,current);
     this.world=world;
     this.state=clone(current);
     // Runtime-only baseline: the serialized scene supplies it again on restore.
@@ -742,7 +776,7 @@ export class CitizensSimulation {
   exportState(){
     this.reconcileWorld();
     if(this.invalidBindings.size)throw Error('Citizens binding is missing or incompatible');
-    validStateV4(this.world,this.state);
+    validStateV5(this.world,this.state);
     return this.snapshot();
   }
   reconcileWorld(){this.reconcileBindings();return this.snapshot();}
@@ -877,7 +911,8 @@ export class CitizensSimulation {
     return this.state.rngState/0x100000000;
   }
   log(residentId,event,message){
-    this.state.log.push({tick:this.state.clockTick,residentId,event,message:message.slice(0,160)});
+    this.state.log.push({tick:this.state.clockTick,residentId,event,
+      message:boundedPrefix(message,160)});
     if(this.state.log.length>MAX_LOG)this.state.log.shift();
   }
   socialEvent(session,event,requestId=''){
@@ -1043,6 +1078,21 @@ export class CitizensSimulation {
     resident.lastOutcome=`Failed: ${reason}`;
     this.log(resident.id,'failed',`${resident.name}: ${reason}`);
   }
+  routeGeometryId(){
+    return this.world.navigationGeometryIdentity({
+      excludeObjectIds:this.state.residents.map(resident=>resident.objectId)
+    });
+  }
+  retryRoute(resident,reason){
+    const action=resident.activity;
+    if(action.routeRetries>=MAX_ROUTE_RETRIES){
+      this.fail(resident,`route unavailable after ${MAX_ROUTE_RETRIES} retries: ${reason}`);
+      return;
+    }
+    action.routeRetries++;
+    this.log(resident.id,'rerouted',
+      `${resident.name}: route unavailable; retry ${action.routeRetries}/${MAX_ROUTE_RETRIES}: ${reason}`);
+  }
   requestMove(resident,target,executionId=resident.activity?.executionId,domain='action'){
     const object=objectById(this.world,resident.objectId);
     if(!object||object.anchorId!==ANCHOR_ID)
@@ -1057,7 +1107,7 @@ export class CitizensSimulation {
     catch(error){return {ok:false,error:error.message};}
     const route=planPath({start:current,goal:target,obstacles,
       actorRadius:ACTOR_RADIUS});
-    if(!route.ok)return {ok:false,error:`${route.code}: ${route.reason}`};
+    if(!route.ok)return {ok:false,code:route.code,error:`${route.code}: ${route.reason}`};
     const waypoint=route.waypoints[0]||target;
     const gap=distance(current,waypoint);
     const fraction=gap>MOVE_METRES-.00001?(MOVE_METRES-.00001)/gap:1;
@@ -1066,7 +1116,7 @@ export class CitizensSimulation {
     transform.position.z=round6(current.z+(waypoint.z-current.z)*fraction);
     const swept=checkedMove({from:current,to:transform.position,obstacles,
       actorRadius:ACTOR_RADIUS});
-    if(!swept.ok)return {ok:false,error:`${swept.code}: ${swept.reason}`};
+    if(!swept.ok)return {ok:false,code:swept.code,error:`${swept.code}: ${swept.reason}`};
     const requestId=`citizens-${this.state.seed}-${domain}-${executionId}-${++this.state.requestSequence}`;
     let receipt;
     try{receipt=this.world.execute({requestId,op:'set_transform',objectId:resident.objectId,
@@ -1182,7 +1232,7 @@ export class CitizensSimulation {
     }
     resident.activity={kind,stationId:station?.id||null,phase:'travel',
       remainingTicks:kind==='rest'?7:kind==='eat'?5:1,travelTicks:0,target,
-      executionId};
+      executionId,routeRetries:0,routeGeometryId:this.routeGeometryId()};
     this.log(resident.id,'selected',`${resident.name} chose ${kind}${station?` at ${station.id}`:''}: ${description}`);
     return true;
   }
@@ -1265,13 +1315,30 @@ export class CitizensSimulation {
   progress(resident){
     const action=resident.activity;
     if(!action)return;
+    if(action.phase==='travel'){
+      const geometryId=this.routeGeometryId();
+      if(action.routeGeometryId!==null&&action.routeGeometryId!==geometryId)
+        this.log(resident.id,'rerouted',
+          `${resident.name}: navigation geometry changed; replanning ${action.kind} route.`);
+      action.routeGeometryId=geometryId;
+    }
     const resolved=this.targetFor(resident);
-    if(!resolved.ok){this.fail(resident,resolved.reason);return;}
+    if(!resolved.ok){
+      if(action.phase==='travel'&&resolved.code==='no_path')
+        this.retryRoute(resident,resolved.reason);
+      else this.fail(resident,resolved.reason);
+      return;
+    }
     const target=resolved.target;
     if(action.phase==='travel'){
       if(action.travelTicks>=MAX_TRAVEL_TICKS){this.fail(resident,'travel timed out');return;}
       const receipt=this.requestMove(resident,target);
-      if(!receipt.ok){this.fail(resident,`movement rejected: ${receipt.error}`);return;}
+      if(!receipt.ok){
+        if(['no_path','start_blocked','goal_blocked','obstacle'].includes(receipt.code))
+          this.retryRoute(resident,receipt.error);
+        else this.fail(resident,`movement rejected: ${receipt.error}`);
+        return;
+      }
       action.travelTicks++;
       const arrived=distance(positionOf(this.world,resident.objectId),target)<=ARRIVAL_METRES;
       if(arrived){

@@ -1,0 +1,75 @@
+{
+  "date": "2026-09-26",
+  "scope": "Built ordinary /web/ desktop virtual room on an isolated loopback ControlService",
+  "url": "http://127.0.0.1:19847/web/",
+  "stateDirectory": "work/route-recovery-state",
+  "scene": {
+    "seed": 3,
+    "chairObjectId": "cdaa77a925e443cc9a7ba9371f876f0f",
+    "wallObjectId": "03cda5267a08412d885cf815323d33e4",
+    "adaObjectId": "938f729647d942aa98d1d3de143a82c3",
+    "boObjectId": "0f9d24a61568406a908d40c54662e149",
+    "origin": "Chair and wall were placed by the ordinary Offline commands UI. The wall was moved by queued typed /api/command set_transform commands and applied by the connected browser with runtime receipts. Citizens was bound to the selected chair with the ordinary panel control."
+  },
+  "observations": [
+    {
+      "minute": 1,
+      "ui": "Ada going to rest, execution 1; Bo waiting for chair, FIFO execution 2; Ada holds the chair claim.",
+      "adaPosition": {"x": -1.52, "z": 0}
+    },
+    {
+      "minute": 2,
+      "wallTransform": {"x": -0.9, "z": 0, "yawDegrees": 90},
+      "wallCommandRequestId": "ce982412e20d4badbf1de6c613a34910",
+      "ui": "Ada: navigation geometry changed; replanning rest route."
+    },
+    {
+      "minute": 8,
+      "adaPosition": {"x": -0.51, "z": 1.01},
+      "ui": "Ada was still traveling around the changed wall."
+    },
+    {
+      "minute": 18,
+      "ui": "Ada completed rest; observed outcome updated needs; Ada released chair; Bo acquired the FIFO chair claim."
+    },
+    {
+      "minute": 20,
+      "wallTransform": {"x": 1.24, "z": 0, "yawDegrees": 0},
+      "wallCommandRequestId": "18214247ef1b48a28c2de4ce38a7fc49",
+      "ui": "Bo: route unavailable; retry 1/3: Start overlaps wall. Bo kept execution 2 and the chair claim; energy fell to 18."
+    },
+    {
+      "minute": 20,
+      "ui": "Saved named PC checkpoint route-retry-m20 and reloaded the browser. The reopened /web/ showed the same four objects, minute 20, Bo execution 2, chair claim, and retry 1/3 log.",
+      "checkpoint": {"outerVersion": 3, "nestedCitizensVersion": 5, "boRouteRetries": 1, "boRouteGeometryId": "nav1-9b49d7fa7821c604a9beb79ac3c9da84"}
+    },
+    {
+      "minute": 21,
+      "ui": "After browser reload, Bo remained blocked and logged retry 2/3 with the same claim."
+    },
+    {
+      "minute": 33,
+      "wallCommandRequestId": "7cf273231b6649ddaa1ceb430d3105ca",
+      "ui": "Moving the wall away before the retry limit let Bo's same execution reach the chair at minute 26 and complete rest at minute 33. Energy rose from 17 at minute 21 to 46 by minute 36."
+    },
+    {
+      "minute": 20,
+      "ui": "Restored route-retry-m20 through the two-click PC world control after Bo's completion. The browser returned to minute 20, execution 2, the four original object IDs, and retry 1/3."
+    },
+    {
+      "minute": 23,
+      "ui": "With the blocking wall left in place after PC restore, Bo logged retry 2/3, retry 3/3, then Failed: route unavailable after 3 retries. The chair became available and Bo's energy fell to 16; no Bo rest completion appeared."
+    }
+  ],
+  "browserConsoleErrors": [],
+  "validation": {
+    "WebRuntimeNode": "257/257 passed",
+    "ControlServiceUnittest": "674/674 passed",
+    "ViteProductionBuild": "passed"
+  },
+  "limits": [
+    "The browser trace shows a changed-wall detour, visible route outcomes, and persistence; per-step swept clearance was asserted in the focused Node test, not sampled at every browser minute.",
+    "This supports static, floor-aligned geometry and built-in selected furniture. Versioned GLB affordances, animated obstacle envelopes, general moving-body navigation, Quest wearer checks, and full issue #15 acceptance remain open.",
+    "The named PC checkpoint and browser tab belong only to the isolated port-19847 test state."
+  ]
+}

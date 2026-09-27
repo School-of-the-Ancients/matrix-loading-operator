@@ -166,6 +166,21 @@ class WorldCheckpointTests(unittest.TestCase):
                                             ("ended", 15, "citizens-73-social-3-10"))]
         return world
 
+    def citizens_v5_rerouting_world(self):
+        world = self.citizens_v4_completed_world()
+        state = world["citizens"]
+        state.update(schemaVersion=5, actionSequence=4)
+        state["residents"][0]["activity"] = {
+            "kind": "rest", "stationId": "chair", "phase": "travel",
+            "remainingTicks": 7, "travelTicks": 2, "target": None,
+            "executionId": 4, "routeRetries": 2,
+            "routeGeometryId": "sha256:" + "a" * 64}
+        state["stations"][0]["claim"] = {
+            "residentId": "ada", "executionId": 4, "expiresTick": 24}
+        state["log"].append({"tick": 15, "residentId": "ada", "event": "rerouted",
+                             "message": "Ada found a new route to the chair."})
+        return world
+
     def citizens_v4_authored_furniture_world(self, kind):
         world = self.citizens_v4_completed_world()
         state = world["citizens"]
@@ -230,6 +245,100 @@ class WorldCheckpointTests(unittest.TestCase):
             state["residents"][0]["activity"])
         with self.assertRaisesRegex(APIError, "Invalid Citizens exploration target"):
             self.state.save_world_checkpoint("OldFarExplore", old)
+
+    def test_citizens_v5_route_retries_and_geometry_roundtrip_with_raw_v4(self):
+        world = self.citizens_v5_rerouting_world()
+        before_runtime = copy.deepcopy(self.state.latest)
+        for retries, geometry in ((0, None), (2, "sha256:" + "a" * 64),
+                                  (3, "\U0001f642" * 64)):
+            with self.subTest(retries=retries, geometry=geometry):
+                candidate = copy.deepcopy(world)
+                activity = candidate["citizens"]["residents"][0]["activity"]
+                activity.update(routeRetries=retries, routeGeometryId=geometry)
+                self.assertTrue(self.state.save_world_checkpoint("RouteRecovery", candidate)["saved"])
+                self.assertEqual(self.state.load_world_checkpoint("RouteRecovery")["world"]["citizens"],
+                                 candidate["citizens"])
+                self.assertEqual(self.state.latest, before_runtime)
+
+        # PC persistence keeps older snapshots exactly in their original
+        # nested schema. The browser adds the v5 defaults when restoring them.
+        legacy = copy.deepcopy(world)
+        old_state = legacy["citizens"]
+        old_state["schemaVersion"] = 4
+        old_activity = old_state["residents"][0]["activity"]
+        old_activity.pop("routeRetries")
+        old_activity.pop("routeGeometryId")
+        old_state["log"].pop()
+        self.assertTrue(self.state.save_world_checkpoint("LegacyRoute", legacy)["saved"])
+        self.assertEqual(self.state.load_world_checkpoint("LegacyRoute")["world"]["citizens"],
+                         legacy["citizens"])
+        self.assertEqual(self.state.latest, before_runtime)
+
+    def test_citizens_v5_rejects_invalid_route_state_without_overwriting_checkpoint(self):
+        world = self.citizens_v5_rerouting_world()
+        self.assertTrue(self.state.save_world_checkpoint("RouteRecovery", world)["saved"])
+        path = self.scenes / "world_checkpoints" / "RouteRecovery.json"
+        original = path.read_bytes()
+        original_runtime = copy.deepcopy(self.state.latest)
+
+        def activity(item):
+            return item["citizens"]["residents"][0]["activity"]
+
+        cases = (
+            ("missing retry count", lambda item: activity(item).pop("routeRetries")),
+            ("missing geometry ID", lambda item: activity(item).pop("routeGeometryId")),
+            ("extra route field", lambda item: activity(item).update(routeLength=1)),
+            ("boolean retry count", lambda item: activity(item).update(routeRetries=True)),
+            ("fractional retry count", lambda item: activity(item).update(routeRetries=1.5)),
+            ("negative retry count", lambda item: activity(item).update(routeRetries=-1)),
+            ("unbounded retry count", lambda item: activity(item).update(routeRetries=4)),
+            ("numeric geometry ID", lambda item: activity(item).update(routeGeometryId=4)),
+            ("empty geometry ID", lambda item: activity(item).update(routeGeometryId="")),
+            ("overlong geometry ID", lambda item: activity(item).update(routeGeometryId="x" * 129)),
+            ("UTF-16 geometry overflow", lambda item: activity(item).update(
+                routeGeometryId="\U0001f642" * 65)),
+            ("control in geometry ID", lambda item: activity(item).update(routeGeometryId="bad\nID")),
+            ("surrogate geometry ID", lambda item: activity(item).update(routeGeometryId="\ud800")),
+        )
+        for label, mutate in cases:
+            with self.subTest(label=label):
+                invalid = copy.deepcopy(world)
+                mutate(invalid)
+                with self.assertRaises(APIError) as rejected:
+                    self.state.save_world_checkpoint("RouteRecovery", invalid)
+                self.assertEqual(rejected.exception.status, 400)
+                self.assertEqual(path.read_bytes(), original)
+                self.assertEqual(self.state.latest, original_runtime)
+
+        load_cases = {"missing retry count", "missing geometry ID", "negative retry count",
+                      "unbounded retry count", "overlong geometry ID"}
+        for label, mutate in cases:
+            if label not in load_cases:
+                continue
+            with self.subTest(load=label):
+                document = json.loads(original)
+                mutate(document["world"])
+                document["payloadSha256"] = world_checkpoint_digest(
+                    document["world"], document["dependencies"])
+                path.write_text(json.dumps(document), encoding="utf-8")
+                with self.assertRaises(APIError) as rejected:
+                    self.state.load_world_checkpoint("RouteRecovery")
+                self.assertEqual(rejected.exception.status, 400)
+                self.assertEqual(self.state.latest, original_runtime)
+                path.write_bytes(original)
+
+        for has_route_fields in (True, False):
+            with self.subTest(v4_has_route_fields=has_route_fields):
+                legacy = copy.deepcopy(world)
+                legacy["citizens"]["schemaVersion"] = 4
+                if not has_route_fields:
+                    activity(legacy).pop("routeRetries")
+                    activity(legacy).pop("routeGeometryId")
+                # V4 rejects the new fields, then separately rejects the
+                # v5-only rerouted event after the activity shape is restored.
+                with self.assertRaises(APIError):
+                    self.state.save_world_checkpoint("RouteRecovery", legacy)
+                self.assertEqual(path.read_bytes(), original)
 
     def test_citizens_v4_rejects_resized_or_elevated_resident(self):
         world, _ = self.citizens_v4_authored_furniture_world("rest")

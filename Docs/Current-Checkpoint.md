@@ -1,5 +1,13 @@
 # Matrix Operator checkpoints
 
+## Citizens route recovery candidate (September 26, 2026)
+
+The `codex/citizens-route-recovery` branch continues the open [#15](https://github.com/School-of-the-Ancients/matrix-loading-operator/issues/15) work on the ordinary `/web/` desktop virtual floor. During an active individual Citizens trip, `MatrixWorld` supplies a bounded identity for the current navigation geometry, excluding the two resident orbs' own movement. A changed static obstacle makes the resident plan again from its observed pose. If a route is unavailable, the current execution keeps any station claim for at most three retry ticks; clearing the obstacle in time lets that execution continue. A fourth blocked attempt fails it and releases its claim, if any, without a need benefit. Every successful move still uses a clearance check and MatrixWorld receipt. This is a narrow route recovery rule for static, floor-aligned geometry, not general moving-body navigation. Social-session travel still interrupts immediately when a route is unavailable.
+
+The built `/web/` page on an isolated loopback service at port **19847** used one selected built-in chair, one authored wall and seed 3. After Ada began traveling, the wall moved across her route; the panel reported replanning, showed her go around its end, and recorded a completed rest at minute 18. After Bo acquired the chair, the wall moved over his current position. The panel logged retry 1/3, and a named PC world checkpoint `route-retry-m20` preserved the four object IDs, Bo's execution 2 and chair claim, route retry count and geometry identity. Browser reload resumed at minute 20. Retry 2/3 occurred after reload; moving the wall away let the same execution complete a rest at minute 33. Restoring the named checkpoint and leaving the wall in place yielded retry 2/3, retry 3/3, then explicit failure and claim release at minute 23 with no Bo rest benefit. The browser reported no console errors. The focused Node test, rather than the browser trace, checked every swept move against the changed wall. [Structured browser evidence](../Validation/citizens-route-recovery-browser.json) records the observations and limits. WebRuntime passed **257/257** tests, ControlService **674/674**, and the Vite production build passed.
+
+The outer saved world remains version 3 with Citizens. Its nested Citizens state is now version 5: an active activity stores the bounded retry count and geometry identity. Browser restore migrates valid nested v4 state to v5 with no prior retries; the PC validator accepts v1 through v5 without rewriting old checkpoint files. General versioned affordances, animation swept bounds, full #15 acceptance and Quest wearer checks remain open. The earlier port-19846 registered GLB readiness result below is a separate historical checkpoint.
+
 ## Registered GLB navigation readiness candidate (September 26, 2026)
 
 Open [PR #106](https://github.com/School-of-the-Ancients/matrix-loading-operator/pull/106)
@@ -38,7 +46,7 @@ fixture, IDs, and limits. The full WebRuntime suite passed **250/250**,
 ControlService passed **672/672**, and Vite built.
 
 This verifies a static, registered GLB obstacle on a desktop virtual floor.
-General geometry versions and route repair,
+At this earlier checkpoint, general geometry versions and route repair,
 versioned object affordances, moving-target ownership, real-room geometry, and
 Quest wearer checks remain open under #15 and M4. Keep the port-19844 and
 port-19845 demos and their saved state intact.
