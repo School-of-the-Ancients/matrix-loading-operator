@@ -9,6 +9,7 @@ from unittest.mock import patch
 import urllib.error
 import urllib.request
 
+from matrix_tool_bridge import scene_summary
 from procedural_contract import CURVED_BENCH_PARAMETERS, new_recipe
 from server import APIError, Server, State, snapshot, world_checkpoint_digest
 from test_web_assets import animated_glb, glb
@@ -123,6 +124,23 @@ class WorldCheckpointTests(unittest.TestCase):
                                     "message": "Viewing the existing digital world",
                                     "alignmentVerified": False})
         return current
+
+    def test_scene_summary_marks_tracked_canonical_ar_visit_as_observational(self):
+        visit = self.ar_citizens_visit()
+        self.state.exchange({"clientId": "browser", "snapshot": visit, "results": []})
+        summary = scene_summary(self.state)
+        self.assertEqual(summary["room"], {"mode": "ar", "state": "ready",
+                                           "alignmentVerified": False, "readOnly": False})
+        self.assertTrue(summary["digitalWorldVisit"])
+
+        missing = copy.deepcopy(visit)
+        missing["roomContext"]["state"] = "missing"
+        missing["readOnly"] = True
+        self.state.exchange({"clientId": "browser", "snapshot": missing, "results": []})
+        summary = scene_summary(self.state)
+        self.assertTrue(summary["digitalWorldVisit"])
+        self.assertEqual(summary["room"]["state"], "missing")
+        self.assertTrue(summary["room"]["readOnly"])
 
     def test_ar_visit_accepts_canonical_citizens_and_keeps_motion_out_of_authored_revision(self):
         visit = self.ar_citizens_visit()

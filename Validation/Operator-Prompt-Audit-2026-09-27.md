@@ -2,6 +2,8 @@
 
 This is a source audit for [#116](https://github.com/School-of-the-Ancients/matrix-loading-operator/issues/116), comparing published `main` at `c175818` with the `codex/runtime-aware-operator-prompts` candidate. It does not inspect a private native Codex transcript, prove the version of an already-running ControlService or browser, or replay the two ice-dragon turns. The [Agent Portal guide](../ControlService/AGENT_PORTAL.md) describes the current PC/WebXR boundary.
 
+Follow-up: [Operator scene readiness](Operator-Scene-Readiness-2026-09-27.md) adds room readiness and the separate canonical AR visit flag to `matrix_scene_summary`. The missing-readiness observations below describe the earlier source snapshot.
+
 ## Effective instruction and context path
 
 | Source | What Codex receives or can discover | Audit observation |

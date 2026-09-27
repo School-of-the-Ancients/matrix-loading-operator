@@ -26,10 +26,13 @@ server = FastMCP("matrix-webxr")
 
 @server.tool(annotations=ToolAnnotations(readOnlyHint=True))
 def matrix_scene_summary() -> dict:
-    """Read the connected Matrix runtime, room, revision, and bounded virtual object list.
+    """Read the connected Matrix runtime, room readiness, revision, and bounded objects.
 
-    This is observational. It does not change the room. If offline, the result
-    says so and does not return a stale scene as current.
+    The room status reports mode, readiness, alignment verification and the
+    recovery read-only marker. A digitalWorldVisit is separately observational:
+    even a ready tracked AR visit does not permit edits. AR mode alone does not
+    prove physical-room alignment.
+    This is observational. If offline, it does not return a stale scene as current.
     """
     url = os.environ["MATRIX_CONTROL_URL"]
     token = os.environ["MATRIX_CONTROL_TOKEN"]
