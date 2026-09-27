@@ -299,11 +299,22 @@ class AppServerTransport:
                 stream.flush()
                 os.fsync(stream.fileno())
             return {"imagePath": str(temporary), "sha256": hashlib.sha256(raw).hexdigest(),
-                    "mimeType": mime_type}
+                    "mimeType": mime_type, "transientArtifact": True}
         except OSError:
             if temporary is not None:
                 temporary.unlink(missing_ok=True)
             return None
+
+    def _discard_staged_image(self, result: dict) -> None:
+        if result.get("transientArtifact") is not True:
+            return
+        path = Path(result["imagePath"])
+        try:
+            if (path.parent.resolve() == self._image_directory.resolve() and
+                    path.name.startswith("codex-") and not path.is_symlink()):
+                path.unlink(missing_ok=True)
+        except (OSError, ValueError):
+            pass
 
     def _capture_generated_image(self, params: dict) -> None:
         thread_id, turn_id, item = params.get("threadId"), params.get("turnId"), params.get("item")
@@ -311,6 +322,7 @@ class AppServerTransport:
             return
         key = (thread_id, turn_id)
         if key in self._image_results:
+            self._discard_staged_image(self._image_results[key])
             self._image_results[key] = {"status": "failed", "error": "Multiple native image results in one turn"}
             return
         result = {"status": "failed", "error": "Native image generation did not return a valid image"}
@@ -333,7 +345,8 @@ class AppServerTransport:
         self._image_results[key] = result
         self._image_results.move_to_end(key)
         while len(self._image_results) > MAX_IMAGE_RESULTS:
-            self._image_results.popitem(last=False)
+            _, old = self._image_results.popitem(last=False)
+            self._discard_staged_image(old)
 
     def image_generation_result(self, thread_id: str, turn_id: str) -> dict | None:
         """PC-only verified artifact; no base64 or arbitrary native path escapes."""
@@ -470,3 +483,7 @@ class AppServerTransport:
             process.wait(timeout=3)
         if process.stdout is not None:
             process.stdout.close()
+        with self._lock:
+            for result in self._image_results.values():
+                self._discard_staged_image(result)
+            self._image_results.clear()

@@ -294,39 +294,60 @@ class ConceptStore:
                 os.unlink(temporary)
         return destination.name
 
+    def _discard_native_staging(self, image_path):
+        """Remove only an app-server temporary image, never a durable or Codex source."""
+        if type(image_path) is not str:
+            return
+        path = Path(image_path)
+        staging = self.directory.parent / "native_generated"
+        try:
+            if (path.is_absolute() and path.parent.resolve() == staging.resolve() and
+                    path.name.startswith("codex-") and
+                    path.suffix.lower() in (".png", ".jpg", ".jpeg", ".webp") and
+                    not path.is_symlink()):
+                path.unlink(missing_ok=True)
+        except (OSError, ValueError):
+            pass
+
     def _native_fields(self, session_id, job):
         result = self.native_factory().native_image_result(session_id, job["nativeTurnId"])
         require(type(result) is dict, "Invalid native image result", 502)
         status = result.get("status")
-        if status == "ready":
-            image_path = result.get("imagePath")
-            require(type(image_path) is str and Path(image_path).is_absolute() and
-                    Path(image_path).is_file(),
-                    "Native image artifact is unavailable", 422)
-            source = Path(image_path).resolve(strict=True)
-            mime, extension = image_type(source, source.name)
-            require(result.get("mimeType") == mime,
-                    "Native image format did not match its declared type", 422)
-            size = source.stat().st_size
-            require(0 < size <= MAX_IMAGE_BYTES,
-                    "Generated concept image exceeds the PC concept limit", 413)
-            checksum = hashlib.sha256(source.read_bytes()).hexdigest()
-            require(checksum == result.get("sha256"),
-                    "Native image checksum failed", 422)
-            image_file = self._copy_image(source, checksum, extension)
-            fields = {"status": "ready", "message": "Image ready.",
-                      "sha256": checksum, "imageFile": image_file,
-                      "mimeType": mime, "byteLength": size}
-            revised = result.get("revisedPrompt")
-            if type(revised) is str and revised.strip():
-                fields["revisedPrompt"] = revised.strip()[:4096]
-            return fields
-        if status == "failed":
-            return {"status": "failed", "message": "Codex reported an image generation failure."}
-        if status == "cancelled":
-            return {"status": "cancelled", "message": "Codex cancelled image generation."}
-        require(status in ("queued", "generating"), "Invalid native image status", 502)
-        return {"status": status, "message": "Codex is generating the image."}
+        staging_path = (result.get("imagePath") if result.get("transientArtifact") is True
+                        and status not in ACTIVE else None)
+        try:
+            if status == "ready":
+                image_path = result.get("imagePath")
+                require(type(image_path) is str and Path(image_path).is_absolute() and
+                        Path(image_path).is_file(),
+                        "Native image artifact is unavailable", 422)
+                source = Path(image_path).resolve(strict=True)
+                mime, extension = image_type(source, source.name)
+                require(result.get("mimeType") == mime,
+                        "Native image format did not match its declared type", 422)
+                size = source.stat().st_size
+                require(0 < size <= MAX_IMAGE_BYTES,
+                        "Generated concept image exceeds the PC concept limit", 413)
+                checksum = hashlib.sha256(source.read_bytes()).hexdigest()
+                require(checksum == result.get("sha256"),
+                        "Native image checksum failed", 422)
+                image_file = self._copy_image(source, checksum, extension)
+                fields = {"status": "ready", "message": "Image ready.",
+                          "sha256": checksum, "imageFile": image_file,
+                          "mimeType": mime, "byteLength": size}
+                revised = result.get("revisedPrompt")
+                if type(revised) is str and revised.strip():
+                    fields["revisedPrompt"] = revised.strip()[:4096]
+                return fields, staging_path
+            if status == "failed":
+                return {"status": "failed", "message": "Codex reported an image generation failure."}, staging_path
+            if status == "cancelled":
+                return {"status": "cancelled", "message": "Codex cancelled image generation."}, staging_path
+            require(status in ("queued", "generating"), "Invalid native image status", 502)
+            return {"status": status, "message": "Codex is generating the image."}, None
+        except ContentError:
+            self._discard_native_staging(staging_path)
+            raise
 
     def refresh(self, session_id, concept_id=None):
         checked_id(session_id, "Agent session ID", SESSION_ID)
@@ -337,9 +358,10 @@ class ConceptStore:
                                      (job.get("catalogJobId") or job.get("nativeTurnId")) and
                                      (concept_id is None or job["conceptId"] == concept_id)]
         for job in jobs:
+            staging_path = None
             try:
                 if job.get("providerId") == NATIVE_PROVIDER:
-                    fields = self._native_fields(session_id, job)
+                    fields, staging_path = self._native_fields(session_id, job)
                 else:
                     catalog = self.catalog_factory()
                     generation = catalog.poll_generation(job["catalogJobId"])
@@ -385,6 +407,7 @@ class ConceptStore:
                 token = "nativeTurnId" if job.get("providerId") == NATIVE_PROVIDER else "catalogJobId"
                 if current and current["status"] in ACTIVE and current.get(token) == job.get(token):
                     self._set_fields(session_id, job["conceptId"], **fields)
+                self._discard_native_staging(staging_path)
 
     def status(self, session_id, *, refresh=True):
         checked_id(session_id, "Agent session ID", SESSION_ID)

@@ -253,6 +253,7 @@ class ConceptStoreTests(unittest.TestCase):
         first = store.status(self.session)["concepts"][0]
         self.assertEqual(first["revisedPrompt"], "One blue orb")
         self.assertEqual(first["sha256"], hashlib.sha256(PNG).hexdigest())
+        self.assertTrue(native.image.is_file())  # Codex's original saved image is not staging.
         self.assertNotIn(str(native.image), json.dumps(store.status(self.session)))
         self.assertEqual(store.selected(self.session), None)
         store.select(self.session, first["conceptId"], "Keep glass material")
@@ -289,6 +290,65 @@ class ConceptStoreTests(unittest.TestCase):
         self.assertEqual(jobs[1]["status"], "failed")
         self.assertIn("outcome is unknown", jobs[1]["message"])
         self.assertIsNone(reopened.selected(self.session))
+
+    def test_import_removes_only_native_staging_after_durable_copy(self):
+        native = FakeNativePortal(self.catalog.image)
+        store = ConceptStore(self.directory / "portal" / "concepts", lambda: self.catalog,
+                             lambda: native)
+        job = store.create(self.session, "Blue orb")["job"]
+        turn_id = store.data["sessions"][self.session]["jobs"][0]["nativeTurnId"]
+        staging = store.directory.parent / "native_generated"
+        staging.mkdir()
+        staged = staging / "codex-generated.png"
+        staged.write_bytes(PNG)
+        native.results[turn_id] = {"status": "ready", "imagePath": str(staged),
+                                   "sha256": hashlib.sha256(PNG).hexdigest(),
+                                   "mimeType": "image/png", "transientArtifact": True}
+        self.assertEqual(store.status(self.session)["concepts"][0]["conceptId"], job["conceptId"])
+        self.assertFalse(staged.exists())
+        store.select(self.session, job["conceptId"])
+        self.assertEqual(Path(store.selected(self.session)["imagePath"]).read_bytes(), PNG)
+        self.assertTrue(native.image.exists())
+
+    def test_failed_native_import_removes_staging_without_touching_original(self):
+        native = FakeNativePortal(self.catalog.image)
+        store = ConceptStore(self.directory / "portal" / "concepts", lambda: self.catalog,
+                             lambda: native)
+        store.create(self.session, "Blue orb")
+        turn_id = store.data["sessions"][self.session]["jobs"][0]["nativeTurnId"]
+        staging = store.directory.parent / "native_generated"
+        staging.mkdir()
+        staged = staging / "codex-failed.png"
+        staged.write_bytes(PNG)
+        native.results[turn_id] = {"status": "ready", "imagePath": str(staged),
+                                   "sha256": "0" * 64, "mimeType": "image/png",
+                                   "transientArtifact": True}
+        self.assertEqual(store.status(self.session)["jobs"][0]["status"], "failed")
+        self.assertFalse(staged.exists())
+        self.assertTrue(native.image.exists())
+        self.assertEqual(list(store.images.iterdir()), [])
+
+    def test_native_staging_waits_for_durable_ready_record(self):
+        native = FakeNativePortal(self.catalog.image)
+        store = ConceptStore(self.directory / "portal" / "concepts", lambda: self.catalog,
+                             lambda: native)
+        store.create(self.session, "Blue orb")
+        turn_id = store.data["sessions"][self.session]["jobs"][0]["nativeTurnId"]
+        staging = store.directory.parent / "native_generated"
+        staging.mkdir()
+        staged = staging / "codex-retry.png"
+        staged.write_bytes(PNG)
+        native.results[turn_id] = {"status": "ready", "imagePath": str(staged),
+                                   "sha256": hashlib.sha256(PNG).hexdigest(),
+                                   "mimeType": "image/png", "transientArtifact": True}
+        with patch("concept_store.atomic_json", side_effect=OSError("save failed")):
+            with self.assertRaises(OSError):
+                store.status(self.session)
+        self.assertTrue(staged.exists())
+        self.assertEqual(store.status(self.session, refresh=False)["jobs"][0]["status"],
+                         "generating")
+        self.assertEqual(store.status(self.session)["jobs"][0]["status"], "ready")
+        self.assertFalse(staged.exists())
 
 
 if __name__ == "__main__":

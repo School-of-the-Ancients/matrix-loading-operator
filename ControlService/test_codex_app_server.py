@@ -192,6 +192,7 @@ class AppServerTransportTests(unittest.TestCase):
         self.assertIsNotNone(result)
         self.assertEqual(result["status"], "ready")
         self.assertEqual(result["mimeType"], "image/png")
+        self.assertIs(result["transientArtifact"], True)
         self.assertEqual(result["revisedPrompt"], "test revised prompt")
         self.assertEqual(Path(result["imagePath"]).stat().st_size, 1700008)
         self.assertEqual(result["sha256"], hashlib.sha256(Path(result["imagePath"]).read_bytes()).hexdigest())
@@ -237,6 +238,26 @@ class AppServerTransportTests(unittest.TestCase):
         self.assertEqual(result["status"], "ready")
         self.assertNotEqual(Path(result["imagePath"]), saved)
         self.assertEqual(Path(result["imagePath"]).read_bytes(), actual)
+
+    def test_duplicate_native_result_and_close_discard_staged_images(self):
+        encoded = base64.b64encode(b"\x89PNG\r\n\x1a\nimage").decode()
+        def receive(turn_id):
+            self.transport._receive({"method": "item/completed", "params": {
+                "threadId": "thread-test", "turnId": turn_id,
+                "item": {"type": "imageGeneration", "status": "completed",
+                         "savedPath": None, "result": encoded}}})
+        receive("duplicate-turn")
+        staged = Path(self.transport.image_generation_result("thread-test", "duplicate-turn")["imagePath"])
+        self.assertTrue(staged.exists())
+        receive("duplicate-turn")
+        self.assertEqual(self.transport.image_generation_result("thread-test", "duplicate-turn")["status"],
+                         "failed")
+        self.assertFalse(staged.exists())
+        receive("unconsumed-turn")
+        staged = Path(self.transport.image_generation_result("thread-test", "unconsumed-turn")["imagePath"])
+        self.assertTrue(staged.exists())
+        self.transport.close()
+        self.assertFalse(staged.exists())
 
     def test_native_capability_requires_chatgpt_account(self):
         with patch.object(self.transport, "request", return_value={"account": {"type": "apiKey"}}):
