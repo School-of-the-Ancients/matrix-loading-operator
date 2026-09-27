@@ -1,0 +1,902 @@
+{
+  "snapshot": {
+    "scene": {
+      "schemaVersion": 1,
+      "roomId": "web-virtual-room-v1",
+      "objects": [
+        {
+          "objectId": "host-object-1",
+          "assetId": "chair",
+          "anchorId": "web-floor",
+          "transform": {
+            "position": {
+              "x": 0,
+              "y": 0,
+              "z": -2
+            },
+            "rotation": {
+              "x": 0,
+              "y": 0,
+              "z": 0
+            },
+            "scale": {
+              "x": 1,
+              "y": 1,
+              "z": 1
+            }
+          }
+        },
+        {
+          "objectId": "host-object-2",
+          "assetId": "table",
+          "anchorId": "web-floor",
+          "transform": {
+            "position": {
+              "x": 2.15,
+              "y": 0,
+              "z": -2
+            },
+            "rotation": {
+              "x": 0,
+              "y": 0,
+              "z": 0
+            },
+            "scale": {
+              "x": 0.7,
+              "y": 0.7,
+              "z": 0.7
+            }
+          }
+        },
+        {
+          "objectId": "host-object-3",
+          "assetId": "orb",
+          "anchorId": "web-floor",
+          "transform": {
+            "position": {
+              "x": -2.2,
+              "y": 0,
+              "z": -0.9
+            },
+            "rotation": {
+              "x": 0,
+              "y": 0,
+              "z": 0
+            },
+            "scale": {
+              "x": 0.7,
+              "y": 0.7,
+              "z": 0.7
+            }
+          }
+        },
+        {
+          "objectId": "host-object-4",
+          "assetId": "orb",
+          "anchorId": "web-floor",
+          "transform": {
+            "position": {
+              "x": 2.3,
+              "y": 0,
+              "z": -0.85
+            },
+            "rotation": {
+              "x": 0,
+              "y": 0,
+              "z": 0
+            },
+            "scale": {
+              "x": 0.7,
+              "y": 0.7,
+              "z": 0.7
+            }
+          }
+        }
+      ]
+    },
+    "assets": [
+      {
+        "assetId": "chair",
+        "displayName": "Chair",
+        "description": "A wooden chair with a seat and back, about 0.6 by 0.9 metres.",
+        "spawnScale": 1,
+        "localBounds": {
+          "center": {
+            "x": 0,
+            "y": 0.45,
+            "z": 0
+          },
+          "size": {
+            "x": 0.6,
+            "y": 0.9,
+            "z": 0.6
+          }
+        },
+        "interactions": [
+          {
+            "kind": "rest",
+            "rangeMeters": 0.8
+          }
+        ]
+      },
+      {
+        "assetId": "table",
+        "displayName": "Table",
+        "description": "A wooden table about 1.5 metres wide and 0.75 metres high.",
+        "spawnScale": 1,
+        "localBounds": {
+          "center": {
+            "x": 0,
+            "y": 0.375,
+            "z": 0
+          },
+          "size": {
+            "x": 1.5,
+            "y": 0.75,
+            "z": 0.9
+          }
+        },
+        "interactions": [
+          {
+            "kind": "eat",
+            "rangeMeters": 0.9
+          }
+        ]
+      },
+      {
+        "assetId": "wall",
+        "displayName": "Wall",
+        "description": "A straight wall panel 2 metres wide and 2 metres high.",
+        "spawnScale": 1,
+        "localBounds": {
+          "center": {
+            "x": 0,
+            "y": 1,
+            "z": 0
+          },
+          "size": {
+            "x": 2,
+            "y": 2,
+            "z": 0.12
+          }
+        }
+      },
+      {
+        "assetId": "pedestal",
+        "displayName": "Pedestal",
+        "description": "A stone display pedestal.",
+        "spawnScale": 1,
+        "localBounds": {
+          "center": {
+            "x": 0,
+            "y": 0.5,
+            "z": 0
+          },
+          "size": {
+            "x": 0.6,
+            "y": 1,
+            "z": 0.6
+          }
+        }
+      },
+      {
+        "assetId": "block",
+        "displayName": "Block",
+        "description": "A one metre cube.",
+        "spawnScale": 1,
+        "localBounds": {
+          "center": {
+            "x": 0,
+            "y": 0.5,
+            "z": 0
+          },
+          "size": {
+            "x": 1,
+            "y": 1,
+            "z": 1
+          }
+        }
+      },
+      {
+        "assetId": "orb",
+        "displayName": "Orb",
+        "description": "A luminous sphere 0.5 metres across.",
+        "spawnScale": 1,
+        "localBounds": {
+          "center": {
+            "x": 0,
+            "y": 0.25,
+            "z": 0
+          },
+          "size": {
+            "x": 0.5,
+            "y": 0.5,
+            "z": 0.5
+          }
+        },
+        "interactions": [
+          {
+            "kind": "converse",
+            "rangeMeters": 0.8
+          }
+        ]
+      },
+      {
+        "assetId": "column",
+        "displayName": "Column",
+        "description": "A cylindrical stone column 2 metres high.",
+        "spawnScale": 1,
+        "localBounds": {
+          "center": {
+            "x": 0,
+            "y": 1,
+            "z": 0
+          },
+          "size": {
+            "x": 0.5,
+            "y": 2,
+            "z": 0.5
+          }
+        }
+      },
+      {
+        "assetId": "matrix:procedural",
+        "displayName": "Procedural construction",
+        "description": "Versioned geometry generated by a reviewed Matrix module.",
+        "spawnScale": 1
+      }
+    ],
+    "anchors": [
+      {
+        "anchorId": "web-floor",
+        "displayName": "Virtual floor"
+      }
+    ],
+    "selection": {
+      "anchorId": "web-floor",
+      "objectId": "",
+      "position": {
+        "x": 0,
+        "y": 0,
+        "z": -2
+      }
+    },
+    "behaviorKinds": [
+      "rotate",
+      "bob"
+    ],
+    "componentSchemaVersion": 1,
+    "animationSchemaVersion": 1,
+    "physicsSchemaVersion": 1,
+    "interactionSchemaVersion": 2,
+    "physicsStates": [],
+    "rigidSchemaVersion": 1,
+    "rigidGravity": {
+      "x": 0,
+      "y": -9.81,
+      "z": 0
+    },
+    "rigidStates": [],
+    "entityActionSchemaVersion": 1,
+    "agentGrab": null,
+    "controlSchemaVersion": 1,
+    "controlStates": {},
+    "proceduralGenerators": [
+      {
+        "generatorId": "bridge",
+        "generatorVersion": "1.0.0",
+        "sourceRevision": "bridge-v1",
+        "description": "A parameterized deck with optional railings and supports; rise makes a ramp.",
+        "parameterSchema": {
+          "lengthMeters": {
+            "type": "number",
+            "default": 6,
+            "min": 2,
+            "max": 12
+          },
+          "widthMeters": {
+            "type": "number",
+            "default": 1.5,
+            "min": 0.8,
+            "max": 4
+          },
+          "deckHeightMeters": {
+            "type": "number",
+            "default": 1.2,
+            "min": 0.2,
+            "max": 3
+          },
+          "riseMeters": {
+            "type": "number",
+            "default": 0,
+            "min": -2,
+            "max": 2
+          },
+          "railings": {
+            "type": "boolean",
+            "default": true
+          },
+          "supports": {
+            "type": "boolean",
+            "default": true
+          }
+        },
+        "dependencies": []
+      },
+      {
+        "generatorId": "curved-bench",
+        "generatorVersion": "1.0.0",
+        "sourceRevision": "curved-bench-v1",
+        "description": "A true curved seat and back with independently parameterized arc and supports.",
+        "parameterSchema": {
+          "lengthMeters": {
+            "type": "number",
+            "default": 1.8,
+            "min": 0.8,
+            "max": 3
+          },
+          "depthMeters": {
+            "type": "number",
+            "default": 0.5,
+            "min": 0.3,
+            "max": 0.8
+          },
+          "seatHeightMeters": {
+            "type": "number",
+            "default": 0.46,
+            "min": 0.35,
+            "max": 0.7
+          },
+          "backHeightMeters": {
+            "type": "number",
+            "default": 0.45,
+            "min": 0.25,
+            "max": 0.8
+          },
+          "arcDegrees": {
+            "type": "number",
+            "default": 75,
+            "min": 30,
+            "max": 120
+          }
+        },
+        "dependencies": []
+      },
+      {
+        "generatorId": "staircase",
+        "generatorVersion": "1.0.0",
+        "sourceRevision": "staircase-v1",
+        "description": "A bounded straight staircase with flat treads rising along local +X.",
+        "parameterSchema": {
+          "stepCount": {
+            "type": "integer",
+            "default": 6,
+            "min": 2,
+            "max": 12
+          },
+          "widthMeters": {
+            "type": "number",
+            "default": 1.2,
+            "min": 0.8,
+            "max": 3
+          },
+          "treadDepthMeters": {
+            "type": "number",
+            "default": 0.32,
+            "min": 0.25,
+            "max": 0.5
+          },
+          "stepRiseMeters": {
+            "type": "number",
+            "default": 0.18,
+            "min": 0.12,
+            "max": 0.25
+          }
+        },
+        "dependencies": []
+      }
+    ],
+    "creatorMode": {
+      "schemaVersion": 1,
+      "mode": "creator",
+      "simulation": "paused",
+      "revision": 0
+    },
+    "game": null,
+    "gameStatus": null,
+    "roomContext": {
+      "mode": "white-room",
+      "state": "ready",
+      "message": "Browser virtual floor; physical room alignment is not verified.",
+      "alignmentVerified": false
+    },
+    "runtimeDescriptor": {
+      "schemaVersion": 1,
+      "client": "matrix-world-host",
+      "renderer": "none",
+      "presentation": "host"
+    },
+    "worldSlotSchemaVersion": 1,
+    "citizensState": {
+      "schemaVersion": 12,
+      "world": {
+        "schemaVersion": 1,
+        "roomId": "web-virtual-room-v1"
+      },
+      "seed": 29,
+      "rngState": 29,
+      "requestSequence": 0,
+      "actionSequence": 0,
+      "clockTick": 0,
+      "paused": false,
+      "clockSpeed": 1,
+      "retiredResidentIds": [],
+      "socialSession": null,
+      "socialEvents": [],
+      "relationships": [
+        {
+          "a": "ada",
+          "b": "bo",
+          "score": 50,
+          "completed": []
+        }
+      ],
+      "nextSocialTick": 35,
+      "residents": [
+        {
+          "id": "ada",
+          "name": "Ada",
+          "objectId": "host-object-3",
+          "needs": {
+            "hunger": 72,
+            "energy": 20,
+            "fun": 62,
+            "social": 30
+          },
+          "preferences": {
+            "rest": 1.2,
+            "eat": 0.85,
+            "explore": 0.75,
+            "converse": 1.2
+          },
+          "activity": null,
+          "cooldowns": {
+            "rest": 0,
+            "eat": 0,
+            "explore": 0
+          },
+          "lastOutcome": "",
+          "socialSessionId": null,
+          "routines": [
+            {
+              "id": "morning-meal",
+              "kind": "eat",
+              "priority": "default",
+              "startMinute": 420,
+              "endMinute": 600,
+              "baseWeight": 22,
+              "stationId": null
+            },
+            {
+              "id": "morning-walk",
+              "kind": "explore",
+              "priority": "default",
+              "startMinute": 480,
+              "endMinute": 660,
+              "baseWeight": 16,
+              "stationId": null
+            },
+            {
+              "id": "daytime-walk",
+              "kind": "explore",
+              "priority": "low",
+              "startMinute": 660,
+              "endMinute": 1080,
+              "baseWeight": 12,
+              "stationId": null
+            },
+            {
+              "id": "evening-rest",
+              "kind": "rest",
+              "priority": "high",
+              "startMinute": 1260,
+              "endMinute": 360,
+              "baseWeight": 24,
+              "stationId": null
+            }
+          ],
+          "lastDecision": null,
+          "appointments": [],
+          "appointmentSequence": 0
+        },
+        {
+          "id": "bo",
+          "name": "Bo",
+          "objectId": "host-object-4",
+          "needs": {
+            "hunger": 42,
+            "energy": 29,
+            "fun": 54,
+            "social": 38
+          },
+          "preferences": {
+            "rest": 1.1,
+            "eat": 1,
+            "explore": 0.75,
+            "converse": 1.1
+          },
+          "activity": null,
+          "cooldowns": {
+            "rest": 0,
+            "eat": 0,
+            "explore": 0
+          },
+          "lastOutcome": "",
+          "socialSessionId": null,
+          "routines": [
+            {
+              "id": "morning-meal",
+              "kind": "eat",
+              "priority": "default",
+              "startMinute": 420,
+              "endMinute": 600,
+              "baseWeight": 18,
+              "stationId": null
+            },
+            {
+              "id": "morning-walk",
+              "kind": "explore",
+              "priority": "default",
+              "startMinute": 480,
+              "endMinute": 660,
+              "baseWeight": 22,
+              "stationId": null
+            },
+            {
+              "id": "daytime-walk",
+              "kind": "explore",
+              "priority": "low",
+              "startMinute": 660,
+              "endMinute": 1080,
+              "baseWeight": 12,
+              "stationId": null
+            },
+            {
+              "id": "evening-rest",
+              "kind": "rest",
+              "priority": "high",
+              "startMinute": 1260,
+              "endMinute": 360,
+              "baseWeight": 20,
+              "stationId": null
+            }
+          ],
+          "lastDecision": null,
+          "appointments": [],
+          "appointmentSequence": 0
+        }
+      ],
+      "stations": [
+        {
+          "id": "chair",
+          "kind": "rest",
+          "objectId": "host-object-1",
+          "capacity": 1,
+          "claim": null,
+          "waiters": [],
+          "interaction": null
+        },
+        {
+          "id": "food",
+          "kind": "eat",
+          "objectId": "host-object-2",
+          "capacity": 1,
+          "claim": null,
+          "waiters": [],
+          "interaction": null
+        }
+      ],
+      "log": [
+        {
+          "tick": 0,
+          "residentId": "",
+          "event": "resumed",
+          "message": "Simulation resumed."
+        }
+      ]
+    },
+    "citizensObservation": {
+      "residentObjectIds": [
+        "host-object-3",
+        "host-object-4"
+      ],
+      "authoredGeneration": 207035871347468
+    }
+  },
+  "world": {
+    "version": 3,
+    "scene": {
+      "schemaVersion": 1,
+      "roomId": "web-virtual-room-v1",
+      "objects": [
+        {
+          "objectId": "host-object-1",
+          "assetId": "chair",
+          "anchorId": "web-floor",
+          "transform": {
+            "position": {
+              "x": 0,
+              "y": 0,
+              "z": -2
+            },
+            "rotation": {
+              "x": 0,
+              "y": 0,
+              "z": 0
+            },
+            "scale": {
+              "x": 1,
+              "y": 1,
+              "z": 1
+            }
+          }
+        },
+        {
+          "objectId": "host-object-2",
+          "assetId": "table",
+          "anchorId": "web-floor",
+          "transform": {
+            "position": {
+              "x": 2.15,
+              "y": 0,
+              "z": -2
+            },
+            "rotation": {
+              "x": 0,
+              "y": 0,
+              "z": 0
+            },
+            "scale": {
+              "x": 0.7,
+              "y": 0.7,
+              "z": 0.7
+            }
+          }
+        },
+        {
+          "objectId": "host-object-3",
+          "assetId": "orb",
+          "anchorId": "web-floor",
+          "transform": {
+            "position": {
+              "x": -2.2,
+              "y": 0,
+              "z": -0.9
+            },
+            "rotation": {
+              "x": 0,
+              "y": 0,
+              "z": 0
+            },
+            "scale": {
+              "x": 0.7,
+              "y": 0.7,
+              "z": 0.7
+            }
+          }
+        },
+        {
+          "objectId": "host-object-4",
+          "assetId": "orb",
+          "anchorId": "web-floor",
+          "transform": {
+            "position": {
+              "x": 2.3,
+              "y": 0,
+              "z": -0.85
+            },
+            "rotation": {
+              "x": 0,
+              "y": 0,
+              "z": 0
+            },
+            "scale": {
+              "x": 0.7,
+              "y": 0.7,
+              "z": 0.7
+            }
+          }
+        }
+      ]
+    },
+    "game": null,
+    "citizens": {
+      "schemaVersion": 12,
+      "world": {
+        "schemaVersion": 1,
+        "roomId": "web-virtual-room-v1"
+      },
+      "seed": 29,
+      "rngState": 29,
+      "requestSequence": 0,
+      "actionSequence": 0,
+      "clockTick": 0,
+      "paused": false,
+      "clockSpeed": 1,
+      "retiredResidentIds": [],
+      "socialSession": null,
+      "socialEvents": [],
+      "relationships": [
+        {
+          "a": "ada",
+          "b": "bo",
+          "score": 50,
+          "completed": []
+        }
+      ],
+      "nextSocialTick": 35,
+      "residents": [
+        {
+          "id": "ada",
+          "name": "Ada",
+          "objectId": "host-object-3",
+          "needs": {
+            "hunger": 72,
+            "energy": 20,
+            "fun": 62,
+            "social": 30
+          },
+          "preferences": {
+            "rest": 1.2,
+            "eat": 0.85,
+            "explore": 0.75,
+            "converse": 1.2
+          },
+          "activity": null,
+          "cooldowns": {
+            "rest": 0,
+            "eat": 0,
+            "explore": 0
+          },
+          "lastOutcome": "",
+          "socialSessionId": null,
+          "routines": [
+            {
+              "id": "morning-meal",
+              "kind": "eat",
+              "priority": "default",
+              "startMinute": 420,
+              "endMinute": 600,
+              "baseWeight": 22,
+              "stationId": null
+            },
+            {
+              "id": "morning-walk",
+              "kind": "explore",
+              "priority": "default",
+              "startMinute": 480,
+              "endMinute": 660,
+              "baseWeight": 16,
+              "stationId": null
+            },
+            {
+              "id": "daytime-walk",
+              "kind": "explore",
+              "priority": "low",
+              "startMinute": 660,
+              "endMinute": 1080,
+              "baseWeight": 12,
+              "stationId": null
+            },
+            {
+              "id": "evening-rest",
+              "kind": "rest",
+              "priority": "high",
+              "startMinute": 1260,
+              "endMinute": 360,
+              "baseWeight": 24,
+              "stationId": null
+            }
+          ],
+          "lastDecision": null,
+          "appointments": [],
+          "appointmentSequence": 0
+        },
+        {
+          "id": "bo",
+          "name": "Bo",
+          "objectId": "host-object-4",
+          "needs": {
+            "hunger": 42,
+            "energy": 29,
+            "fun": 54,
+            "social": 38
+          },
+          "preferences": {
+            "rest": 1.1,
+            "eat": 1,
+            "explore": 0.75,
+            "converse": 1.1
+          },
+          "activity": null,
+          "cooldowns": {
+            "rest": 0,
+            "eat": 0,
+            "explore": 0
+          },
+          "lastOutcome": "",
+          "socialSessionId": null,
+          "routines": [
+            {
+              "id": "morning-meal",
+              "kind": "eat",
+              "priority": "default",
+              "startMinute": 420,
+              "endMinute": 600,
+              "baseWeight": 18,
+              "stationId": null
+            },
+            {
+              "id": "morning-walk",
+              "kind": "explore",
+              "priority": "default",
+              "startMinute": 480,
+              "endMinute": 660,
+              "baseWeight": 22,
+              "stationId": null
+            },
+            {
+              "id": "daytime-walk",
+              "kind": "explore",
+              "priority": "low",
+              "startMinute": 660,
+              "endMinute": 1080,
+              "baseWeight": 12,
+              "stationId": null
+            },
+            {
+              "id": "evening-rest",
+              "kind": "rest",
+              "priority": "high",
+              "startMinute": 1260,
+              "endMinute": 360,
+              "baseWeight": 20,
+              "stationId": null
+            }
+          ],
+          "lastDecision": null,
+          "appointments": [],
+          "appointmentSequence": 0
+        }
+      ],
+      "stations": [
+        {
+          "id": "chair",
+          "kind": "rest",
+          "objectId": "host-object-1",
+          "capacity": 1,
+          "claim": null,
+          "waiters": [],
+          "interaction": null
+        },
+        {
+          "id": "food",
+          "kind": "eat",
+          "objectId": "host-object-2",
+          "capacity": 1,
+          "claim": null,
+          "waiters": [],
+          "interaction": null
+        }
+      ],
+      "log": [
+        {
+          "tick": 0,
+          "residentId": "",
+          "event": "resumed",
+          "message": "Simulation resumed."
+        }
+      ]
+    }
+  }
+}
