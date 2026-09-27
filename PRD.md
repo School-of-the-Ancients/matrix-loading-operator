@@ -45,7 +45,7 @@ The learner should be able to change an input, observe a result and ask about it
 | PC gateway/tools | `ControlService/` | Existing Agent Portal/session backend, Matrix tools, validation, catalogs, commands and receipts |
 | Asset authoring | Procedural modules, current catalog, PC Blender/configured tools | Create/reuse/revise content through existing validation and identity contracts; preserve editable source |
 | School | Separate School repositories | Curriculum, mentors, assessment, learner records and optional scoped Matrix integration |
-| Citizens | Existing simulation candidates and fixtures | Resident decisions and supported simulation state, not a second world executor or privileged Operator |
+| Citizens | Bounded merged simulation and fixtures | Resident decisions and supported simulation state, not a second world executor or privileged Operator |
 
 These are responsibilities, not new services. Preserve the existing state owners, API boundaries and [module ownership reference](https://github.com/School-of-the-Ancients/school-of-the-ancients-roadmap/blob/main/MODULES.md). `/web/` is the forward client. The original `/` Operator page and native Unity source are historical compatibility surfaces, with no new native build support; shared service routes remain until a separately validated migration. Check current refs for the Citizens stack's merge status.
 
