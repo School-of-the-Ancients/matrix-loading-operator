@@ -159,10 +159,13 @@ provider in the existing PC-side
 needs `promptNode`, `promptInput`, `seedNode`, and `seedInput`; it may also set
 `negativePromptNode` and `negativePromptInput`. For the reviewed Krea2 image
 graph, these map to text node `53`, KSampler seed node `55`, and optional
-negative text node `78`. Keep the worker address, graph, and any credential
-environment variables in PC-private configuration. When several workflows are
-enabled, set `MATRIX_CONCEPT_PROVIDER_ID` and `MATRIX_CONCEPT_WORKFLOW_ID` on
-the PC to choose exactly one. The concept path checks the current worker's
+negative text node `78`; the endpoint-free
+[acceptance graph](../Validation/concept-91-krea2-workflow.json) records the exact
+node inputs used for the live run. Keep the worker address, configured graph,
+and any credential environment variables in PC-private configuration. When
+several workflows are enabled, set `MATRIX_CONCEPT_PROVIDER_ID` and
+`MATRIX_CONCEPT_WORKFLOW_ID` on the PC to choose exactly one. The concept path
+checks the current worker's
 `/object_info` against the reviewed image-node subset before each submission;
 configuration alone does not establish that generation will succeed.
 
@@ -176,6 +179,7 @@ The authenticated Operator API uses the existing Agent session ID:
 | Select | `POST /api/agent/concepts/select` | `{sessionId,conceptId,designNotes?}` → `{selectedConceptId,concept}` |
 | Cancel queued | `POST /api/agent/concepts/cancel` | `{sessionId,conceptId}` → `{job}` |
 | Preview | `GET /api/agent/concepts/<conceptId>/preview` | Authenticated image bytes |
+| Build selected | `POST /api/agent/turn` | `{sessionId,text,context?,expectedConceptId?,expectedConceptVersion?,creationMode?}`; the UI sends both expected fields and a creation mode for a selected build |
 
 `providers` contains `codex-native` and `comfyui` with availability and reason;
 `defaultProviderId` is native when available. An explicit `providerId` uses
@@ -196,7 +200,27 @@ native image turn, that job is marked failed with an uncertain outcome and is
 never replayed automatically. A result finishing later never changes the selected concept.
 Only explicit selection updates it, and omitting design notes preserves the
 notes already stored on that version. A separate explicit build request is
-required before the selected image enters the existing Codex Agent turn.
+required before the selected image enters the existing Codex Agent turn. If a
+browser supplies expected ID and version, the server rejects a different
+current selection instead of silently handing the wrong image to Codex.
+
+The selected-image build method is a per-tab Operator preference with three
+values:
+
+| Mode | Agent behavior |
+| --- | --- |
+| **Auto** (`auto`, default) | Codex chooses an authorized path, including asset reuse, reviewed procedural generation, Blender, agent-authored code, or a combination. |
+| **Procedural** (`procedural`) | Codex uses a suitable reviewed Matrix procedural generator and typed create/receipt path. If none fits, it reports that limitation and asks for an explicit mode change. |
+| **Blender** (`blender`) | Codex uses editable Blender source, validates and registers a GLB, and places it through a typed Matrix spawn with a receipt. If the path is unavailable, it reports the blocker and asks for an explicit mode change. |
+
+The browser sends `creationMode` only for an explicit selected-concept build;
+the server validates it and retains the requested mode in build provenance.
+Desktop `/web/` exposes the selector beside the concept controls. The shared
+immersive WebXR navigation panel exposes the same Auto, Procedural, and Blender
+controls on its **CODEX** page in VR and AR. The in-world voice route uses the
+selected mode when it sends a selected-concept build. The XR controls do not
+establish that concept previews, selection, or an actual build have been
+operated successfully by a Quest wearer; those require separate device evidence.
 
 Selection, versions, notes, and build provenance are persisted under the
 service scene directory's `.agent_portal/concepts/`. Image files are immutable
