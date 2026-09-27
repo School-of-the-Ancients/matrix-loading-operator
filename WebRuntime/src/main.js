@@ -6,6 +6,7 @@ import {VoiceRecorder} from './voice.js';
 import {CameraStream} from './camera_stream.js';
 import {AgentClient,agentActivityLabel} from './agent_client.js';
 import {ConceptUI} from './concept_ui.js';
+import {loadCreationMode,saveCreationMode,creationModeFromPanelAction} from './creation_mode.js';
 import {parseConceptIntent,isSelectedConceptBuildRequest,
   stopPlannerConceptFallback,plannerVoiceFallbackAllowed} from './concept_intent.js';
 import {captureAgentContext} from './agent_context.js';
@@ -61,6 +62,7 @@ let cameraBusy=false;
 const recorder=new VoiceRecorder();let voiceStarting=false,voiceRecording=false,voiceStopRequested=false,voiceJob=null,voiceSnapshot=null,voiceDestination='planner',voiceAgentContext=null,voiceBlenderPlacement=null;
 let replyContext=null,replySource=null;
 let agentClient=null,conceptUI=null,agentActionBusy=false,agentVoiceStatus='';
+let creationMode=loadCreationMode(sessionStorage);
 const pendingBlenderReceiptIds=new Set();
 function unlockReplyAudio(){
   if(!$('speak-replies').checked)return;
@@ -76,6 +78,16 @@ const feedback=(message,isError=false)=>{
 };
 const view=new MatrixView($('view'),world,()=>{discardProposal();scaleUI?.refreshTargets();citizensPanel?.render();feedback(`Selected ${world.selection.objectId||'placement point'} at ${Object.values(world.selection.position).join(', ')} m.`);},()=>$('token').value.trim(),message=>feedback(message,true),(id,position)=>{discardProposal();const delivered=deliverMovedObject(world,id);if(delivered)speakReply(delivered);renderScene();feedback(delivered||`Moved ${id.slice(0,8)} to ${Object.values(position).join(', ')} m. Undo and Save are available.`);},()=>{if(!view.isAR)cameraStream.stop();if(!view.isAR||!world.spatial?.originUnavailable){roomResetArmedUntil=0;roomRecoveryChoice='';}updateCameraControls();discardProposal();renderScene();},beginVoice,endVoice,()=>{$('speak-replies').checked=!$('speak-replies').checked;view.setVoiceOutputEnabled($('speak-replies').checked);unlockReplyAudio();},reviewView,newChat);
 view.onPanelAction=panelAction;
+function setConceptCreationMode(mode){
+  creationMode=saveCreationMode(sessionStorage,mode);
+  $('concept-creation-mode').value=creationMode;
+  view.setOperatorCreationMode(creationMode);
+}
+$('concept-creation-mode').addEventListener('change',event=>{
+  try{setConceptCreationMode(event.target.value);}
+  catch(error){feedback(error.message,true);$('concept-creation-mode').value=creationMode;}
+});
+setConceptCreationMode(creationMode);
 view.onAssetReadinessChange=()=>citizensPanel?.render();
 view.onPlayInteraction=({kind,objectId,receipt})=>{
   if(!canPlayWorld(world.creatorMode))return;
@@ -478,7 +490,7 @@ function sendAgent(){
     const expectedConcept=await conceptUI.expectedBuild(text);
     const context=$('agent-include-context').checked||expectedConcept?
       captureAgentContext(world,view,bridge.clientId,'text'):null;
-    await agentClient.send(text,context,expectedConcept);$('agent-input').value='';
+    await agentClient.send(text,context,expectedConcept,creationMode);$('agent-input').value='';
     feedback(context?'Sent to Codex with Matrix spatial context.':'Sent to Codex.');});
 }
 function decideAgent(approve){
@@ -596,7 +608,7 @@ async function sendToAgentFromChat(text,context){
   const expectedConcept=await conceptUI.expectedBuild(text);
   if(/\b(?:in front of me|ahead of me|where i am pointing)\b/i.test(text)&&!context?.viewerFrame)
     throw Error('Current viewer tracking is unavailable. Restore tracking, then send this spatial request again.');
-  await agentClient.send(text,context,expectedConcept);
+  await agentClient.send(text,context,expectedConcept,creationMode);
   const message='Sent this request to CODEX with the current Matrix context. Review its tools and Matrix receipts in the CODEX panel.';
   feedback(message);view.setOperatorStatus(message);
 }
@@ -1048,6 +1060,8 @@ function changeCreatorMode(action){
 }
 
 function panelAction(action){
+  const selectedMode=creationModeFromPanelAction(action);
+  if(selectedMode){setConceptCreationMode(selectedMode);return;}
   if(['enter-play','enter-creator','stop-play','resume-play'].includes(action)){
     changeCreatorMode(action);return;
   }
@@ -1147,7 +1161,7 @@ async function endVoice(){
           !voiceAgentContext.viewerFrame)
         throw Error('Current viewer tracking is unavailable. Restore tracking, then say the spatial request again.');
       const expectedConcept=await conceptUI.expectedBuild(transcript);
-      await agentClient.send(transcript,voiceAgentContext,expectedConcept);
+      await agentClient.send(transcript,voiceAgentContext,expectedConcept,creationMode);
       voiceStatus('Sent to Codex with Matrix spatial context.');
     }else{
       if(!agentClient.status||agentClient.error){

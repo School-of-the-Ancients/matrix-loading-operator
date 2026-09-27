@@ -52,6 +52,15 @@
           <p id="concept-build-status" class="concept-build-status" role="status" aria-live="polite"></p>
           <div id="concept-jobs" class="concept-jobs" aria-label="Image generation jobs"></div>
           <div id="concept-list" class="concept-list" aria-label="Generated concept versions"></div>
+          <div class="concept-creation-row">
+            <label for="concept-creation-mode">Selected image build method</label>
+            <select id="concept-creation-mode">
+              <option value="auto">Auto (Codex chooses)</option>
+              <option value="procedural">Procedural</option>
+              <option value="blender">Blender</option>
+            </select>
+          </div>
+          <p class="hint">This choice is sent with a selected-image build request. Choosing a method does not start a build.</p>
           <label for="concept-notes">Notes for the selected design</label>
           <textarea id="concept-notes" rows="2" placeholder="Keep the layered roof; use a smaller entrance"></textarea>
           <button id="concept-save-notes" type="button">Save design notes</button>
