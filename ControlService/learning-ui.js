@@ -5,8 +5,10 @@
     submit_practice: 'Capture room evidence and observation', answer_socratic_check: 'Record my explanation', finish: 'Save reflection and finish'};
   let lessons = [], current = null, pending = null, sending = false, polling = false, connected = false, rendered = '';
   async function send(path, body) {
+    if (body && !nativeControlsReady()) throw Error('The archived Unity lesson needs a connected native runtime. Open /web/ for the current Web world.');
     const headers = {'Content-Type': 'application/json'};
     if (el('token').value) headers.Authorization = 'Bearer ' + el('token').value;
+    if (body) headers['X-Matrix-Expected-Client'] = latest.clientId;
     const response = await fetch(path, {method: body ? 'POST' : 'GET', headers, body: body ? JSON.stringify(body) : undefined});
     const data = await response.json();
     if (!response.ok) { const error = Error(data.error || 'Request failed'); error.status = response.status; throw error; }
@@ -18,8 +20,11 @@
     el('learningStatus').textContent = data.issue || (current ? current.completionLabel : connected ? 'Core connected. Place a block, select it in Objects, then start.' : 'Connect the local learning core to begin.');
     el('restoreRetry').hidden = !data.restorePending || data.restoreFailed;
     el('restoreDismiss').hidden = !data.restoreFailed;
-    const runtimeReady = latest?.online && !latest?.pendingCount;
+    const runtimeReady = nativeControlsReady() && !latest?.pendingCount;
     el('lessonStart').disabled = sending || !!pending || !connected || !runtimeReady || data.restorePending || !el('object').value;
+    el('lessonRetry').disabled = !runtimeReady;
+    el('restoreRetry').disabled = !runtimeReady;
+    el('restoreDismiss').disabled = !runtimeReady;
     if (!current) { rendered = ''; return; }
     const s = current, content = s.content;
     el('learningHeading').textContent = content.title;
@@ -34,7 +39,7 @@
     el('lessonScale').textContent = 'Local scale multipliers (X, Y, Z)\nStarting: ' + ['x','y','z'].map(k => s.context.baselineScale[k].toFixed(3)).join(', ')
       + '\nCurrent:  ' + (scale ? ['x','y','z'].map(k => scale[k].toFixed(3)).join(', ') : 'Block unavailable')
       + (scale ? '\nRatios:   ' + ['x','y','z'].map(k => (scale[k] / s.context.baselineScale[k]).toFixed(3)).join(', ') : '');
-    el('lessonResponse').disabled = sending || !!pending || s.stage === 'ended';
+    el('lessonResponse').disabled = sending || !!pending || !runtimeReady || s.stage === 'ended';
     const version = s.id + ':' + s.revision;
     const actionsDisabled = sending || !!pending || !runtimeReady || !!data.issue;
     if (rendered === version) {

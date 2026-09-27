@@ -1,10 +1,16 @@
 # Runtime behaviors
 
+**Archived Unity workflow:** The native player and build scripts are preserved
+in [Archive/Unity](../Archive/Unity/). The original service hosted its Operator
+at `/`; the current service uses `/legacy/operator` for native compatibility.
+The current Matrix runtime is [WebRuntime](../WebRuntime/README.md); the steps
+below describe historical native behavior and do not establish WebXR acceptance.
+
 This increment adds editable **Rotate** and **Bob** to the seven bundled prefabs. The AI configures compiled Unity capabilities through the existing reviewed command executor. After installing this update once, new supported configurations take effect live without rebuilding or reinstalling. General motion programs, interaction triggers, physics commands, generated C#, and autonomous navigation are not implemented yet.
 
 ## Launch and speak
 
-Run `Start-CodexControlService.ps1` from the full checkout and open the PC Operator at `http://127.0.0.1:8765/`. Open **Matrix Operator AR** on Quest Pro, verify the MRUK outlines, confirm alignment, and select an existing prop. The new desktop and white-room Quest builds support the same behaviors. An older player explicitly reports that it needs an update before behavior requests can run.
+For an existing native player, run `Start-CodexControlService.ps1` from the full checkout and open the PC Operator at `http://127.0.0.1:8765/` with the historical service or `/legacy/operator` with the current service. Open **Matrix Operator AR** on Quest Pro, verify the MRUK outlines, confirm alignment, and select an existing prop. The historical desktop and white-room Quest builds supported the same behaviors. An older player explicitly reports that it needs an update before behavior requests can run.
 
 Hold/release the left trigger to speak, review the proposal, and press Y to apply. Text input uses the same pipeline. Try these separately:
 

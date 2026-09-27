@@ -1,6 +1,6 @@
 # Matrix Operator: the virtual white room
 
-**Archived Unity history:** This page records the native Unity build and its evidence. The project and build scripts now live in [Archive/Unity](../Archive/Unity/) as read-only source. Commands and root-relative paths below assume the pre-archive repository layout and are not maintained build instructions. Current runtime development targets [WebRuntime](../WebRuntime/README.md).
+**Archived Unity history:** This page records the native Unity build and its evidence. The project and build scripts now live in [Archive/Unity](../Archive/Unity/) as read-only source. Commands and root-relative paths below assume the pre-archive repository layout and are not maintained build instructions. The original service hosted its Operator at `/`; the current service keeps the compatibility page at `/legacy/operator`. Current runtime development targets [WebRuntime](../WebRuntime/README.md).
 
 The original white-room headset milestone on September 20, 2026 passed 21 direct command/persistence checks and 61 live Codex AI loop checks on the actual Quest Pro. Five real model turns completed spawn, same-ID resize, save, clear and exact restore; the wearer confirmed seeing the AI changes and their scene restored.
 
@@ -23,7 +23,7 @@ Keep the service terminal open. In a second terminal:
 & ./Builds/WhiteRoomDesktop/MatrixOperator.exe
 ```
 
-Open <http://127.0.0.1:8765/>. The page reports **WHITE ROOM CONNECTED** when the app is exchanging state. The desktop player starts empty; the green placement point starts two metres forward of the origin. Click a floor point to move it. Click an object to select it. Hold right mouse and use WASD to move the camera, Q/E to lower/raise it. Release right mouse to edit through the panel.
+With the historical service, open <http://127.0.0.1:8765/>; with the current service, open <http://127.0.0.1:8765/legacy/operator>. The native page reports **WHITE ROOM CONNECTED** when the app is exchanging state. The desktop player starts empty; the green placement point starts two metres forward of the origin. Click a floor point to move it. Click an object to select it. Hold right mouse and use WASD to move the camera, Q/E to lower/raise it. Release right mouse to edit through the panel.
 
 The previously merged learning activity remains on the separate optional <http://127.0.0.1:8765/learning> page, also linked under Connection settings. Ordinary white-room editing and scene-only save/load require no learning-core process. If you explicitly load a save containing a learning checkpoint, use that page for its learning-core connection and checkpoint recovery controls.
 

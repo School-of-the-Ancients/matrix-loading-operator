@@ -1,5 +1,11 @@
 # Natural-language scene control
 
+**Archived Unity workflow:** The native player and build scripts are preserved
+in [Archive/Unity](../Archive/Unity/). The original service hosted its Operator
+at `/`; the current service uses `/legacy/operator` for native compatibility.
+The current Matrix runtime is [WebRuntime](../WebRuntime/README.md); the steps
+below describe historical native behavior and do not establish WebXR acceptance.
+
 The PC service has three explicitly labeled planner modes. Each creates reviewable proposals through the same validated scene-command path; planners do not change Unity objects directly.
 
 - **offline-rules — Offline command parser (not an AI model):** a finite English vocabulary that runs locally without credentials or network inference.
@@ -18,7 +24,7 @@ Stop any existing Operator service on port 8765, then run in the repository's Po
 
 The launcher requires the native `codex.exe`, verifies ChatGPT sign-in, and starts the local service in `codex-cli` mode. Use `-CodexExe` if it is not on PATH; `-Model` optionally selects a model available to the account. If sign-in is missing, run `codex login` on this PC first. Keep the service terminal open and reconnect the Quest with `./Connect-QuestControl.ps1`.
 
-1. Refresh <http://127.0.0.1:8765/> so it loads the current interface.
+1. Refresh <http://127.0.0.1:8765/> with the historical service, or <http://127.0.0.1:8765/legacy/operator> with the current service, so it loads the Unity interface.
 2. Select **Codex (ChatGPT subscription)**. An old cached page may show only offline mode until refreshed.
 3. Enter a request such as `Summon a chair here`, then choose **Create proposal**.
 4. Review the proposed object/transform, choose **Apply reviewed proposal**, and wait for the runtime acknowledgement.

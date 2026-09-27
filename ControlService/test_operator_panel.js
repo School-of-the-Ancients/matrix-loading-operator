@@ -27,19 +27,19 @@ const info={mode:'codex-cli',provider:'Codex CLI',configured:true,model:null,sup
 const ready={mode:'codex-cli',provider:'Codex CLI',status:'ready',phase:'ready',planId:'voice-plan',requiresApply:true,
   commands:[{op:'duplicate',objectId:'chair-1'}],summary:'Duplicate the selected chair.',transcript:'Copy this chair',assumptions:[]};
 const calls=[];let rejectPreferences=false,rejectCapturedPlan=false,rejectPreview=false;
-let runtimeOnline=true,stateError=null,reconnectReply={status:'needs_attention',message:'Keep Matrix open.'},reconnectHttpStatus=200,reconnectFailure=null,reconnectHold=null;
+let runtimeOnline=true,runtimeDescriptor=null,runtimeRoomId='white-room-v1',stateError=null,reconnectReply={status:'needs_attention',message:'Keep Matrix open.'},reconnectHttpStatus=200,reconnectFailure=null,reconnectHold=null;
 let now=Date.parse('2026-09-22T12:00:00Z');
 class Clock extends Date {static now(){return now;}}
 const timers=new Map(),hungPaths=new Set(),abortedPaths=[];let timerId=0;
 const schedule=(callback,delay)=>{const id=++timerId;timers.set(id,{callback,at:now+delay});return id;};
 const cancel=id=>timers.delete(id);
-const pollers=[],navigations=[],pageUrl='http://127.0.0.1:8789/?prefab=fixture%3Abeacon';
+const pollers=[],navigations=[],pageUrl='http://127.0.0.1:8789/legacy/operator?prefab=fixture%3Abeacon';
 const location={host:'127.0.0.1:8789',search:'?prefab=fixture%3Abeacon',assign:value=>navigations.push(value),replace:value=>navigations.push(value)};
 Object.defineProperty(location,'href',{get:()=>pageUrl,set:value=>navigations.push(value)});
 let capture={supported:true,status:'none',voiceCaptureId:null},stateRevision=1,stateResults=[],autoReadyCapture=false,recommendCandidates=[],installedAssetIds=[],contentJobs=[];
 const screenshot={captureId:'capture-1',capturedAtUtc:'2026-09-21T18:00:00Z',content:'virtual_scene'};
 const captureReady={...capture,...screenshot,status:'ready',width:640,height:360,ageSeconds:2,captureDurationMs:14.012800000000001};
-const pageHeading=new Element('h1');
+const pageHeading=new Element('h1');pageHeading.textContent='Archived Unity Operator';
 const context=vm.createContext({document:{getElementById:id=>elements.get(id),createElement:tag=>new Element(tag),querySelector:selector=>selector==='h1'?pageHeading:null,querySelectorAll:()=>[]},
   console,Map,JSON,Number,Date:Clock,Error,URL,URLSearchParams,AbortController,location,setTimeout:schedule,clearTimeout:cancel,setInterval:callback=>{pollers.push(callback);return pollers.length;},clearInterval:()=>{},fetch:async(url,options)=>{
     const body=options.body?JSON.parse(options.body):undefined;calls.push({url,method:options.method,body,headers:{...options.headers}});
@@ -48,7 +48,7 @@ const context=vm.createContext({document:{getElementById:id=>elements.get(id),cr
       options.signal.addEventListener('abort',()=>{abortedPaths.push(url);const error=Error('Aborted');error.name='AbortError';reject(error);},{once:true});
     });
     if(url==='/api/planner')return {ok:true,json:async()=>structuredClone(info)};
-    if(url==='/api/state')return stateError?{ok:false,status:stateError.status,json:async()=>({error:stateError.message})}:{ok:true,json:async()=>({online:runtimeOnline,clientId:runtimeOnline?'runtime-session':null,revision:stateRevision,pendingCount:0,results:structuredClone(stateResults),snapshot:{scene:{roomId:'white-room-v1',objects:[]},assets:installedAssetIds.map(assetId=>({assetId,displayName:'Armchair'})),anchors:[]},voice:null,capture:structuredClone(capture)})};
+    if(url==='/api/state')return stateError?{ok:false,status:stateError.status,json:async()=>({error:stateError.message})}:{ok:true,json:async()=>({online:runtimeOnline,clientId:runtimeOnline?'runtime-session':null,revision:stateRevision,pendingCount:0,results:structuredClone(stateResults),snapshot:{scene:{roomId:runtimeRoomId,objects:[]},assets:installedAssetIds.map(assetId=>({assetId,displayName:'Armchair'})),anchors:[],...(runtimeDescriptor?{runtimeDescriptor:structuredClone(runtimeDescriptor)}:{})},voice:null,capture:structuredClone(capture)})};
     if(url==='/api/runtime/reconnect'){
       if(reconnectHold)await reconnectHold;
       if(reconnectFailure)throw Error(reconnectFailure);
@@ -331,7 +331,7 @@ async function reconnectChecks(){
     reconnectReply={status:'other_service',message:'Matrix is configured for another Operator.',operatorUrl};
     await element('reconnectQuest').onclick();
     assert.equal(element('matchingOperator').hidden,false,'Show an explicit link to the matching local service');
-    assert.equal(element('matchingOperator').href,operatorUrl);
+    assert.equal(element('matchingOperator').href,new URL('/legacy/operator',operatorUrl).href);
     assert.match(element('matchingOperator').textContent,/port 8776/);
     assert.equal(element('reconnectQuest').disabled,false);
   }
@@ -435,5 +435,22 @@ async function reconnectTimeoutChecks(){
   capture={supported:true,status:'none'};runtimeOnline=true;await poll();
   assert.equal(element('save').disabled,false);
   assert.equal(timers.size,0,'No timeout callbacks remain after all requests settle');
+  runtimeDescriptor={schemaVersion:1,client:'matrix-web',renderer:'threejs-webxr',presentation:'desktop'};
+  await poll();
+  assert.match(element('status').textContent,/WebXR is connected.*archived Unity controls are disabled/i);
+  assert.equal(pageHeading.textContent,'Archived Unity Operator','Polling retains the archive heading');
+  for(const id of ['spawn','spawnHere','transform','duplicate','delete','undo','redo','clear','save','load','plan','apply','reviewVoice','confirmRoom','captureScene','voiceCapture','reviewResult','prompt','mode','codexModel','codexReasoning']){
+    assert.equal(element(id).disabled,true,'Web runtime disables '+id);
+  }
+  const posts=calls.filter(call=>call.method==='POST').length;
+  await element('clear').onclick();
+  await element('save').onclick();
+  await element('plan').onclick();
+  assert.equal(calls.filter(call=>call.method==='POST').length,posts,'Direct native handlers cannot POST while a Web runtime is connected');
+  runtimeDescriptor=null;await poll();
+  assert.equal(element('save').disabled,false,'Legacy controls recover for a connected native runtime');
+  runtimeRoomId='web-virtual-room-v1';await poll();
+  assert.equal(element('clear').disabled,true,'Older Web snapshot without a descriptor still disables native controls');
+  runtimeRoomId='white-room-v1';await poll();
 }
 run().catch(error=>{console.error(error);process.exitCode=1;});

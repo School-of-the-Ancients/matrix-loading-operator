@@ -83,7 +83,7 @@ The merged [Immersive Creator Mode implementation](Docs/Procedural-Creation.md) 
 
 Home: [`Archive/Unity/`](Archive/Unity/README.md), containing `Assets/`, `Packages/`, `ProjectSettings/`, native build/install/connect scripts and native content-pack tooling. Historical APKs and matching PC-service bundles remain in [GitHub Releases](https://github.com/School-of-the-Ancients/matrix-loading-operator/releases).
 
-This includes the historical White Room application, Quest virtual room, MRUK room-aware AR, voice/text proposals and reviewed Apply, stable IDs/Undo/save, compiled Rotate/Bob, prefab/AssetBundle loading and coursework snapshots. `/` is the original PC Operator surface; the native runtime is a separate application connected to ControlService.
+This includes the historical White Room application, Quest virtual room, MRUK room-aware AR, voice/text proposals and reviewed Apply, stable IDs/Undo/save, compiled Rotate/Bob, prefab/AssetBundle loading and coursework snapshots. The original PC Operator is retained on loopback at `/legacy/operator`; `/` now opens `/web/`. The native runtime is a separate application connected to ControlService. See the [route and consumer map](Docs/Control-Page-Routes.md).
 
 Preserve matching source/runbook/release provenance and the original names. This archive is not the acceptance path for new features or coursework. Generalized voice-created experiences, HTML, procedural content and Blender/GLB authoring belong to Matrix Web. No Unity room prefab or scene needs to be ported to realize the blank-start idea.
 

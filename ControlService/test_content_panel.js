@@ -53,7 +53,7 @@ const run=code=>vm.runInContext(code,context),el=id=>elements.get(id),tick=()=>n
  sourceFilter.value='';sourceFilter.onchange();assert.equal(el('prefabCards').children.length,9);document.activeElement=null;
  const stableCards=el('prefabCards').children;run('renderPrefabBrowser()');assert.equal(el('prefabCards').children,stableCards,'Unchanged polling does not recreate cards');
  const query=el('prefabQuery');document.activeElement=query;query.value='chair';query.oninput();assert.equal(el('prefabCards').children.length,1);assert.equal(document.activeElement,query);
- const link=q('a[data-prefab-key]')[0];assert.equal(link.href,'/?prefab=chair');document.activeElement=link;const oldCard=el('prefabCards').children[0];
+ const link=q('a[data-prefab-key]')[0];assert.equal(link.href,'/legacy/operator?prefab=chair');document.activeElement=link;const oldCard=el('prefabCards').children[0];
  run("sceneState.snapshot.assets=sceneState.snapshot.assets.filter(a=>a.assetId!=='chair');renderPrefabBrowser();controls()");
  assert.equal(el('prefabCards').children[0],oldCard,'Focused action is not replaced by polling');assert.equal(link.getAttribute('aria-disabled'),'true','Removed asset disables focused link immediately');
  document.activeElement=null;run('renderPrefabBrowser()');assert.notEqual(el('prefabCards').children[0],oldCard);

@@ -187,7 +187,7 @@ class ServiceTests(unittest.TestCase):
 
     def test_auth_origin_host_and_static_page(self):
         self.server.token = "a-long-random-token-for-testing"
-        self.assertEqual(self.request("/")[0], 200)
+        self.assertEqual(self.request("/legacy/operator")[0], 200)
         self.assertEqual(self.request("/api/health")[0], 401)
         auth = {"Authorization": "Bearer " + self.server.token}
         self.assertEqual(self.request("/api/health", headers=auth)[0], 200)
@@ -196,6 +196,72 @@ class ServiceTests(unittest.TestCase):
         self.assertEqual(self.request("/api/command", {"op": "clear"}, {**auth, "Content-Type": "text/plain"})[0], 415)
         with self.assertRaises(APIError):
             Server(("0.0.0.0", 0), self.state, "")
+
+    def test_web_entry_and_native_bookmark_routes(self):
+        def raw_get(path):
+            connection = http.client.HTTPConnection("127.0.0.1", self.server.server_port, timeout=3)
+            try:
+                connection.request("GET", path)
+                response = connection.getresponse()
+                return response.status, response.getheader("Location"), response.read()
+            finally:
+                connection.close()
+
+        self.assertEqual(raw_get("/"), (302, "/web/", b""))
+        self.assertEqual(raw_get("/web"), (302, "/web/", b""))
+        self.assertEqual(raw_get("/?prefab=fixture%3Achair"),
+                         (302, "/legacy/operator?prefab=fixture%3Achair", b""))
+        self.assertEqual(raw_get("/?prefab=chair&token=do-not-forward"),
+                         (302, "/web/", b""))
+        code, legacy = self.request("/legacy/operator?prefab=fixture%3Achair")
+        self.assertEqual(code, 200)
+        self.assertIn(b"Archived Unity Operator", legacy)
+        self.assertIn(b'href="/web/"', legacy)
+        for path, marker in (("/content", b"Unity content library"),
+                             ("/learning", b"Unity AR lesson"),
+                             ("/clients", b"Client connections")):
+            with self.subTest(path=path):
+                code, page = self.request(path)
+                self.assertEqual(code, 200)
+                self.assertIn(marker, page)
+                self.assertIn(b'href="/web/"', page)
+        # Emulate a non-loopback peer at the page gate without opening a LAN listener.
+        self.server.is_loopback = False
+        try:
+            with patch("server.loopback", return_value=False):
+                for path in ("/", "/legacy/operator", "/content", "/learning", "/clients"):
+                    with self.subTest(remote_path=path):
+                        self.assertEqual(raw_get(path)[0], 404)
+        finally:
+            self.server.is_loopback = True
+
+    def test_legacy_page_expected_client_cannot_edit_a_new_web_lease(self):
+        self.assertEqual(self.exchange(client="native-client")[0], 200)
+        native_header = {"X-Matrix-Expected-Client": "native-client"}
+        self.assertEqual(self.request("/api/command", {"op": "clear"}, native_header)[0], 200)
+        self.now[0] += LEASE_SECONDS + 1
+        web = copy.deepcopy(SNAPSHOT)
+        web["scene"]["roomId"] = "web-virtual-room-v1"
+        web["roomContext"] = {"mode": "white-room", "state": "ready",
+                              "message": "Browser virtual floor", "alignmentVerified": False}
+        web["runtimeDescriptor"] = {"schemaVersion": 1, "client": "matrix-web",
+                                    "renderer": "threejs-webxr", "presentation": "desktop"}
+        self.assertEqual(self.exchange(client="web-client", snap=web)[0], 200)
+        self.assertEqual(self.request("/api/state")[1]["pendingCount"], 0)
+        for header in (native_header, {"X-Matrix-Expected-Client": "web-client"}):
+            for path, body in (("/api/command", {"op": "clear"}),
+                               ("/api/save", {"name": "legacy"}),
+                               ("/api/load", {"name": "legacy"}),
+                               ("/api/apply_plan", {"planId": "old-plan"})):
+                with self.subTest(header=header, path=path):
+                    self.assertEqual(self.request(path, body, header)[0], 409)
+                    self.assertEqual(self.request("/api/state")[1]["pendingCount"], 0)
+        # Older Web worlds also had a recognizable room ID before descriptors.
+        web.pop("runtimeDescriptor")
+        self.assertEqual(self.exchange(client="web-client", snap=web)[0], 200)
+        self.assertEqual(self.request("/api/command", {"op": "clear"},
+                                      {"X-Matrix-Expected-Client": "web-client"})[0], 409)
+        self.assertEqual(self.request("/api/state")[1]["pendingCount"], 0)
 
     def test_corrupt_or_duplicate_saved_scene_rejected_without_queue(self):
         self.exchange()

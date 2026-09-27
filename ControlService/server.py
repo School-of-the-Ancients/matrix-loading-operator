@@ -5469,6 +5469,30 @@ class Handler(BaseHTTPRequestHandler):
         self.end_headers()
         self.wfile.write(raw)
 
+    def send_redirect(self, location):
+        self.send_response(302)
+        self.send_header("Location", location)
+        self.send_header("Content-Length", "0")
+        self.send_header("Cache-Control", "no-store")
+        self.send_header("X-Content-Type-Options", "nosniff")
+        self.end_headers()
+
+    def expected_native_client(self, state, operation):
+        """Keep a legacy page's last observed lease from editing a new Web lease."""
+        expected = self.headers.get("X-Matrix-Expected-Client")
+        if expected is None:
+            return operation()  # Existing API clients retain their contract.
+        with state.lock:
+            state.expire()
+            current = state.latest or {}
+            descriptor = current.get("runtimeDescriptor") or {}
+            room = (current.get("scene") or {}).get("roomId", "")
+            require(state.online() and state.client_id == expected and
+                    descriptor.get("client") != "matrix-web" and
+                    room != "web-virtual-room-v1" and not room.startswith("webxr-session-"),
+                    "The connected runtime changed; reopen its current control page", 409)
+            return operation()
+
     def validate_host(self):
         host = self.headers.get("Host", "")
         require(bool(host) and len(host) <= 255 and "/" not in host and "@" not in host, "Invalid Host", 400)
@@ -5541,7 +5565,19 @@ class Handler(BaseHTTPRequestHandler):
     def do_GET(self):
         try:
             self.validate_host()
-            path = urllib.parse.urlsplit(self.path).path
+            url = urllib.parse.urlsplit(self.path)
+            path = url.path
+            if path == "/" and loopback(self.client_address[0]):
+                # Preserve the native content browser's old selected-prefab bookmark.
+                query = urllib.parse.parse_qs(url.query)
+                prefab = query.get("prefab") if set(query) == {"prefab"} else None
+                location = ("/legacy/operator?prefab=" + urllib.parse.quote(prefab[0], safe="")
+                            if prefab and len(prefab) == 1 and len(prefab[0]) <= 256 else "/web/")
+                self.send_redirect(location)
+                return
+            if path == "/web":
+                self.send_redirect("/web/")
+                return
             if path in ("/web", "/web/", "/web/citizens.html") or path.startswith("/web/assets/"):
                 dist = Path(__file__).resolve().parent.parent / "WebRuntime" / "dist"
                 if path in ("/web", "/web/", "/web/citizens.html"):
@@ -5556,8 +5592,9 @@ class Handler(BaseHTTPRequestHandler):
                 self.send_data(200, asset.read_bytes(), content_type,
                                allow_webassembly=content_type.startswith("text/html"))
                 return
-            if path in ("/", "/learning", "/content", "/clients") and loopback(self.client_address[0]):
-                page = "index.html" if path == "/" else "content.html" if path == "/content" else "clients.html" if path == "/clients" else "learning.html"
+            if path in ("/legacy/operator", "/learning", "/content", "/clients") and loopback(self.client_address[0]):
+                page = ("index.html" if path == "/legacy/operator" else "content.html" if path == "/content"
+                        else "clients.html" if path == "/clients" else "learning.html")
                 self.send_data(200, Path(__file__).with_name(page).read_bytes(), "text/html; charset=utf-8")
                 return
             if path == "/learning-ui.js" and loopback(self.client_address[0]):
@@ -5679,11 +5716,12 @@ class Handler(BaseHTTPRequestHandler):
             elif path.startswith("/api/agent/"):
                 data = agent_portal_action(state, path, body)
             elif path == "/api/command":
-                data = state.queue(body["commands"] if set(body) == {"commands"} else [body])
+                data = self.expected_native_client(
+                    state, lambda: state.queue(body["commands"] if set(body) == {"commands"} else [body]))
             elif path == "/api/save":
-                data = state.save(body.get("name"))
+                data = self.expected_native_client(state, lambda: state.save(body.get("name")))
             elif path == "/api/load":
-                data = state.load(body.get("name"), body.get("requestId"))
+                data = self.expected_native_client(state, lambda: state.load(body.get("name"), body.get("requestId")))
             elif path == "/api/web/world/save":
                 require(set(body) == {"name", "world"}, "World checkpoint needs name and world")
                 data = state.save_world_checkpoint(body["name"], body["world"])
@@ -5706,22 +5744,23 @@ class Handler(BaseHTTPRequestHandler):
             elif path == "/api/voice/cancel":
                 data = cancel_voice(state, body)
             elif path == "/api/apply_plan":
-                data = state.apply_plan(body.get("planId"))
+                data = self.expected_native_client(state, lambda: state.apply_plan(body.get("planId")))
             elif path.startswith("/api/learning/"):
                 require(state.learning is not None, "Learning adapter unavailable", 503)
-                if path == "/api/learning/start":
-                    data = state.learning.start(state, body)
-                elif path == "/api/learning/action":
-                    data = state.learning.act(state, body)
-                elif path == "/api/learning/retry_restore":
-                    data = state.learning.retry_restore(state)
-                elif path == "/api/learning/dismiss_restore":
-                    with state.lock:
-                        require(state.learning.restore and state.learning.restore.get("failed"), "Only an unconfirmed room restore can be dismissed", 409)
-                        state.learning.restore = None
-                        data = state.learning.status(state)
-                else:
+                def learning_action():
+                    if path == "/api/learning/start":
+                        return state.learning.start(state, body)
+                    if path == "/api/learning/action":
+                        return state.learning.act(state, body)
+                    if path == "/api/learning/retry_restore":
+                        return state.learning.retry_restore(state)
+                    if path == "/api/learning/dismiss_restore":
+                        with state.lock:
+                            require(state.learning.restore and state.learning.restore.get("failed"), "Only an unconfirmed room restore can be dismissed", 409)
+                            state.learning.restore = None
+                            return state.learning.status(state)
                     raise APIError(404, "Not found")
+                data = self.expected_native_client(state, learning_action)
             else:
                 raise APIError(404, "Not found")
             self.send_data(200, data)

@@ -89,7 +89,8 @@ try {
     [Environment]::SetEnvironmentVariable('SANDBOX_CODEX_WINDOWS_SANDBOX', $(if ($WindowsSandbox -eq 'default') { $null } else { $WindowsSandbox }), 'Process')
     Write-Host 'Using the existing Codex ChatGPT sign-in on this PC. Subscription usage limits apply.'
     Write-Host "Agent Portal sandbox: $AgentSandbox; approvals: $AgentApprovals; Windows sandbox: $WindowsSandbox"
-    Write-Host "Control page: http://127.0.0.1:$Port/"
+    Write-Host "Matrix WebXR: http://127.0.0.1:$Port/web/"
+    Write-Host "Archived Unity Operator: http://127.0.0.1:$Port/legacy/operator"
     Write-Host 'Keep this terminal open. Ctrl+C stops the service.'
     if ($AgentApprovals -eq 'reviewed') { Write-Host 'Review each AI proposal before applying it.' }
     & $python (Join-Path $PSScriptRoot 'ControlService\server.py') --port $Port

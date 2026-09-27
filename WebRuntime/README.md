@@ -1,6 +1,6 @@
 # Matrix WebXR runtime
 
-`/web/` is the current Three.js/WebXR Matrix. The original Unity Operator still has a compatibility page at `/`, but its [source and native builds are archived](../Archive/Unity/README.md). Both routes retain the existing ControlService API and scene schema 1. New Matrix development and coursework use `/web/`.
+`/web/` is the current Three.js/WebXR Matrix and the destination of an old `/` bookmark. The original Unity Operator is a loopback-only compatibility page at `/legacy/operator`; its [source and native builds are archived](../Archive/Unity/README.md). The shared ControlService API and scene schema 1 remain available. New Matrix development and coursework use `/web/`. The [route and consumer map](../Docs/Control-Page-Routes.md) records which older pages remain and why `/clients` is still active.
 
 ## Run on desktop
 
