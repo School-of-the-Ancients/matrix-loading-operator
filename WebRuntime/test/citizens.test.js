@@ -279,25 +279,315 @@ test('an observed receipt on the inclusive deadline completes, one tick later mi
   'a receipt on the next tick still grants its intrinsic need outcome');
 });
 
-test('a busy resident misses the deadline without interrupting its claim or FIFO peer',()=>{
+test('a short due appointment releases optional travel but still misses without a receipt',()=>{
   const matrix=world(),sim=createCitizensDemo(matrix,{seed:17});
   const busy=sim.step();
   assert.equal(holder(busy.stations.find(item=>item.kind==='rest')),'ada');
-  assert.equal(busy.stations.find(item=>item.kind==='rest').waiters[0].residentId,'bo');
+  const ticket=busy.stations.find(item=>item.kind==='rest').waiters[0];
+  assert.equal(ticket.residentId,'bo');
+  const oldExecution=busy.residents[0].activity.executionId;
   sim.scheduleAppointment('ada',{kind:'eat',startTick:2,deadlineTick:3});
-  assert.equal(sim.step().clockTick,2);
+  const started=sim.step();
+  assert.equal(started.clockTick,2);
+  assert.equal(appointmentOf(started).status,'active');
+  assert.equal(started.residents[0].activity?.kind,'eat');
+  assert.notEqual(appointmentOf(started).executionId,oldExecution);
+  assert.equal(holder(started.stations.find(item=>item.kind==='rest')),'bo');
+  assert.equal(started.stations.find(item=>item.kind==='rest').claim.executionId,
+    ticket.executionId);
   const onDeadline=sim.step();
   assert.equal(onDeadline.clockTick,3);
-  assert.equal(appointmentOf(onDeadline).status,'pending');
+  assert.equal(appointmentOf(onDeadline).status,'active');
   const missed=sim.step();
   assert.equal(missed.clockTick,4);
   assert.equal(appointmentOf(missed).status,'missed');
   assert.equal(appointmentOf(missed).resolvedTick,4);
   assert.equal(appointmentOf(missed).requestId,null);
-  assert.equal(missed.residents[0].activity?.kind,'rest');
-  assert.equal(holder(missed.stations.find(item=>item.kind==='rest')),'ada');
-  assert.equal(missed.stations.find(item=>item.kind==='rest').waiters[0].residentId,'bo');
+  assert.equal(missed.residents[0].activity?.kind,'eat',
+    'a missed appointment retains the finite action until its own outcome');
+  assert.equal(holder(missed.stations.find(item=>item.kind==='rest')),'bo');
+  assert.equal(missed.residents[0].needs.energy,
+    Math.round((busy.residents[0].needs.energy-3*.55)*100)/100,
+    'released rest travel has no need benefit');
   assert.deepEqual(sim.exportState(),missed);
+});
+
+test('a due meal releases an optional FIFO ticket and replays one receipt-backed outcome',()=>{
+  const matrix=world(),sim=createCitizensDemo(matrix,{seed:29});
+  const first=sim.step(),chairBefore=first.stations.find(item=>item.kind==='rest');
+  const oldTicket=chairBefore.waiters[0].executionId;
+  const adaClaim=chairBefore.claim.executionId;
+  const boBefore=first.residents.find(item=>item.id==='bo');
+  sim.scheduleAppointment('bo',{kind:'eat',startTick:2,deadlineTick:40});
+  const started=sim.step(),bo=started.residents.find(item=>item.id==='bo');
+  const chair=started.stations.find(item=>item.kind==='rest');
+  const meal=appointmentOf(started,'bo');
+  assert.equal(started.clockTick,2);
+  assert.equal(chair.claim.executionId,adaClaim);
+  assert.deepEqual(chair.waiters,[]);
+  assert.equal(bo.activity?.kind,'eat');
+  assert.equal(meal.status,'active');
+  assert.equal(meal.executionId,bo.activity.executionId);
+  assert.notEqual(meal.executionId,oldTicket);
+  assert.equal(bo.needs.hunger,Math.round((boBefore.needs.hunger-.45)*100)/100);
+  assert.equal(bo.needs.energy,Math.round((boBefore.needs.energy-.55)*100)/100);
+  assert.match(bo.lastOutcome,/Interrupted rest for appointment-1/);
+  assert.ok(started.log.some(entry=>entry.residentId==='bo'&&
+    entry.message.includes(`interrupted optional rest execution ${oldTicket} for appointment-1`)));
+
+  const cloneWorld=world();
+  assert.equal(cloneWorld.execute({requestId:'load-due-meal-takeover',
+    op:'load',scene:structuredClone(matrix.scene)}).ok,true);
+  const replay=CitizensSimulation.restore(cloneWorld,sim.exportState());
+  let completed=false;
+  for(let tick=0;tick<60;tick++){
+    const left=sim.step(),right=replay.step();
+    assert.deepEqual(left,right);
+    assert.deepEqual(matrix.scene,cloneWorld.scene);
+    if(appointmentOf(left,'bo').status==='completed'){
+      completed=true;
+      assert.match(appointmentOf(left,'bo').requestId,
+        new RegExp(`^citizens-29-action-${meal.executionId}-[0-9]+$`));
+      assert.ok(left.residents.find(item=>item.id==='bo').needs.hunger>
+        bo.needs.hunger,'only the observed food interaction raises hunger');
+      break;
+    }
+  }
+  assert.equal(completed,true);
+});
+
+test('a matching due rest adopts optional FIFO and travel executions without a new claim',()=>{
+  const matrix=world(),sim=createCitizensDemo(matrix,{seed:29});
+  const first=sim.step(),chair=first.stations.find(item=>item.kind==='rest');
+  const ticket=structuredClone(chair.waiters[0]);
+  const adaExecution=chair.claim.executionId;
+  sim.scheduleAppointment('bo',{kind:'rest',startTick:2,deadlineTick:60});
+  sim.scheduleAppointment('ada',{kind:'rest',startTick:2,deadlineTick:60});
+  const before=sim.exportState(),after=sim.step();
+  const afterChair=after.stations.find(item=>item.kind==='rest');
+  assert.equal(after.actionSequence,before.actionSequence);
+  assert.deepEqual(afterChair.waiters,[ticket]);
+  assert.equal(afterChair.claim.executionId,adaExecution);
+  assert.equal(appointmentOf(after,'bo').status,'active');
+  assert.equal(appointmentOf(after,'bo').executionId,ticket.executionId);
+  assert.equal(appointmentOf(after,'ada').status,'active');
+  assert.equal(appointmentOf(after,'ada').executionId,adaExecution);
+  assert.equal(after.residents[0].lastDecision.mode,'appointment');
+  assert.equal(after.residents[1].lastDecision.mode,'appointment');
+  assert.ok(after.log.some(entry=>entry.message.includes('adopted optional appointment-1')));
+  const completed=stepUntil(sim,state=>
+    appointmentOf(state,'bo').status==='completed',80);
+  assert.match(appointmentOf(completed,'bo').requestId,
+    new RegExp(`^citizens-29-action-${ticket.executionId}-[0-9]+$`));
+});
+
+test('a blocked same-kind route leaves the FIFO ticket optional and checkpoint-valid',()=>{
+  const matrix=world(),sim=createCitizensDemo(matrix,{seed:29});
+  const first=sim.step();
+  const ticket=structuredClone(first.stations.find(item=>
+    item.kind==='rest').waiters[0]);
+  sim.scheduleAppointment('bo',{kind:'rest',startTick:2,deadlineTick:40});
+  spawn(matrix,'block',pose(0,-2,0,2));
+  const resumed=CitizensSimulation.restore(matrix,sim.snapshot());
+  const bo=resumed.state.residents.find(item=>item.id==='bo');
+  const actor=matrix.requireObject(bo.objectId).transform.position;
+  const candidate=resumed.decisionCandidate(bo,actor,'rest');
+  assert.ok(candidate.unavailable,'every chair approach must be blocked');
+  assert.equal(candidate.trace.availabilityFactor,0);
+  const after=resumed.step();
+  assert.equal(appointmentOf(after,'bo').status,'pending');
+  assert.deepEqual(after.stations.find(item=>item.kind==='rest').waiters[0],
+    ticket);
+  assert.equal(after.residents.find(item=>item.id==='bo').activity,null);
+  assert.deepEqual(resumed.exportState(),after,
+    'the pending appointment and optional ticket survive normal validation');
+});
+
+test('a due goal keeps optional work when its target is unavailable or cooling down',()=>{
+  const blockedWorld=world(),blocked=createCitizensDemo(blockedWorld,{seed:31});
+  const first=blocked.step();
+  blocked.scheduleAppointment('ada',{kind:'eat',startTick:2,deadlineTick:40});
+  spawn(blockedWorld,'block',pose(2.15,-2,0,2));
+  const blockedSim=CitizensSimulation.restore(blockedWorld,blocked.exportState());
+  const target=blockedSim.decisionCandidate(blockedSim.state.residents[0],
+    blockedWorld.requireObject(first.residents[0].objectId).transform.position,'eat');
+  assert.ok(target.unavailable);
+  const held=blockedSim.step();
+  assert.equal(appointmentOf(held).status,'pending');
+  assert.equal(held.residents[0].activity?.executionId,
+    first.residents[0].activity.executionId);
+  assert.equal(held.stations.find(item=>item.kind==='rest').claim?.residentId,'ada');
+
+  const cooldownWorld=world(),cooldown=createCitizensDemo(cooldownWorld,{seed:31});
+  cooldown.step();
+  cooldown.scheduleAppointment('bo',{kind:'eat',startTick:2,deadlineTick:40});
+  const saved=cooldown.exportState(),oldTicket=saved.stations.find(item=>
+    item.kind==='rest').waiters[0];
+  saved.residents.find(item=>item.id==='bo').cooldowns.eat=4;
+  const waiting=CitizensSimulation.restore(cooldownWorld,saved).step();
+  assert.equal(appointmentOf(waiting,'bo').status,'pending');
+  assert.deepEqual(waiting.stations.find(item=>item.kind==='rest').waiters[0],
+    oldTicket);
+});
+
+const reviewedDueStations=()=>{
+  const matrix=world(),chairSha='a'.repeat(64),foodSha='b'.repeat(64);
+  const asset=(id,sha,size)=>({assetId:`web:${id}:${sha.slice(0,12)}`,
+    displayName:id,description:'Static reviewed station',spawnScale:1,
+    sha256:sha,byteLength:1024,url:`/api/web/assets/${sha}.glb`,
+    localBounds:{center:{x:0,y:size.y/2,z:0},size},
+    geometry:{animationClips:[]}});
+  const chairAsset=asset('due-chair',chairSha,{x:.62,y:.95,z:.62});
+  const foodAsset=asset('due-food',foodSha,{x:1.2,y:.843,z:.8});
+  matrix.registerAssets([chairAsset,foodAsset]);
+  const interaction=(kind,sha,approachPose,usePose,effect)=>({
+    schemaVersion:1,interactionId:`due-${kind}`,kind,assetSha256:sha,
+    requiredCapabilities:['static-virtual-floor','verified-rendered-bounds'],
+    availability:['target-static','floor-aligned','rendered-verified'],
+    approachPose,usePose,rangeMeters:.8,durationTicks:5,capacity:1,effect});
+  const seat=matrix.execute({requestId:'due-seat',op:'spawn',
+    assetId:chairAsset.assetId,anchorId:'web-floor',transform:pose(0,-2)});
+  assert.equal(seat.ok,true);
+  assert.equal(matrix.verifyPhysicsAsset(chairAsset.assetId,
+    {x:.62,y:.95,z:.62},seat.objectId),true);
+  assert.equal(matrix.execute({requestId:'due-seat-interaction',
+    op:'set_interaction',objectId:seat.objectId,expectedInteraction:null,
+    interaction:interaction('rest',chairSha,{x:0,z:-.75},{x:0,z:-.2},
+      {need:'energy',delta:22})}).ok,true);
+  const sim=createCitizensWithSelectedFurniture(matrix,
+    {seed:31,objectId:seat.objectId});
+  const table=matrix.execute({requestId:'due-food',op:'spawn',
+    assetId:foodAsset.assetId,anchorId:'web-floor',transform:pose(2,0)});
+  assert.equal(table.ok,true);
+  assert.equal(matrix.verifyPhysicsAsset(foodAsset.assetId,
+    {x:1.2,y:.843,z:.8},table.objectId),true);
+  assert.equal(matrix.execute({requestId:'due-food-interaction',
+    op:'set_interaction',objectId:table.objectId,expectedInteraction:null,
+    interaction:interaction('eat',foodSha,{x:0,z:-.9},{x:0,z:-.28},
+      {need:'hunger',delta:32})}).ok,true);
+  sim.addSelectedStation(table.objectId);
+  return {matrix,sim};
+};
+
+test('an occupied chair approach prevents a due meal from releasing its claimant',()=>{
+  const {matrix,sim}=reviewedDueStations();
+  const first=sim.step(),ada=first.residents[0];
+  const chair=first.stations.find(item=>item.kind==='rest');
+  assert.equal(ada.activity?.phase,'travel');
+  assert.equal(chair.waiters[0]?.residentId,'bo');
+  sim.scheduleAppointment('ada',{kind:'eat',startTick:2,deadlineTick:40});
+  const transform=structuredClone(matrix.requireObject(ada.objectId).transform);
+  transform.position.x=0;
+  transform.position.z=-2.75;
+  assert.equal(matrix.execute({requestId:'place-ada-at-chair-approach',
+    op:'set_transform',objectId:ada.objectId,transform},{recordHistory:false}).ok,true);
+  const resumed=CitizensSimulation.restore(matrix,sim.snapshot());
+  const optional=resumed.optionalTravelOrWait(resumed.state.residents[0]);
+  assert.ok(optional);
+  assert.equal(resumed.canReleaseOptionalClaim(resumed.state.residents[0],optional),
+    false,'the current holder occupies the authored approach');
+  const after=resumed.step(),afterChair=after.stations.find(item=>item.kind==='rest');
+  assert.equal(appointmentOf(after).status,'pending');
+  assert.equal(afterChair.claim?.executionId,chair.claim.executionId);
+  assert.equal(afterChair.waiters[0]?.executionId,chair.waiters[0].executionId);
+  assert.equal(after.residents[0].activity?.kind,'rest');
+  assert.ok(!after.log.some(entry=>entry.tick===2&&
+    entry.message.includes('interrupted optional rest')));
+});
+
+test('critical hunger links a due rest when its chair claim cannot safely release',()=>{
+  const {matrix,sim}=reviewedDueStations();
+  const first=sim.step(),ada=first.residents[0];
+  const chair=first.stations.find(item=>item.kind==='rest');
+  const executionId=chair.claim.executionId;
+  const ticket=structuredClone(chair.waiters[0]);
+  sim.scheduleAppointment('ada',{kind:'rest',startTick:2,deadlineTick:40});
+  const transform=structuredClone(matrix.requireObject(ada.objectId).transform);
+  transform.position.x=0;
+  transform.position.z=-2.75;
+  assert.equal(matrix.execute({requestId:'place-hungry-ada-at-chair-approach',
+    op:'set_transform',objectId:ada.objectId,transform},{recordHistory:false}).ok,true);
+  const saved=sim.snapshot();
+  saved.residents[0].needs.hunger=15.4;
+  const resumed=CitizensSimulation.restore(matrix,saved);
+  const resident=resumed.state.residents[0];
+  const actor=matrix.requireObject(ada.objectId).transform.position;
+  const food=resumed.decisionCandidate(resident,actor,'eat');
+  const rest=resumed.decisionCandidate(resident,actor,'rest');
+  const optional=resumed.optionalTravelOrWait(resident);
+  assert.ok(food.station&&!food.unavailable,'critical food is reachable');
+  assert.ok(rest.station&&!rest.unavailable,'chair route remains valid');
+  assert.ok(optional);
+  assert.equal(resumed.canReleaseOptionalClaim(resident,optional),false);
+
+  const linked=resumed.step(),linkedAda=linked.residents[0];
+  const appointment=appointmentOf(linked);
+  const heldChair=linked.stations.find(item=>item.kind==='rest');
+  assert.equal(linked.clockTick,2);
+  assert.equal(linkedAda.needs.hunger,14.95);
+  assert.equal(appointment.status,'active');
+  assert.equal(appointment.executionId,executionId);
+  assert.equal(linkedAda.lastDecision.selectedAppointmentId,appointment.id);
+  assert.equal(linkedAda.activity?.kind,'rest');
+  assert.equal(heldChair.claim?.executionId,executionId);
+  assert.deepEqual(heldChair.waiters[0],ticket);
+  assert.equal(linkedAda.needs.energy,
+    Math.round((ada.needs.energy-.55)*100)/100,
+    'adoption alone grants no chair benefit');
+  assert.ok(!linked.log.some(entry=>entry.tick===2&&
+    entry.message.includes('interrupted optional')));
+  const checkpoint=resumed.exportState();
+  assert.deepEqual(checkpoint,linked);
+  assert.deepEqual(CitizensSimulation.restore(matrix,checkpoint).exportState(),
+    checkpoint,'active appointment has a valid v11 checkpoint trace');
+
+  const completed=stepUntil(resumed,state=>
+    appointmentOf(state).status==='completed',40);
+  assert.match(appointmentOf(completed).requestId,
+    new RegExp(`^citizens-31-action-${executionId}-[0-9]+$`));
+  assert.ok(completed.residents[0].needs.energy>linkedAda.needs.energy,
+    'only the checked chair receipt grants the benefit');
+});
+
+test('due appointments preserve station use, egress and already linked work',()=>{
+  for(const phase of ['use','egress']){
+    const matrix=world(),sim=createCitizensDemo(matrix,{seed:31});
+    const atPhase=stepUntil(sim,state=>state.residents[0].activity?.phase===phase,
+      65);
+    const execution=atPhase.residents[0].activity.executionId;
+    sim.scheduleAppointment('ada',{kind:'eat',startTick:atPhase.clockTick+1,
+      deadlineTick:atPhase.clockTick+40});
+    const after=sim.step();
+    assert.equal(appointmentOf(after).status,'pending');
+    assert.ok(after.residents[0].activity?.executionId===execution||
+      phase==='egress'&&after.residents[0].activity===null);
+    assert.ok(!after.log.some(entry=>entry.tick===after.clockTick&&
+      entry.message.includes(`for appointment-1; claim or FIFO ticket released`)));
+  }
+  const matrix=world(),sim=createCitizensDemo(matrix,{seed:31});
+  sim.scheduleAppointment('ada',{kind:'rest',startTick:1,deadlineTick:60});
+  const first=sim.step(),execution=appointmentOf(first).executionId;
+  sim.scheduleAppointment('ada',{kind:'eat',startTick:2,deadlineTick:40});
+  const second=sim.step();
+  assert.equal(appointmentOf(second).status,'active');
+  assert.equal(appointmentOf(second).executionId,execution);
+  assert.equal(appointmentOf(second,'ada','appointment-2').status,'pending');
+  assert.equal(second.residents[0].activity?.executionId,execution);
+});
+
+test('a due appointment waits through an existing social session',()=>{
+  const matrix=world(),sim=createCitizensDemo(matrix,{seed:2});
+  const offered=stepUntil(sim,state=>state.socialSession!==null,300);
+  const sessionId=offered.socialSession.id;
+  sim.scheduleAppointment('ada',{kind:'eat',
+    startTick:offered.clockTick+1,deadlineTick:offered.clockTick+40});
+  const next=sim.step();
+  assert.equal(appointmentOf(next).status,'pending');
+  assert.equal(appointmentOf(next).executionId,null);
+  assert.ok(next.socialSession?.id===sessionId||
+    next.socialEvents.some(event=>event.id.startsWith(sessionId)));
+  assert.ok(!next.log.some(entry=>entry.tick===next.clockTick&&
+    entry.message.includes('interrupted optional')));
 });
 
 test('overlapping one-shot deadlines keep their order across midnight at 16x',()=>{
@@ -531,7 +821,7 @@ test('cancelled pending appointment keeps an outcome without claiming or grantin
     cancelled);
 });
 
-test('five sequential missed appointments retain three outcomes and replay after restore',()=>{
+test('five short same-kind appointments retain three misses while a ticket stays committed',()=>{
   const matrix=world(),sim=createCitizensDemo(matrix,{seed:29});
   sim.step();
   const initialWaiter=structuredClone(sim.snapshot().stations.find(item=>
@@ -539,7 +829,7 @@ test('five sequential missed appointments retain three outcomes and replay after
   for(let number=1;number<=5;number++){
     const now=sim.snapshot().clockTick;
     const scheduled=sim.scheduleAppointment('bo',{
-      kind:'eat',startTick:now+1,deadlineTick:now+2});
+      kind:'rest',startTick:now+1,deadlineTick:now+2});
     assert.equal(appointmentOf(scheduled,'bo',`appointment-${number}`).status,
       'pending');
     for(let step=0;step<3;step++)sim.step();
@@ -549,6 +839,9 @@ test('five sequential missed appointments retain three outcomes and replay after
       'missed');
     assert.deepEqual(missed.stations.find(item=>
       item.kind==='rest').waiters[0],initialWaiter);
+    if(number===1)assert.equal(appointmentOf(missed,'bo','appointment-1')
+      .executionId,initialWaiter.executionId,
+    'the first due rest adopts the existing FIFO execution');
   }
   const retained=sim.exportState();
   const bo=retained.residents.find(item=>item.id==='bo');

@@ -37,7 +37,7 @@
         <h3>Residents</h3><ul id="citizens-residents" class="citizens-list"></ul>
         <h3>Activity choices and routines</h3><ul id="citizens-routines" class="citizens-list"></ul>
         <h3 id="citizens-routine-editor-heading">Edit an existing routine</h3>
-        <p class="hint">Pause Citizens to change a resident's daily window or priority. The change applies at the next idle choice; an activity already underway continues unless critical hunger safely interrupts optional travel or a chair wait.</p>
+        <p class="hint">Pause Citizens to change a resident's daily window or priority. The change applies at the next idle choice; optional travel or a station wait may also yield safely to critical hunger or a due appointment.</p>
         <div role="group" aria-labelledby="citizens-routine-editor-heading">
           <label for="citizens-routine-resident">Resident</label>
           <select id="citizens-routine-resident" disabled></select>
@@ -59,7 +59,7 @@
         <h3>Recent appointment outcomes</h3>
         <ul id="citizens-appointment-history" class="citizens-list" aria-label="Recent completed, missed, and cancelled appointments"></ul>
         <h3 id="citizens-appointment-editor-heading">Schedule or revise an appointment</h3>
-        <p class="hint">Pause Citizens to book or revise a pending rest or eat appointment at an existing station. Overlapping appointments are allowed; the earliest deadline is considered at the next idle choice. Appointment-linked work, station use or departure, and conversations continue; critical hunger may safely interrupt optional travel or a chair wait, so a deadline can still be missed. Only a verified interaction by the inclusive deadline completes an appointment. A later verified action can still update a need after a miss.</p>
+        <p class="hint">Pause Citizens to book or revise a pending rest or eat appointment at an existing station. Overlapping appointments are allowed; the earliest deadline is considered when the resident is idle or can safely leave optional travel or a station wait. A matching optional trip can serve the appointment. Appointment-linked work, station use or departure, and conversations continue; a deadline can still be missed. Only a verified interaction by the inclusive deadline completes an appointment. A later verified action can still update a need after a miss.</p>
         <div role="group" aria-labelledby="citizens-appointment-editor-heading">
           <label for="citizens-appointment-resident">Resident</label>
           <select id="citizens-appointment-resident" disabled></select>
