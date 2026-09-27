@@ -4,6 +4,7 @@ import {CitizensSimulation} from './citizens.js';
 import {listProceduralGenerators} from './procedural.js';
 import {createCreatorMode,restoredCreatorMode} from './creator_mode.js';
 import {validateControlStates} from './protocol.js';
+import {RigidPhysics,eulerDegreesToQuaternion} from './physics_rigid.js';
 export const TAB_SCENE_KEY='matrix-web-scene';
 export const DURABLE_SCENE_KEY='matrix-web-scene-v1';
 export const WORLD_KEY='matrix-web-world-v2';
@@ -67,11 +68,74 @@ function checkedCitizens(world,scene,state){
   return CitizensSimulation.restore(staged,state).snapshot();
 }
 
+const motionVector=value=>value&&typeof value==='object'&&!Array.isArray(value)&&
+  Object.keys(value).sort().join(',')==='x,y,z'&&
+  ['x','y','z'].every(axis=>typeof value[axis]==='number'&&
+    Number.isFinite(value[axis])&&Math.abs(value[axis])<=100);
+const motionRotation=value=>value&&typeof value==='object'&&!Array.isArray(value)&&
+  Object.keys(value).sort().join(',')==='w,x,y,z'&&
+  ['x','y','z','w'].every(axis=>typeof value[axis]==='number'&&
+    Number.isFinite(value[axis])&&Math.abs(value[axis])<=1.01)&&
+  Math.abs(Math.hypot(value.x,value.y,value.z,value.w)-1)<.001;
+
+function checkedRigidMotion(scene,value){
+  if(value===undefined)return null; // Older whole-world envelopes have no motion.
+  const dynamic=scene.objects.filter(object=>object.rigidBody?.type==='dynamic');
+  if(!value||typeof value!=='object'||Array.isArray(value)||
+     Object.keys(value).sort().join(',')!=='bodies,schemaVersion'||
+     value.schemaVersion!==1||!Array.isArray(value.bodies)||
+     value.bodies.length!==dynamic.length||value.bodies.length>32)
+    throw Error('Invalid saved rigid motion');
+  const objects=new Map(dynamic.map(object=>[object.objectId,object]));
+  const seen=new Set();
+  for(const body of value.bodies){
+    if(!body||typeof body!=='object'||Array.isArray(body)||
+       Object.keys(body).sort().join(',')!==
+         'angularVelocity,linearVelocity,objectId,position,rotation,sleeping'||
+       typeof body.objectId!=='string'||!objects.has(body.objectId)||
+       seen.has(body.objectId)||!motionVector(body.position)||
+       !motionRotation(body.rotation)||!motionVector(body.linearVelocity)||
+       !motionVector(body.angularVelocity)||typeof body.sleeping!=='boolean'||
+       body.sleeping&&[...Object.values(body.linearVelocity),
+         ...Object.values(body.angularVelocity)].some(number=>number!==0))
+      throw Error('Invalid saved rigid motion body');
+    const transform=objects.get(body.objectId).transform;
+    const authored=eulerDegreesToQuaternion(transform.rotation);
+    const dot=Math.abs(authored.x*body.rotation.x+authored.y*body.rotation.y+
+      authored.z*body.rotation.z+authored.w*body.rotation.w);
+    if(['x','y','z'].some(axis=>Math.abs(transform.position[axis]-body.position[axis])>.01)||
+       dot<.99999)throw Error('Saved rigid motion pose differs from its scene object');
+    seen.add(body.objectId);
+  }
+  return structuredClone(value);
+}
+
+function capturedRigidMotion(world,scene){
+  const dynamic=scene.objects.filter(object=>object.rigidBody?.type==='dynamic');
+  if(!dynamic.length)return null;
+  if(!world.rigidPhysics){
+    if(world.pendingRigidMotion)return checkedRigidMotion(scene,world.pendingRigidMotion);
+    throw Error('Rigid simulation is still loading; moving bodies cannot be saved yet');
+  }
+  if(world.rigidSceneReference!==world.scene)
+    throw Error('Rigid simulation is out of sync with the scene');
+  const ids=new Set(dynamic.map(object=>object.objectId));
+  const states=world.rigidPhysics.states().filter(state=>ids.has(state.objectId));
+  if(states.some(state=>state.held)||world.agentGrab)
+    throw Error('Release grabbed rigid bodies before saving the world');
+  const bodies=states.map(({objectId,position,rotation,linearVelocity,
+    angularVelocity,sleeping})=>({objectId,position,rotation,linearVelocity,
+    angularVelocity,sleeping})).sort((a,b)=>a.objectId.localeCompare(b.objectId));
+  return checkedRigidMotion(scene,{schemaVersion:1,bodies});
+}
+
 export function storedWorld(world){
   const scene=world.spatial?{...world.virtualScene.scene,
     objects:world.scene.objects.filter(object=>object.anchorId==='web-floor')}:world.scene;
   const savedScene=structuredClone(scene),game=structuredClone(world.game);
+  const rigidMotion=capturedRigidMotion(world,savedScene);
   const additions={
+    ...(rigidMotion?{rigidMotion}:{}),
     ...(world.creatorMode&&JSON.stringify(world.creatorMode)!==JSON.stringify(createCreatorMode())?
       {creatorMode:structuredClone(world.creatorMode)}:{}),
     ...(world.rigidGravity&&JSON.stringify(world.rigidGravity)!==
@@ -248,6 +312,8 @@ export function restoreBestStoredWorld(world,pending,storage){
 export function restoreStoredWorld(world,value,{waitForWebAssets=false}={}){
   if(world.spatial?.originUnavailable)
     throw Error('Saved room origin is unavailable; recover it before replacing the active world');
+  if(world.agentGrab||world.rigidPhysics?.states().some(state=>state.held))
+    throw Error('Release grabbed rigid bodies before restoring a world');
   if(!validEnvelope(value))throw Error('Invalid world save envelope');
   const binding=value.originBinding===undefined?
     (value.scene.objects?.length||value.game!==null?'unknown':'virtual'):value.originBinding;
@@ -290,25 +356,78 @@ export function restoreStoredWorld(world,value,{waitForWebAssets=false}={}){
      Object.hasOwn(value,'controlSchemaVersion')&&!Object.hasOwn(value,'controlStates'))
     throw Error('Invalid saved control state schema');
   const controlStates=validateControlStates(value.controlStates,savedScene);
-  restoreStoredScene(world,savedScene);
-  world.game=game;
-  world.citizens=citizens;
-  world.creatorMode=creatorMode;
-  world.rigidGravity=structuredClone(gravity);
-  world.controlStates=controlStates;
-  if(world.rigidPhysics)world.rebuildRigidPhysics({preserve:false});
-  world.originBinding=world.spatial&&world.originBinding==='ar'?'ar':binding;
-  world.originAnchorHandle=world.spatial&&world.originBinding==='ar'&&binding!=='ar'?
-    world.originAnchorHandle:anchorHandle;
-  world.undo=[];world.redo=[];
+  const rigidMotion=checkedRigidMotion(savedScene,value.rigidMotion);
+  let rigidSnapshot=null;
+  if(world.rigidPhysics){
+    // Build the candidate in a separate Rapier world before touching the active
+    // scene. This also checks generated colliders and the saved motion together.
+    const staged=Object.create(world);
+    staged.scene=scene;staged.rigidGravity=gravity;
+    staged.rigidPhysics=new RigidPhysics(gravity);
+    try{
+      staged.rebuildRigidPhysics({preserve:false,motion:rigidMotion});
+      rigidSnapshot=staged.rigidPhysics.snapshot();
+    }finally{staged.rigidPhysics.dispose();}
+  }
+  const previous={scene:world.scene,virtualScene:world.virtualScene?.scene,
+    virtualSelection:world.virtualScene?.selection,
+    selection:world.selection,game:world.game,citizens:world.citizens,
+    creatorMode:world.creatorMode,rigidGravity:world.rigidGravity,
+    controlStates:world.controlStates,pendingRigidMotion:world.pendingRigidMotion,
+    agentGrab:world.agentGrab,
+    originBinding:world.originBinding,originAnchorHandle:world.originAnchorHandle,
+    undo:world.undo,redo:world.redo,authoredGeneration:world.authoredGeneration,
+    rigidSceneReference:world.rigidSceneReference,
+    rigidSnapshot:world.rigidPhysics?.snapshot()??null};
+  try{
+    restoreStoredScene(world,savedScene);
+    world.game=game;
+    world.citizens=citizens;
+    world.creatorMode=creatorMode;
+    world.rigidGravity=structuredClone(gravity);
+    world.controlStates=controlStates;
+    world.pendingRigidMotion=world.rigidPhysics?null:rigidMotion;
+    if(rigidSnapshot){
+      world.rigidPhysics.restore(rigidSnapshot);
+      world.rigidSceneReference=world.scene;
+      world.agentGrab=null;
+    }
+    world.originBinding=world.spatial&&world.originBinding==='ar'?'ar':binding;
+    world.originAnchorHandle=world.spatial&&world.originBinding==='ar'&&binding!=='ar'?
+      world.originAnchorHandle:anchorHandle;
+    world.undo=[];world.redo=[];
+  }catch(error){
+    world.scene=previous.scene;
+    if(world.virtualScene){
+      world.virtualScene.scene=previous.virtualScene;
+      world.virtualScene.selection=previous.virtualSelection;
+    }
+    world.selection=previous.selection;world.game=previous.game;
+    world.citizens=previous.citizens;world.creatorMode=previous.creatorMode;
+    world.rigidGravity=previous.rigidGravity;world.controlStates=previous.controlStates;
+    world.pendingRigidMotion=previous.pendingRigidMotion;
+    world.agentGrab=previous.agentGrab;
+    world.originBinding=previous.originBinding;
+    world.originAnchorHandle=previous.originAnchorHandle;
+    world.undo=previous.undo;world.redo=previous.redo;
+    world.authoredGeneration=previous.authoredGeneration;
+    if(world.rigidPhysics&&previous.rigidSnapshot)
+      world.rigidPhysics.restore(previous.rigidSnapshot);
+    world.rigidSceneReference=previous.rigidSceneReference;
+    throw error;
+  }
 }
 
 const hasSavedWorldContent=value=>value.scene.objects?.length>0||value.game!==null||
   value.citizens!=null;
 
 export function saveCheckpoint(scene,game,storage,originBinding,originAnchorHandle,
-  citizens=null,creatorMode=undefined,rigidGravity=undefined,controlStates=undefined){
-  try{storage.setItem(CHECKPOINT_KEY,JSON.stringify({version:citizens==null?2:3,scene,game,
+  citizens=null,creatorMode=undefined,rigidGravity=undefined,controlStates=undefined,
+  rigidMotion=undefined){
+  try{
+    if(scene.objects.some(object=>object.rigidBody?.type==='dynamic')&&!rigidMotion)
+      throw Error('Moving-body state is required for a new world checkpoint');
+    storage.setItem(CHECKPOINT_KEY,JSON.stringify({version:citizens==null?2:3,scene,game,
     ...(citizens==null?{}:{citizens}),
     ...(creatorMode&&JSON.stringify(creatorMode)!==JSON.stringify(createCreatorMode())?
       {creatorMode}:{}),
@@ -316,6 +435,7 @@ export function saveCheckpoint(scene,game,storage,originBinding,originAnchorHand
       {rigidGravity}:{}),
     ...(scene.objects.some(object=>object.control)?{
       controlSchemaVersion:1,controlStates:validateControlStates(controlStates,scene)}:{}),
+    ...(rigidMotion?{rigidMotion:checkedRigidMotion(scene,rigidMotion)}:{}),
     ...(originBinding?{originBinding}:{}),
     ...(originBinding==='ar'&&originAnchorHandle?{originAnchorHandle}:{})}));return '';}
   catch(error){return `World checkpoint could not be saved: ${error.message}`;}

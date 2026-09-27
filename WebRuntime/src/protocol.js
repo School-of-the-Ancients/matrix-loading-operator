@@ -330,6 +330,9 @@ export class MatrixWorld {
     this.rigidPhysics=null;
     this.rigidGravity={x:0,y:-9.81,z:0};
     this.rigidSceneReference=null;
+    // A browser world can be restored before Rapier finishes loading. Retain
+    // its validated motion until the first solver is attached.
+    this.pendingRigidMotion=null;
     // This describes the active client session, not authored world data.
     this.runtimePresentation='desktop';
     // A browser-session lease for an agent grab. It never becomes authored
@@ -577,8 +580,14 @@ export class MatrixWorld {
   }
   attachRigidPhysics(engine){
     if(!engine||typeof engine.restore!=='function')throw Error('Rigid solver is unavailable');
+    const staged=Object.create(this);
+    staged.rigidPhysics=engine;
+    try{staged.rebuildRigidPhysics({preserve:false,motion:this.pendingRigidMotion});}
+    catch(error){engine.dispose();throw error;}
     this.rigidPhysics=engine;
-    this.rebuildRigidPhysics({preserve:false});
+    this.rigidSceneReference=this.scene;
+    this.agentGrab=null;
+    this.pendingRigidMotion=null;
   }
   rigidBodyInput(object,previous=null){
     const bounds=this.objectBounds(object);
@@ -606,13 +615,15 @@ export class MatrixWorld {
       bounds:scaled,restitution:config.restitution,friction:config.friction,
       sensor:config.sensor,...(meshes?{meshes}:{}),
       ...(previous&&config.type==='dynamic'?{
-        linearVelocity:previous.linearVelocity,angularVelocity:previous.angularVelocity}:{})};
+        linearVelocity:previous.linearVelocity,angularVelocity:previous.angularVelocity,
+        ...(previous.sleeping!==undefined?{sleeping:previous.sleeping}:{})}:{})};
   }
-  rebuildRigidPhysics({preserve=true,resetObjectId=null}={}){
+  rebuildRigidPhysics({preserve=true,resetObjectId=null,motion=null}={}){
     if(!this.rigidPhysics)return;
     this.agentGrab=null;
     const previous=new Map(preserve?this.rigidPhysics.snapshot().bodies.map(body=>
       [body.objectId,body]):[]);
+    const restored=new Map(motion?.bodies.map(body=>[body.objectId,body])||[]);
     const floor={objectId:RIGID_FLOOR_ID,type:'static',position:{x:0,y:-.06,z:0},
       rotation:{x:0,y:0,z:0,w:1},bounds:{center:{x:0,y:0,z:0},
         size:{x:200,y:.12,z:200}},restitution:0,friction:.8,sensor:false};
@@ -622,7 +633,8 @@ export class MatrixWorld {
     const authored=this.scene.objects.filter(object=>object.rigidBody);
     if(authored.length>MAX_SCENE_RIGID_BODIES)throw Error('Rigid body limit reached');
     for(const object of authored){
-      const old=object.objectId===resetObjectId?null:previous.get(object.objectId);
+      const old=object.objectId===resetObjectId?null:
+        restored.get(object.objectId)??previous.get(object.objectId);
       bodies.push(this.rigidBodyInput(object,old));
     }
     this.rigidPhysics.restore({schemaVersion:1,gravity:this.rigidGravity,bodies});
@@ -847,6 +859,9 @@ export class MatrixWorld {
     try {
       if (!command || !validId(command.requestId)) throw Error('Invalid requestId');
       const op=command.op;
+      if(this.pendingRigidMotion&&!this.rigidPhysics&&
+         !['get_scene','list_assets','list_targets','inspect_entity','select'].includes(op))
+        throw Error('Wait for rigid simulation to restore before editing the world');
       if(this.creatorMode.mode==='play'&&recordHistory&&
          ['spawn','create_procedural','update_procedural','duplicate','set_transform',
           'set_behavior','remove_behavior','attach_component','stop_component',

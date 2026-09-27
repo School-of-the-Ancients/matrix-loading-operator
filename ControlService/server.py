@@ -323,6 +323,58 @@ def rigid_states(value, authored_scene):
     return result
 
 
+def rigid_motion(value, authored_scene):
+    """Validate the compact persisted state for every dynamic scene body."""
+    dynamic = {item["objectId"]: item for item in authored_scene["objects"]
+               if item.get("rigidBody", {}).get("type") == "dynamic"}
+    require(type(value) is dict and set(value) == {"schemaVersion", "bodies"} and
+            type(value["schemaVersion"]) is int and value["schemaVersion"] == 1 and
+            type(value["bodies"]) is list and len(value["bodies"]) == len(dynamic) and
+            len(value["bodies"]) <= MAX_RIGID_BODIES,
+            "Invalid saved rigid motion")
+    seen = set()
+    for body in value["bodies"]:
+        require(type(body) is dict and set(body) ==
+                {"objectId", "position", "rotation", "linearVelocity",
+                 "angularVelocity", "sleeping"} and
+                type(body["objectId"]) is str and body["objectId"] in dynamic and
+                body["objectId"] not in seen and type(body["sleeping"]) is bool,
+                "Invalid saved rigid motion body")
+        seen.add(body["objectId"])
+        for name, axes in (("position", ("x", "y", "z")),
+                           ("rotation", ("x", "y", "z", "w")),
+                           ("linearVelocity", ("x", "y", "z")),
+                           ("angularVelocity", ("x", "y", "z"))):
+            vector_value = body[name]
+            require(type(vector_value) is dict and set(vector_value) == set(axes) and
+                    all(type(vector_value[axis]) in (int, float) and
+                        math.isfinite(vector_value[axis]) and
+                        abs(vector_value[axis]) <= (1.01 if name == "rotation" else 100)
+                        for axis in axes), f"Invalid saved rigid motion {name}")
+        rotation = body["rotation"]
+        require(abs(math.sqrt(sum(rotation[axis] ** 2 for axis in ("x", "y", "z", "w"))) - 1) < .001,
+                "Invalid saved rigid motion rotation")
+        if body["sleeping"]:
+            require(all(body[name][axis] == 0 for name in ("linearVelocity", "angularVelocity")
+                        for axis in ("x", "y", "z")),
+                    "Sleeping rigid body has nonzero motion")
+        transform = dynamic[body["objectId"]]["transform"]
+        require(all(abs(body["position"][axis] - transform["position"][axis]) <= .01
+                    for axis in ("x", "y", "z")),
+                "Saved rigid motion pose differs from its scene object")
+        euler = transform["rotation"]
+        x, y, z = (math.radians(euler[axis]) / 2 for axis in ("x", "y", "z"))
+        c1, c2, c3 = math.cos(x), math.cos(y), math.cos(z)
+        s1, s2, s3 = math.sin(x), math.sin(y), math.sin(z)
+        expected = {"x": s1 * c2 * c3 + c1 * s2 * s3,
+                    "y": c1 * s2 * c3 - s1 * c2 * s3,
+                    "z": c1 * c2 * s3 + s1 * s2 * c3,
+                    "w": c1 * c2 * c3 - s1 * s2 * s3}
+        dot = abs(sum(expected[axis] * rotation[axis] for axis in ("x", "y", "z", "w")))
+        require(dot >= .99999, "Saved rigid motion pose differs from its scene object")
+    return copy.deepcopy(value)
+
+
 def agent_grab(value, authored_scene):
     if value is None:
         return None
@@ -4785,7 +4837,8 @@ class State:
         required = ({"version", "scene", "game"} if value["version"] == 2 else
                     {"version", "scene", "game", "citizens"})
         require(required <= set(value) <= required |
-                {"creatorMode", "rigidGravity", "controlSchemaVersion", "controlStates"} and
+                {"creatorMode", "rigidGravity", "rigidMotion",
+                 "controlSchemaVersion", "controlStates"} and
                 (value["version"] != 3 or value["citizens"] is not None),
                 "Unsupported world checkpoint envelope")
         if "creatorMode" in value:
@@ -4793,6 +4846,8 @@ class State:
         if "rigidGravity" in value:
             rigid_gravity(value["rigidGravity"])
         checked_scene = scene(value["scene"])
+        if "rigidMotion" in value:
+            rigid_motion(value["rigidMotion"], checked_scene)
         has_controls = any("control" in item for item in checked_scene["objects"])
         require(("controlSchemaVersion" not in value or
                  type(value["controlSchemaVersion"]) is int and
@@ -4867,6 +4922,21 @@ class State:
             if "controlStates" in world or any("control" in item for item in world["scene"]["objects"]):
                 require(world.get("controlStates") == current.get("controlStates"),
                         "Browser control progress changed since the last exchange; sync it and retry saving", 409)
+            dynamic_ids = {item["objectId"] for item in world["scene"]["objects"]
+                           if item.get("rigidBody", {}).get("type") == "dynamic"}
+            if dynamic_ids:
+                require("rigidMotion" in world,
+                        "Browser must include moving-body state in a new world checkpoint", 409)
+                observed = {item["objectId"]: item for item in current.get("rigidStates", [])
+                            if item["objectId"] in dynamic_ids}
+                submitted = {item["objectId"]: item for item in world["rigidMotion"]["bodies"]}
+                require(set(observed) == dynamic_ids and
+                        all(not observed[object_id]["held"] and
+                            all(submitted[object_id][field] == observed[object_id][field]
+                                for field in ("position", "rotation", "linearVelocity",
+                                              "angularVelocity", "sleeping"))
+                            for object_id in dynamic_ids),
+                        "Browser rigid motion changed since the last exchange; sync it and retry saving", 409)
             saved_world = copy.deepcopy(world)
             for item in saved_world["scene"]["objects"]:
                 if "component" in item:

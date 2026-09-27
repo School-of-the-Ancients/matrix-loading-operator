@@ -74,3 +74,29 @@ test('passive rigid motion saves on a bounded Play interval and skips unchanged 
   assert.equal(durable.writes,writes,'unchanged settled state should not rewrite storage');
   current.rigidPhysics.dispose();
 });
+
+test('velocity and sleep changes persist even when the scene pose is unchanged',async()=>{
+  const current=await dynamicWorld(),tab=storage(),durable=storage();
+  try{
+    let time=0;
+    const persistence=createPlayPersistence(current,tab,durable,{now:()=>time});
+    assert.equal(persistence.persist().warning,'');
+    const initialScene=structuredClone(current.scene);
+    current.creatorMode=transitionCreatorMode(current.creatorMode,'enter-play',0);
+    const body=current.rigidPhysics.requireBody('saved-block').body;
+    body.setLinvel({x:1,y:0,z:0},true);
+    time=PLAY_SAVE_INTERVAL_MS;
+    assert.equal(persistence.persist({periodic:true}).attempted,true);
+    assert.deepEqual(current.scene,initialScene);
+    assert.equal(loadStoredWorld(tab,durable).value.rigidMotion.bodies[0].linearVelocity.x,1);
+    body.sleep();
+    time+=PLAY_SAVE_INTERVAL_MS;
+    assert.equal(persistence.persist({periodic:true}).attempted,true);
+    assert.equal(loadStoredWorld(tab,durable).value.rigidMotion.bodies[0].sleeping,true);
+    const reopened=new MatrixWorld();
+    restoreStoredWorld(reopened,loadStoredWorld(tab,durable).value);
+    reopened.attachRigidPhysics(await createRigidPhysics());
+    try{assert.equal(reopened.rigidPhysics.state('saved-block').sleeping,true);}
+    finally{reopened.rigidPhysics.dispose();}
+  }finally{current.rigidPhysics.dispose();}
+});

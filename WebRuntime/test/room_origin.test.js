@@ -16,6 +16,29 @@ function storage(){
 }
 const transform={position:{x:0,y:0,z:-2},rotation:{x:0,y:0,z:0},scale:{x:1,y:1,z:1}};
 
+test('clearing an unavailable room retires motion waiting for solver startup',()=>{
+  const source=new MatrixWorld(()=> 'old-moving-body');
+  assert.equal(source.execute({requestId:'old-spawn',op:'spawn',assetId:'block',
+    anchorId:'web-floor',transform}).ok,true);
+  const scene=structuredClone(source.scene);
+  scene.objects[0].rigidBody={schemaVersion:1,type:'dynamic',collider:'bounds-box',
+    restitution:0,friction:.8,sensor:false};
+  const saved={version:2,scene,game:null,rigidMotion:{schemaVersion:1,bodies:[{
+    objectId:'old-moving-body',position:structuredClone(transform.position),
+    rotation:{x:0,y:0,z:0,w:1},linearVelocity:{x:0,y:-1,z:0},
+    angularVelocity:{x:0,y:0,z:0},sleeping:false}]}};
+  const world=new MatrixWorld(),local=storage();
+  restoreStoredWorld(world,saved);
+  assert.ok(world.pendingRigidMotion);
+  world.enterAR();world.setOriginUnavailable(true);
+  const archive=archiveAndClearRoom(world,local);
+  assert.deepEqual(archive.world.rigidMotion,saved.rigidMotion);
+  assert.equal(world.pendingRigidMotion,null);
+  world.leaveAR();
+  assert.equal(world.execute({requestId:'new-spawn',op:'spawn',assetId:'orb',
+    anchorId:'web-floor',transform}).ok,true);
+});
+
 test('unavailable saved origin hides edits until recovery, then archive preserves the old world',()=>{
   const world=new MatrixWorld(()=> 'old-object'),local=storage();
   assert.equal(hasWorldToProtect(world),false);

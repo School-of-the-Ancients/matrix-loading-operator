@@ -48,6 +48,8 @@ function archiveAndStartRoom(world,storage,keepWorld){
     if(world.virtualScene)world.virtualScene.scene.objects=[];
     world.game=null;
     world.citizens=null;
+    world.pendingRigidMotion=null;
+    if(world.rigidPhysics)world.rebuildRigidPhysics({preserve:false});
   }
   world.originBinding=keepWorld?'ar':'virtual';
   world.originAnchorHandle=null;
