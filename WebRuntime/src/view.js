@@ -177,7 +177,7 @@ export function operatorPanel(){
       ctx.font='27px sans-serif';ctx.fillStyle='#8bb8c2';
       ctx.fillText(`Simulation ${creatorMode.simulation} · revision ${creatorMode.revision}`,55,265);
       ctx.fillText(creatorMode.mode==='creator'?'Create, inspect and revise the current world.':
-        'Interact with the same world and keep earned progress.',55,325);
+        'Trigger labeled controls or grab bodies in this world.',55,325);
       ctx.fillText(creatorMode.mode==='creator'?'Entering Play/Test resumes simulation.':
         'Return to Creator Mode to pause and revise it.',55,367);
       if(creatorMode.mode==='creator'){
@@ -804,6 +804,16 @@ export class MatrixView {
           root.add(board.mesh);root.userData.displayBoard=board;
         }else this.onAssetError(`Display on ${object.objectId} has an invalid definition.`);
       }
+      if(object.control){
+        const bounds=asset?.localBounds;
+        const top=((bounds?.center.y||0)+(bounds?.size.y||1)/2)*(asset?.spawnScale||1);
+        for(const [text,offset] of [[object.control.label,.35],['CLICK / TRIGGER',.16]]){
+          const cue=planeLabel(text);
+          cue.position.y=top+offset;
+          cue.scale.set(1.15,.17,1);
+          root.add(cue);
+        }
+      }
       (this.anchorRoots.get(object.anchorId)||this.virtualFloorRoot).add(root);this.objectRoots.set(object.objectId,root);
       if(asset?.url&&!object.procedural){
         this.world.invalidatePhysicsAsset?.(object.objectId);
@@ -910,6 +920,34 @@ export class MatrixView {
     }
   }
   isPlayMode(){return this.world.creatorMode?.mode==='play';}
+  activateWorldControl(objectId){
+    const object=this.world.requireObject(objectId);
+    if(!object.control)return false;
+    if(!canPlayWorld(this.world.creatorMode)){
+      this.onAssetError('Resume Play/Test before using this world control.');return true;
+    }
+    if(this.world.spatial?.stale||this.world.spatial?.originUnavailable){
+      this.onAssetError('Room tracking is unavailable; world controls are paused.');return true;
+    }
+    if(this.grab||this.pointerGrab){
+      this.onAssetError('Release the held object before using a world control.');return true;
+    }
+    try{
+      const inspected=this.world.inspectEntity(objectId);
+      if(!inspected.availableActions.includes('activate_control'))
+        throw Error('World control is unavailable; inspect the object before trying again');
+      const target=this.world.requireObject(inspected.object.control.action.targetObjectId);
+      const receipt=this.world.execute({requestId:crypto.randomUUID(),op:'activate_control',objectId,
+        expectedControl:inspected.object.control,expectedControlState:inspected.controlState,
+        expectedTransform:inspected.object.transform,
+        expectedTargetTransform:structuredClone(target.transform),
+        expectedCreatorRevision:inspected.creatorMode.revision});
+      if(!receipt.ok)throw Error(receipt.error);
+      this.sync();
+      this.onPlayInteraction({kind:'control',objectId,receipt});
+    }catch(error){this.onAssetError(`World control: ${error.message}`);}
+    return true;
+  }
   rigidState(object){
     if(!object?.rigidBody||!this.world.rigidPhysics)return null;
     try{return this.world.rigidPhysics.state(object.objectId);}
@@ -954,6 +992,7 @@ export class MatrixView {
     const id=this.selectFromRay();
     if(id){const animation=animationSelectionState(this.world.requireObject(id),this.objectRoots.get(id));
       if(animation==='loading'){this.onAssetError('Animation is still loading; select again when the GLB appears.');return;}}
+    if(id&&this.isPlayMode()&&this.activateWorldControl(id))return;
     if(id&&this.world.requireObject(id).component?.status==='running'){
       this.onAssetError('Stop this component before moving the object.');return;}
     if(id&&this.isPlayMode()&&(!canPlayWorld(this.world.creatorMode)||
@@ -1035,6 +1074,7 @@ export class MatrixView {
     if(id&&(this.world.spatial?.stale||this.world.spatial?.originUnavailable)){
       this.onAssetError('Room origin or tracking is unavailable; object grabs are paused.');return;
     }
+    if(id&&this.isPlayMode()&&this.activateWorldControl(id))return;
     if(id&&this.world.requireObject(id).component?.status==='running'){
       this.onAssetError('Stop this component before moving the object.');return;}
     if(id&&this.isPlayMode()&&(!canPlayWorld(this.world.creatorMode)||

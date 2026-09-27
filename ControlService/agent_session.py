@@ -217,7 +217,8 @@ def _xr_game_summary(tool, arguments):
 def _new_matrix_approval_summary(tool, arguments):
     """Return an exact bounded intent, or decline XR review of unfamiliar input."""
     from procedural_contract import GENERATOR_ID
-    from server import (APIError, display_descriptor, grab_pose, rigid_body_config,
+    from server import (APIError, control_descriptor, display_descriptor,
+                        grab_pose, rigid_body_config,
                         rigid_gravity)
     try:
         if tool == "matrix_spawn_builtin":
@@ -264,6 +265,20 @@ def _new_matrix_approval_summary(tool, arguments):
             if _xr_context(arguments, {"object_id"}) and _xr_entity_id(arguments["object_id"]):
                 return (f"Remove display from {arguments['object_id']} in "
                         f"{arguments['room_id']} rev {arguments['scene_revision']}.")
+        elif tool == "matrix_set_control":
+            if (_xr_context(arguments, {"object_id", "control"}) and
+                    _xr_entity_id(arguments["object_id"])):
+                control = control_descriptor(arguments["control"])
+                action = control["action"]
+                return (f"Set control {json.dumps(control['label'], ensure_ascii=True)} "
+                        f"on {arguments['object_id']} in {arguments['room_id']} "
+                        f"rev {arguments['scene_revision']}: cycle "
+                        f"{action['targetObjectId']} scale through "
+                        f"{json.dumps(action['values'], separators=(',', ':'))}.")
+        elif tool == "matrix_remove_control":
+            if _xr_context(arguments, {"object_id"}) and _xr_entity_id(arguments["object_id"]):
+                return (f"Remove control from {arguments['object_id']} in "
+                        f"{arguments['room_id']} rev {arguments['scene_revision']}.")
         elif tool == "matrix_set_rigid_body":
             if _xr_context(arguments, {"object_id", "rigid_body"}) and _xr_entity_id(arguments["object_id"]):
                 body = rigid_body_config(arguments["rigid_body"])
@@ -280,7 +295,8 @@ def _new_matrix_approval_summary(tool, arguments):
                 g = rigid_gravity(arguments["gravity"])
                 return (f"Set virtual gravity ({g['x']},{g['y']},{g['z']}) m/s2 in "
                         f"{arguments['room_id']} rev {arguments['scene_revision']}.")
-        elif tool in ("matrix_begin_grab", "matrix_move_grab", "matrix_release_grab"):
+        elif tool in ("matrix_begin_grab", "matrix_move_grab", "matrix_release_grab",
+                      "matrix_activate_control"):
             fields = {"object_id", "inspection_request_id"} | (
                 {"target_pose"} if tool == "matrix_move_grab" else set())
             if (_xr_context(arguments, fields, revision=False) and
@@ -295,7 +311,8 @@ def _new_matrix_approval_summary(tool, arguments):
                             f"({target['rotation']['x']},{target['rotation']['y']},"
                             f"{target['rotation']['z']}) degrees")
                 verb = {"matrix_begin_grab": "Begin grab of", "matrix_move_grab": "Move held",
-                        "matrix_release_grab": "Release"}[tool]
+                        "matrix_release_grab": "Release",
+                        "matrix_activate_control": "Activate control"}[tool]
                 return (f"{verb} {arguments['object_id']}{pose} in {arguments['room_id']} "
                         f"using live inspection {arguments['inspection_request_id']}.")
         elif tool in ("matrix_start_new_world", "matrix_restore_world_archive"):
@@ -646,6 +663,8 @@ class LocalCodexAgentBackend:
                                           "matrix_bind_game", "matrix_update_game", "matrix_game_status",
                                           "matrix_set_display", "matrix_remove_display",
                                           "matrix_display_status",
+                                          "matrix_set_control", "matrix_remove_control",
+                                          "matrix_control_status", "matrix_activate_control",
                                           "matrix_set_rigid_body", "matrix_remove_rigid_body",
                                           "matrix_set_gravity", "matrix_rigid_status",
                                           "matrix_list_entities", "matrix_inspect_entity",
@@ -671,6 +690,8 @@ class LocalCodexAgentBackend:
                              "matrix_create_procedural", "matrix_update_procedural",
                              "matrix_bind_game", "matrix_update_game",
                              "matrix_set_display", "matrix_remove_display",
+                             "matrix_set_control", "matrix_remove_control",
+                             "matrix_activate_control",
                              "matrix_set_rigid_body", "matrix_remove_rigid_body",
                              "matrix_set_gravity",
                              "matrix_begin_grab", "matrix_move_grab", "matrix_release_grab",

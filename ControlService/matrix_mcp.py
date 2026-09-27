@@ -7,6 +7,7 @@ from mcp.server.fastmcp import FastMCP
 from mcp.types import ToolAnnotations
 from matrix_tool_bridge import (animation_status, bind_animation, bind_game,
                                 game_status, display_action, display_status,
+                                control_action, control_status,
                                 entity_action, entity_status, inspect_entity, list_entities,
                                 update_game,
                                 component_action, component_status,
@@ -285,6 +286,40 @@ def matrix_display_status(request_id: str) -> dict:
 
 @server.tool(annotations=ToolAnnotations(readOnlyHint=False, destructiveHint=False,
                                          idempotentHint=False, openWorldHint=False))
+def matrix_set_control(room_id: str, scene_revision: int, object_id: str,
+                       control: dict) -> dict:
+    """Author a finite in-world Play control on a static virtual-floor entity.
+
+    Currently supports cycle-values on a target object's transform.scale.
+    The PC derives unchanged descriptor and pose guards; inspect the receipt
+    and live scene before claiming the control exists.
+    """
+    return control_action(os.environ["MATRIX_CONTROL_URL"],
+                          os.environ["MATRIX_CONTROL_TOKEN"],
+                          {"action": "set", "room_id": room_id,
+                           "scene_revision": scene_revision, "object_id": object_id,
+                           "control": control})
+
+
+@server.tool(annotations=ToolAnnotations(readOnlyHint=False, destructiveHint=False,
+                                         idempotentHint=False, openWorldHint=False))
+def matrix_remove_control(room_id: str, scene_revision: int, object_id: str) -> dict:
+    """Remove one observed control in paused Creator Mode."""
+    return control_action(os.environ["MATRIX_CONTROL_URL"],
+                          os.environ["MATRIX_CONTROL_TOKEN"],
+                          {"action": "remove", "room_id": room_id,
+                           "scene_revision": scene_revision, "object_id": object_id})
+
+
+@server.tool(annotations=ToolAnnotations(readOnlyHint=True))
+def matrix_control_status(request_id: str) -> dict:
+    """Read the matching control authoring receipt and observed descriptor."""
+    return control_status(os.environ["MATRIX_CONTROL_URL"],
+                          os.environ["MATRIX_CONTROL_TOKEN"], request_id)
+
+
+@server.tool(annotations=ToolAnnotations(readOnlyHint=False, destructiveHint=False,
+                                         idempotentHint=False, openWorldHint=False))
 def matrix_set_rigid_body(room_id: str, scene_revision: int, object_id: str,
                           rigid_body: dict) -> dict:
     """Author a reviewed Rapier body on a virtual Matrix object in Creator Mode.
@@ -400,6 +435,22 @@ def matrix_release_grab(room_id: str, object_id: str,
     return entity_action(os.environ["MATRIX_CONTROL_URL"],
                          os.environ["MATRIX_CONTROL_TOKEN"],
                          {"action": "release", "room_id": room_id,
+                          "object_id": object_id,
+                          "inspection_request_id": inspection_request_id})
+
+
+@server.tool(annotations=ToolAnnotations(readOnlyHint=False, destructiveHint=False,
+                                         idempotentHint=False, openWorldHint=False))
+def matrix_activate_control(room_id: str, object_id: str,
+                            inspection_request_id: str) -> dict:
+    """Activate a Play control once using an unconsumed live entity inspection.
+
+    The PC derives exact descriptor, target pose, mode and control-state
+    preconditions. Read matrix_entity_status and inspect again before a repeat.
+    """
+    return entity_action(os.environ["MATRIX_CONTROL_URL"],
+                         os.environ["MATRIX_CONTROL_TOKEN"],
+                         {"action": "activate", "room_id": room_id,
                           "object_id": object_id,
                           "inspection_request_id": inspection_request_id})
 

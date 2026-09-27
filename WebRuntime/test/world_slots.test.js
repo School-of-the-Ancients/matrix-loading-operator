@@ -69,6 +69,26 @@ function guardedCommand(world,op,fields={}){
     ...fields};
 }
 
+test('world archives retain control progress outside authored scene history',()=>{
+  let serial=0;
+  const world=new MatrixWorld(()=>`slot-control-${++serial}`),tab=storage(),durable=storage();
+  const target=accept(world,'spawn',{assetId:'block',anchorId:'web-floor',transform:pose(0,-3)});
+  const panel=accept(world,'spawn',{assetId:'wall',anchorId:'web-floor',transform:pose(3,-3)});
+  world.requireObject(panel).control={schemaVersion:1,label:'Change block scale',
+    action:{kind:'cycle-values',channel:'transform.scale',targetObjectId:target,
+      values:[[1,1,1],[2,3,4]]}};
+  world.requireObject(target).transform.scale={x:2,y:3,z:4};
+  world.controlStates[panel]={index:1,revision:7};
+  const before=storedBrowserWorld(world);
+  assert.equal(saveStoredWorld(before,tab,durable),'');
+  const created=startNewWorld(world,tab,durable,'Controlled exhibit');
+  assert.equal(Object.keys(world.controlStates).length,0);
+  restoreWorldArchive(world,created.archived.archiveId,tab,durable,'Blank room');
+  assert.deepEqual(storedBrowserWorld(world),before);
+  assert.deepEqual(world.controlStates[panel],{index:1,revision:7});
+  assert.deepEqual(world.requireObject(target).transform.scale,{x:2,y:3,z:4});
+});
+
 test('typed world switches preserve completed progress and return bounded receipts',()=>{
   const tab=storage(),durable=storage();
   const {world,actors,exit}=completedWorld();
