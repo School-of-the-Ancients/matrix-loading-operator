@@ -13,6 +13,9 @@ import {assertCompatibleGameScene,bindGame,recordGameEvent,updateGame} from './g
 import {displayObservation,validDisplay} from './display.js';
 export const ROOM_ID = 'web-virtual-room-v1';
 export const ANCHOR_ID = 'web-floor';
+// Passed only by the browser-local Citizens simulation. The bridge's command
+// path uses execute() without this authority and cannot edit an AR visit.
+export const CITIZENS_VISIT_AUTHORITY=Symbol('citizens-digital-world-visit');
 export const PROCEDURAL_ASSET_ID = 'matrix:procedural';
 export const MAX_OBJECTS = 100;
 export {RIGID_FLOOR_ID};
@@ -324,7 +327,7 @@ export class MatrixWorld {
     this.originAnchorHandle=null;
     this.arEntryContent=null;
     this.selection={anchorId:ANCHOR_ID,objectId:'',position:{x:0,y:0,z:-2}};
-    this.spatial=null;this.virtualScene=null;
+    this.spatial=null;this.virtualScene=null;this.digitalWorldVisit=false;
     this.undo=[]; this.redo=[];
     this.physicsBodies=new Map();this.physicsVerification=new Map();
     this.rigidPhysics=null;
@@ -347,7 +350,8 @@ export class MatrixWorld {
     if(this.rigidPhysics&&this.rigidSceneReference!==this.scene)
       this.rebuildRigidPhysics({preserve:false});
     const anchors=this.availableAnchors();
-    const context=this.spatial?{mode:'ar',state:this.spatial.originUnavailable||this.spatial.stale?'missing':'ready',message:this.spatial.originUnavailable?'Saved room origin is unavailable. The old world is hidden and editing is paused until it is restored or explicitly archived for a new room.':this.spatial.stale?'A plane holding a scene object is no longer tracked; keep the scene for recovery and recheck the room.':this.spatial.anchors.length?`${this.spatial.anchors.length} WebXR room plane(s) detected. Virtual-floor objects remain visible as unanchored previews.`:'Waiting for Quest room planes. Virtual-floor objects remain visible as unanchored previews.',alignmentVerified:this.spatial.alignmentVerified&&!this.spatial.originUnavailable}
+    const context=this.spatial?{mode:'ar',state:this.spatial.originUnavailable||this.spatial.stale?'missing':'ready',message:this.digitalWorldVisit?(this.spatial.originUnavailable?'AR view origin is not tracked. The digital world continues; its overlay is hidden until tracking is available.':this.spatial.anchors.length?`Visiting the digital world in AR with ${this.spatial.anchors.length} room plane(s). The overlay uses a tracked view anchor; physical collision is not implied.`:'Visiting the digital world in AR with a tracked view anchor. Room planes are unavailable; physical collision is not implied.'):
+      this.spatial.originUnavailable?'Saved room origin is unavailable. The old world is hidden and editing is paused until it is restored or explicitly archived for a new room.':this.spatial.stale?'A plane holding a scene object is no longer tracked; keep the scene for recovery and recheck the room.':this.spatial.anchors.length?`${this.spatial.anchors.length} WebXR room plane(s) detected. Virtual-floor objects remain visible as unanchored previews.`:'Waiting for Quest room planes. Virtual-floor objects remain visible as unanchored previews.',alignmentVerified:this.spatial.alignmentVerified&&!this.spatial.originUnavailable}
       :{mode:'white-room',state:'ready',message:'Browser virtual floor; physical room alignment is not verified.',alignmentVerified:false};
     const snapshot={scene:clone(this.scene),assets:clone([...ASSETS,proceduralAsset,...this.externalAssets].map(({assetId,displayName,description,spawnScale,localBounds,geometry,interactions,sha256})=>({assetId,displayName,description,spawnScale,...(localBounds?{localBounds}:{}),...(interactions?{interactions}:{}),...(sha256?{sha256}:{}),...(geometry?.animationClips?{animationClips:geometry.animationClips.map(clip=>clip.name)}:{})}))),anchors:clone(anchors),selection:clone(this.selection),behaviorKinds:['rotate','bob'],componentSchemaVersion:1,animationSchemaVersion:1,physicsSchemaVersion:1,interactionSchemaVersion:2,physicsStates:this.physicsStates(),rigidSchemaVersion:1,rigidGravity:clone(this.rigidGravity),rigidStates:this.rigidPhysics?.states().filter(state=>this.scene.objects.some(item=>item.objectId===state.objectId))||[],entityActionSchemaVersion:1,agentGrab:clone(this.agentGrab),controlSchemaVersion:1,controlStates:clone(this.controlStates),proceduralGenerators:listProceduralGenerators(),creatorMode:clone(this.creatorMode),game:clone(this.game),gameStatus:this.game?{phase:this.game.state.phase,score:this.game.state.score,objectiveProgress:clone(this.game.state.objectiveProgress),unlockedObjectIds:clone(this.game.state.unlockedObjectIds||[])}:null,roomContext:context,runtimeDescriptor:{schemaVersion:1,client:'matrix-web',renderer:'threejs-webxr',presentation:this.runtimePresentation}};
     // The PC-local exchange uses this persisted state as an exact switch guard.
@@ -355,13 +359,14 @@ export class MatrixWorld {
     // cover Citizens clock, appointment, or pause progress.
     snapshot.worldSlotSchemaVersion=1;
     snapshot.citizensState=clone(this.citizens??null);
-    if(!this.spatial&&this.scene.roomId===ROOM_ID&&Array.isArray(this.citizens?.residents)){
+    if(this.digitalWorldVisit)snapshot.digitalWorldVisit=true;
+    if((!this.spatial||this.digitalWorldVisit)&&this.scene.roomId===ROOM_ID&&Array.isArray(this.citizens?.residents)){
       const residentObjectIds=[...new Set(this.citizens.residents.map(resident=>resident.objectId))]
         .filter(id=>this.scene.objects.some(object=>object.objectId===id&&
           object.assetId==='orb'&&object.anchorId===ANCHOR_ID&&
           !object.component&&!object.physics&&
           !object.behaviors?.some(behavior=>behavior.enabled&&!behavior.paused))).sort();
-      if(residentObjectIds.length&&residentObjectIds.length<=4)
+      if((residentObjectIds.length||this.digitalWorldVisit)&&residentObjectIds.length<=4)
         snapshot.citizensObservation={residentObjectIds,authoredGeneration:this.authoredGeneration};
     }
     if(this.spatial?.stale||this.spatial?.originUnavailable)snapshot.readOnly=true;
@@ -469,7 +474,7 @@ export class MatrixWorld {
   }
   navigationGeometryIdentity({excludeObjectIds=[]}={}){
     this.ensurePhysicsScene();
-    if(this.spatial||this.scene.roomId!==ROOM_ID)
+    if(this.spatial&&!this.digitalWorldVisit||this.scene.roomId!==ROOM_ID)
       throw Error('Navigation geometry requires the desktop virtual room');
     if(!Array.isArray(excludeObjectIds)||excludeObjectIds.length>4||
       new Set(excludeObjectIds).size!==excludeObjectIds.length||
@@ -740,10 +745,40 @@ export class MatrixWorld {
     }
     return result.contacts;
   }
-  enterAR(){
+  canVisitDigitalWorld(){
+    const residents=this.citizens?.residents;
+    return !this.spatial&&this.originBinding==='virtual'&&
+      this.scene.roomId===ROOM_ID&&this.game===null&&
+      this.scene.objects.every(object=>object.anchorId===ANCHOR_ID)&&
+      !this.scene.objects.some(object=>object.physics||object.rigidBody||
+        object.component?.status==='running'||
+        object.behaviors?.some(behavior=>behavior.enabled)||
+        object.animation?.loopClip||
+        (this.asset(object.assetId)?.url&&
+          this.asset(object.assetId)?.geometry?.animationClips?.length))&&
+      this.citizens?.world?.roomId===ROOM_ID&&Array.isArray(residents)&&
+      residents.length>0&&residents.length<=4&&
+      new Set(residents.map(resident=>resident.objectId)).size===residents.length&&
+      residents.every(resident=>{
+        const object=this.scene.objects.find(item=>item.objectId===resident.objectId);
+        return object?.assetId==='orb'&&object.anchorId===ANCHOR_ID&&
+          !object.component&&!object.physics&&
+          !object.behaviors?.some(behavior=>behavior.enabled&&!behavior.paused);
+      });
+  }
+  enterAR({visitDigitalWorld=this.canVisitDigitalWorld()}={}){
     if(this.spatial)return;
+    if(visitDigitalWorld&&!this.canVisitDigitalWorld())
+      throw Error('This world cannot be visited as a digital Citizens world');
     this.runtimePresentation='ar';
     if(this.agentGrab)this.releaseRigidGrab(this.agentGrab.objectId);
+    if(visitDigitalWorld){
+      // The physical room is presentation state. The digital scene and running
+      // Citizens simulation keep their object identities and exact progress.
+      this.digitalWorldVisit=true;
+      this.spatial={anchors:[],alignmentVerified:false,originUnavailable:true};
+      return;
+    }
     this.physicsBodies.clear();this.physicsVerification.clear();
     this.renderedVerification.clear();
     this.virtualScene={scene:clone(this.scene),selection:clone(this.selection),undo:this.undo,redo:this.redo};
@@ -754,20 +789,26 @@ export class MatrixWorld {
     this.undo=[];this.redo=[];
   }
   resetAROriginBaseline(){
-    if(this.spatial)this.arEntryContent=this.retainedARContent();
+    if(this.spatial&&!this.digitalWorldVisit)this.arEntryContent=this.retainedARContent();
   }
   retainedARContent(){
     // Measured-plane objects are session-only; they do not survive a save or exit.
     return JSON.stringify([this.scene.objects.filter(object=>object.anchorId===ANCHOR_ID),this.game]);
   }
   markAROriginIfChanged(){
-    if(this.spatial&&this.originBinding==='virtual'&&
+    if(this.spatial&&!this.digitalWorldVisit&&this.originBinding==='virtual'&&
        this.arEntryContent!==this.retainedARContent())
       this.originBinding='ar';
   }
   leaveAR(){
     this.runtimePresentation='desktop';
     if(!this.spatial)return;
+    if(this.digitalWorldVisit){
+      this.spatial=null;this.digitalWorldVisit=false;
+      if(this.selection.anchorId!==ANCHOR_ID)
+        this.selection={anchorId:ANCHOR_ID,objectId:'',position:{x:0,y:0,z:-2}};
+      return;
+    }
     if(this.agentGrab)this.releaseRigidGrab(this.agentGrab.objectId);
     this.markAROriginIfChanged();
     // Carry edits to virtual-floor objects back to desktop. Physical anchors
@@ -851,7 +892,7 @@ export class MatrixWorld {
     }
     return transform;
   }
-  execute(command,{recordHistory=true}={}) {
+  execute(command,{recordHistory=true,authority=null}={}) {
     const result={requestId:command?.requestId||'',ok:false,error:'',objectId:''};
     let rigidRollback=null,rigidRollbackSolver=null;
     let rigidMutationStarted=false,rigidRebuildCompleted=false;
@@ -859,6 +900,16 @@ export class MatrixWorld {
     try {
       if (!command || !validId(command.requestId)) throw Error('Invalid requestId');
       const op=command.op;
+      const visitResidentIds=new Set(this.citizens?.residents?.map(item=>item.objectId)||[]);
+      const visitStationIds=new Set(this.citizens?.stations?.map(item=>item.objectId)||[]);
+      const citizenVisitAction=this.digitalWorldVisit&&!recordHistory&&
+        authority===CITIZENS_VISIT_AUTHORITY&&
+        (op==='set_transform'&&visitResidentIds.has(command.objectId) ||
+         op==='interact'&&visitResidentIds.has(command.actorObjectId)&&
+           (visitResidentIds.has(command.targetObjectId)||visitStationIds.has(command.targetObjectId)));
+      if(this.digitalWorldVisit&&!citizenVisitAction&&
+         !['get_scene','list_assets','list_targets','inspect_entity','select'].includes(op))
+        throw Error('AR visit is a view of the digital world; edit it from the desktop virtual room');
       if(this.pendingRigidMotion&&!this.rigidPhysics&&
          !['get_scene','list_assets','list_targets','inspect_entity','select'].includes(op))
         throw Error('Wait for rigid simulation to restore before editing the world');
@@ -871,9 +922,10 @@ export class MatrixWorld {
           'remove_control','bind_game','update_game',
           'delete','clear','load','undo','redo'].includes(op))
         throw Error('Return to Creator Mode before editing the world');
-      if(this.spatial?.originUnavailable&&!['get_scene','list_assets','list_targets','inspect_entity'].includes(op))
+      if(this.spatial?.originUnavailable&&!citizenVisitAction&&
+         !['get_scene','list_assets','list_targets','inspect_entity'].includes(op))
         throw Error('Saved room origin is unavailable; restore it or archive the old world before editing');
-      if(this.spatial?.stale&&['spawn','duplicate','set_transform','set_behavior','remove_behavior','attach_component','stop_component','remove_component','bind_animation','set_physics','remove_physics','set_interaction','remove_interaction','set_display','remove_display','set_control','remove_control','activate_control','delete','load','undo','redo','select','create_procedural','update_procedural','set_rigid_body','remove_rigid_body','set_gravity','bind_game','update_game','begin_grab','move_grab','release_grab'].includes(op))
+      if(this.spatial?.stale&&!citizenVisitAction&&['spawn','duplicate','set_transform','set_behavior','remove_behavior','attach_component','stop_component','remove_component','bind_animation','set_physics','remove_physics','set_interaction','remove_interaction','set_display','remove_display','set_control','remove_control','activate_control','delete','load','undo','redo','select','create_procedural','update_procedural','set_rigid_body','remove_rigid_body','set_gravity','bind_game','update_game','begin_grab','move_grab','release_grab'].includes(op))
         throw Error('Room tracking is stale; editing is paused until the room is recovered');
       if(Object.hasOwn(command,'expectedTransform')){
         if(!expectedTransformOps.has(op)||!validExpectedTransform(command.expectedTransform))
@@ -1234,7 +1286,8 @@ export class MatrixWorld {
         case 'interact':
           // A finite local outcome: check the advertised action and the current
           // observed actor pose. Citizens owns intent and resource reservations.
-          if(this.spatial||this.scene.roomId!==ROOM_ID)throw Error('Interaction requires the virtual room');
+          if(this.spatial&&!this.digitalWorldVisit||this.scene.roomId!==ROOM_ID)
+            throw Error('Interaction requires the virtual room');
           {const actor=this.requireObject(command.actorObjectId);
             const target=this.requireObject(command.targetObjectId);
             const authored=Object.hasOwn(target,'interaction');

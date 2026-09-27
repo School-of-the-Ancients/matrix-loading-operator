@@ -925,7 +925,7 @@ test('AR entry cancels active claims before an AR object move and does not auto-
     world.citizens=active;
     panel=new CitizensPanel(world,{onChange(){},canStart:()=>'',onFeedback(){}});
 
-    world.enterAR();
+    world.enterAR({visitDigitalWorld:false});
     panel.syncFromWorld();
     const paused=world.citizens;
     assert.equal(paused.paused,true);
@@ -958,6 +958,87 @@ test('AR entry cancels active claims before an AR object move and does not auto-
   }
 });
 
+test('AR visit keeps one digital Citizens world running through tracking loss and exit',()=>{
+  const dom=stubDocument();
+  let panel;
+  try{
+    let sequence=0,commits=0;
+    const world=new MatrixWorld(()=>`citizens-visit-${++sequence}`);
+    const simulation=createCitizensDemo(world,{seed:17});
+    simulation.resume();
+    world.citizens=simulation.step();
+    const scene=world.scene,entry=structuredClone(world.citizens);
+    const objectIds=scene.objects.map(object=>object.objectId);
+    panel=new CitizensPanel(world,{onChange(){commits++;return '';},
+      canStart:()=>'',onFeedback(){}});
+    world.enterAR();panel.syncFromWorld();
+    assert.equal(world.digitalWorldVisit,true);
+    assert.equal(world.scene,scene);
+    assert.deepEqual(world.citizens,entry);
+    assert.equal(world.snapshot().digitalWorldVisit,true);
+    assert.ok(world.snapshot().citizensObservation);
+    assert.match(dom.elements.get('citizens-status').textContent,/Visiting digital world · Running/);
+    panel.tick();
+    assert.equal(world.citizens.clockTick,entry.clockTick+1);
+    assert.equal(commits,1);
+    assert.equal(world.scene,scene);
+    assert.deepEqual(world.scene.objects.map(object=>object.objectId),objectIds);
+    assert.ok(world.citizens.stations.some(station=>station.claim));
+    assert.ok(!world.citizens.log.some(item=>item.message.includes('entering AR cancelled')));
+    world.setOriginUnavailable(true);
+    assert.equal(world.snapshot().readOnly,true);
+    const beforeMissing=world.citizens.clockTick;
+    globalThis.document.hidden=true;
+    panel.tick();
+    assert.equal(world.citizens.clockTick,beforeMissing+1,
+      'a hidden immersive page and lost physical view origin do not stop the digital simulation');
+    assert.equal(storedBrowserWorld(world).scene.roomId,entry.world.roomId);
+    world.leaveAR();panel.syncFromWorld();
+    assert.equal(world.digitalWorldVisit,false);
+    assert.equal(world.scene,scene);
+    assert.equal(world.citizens.clockTick,beforeMissing+1);
+    assert.equal(world.originBinding,'virtual');
+    panel.tick();
+    assert.equal(world.citizens.clockTick,beforeMissing+1,
+      'an ordinary hidden page still pauses its browser-local timer');
+  }finally{
+    if(panel)clearInterval(panel.timer);
+    dom.restore();
+  }
+});
+
+test('an accepted Citizens conversation completes once during an AR visit',()=>{
+  const dom=stubDocument();
+  let panel;
+  try{
+    let sequence=0;
+    const world=new MatrixWorld(()=>`visit-social-${++sequence}`);
+    const simulation=createCitizensDemo(world,{seed:2});
+    let active=null;
+    for(let minute=0;minute<300;minute++){
+      active=simulation.step();
+      if(active.socialSession?.phase==='active'&&active.socialSession.travelTicks>0)break;
+    }
+    assert.equal(active.socialSession?.phase,'active');
+    const sessionId=active.socialSession.id,scene=world.scene;
+    simulation.resume();world.citizens=simulation.snapshot();
+    panel=new CitizensPanel(world,{onChange(){return '';},canStart:()=>'',onFeedback(){}});
+    world.enterAR();panel.syncFromWorld();
+    world.setOriginUnavailable(true);
+    for(let minute=0;minute<24&&!world.citizens.socialEvents.some(event=>
+      event.event==='ended'&&event.id.startsWith(sessionId));minute++)panel.tick();
+    const ended=world.citizens.socialEvents.filter(event=>
+      event.event==='ended'&&event.id.startsWith(sessionId));
+    assert.equal(ended.length,1);
+    assert.match(ended[0].requestId,/^citizens-2-social-/);
+    assert.equal(world.scene,scene);
+    assert.ok(!world.citizens.log.some(item=>item.message.includes('entering AR cancelled')));
+  }finally{
+    if(panel)clearInterval(panel.timer);
+    dom.restore();
+  }
+});
+
 test('deleting a bound resident in AR retires it before save and preserves full recovery',()=>{
   const dom=stubDocument();
   let panel;
@@ -972,7 +1053,7 @@ test('deleting a bound resident in AR retires it before save and preserves full 
     assert.equal(saveStoredWorld(storedBrowserWorld(world),storage,storage),'');
     const before=JSON.parse(storage.getItem(WORLD_KEY));
     panel=new CitizensPanel(world,{onChange(){},canStart:()=>'',onFeedback(){}});
-    world.enterAR();panel.syncFromWorld();
+    world.enterAR({visitDigitalWorld:false});panel.syncFromWorld();
     const ada=world.citizens.residents.find(resident=>resident.id==='ada');
     assert.equal(world.execute({requestId:'delete-ada-in-ar',op:'delete',
       objectId:ada.objectId}).ok,true);
@@ -1002,7 +1083,7 @@ test('an explicit world restore in AR replaces the paused Citizens adapter',()=>
     world.citizens=simulation.step();
     const before=storedBrowserWorld(world);
     panel=new CitizensPanel(world,{onChange(){},canStart:()=>'',onFeedback(){}});
-    world.enterAR();panel.syncFromWorld();
+    world.enterAR({visitDigitalWorld:false});panel.syncFromWorld();
     const chair=world.citizens.stations.find(station=>station.id==='chair');
     assert.equal(world.execute({requestId:'delete-chair-in-ar',op:'delete',
       objectId:chair.objectId}).ok,true);

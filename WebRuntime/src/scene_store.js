@@ -130,7 +130,7 @@ function capturedRigidMotion(world,scene){
 }
 
 export function storedWorld(world){
-  const scene=world.spatial?{...world.virtualScene.scene,
+  const scene=world.spatial&&!world.digitalWorldVisit?{...world.virtualScene.scene,
     objects:world.scene.objects.filter(object=>object.anchorId==='web-floor')}:world.scene;
   const savedScene=structuredClone(scene),game=structuredClone(world.game);
   const rigidMotion=capturedRigidMotion(world,savedScene);
@@ -311,6 +311,8 @@ export function restoreBestStoredWorld(world,pending,storage){
 }
 
 export function restoreStoredWorld(world,value,{waitForWebAssets=false}={}){
+  if(world.digitalWorldVisit)
+    throw Error('Leave the digital world AR visit before restoring a world');
   if(world.spatial?.originUnavailable)
     throw Error('Saved room origin is unavailable; recover it before replacing the active world');
   if(world.agentGrab||world.rigidPhysics?.states().some(state=>state.held))
@@ -474,6 +476,8 @@ export function saveStoredScene(scene,tabStorage,durableStorage){
 }
 
 export function restoreStoredScene(world,scene){
+  if(world.digitalWorldVisit)
+    throw Error('Leave the digital world AR visit before restoring a scene');
   if(world.spatial){
     // A virtual-room save has the stable room ID. The active AR session has a
     // different temporary room ID, so validate the same objects in that frame.

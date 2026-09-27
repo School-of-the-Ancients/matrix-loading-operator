@@ -1,6 +1,6 @@
 // Bounded desktop Citizens fixture. Policy and needs live here; MatrixWorld owns
 // scene objects and validates every placement/move. No Agent Portal access.
-import {ANCHOR_ID,INTERACTION_USE_MARGIN_METRES,MAX_OBJECTS,ROOM_ID,
+import {ANCHOR_ID,CITIZENS_VISIT_AUTHORITY,INTERACTION_USE_MARGIN_METRES,MAX_OBJECTS,ROOM_ID,
   interactionSourceMatches,interactionWorldPoint,validInteractionDescriptor} from './protocol.js';
 import {checkedMove,planPath,segmentClear} from './citizens_navigation.js';
 
@@ -256,7 +256,7 @@ function fixtureApproach(world,station){
 
 function assertWorld(world){
   if(!world||typeof world.execute!=='function'||world.scene?.schemaVersion!==1||
-     world.scene.roomId!==ROOM_ID||world.spatial)
+     world.scene.roomId!==ROOM_ID||world.spatial&&!world.digitalWorldVisit)
     throw Error('Citizens demo requires the ready desktop virtual room');
 }
 
@@ -2295,7 +2295,7 @@ export class CitizensSimulation {
     const requestId=`citizens-${this.state.seed}-${domain}-${executionId}-${++this.state.requestSequence}`;
     let receipt;
     try{receipt=this.world.execute({requestId,op:'set_transform',objectId:resident.objectId,
-      transform},{recordHistory:false});}
+      transform},{recordHistory:false,authority:CITIZENS_VISIT_AUTHORITY});}
     catch(error){return {ok:false,error:error.message||String(error)};}
     if(!receipt?.ok||receipt.requestId!==requestId||receipt.objectId!==resident.objectId)
       return {ok:false,error:receipt?.error||'missing or mismatched Matrix receipt'};
@@ -2326,7 +2326,7 @@ export class CitizensSimulation {
       actorObjectId:resident.objectId,targetObjectId:station.objectId,kind:station.kind,
       ...(station.interaction?{interactionId:station.interaction.interactionId,
         expectedInteraction:clone(station.interaction)}:{})},
-    {recordHistory:false});}
+    {recordHistory:false,authority:CITIZENS_VISIT_AUTHORITY});}
     catch(error){return {ok:false,error:error.message||String(error)};}
     const outcome=receipt?.outcome;
     if(!receipt?.ok||receipt.requestId!==requestId||receipt.objectId!==resident.objectId||
@@ -2355,7 +2355,8 @@ export class CitizensSimulation {
     let receipt;
     try{receipt=this.world.execute({requestId,op:'interact',
       actorObjectId:initiator.objectId,targetObjectId:invitee.objectId,
-      kind:'converse',sessionId:session.id},{recordHistory:false});}
+      kind:'converse',sessionId:session.id},
+    {recordHistory:false,authority:CITIZENS_VISIT_AUTHORITY});}
     catch(error){return {ok:false,error:error.message||String(error)};}
     const outcome=receipt?.outcome;
     if(!receipt?.ok||receipt.requestId!==requestId||

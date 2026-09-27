@@ -10,7 +10,7 @@ import urllib.error
 import urllib.request
 
 from procedural_contract import CURVED_BENCH_PARAMETERS, new_recipe
-from server import APIError, Server, State, world_checkpoint_digest
+from server import APIError, Server, State, snapshot, world_checkpoint_digest
 from test_web_assets import animated_glb, glb
 
 
@@ -107,6 +107,85 @@ class WorldCheckpointTests(unittest.TestCase):
                     {"tick": 11, "residentId": "bo", "event": "blocked",
                      "message": "Chair occupied by Ada."}]}
         return world
+
+    def ar_citizens_visit(self):
+        """An AR view of the same virtual world, with no physical scene objects."""
+        world = self.citizens_world()
+        current = copy.deepcopy(self.state.latest)
+        current.update(worldSlotSchemaVersion=1,
+                       citizensState=world["citizens"],
+                       citizensObservation={"residentObjectIds": ["citizen-ada", "citizen-bo"],
+                                            "authoredGeneration": 42},
+                       digitalWorldVisit=True,
+                       runtimeDescriptor={"schemaVersion": 1, "client": "matrix-web",
+                                          "renderer": "threejs-webxr", "presentation": "ar"},
+                       roomContext={"mode": "ar", "state": "ready",
+                                    "message": "Viewing the existing digital world",
+                                    "alignmentVerified": False})
+        return current
+
+    def test_ar_visit_accepts_canonical_citizens_and_keeps_motion_out_of_authored_revision(self):
+        visit = self.ar_citizens_visit()
+        self.state.exchange({"clientId": "browser", "snapshot": visit, "results": []})
+        revision = self.state.revision
+        self.assertTrue(self.state.latest["digitalWorldVisit"])
+        with self.assertRaises(APIError) as blocked_save:
+            self.state.save("VisitScene")
+        self.assertEqual(blocked_save.exception.status, 409)
+        moved = copy.deepcopy(visit)
+        moved["scene"]["objects"][-4]["transform"]["position"]["x"] += .2
+        self.state.exchange({"clientId": "browser", "snapshot": moved, "results": []})
+        self.assertEqual(self.state.revision, revision)
+        self.assertEqual(self.state.latest["scene"]["objects"][-4]["transform"]["position"]["x"],
+                         moved["scene"]["objects"][-4]["transform"]["position"]["x"])
+        missing = copy.deepcopy(moved)
+        missing["roomContext"].update(state="missing", alignmentVerified=False)
+        missing["readOnly"] = True
+        self.state.exchange({"clientId": "browser", "snapshot": missing, "results": []})
+        recovery_revision = self.state.revision
+        still_living = copy.deepcopy(missing)
+        still_living["scene"]["objects"][-4]["transform"]["position"]["x"] += .2
+        self.state.exchange({"clientId": "browser", "snapshot": still_living, "results": []})
+        self.assertEqual(self.state.revision, recovery_revision)
+        with self.assertRaises(APIError) as blocked:
+            self.state.queue([{"op": "clear"}])
+        self.assertEqual(blocked.exception.status, 409)
+
+    def test_ar_visit_marker_rejects_other_worlds_and_cancels_prior_commands(self):
+        visit = self.ar_citizens_visit()
+        invalid = []
+        for marker in (1, "true", None):
+            changed = copy.deepcopy(visit)
+            changed["digitalWorldVisit"] = marker
+            invalid.append(changed)
+        for field, value in (("citizensState", None), ("worldSlotSchemaVersion", None)):
+            changed = copy.deepcopy(visit)
+            changed[field] = value
+            invalid.append(changed)
+        changed = copy.deepcopy(visit)
+        changed["scene"]["roomId"] = "webxr-session-other"
+        invalid.append(changed)
+        changed = copy.deepcopy(visit)
+        changed["runtimeDescriptor"]["presentation"] = "desktop"
+        invalid.append(changed)
+        changed = copy.deepcopy(visit)
+        changed["roomContext"]["alignmentVerified"] = True
+        invalid.append(changed)
+        changed = copy.deepcopy(visit)
+        changed.pop("citizensObservation")
+        invalid.append(changed)
+        changed = copy.deepcopy(visit)
+        changed["citizensObservation"]["residentObjectIds"] = ["citizen-ada"]
+        invalid.append(changed)
+        for changed in invalid:
+            with self.subTest(changed=changed.get("digitalWorldVisit"), room=changed["scene"]["roomId"]):
+                with self.assertRaises(APIError):
+                    snapshot(changed)
+        queued = self.state.queue([{"op": "clear"}])["commands"][0]
+        self.assertIn(queued["requestId"], self.state.pending)
+        response = self.state.exchange({"clientId": "browser", "snapshot": visit, "results": []})
+        self.assertEqual(response["commands"], [])
+        self.assertNotIn(queued["requestId"], self.state.pending)
 
     def citizens_v2_world(self):
         world = self.citizens_world()

@@ -1,5 +1,11 @@
 # AI Citizens in the Matrix Web world
 
+## Canonical digital-world AR visit — source candidate
+
+The September 27 owner direction treats AR as a visitor view into the same digital Matrix world in which Citizens live. The current source candidate adds an eligible virtual Citizens visit without cloning its scene or changing its room/object IDs. A running `CitizensSimulation` advances during an active browser AR session, including a temporarily unavailable view origin; the overlay hides until tracking returns. An intentionally paused simulation remains paused. Browser saves retain the canonical v3 world and nested Citizens state. The PC snapshot marks this visit explicitly and rejects authored commands from the AR view. Worlds without an eligible Citizens state continue through the existing AR placement/recovery path.
+
+This is a **browser-active** visit slice. It does not yet make Citizens run with the browser closed: the timer still belongs to the browser, and a separate service-owned world host under [#20](https://github.com/School-of-the-Ancients/matrix-loading-operator/issues/20) is in progress. A view anchor is not proof of physical alignment or collision, and no Quest wearer result is claimed. See the [source validation](../Validation/Parallel-World-AR-Visit-2026-09-27.md) for exact checks.
+
 The bounded Citizens implementation through [PR #126](https://github.com/School-of-the-Ancients/matrix-loading-operator/pull/126) is merged on `main`. The sections below preserve dated, isolated desktop records; their branch names, candidate labels, localhost ports, and `work/` paths describe those runs and do not imply a service is running now. Nested Citizens v12 is current in source; the outer world envelope remains v3. Quest simulation acceptance and broader #15/#17/#19 work remain open.
 
 ## Accepted conversation route recovery

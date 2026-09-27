@@ -93,6 +93,8 @@ export function executeWorldSlotCommand(world,command,tabStorage,durableStorage)
 }
 
 function requireSafeSwitch(world){
+  if(world.digitalWorldVisit)
+    throw Error('Leave the digital world AR visit before switching worlds');
   if(world.pendingRigidMotion&&!world.rigidPhysics)
     throw Error('Wait for rigid simulation to restore before switching worlds');
   if(world.creatorMode?.mode!=='creator'||world.creatorMode.simulation!=='paused')
@@ -208,6 +210,8 @@ function switchWorld(world,next,tabStorage,durableStorage,name){
 }
 
 export function startNewWorld(world,tabStorage,durableStorage,name){
+  if(world.digitalWorldVisit)
+    throw Error('Leave the digital world AR visit before switching worlds');
   const source=world.spatial?world.virtualScene?.scene:world.scene;
   if(!source)throw Error('The virtual world is unavailable');
   const empty={version:2,scene:{schemaVersion:source.schemaVersion,
