@@ -1900,6 +1900,67 @@ class WorldCheckpointTests(unittest.TestCase):
         self.assertEqual(restored["world"]["game"], world["game"])
         self.assertNotIn("physicsStates", restored["world"])
 
+    def test_moving_body_checkpoint_is_fresh_and_legacy_motion_uses_baseline(self):
+        pose = copy.deepcopy(POSE)
+        pose["position"]["y"] = 2
+        dynamic = {"objectId": "moving-block", "assetId": "block", "anchorId": "web-floor",
+                   "transform": pose, "rigidBody": {"schemaVersion": 1, "type": "dynamic",
+                   "collider": "bounds-box", "restitution": 0, "friction": .8,
+                   "sensor": False}}
+        scene = {"schemaVersion": 1, "roomId": "web-virtual-room-v1",
+                 "objects": [dynamic]}
+        state = {"objectId": "moving-block", "type": "dynamic", "held": False,
+                 "position": copy.deepcopy(pose["position"]),
+                 "rotation": {"x": 0, "y": 0, "z": 0, "w": 1},
+                 "linearVelocity": {"x": 1, "y": -2, "z": 0},
+                 "angularVelocity": {"x": 0, "y": 0, "z": .5},
+                 "sleeping": False}
+        observed = copy.deepcopy(self.snapshot)
+        observed["scene"] = copy.deepcopy(scene)
+        observed["assets"].append({"assetId": "block", "displayName": "Block"})
+        observed["rigidSchemaVersion"] = 1
+        observed["rigidStates"] = [copy.deepcopy(state)]
+        self.state.exchange({"clientId": "browser", "snapshot": observed, "results": []})
+        world = {"version": 2, "scene": copy.deepcopy(scene), "game": None,
+                 "rigidMotion": {"schemaVersion": 1, "bodies": [{key: copy.deepcopy(state[key])
+                 for key in ("objectId", "position", "rotation", "linearVelocity",
+                             "angularVelocity", "sleeping")} ]}}
+        self.assertTrue(self.state.save_world_checkpoint("Moving", world)["saved"])
+        path = self.scenes / "world_checkpoints" / "Moving.json"
+        original = path.read_bytes()
+        self.assertEqual(self.state.load_world_checkpoint("Moving")["world"], world)
+        stale = copy.deepcopy(world)
+        stale["rigidMotion"]["bodies"][0]["linearVelocity"]["x"] = 2
+        with self.assertRaisesRegex(APIError, "motion changed") as failure:
+            self.state.save_world_checkpoint("Moving", stale)
+        self.assertEqual(failure.exception.status, 409)
+        self.assertEqual(path.read_bytes(), original)
+        invalid = copy.deepcopy(world)
+        invalid["rigidMotion"]["bodies"][0]["sleeping"] = True
+        with self.assertRaisesRegex(APIError, "Sleeping rigid"):
+            self.state.save_world_checkpoint("Moving", invalid)
+        legacy = copy.deepcopy(world)
+        del legacy["rigidMotion"]
+        with self.assertRaisesRegex(APIError, "must include moving-body state"):
+            self.state.save_world_checkpoint("Moving", legacy)
+        document = json.loads(original)
+        document["world"] = legacy
+        document["payloadSha256"] = world_checkpoint_digest(legacy, document["dependencies"])
+        path.write_text(json.dumps(document), encoding="utf-8")
+        self.assertEqual(self.state.load_world_checkpoint("Moving")["world"], legacy)
+        self.assertEqual(self.state.latest["rigidStates"], [state])
+        settled = copy.deepcopy(state)
+        settled["linearVelocity"] = {"x": 0, "y": 0, "z": 0}
+        settled["angularVelocity"] = {"x": 0, "y": 0, "z": 0}
+        settled["sleeping"] = True
+        observed["rigidStates"] = [settled]
+        self.state.exchange({"clientId": "browser", "snapshot": observed, "results": []})
+        world["rigidMotion"]["bodies"][0].update(
+            linearVelocity=copy.deepcopy(settled["linearVelocity"]),
+            angularVelocity=copy.deepcopy(settled["angularVelocity"]), sleeping=True)
+        self.assertTrue(self.state.save_world_checkpoint("Settled", world)["saved"])
+        self.assertEqual(self.state.load_world_checkpoint("Settled")["world"], world)
+
     def test_missing_or_corrupt_glb_rejects_without_replacing_active_world(self):
         self.state.save_world_checkpoint("Demo", self.world)
         path = self.assets / (self.asset["sha256"] + ".glb")

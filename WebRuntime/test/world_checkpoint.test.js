@@ -108,6 +108,34 @@ test('failed PC exchange restores Creator Mode, gravity, and the running rigid s
   world.rigidPhysics.dispose();
 });
 
+test('PC world restore resumes a moving dynamic body from checkpoint velocity',async()=>{
+  const original=new MatrixWorld(()=> 'checkpoint-body');
+  original.attachRigidPhysics(await createRigidPhysics());
+  const active=new MatrixWorld(()=> 'other-body');
+  active.attachRigidPhysics(await createRigidPhysics());
+  try{
+    const spawned=original.execute({requestId:'checkpoint-spawn',op:'spawn',
+      assetId:'block',anchorId:'web-floor',transform:{...pose,
+        position:{x:0,y:2,z:-2}}});
+    assert.equal(spawned.ok,true,spawned.error);
+    const rigid=original.execute({requestId:'checkpoint-rigid',op:'set_rigid_body',
+      objectId:spawned.objectId,rigidBody:{schemaVersion:1,type:'dynamic',
+        collider:'bounds-box',restitution:0,friction:.8,sensor:false}});
+    assert.equal(rigid.ok,true,rigid.error);
+    for(let frame=0;frame<12;frame++)original.advanceRigidPhysics(1/60);
+    const checkpoint=storedWorld(original);
+    assert.ok(checkpoint.rigidMotion.bodies[0].linearVelocity.y<0);
+    await applyPCWorld(active,checkpoint,async()=>{
+      assert.deepEqual(storedWorld(active),checkpoint);
+    });
+    assert.deepEqual(active.rigidPhysics.state(spawned.objectId).linearVelocity,
+      checkpoint.rigidMotion.bodies[0].linearVelocity);
+    const y=active.rigidPhysics.state(spawned.objectId).position.y;
+    active.advanceRigidPhysics(1/60);
+    assert.ok(active.rigidPhysics.state(spawned.objectId).position.y<y);
+  }finally{original.rigidPhysics.dispose();active.rigidPhysics.dispose();}
+});
+
 test('PC restore clears Citizens on success and rolls them back on failed exchange',async()=>{
   const world=new MatrixWorld(()=>crypto.randomUUID().replaceAll('-',''));
   const simulation=createCitizensDemo(world,{seed:43});

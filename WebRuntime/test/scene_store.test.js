@@ -10,12 +10,160 @@ import {loadStoredScene,saveStoredScene,restoreStoredScene,saveCheckpoint,loadCh
 import {CitizensSimulation,createCitizensDemo} from '../src/citizens.js';
 import {startGame,deliverMovedObject} from '../src/game.js';
 import {rememberTurn,clearConversation} from '../src/conversation.js';
+import {createRigidPhysics} from '../src/physics_rigid.js';
 
 function storage(){
   const values=new Map();
   return {getItem:key=>values.get(key)||null,setItem:(key,value)=>values.set(key,value),removeItem:key=>values.delete(key)};
 }
 const pose={position:{x:1,y:0,z:-2},rotation:{x:0,y:0,z:0},scale:{x:1,y:1,z:1}};
+const rigidConfig=type=>({schemaVersion:1,type,collider:'bounds-box',
+  restitution:0,friction:.8,sensor:false});
+
+async function movingWorld(){
+  let next=0;
+  const world=new MatrixWorld(()=>`motion-${++next}`);
+  world.attachRigidPhysics(await createRigidPhysics());
+  for(const [name,y,type] of [['moving',2,'dynamic'],['settled',.5,'dynamic'],
+    ['support',0,'static']]){
+    const objectId=world.execute({requestId:`spawn-${name}`,op:'spawn',assetId:'block',
+      anchorId:'web-floor',transform:{...pose,position:{x:next*2,y,z:-2}}}).objectId;
+    const result=world.execute({requestId:`rigid-${name}`,op:'set_rigid_body',
+      objectId,rigidBody:rigidConfig(type)});
+    assert.equal(result.ok,true,result.error);
+  }
+  for(let frame=0;frame<12;frame++)world.advanceRigidPhysics(1/60);
+  world.rigidPhysics.requireBody('motion-2').body.sleep();
+  world.syncRigidTransform('motion-2',world.rigidPhysics.state('motion-2'));
+  return world;
+}
+
+test('moving and settled bodies survive browser checkpoint and late solver attach',async()=>{
+  const world=await movingWorld();
+  try{
+    const saved=storedWorld(world),tab=storage(),durable=storage(),manual=storage();
+    assert.deepEqual(saved.rigidMotion.bodies.map(body=>body.objectId),
+      ['motion-1','motion-2']);
+    assert.ok(saved.rigidMotion.bodies[0].linearVelocity.y<0);
+    assert.equal(saved.rigidMotion.bodies[1].sleeping,true);
+    assert.equal(saveStoredWorld(saved,tab,durable),'');
+    assert.equal(saveCheckpoint(saved.scene,saved.game,manual,'virtual',null,null,
+      saved.creatorMode,saved.rigidGravity,saved.controlStates,saved.rigidMotion),'');
+    for(const copy of [loadStoredWorld(storage(),durable).value,loadCheckpoint(manual)]){
+      const reopened=new MatrixWorld();
+      restoreStoredWorld(reopened,copy);
+      assert.deepEqual(reopened.pendingRigidMotion,saved.rigidMotion);
+      assert.deepEqual(storedWorld(reopened).rigidMotion,saved.rigidMotion);
+      const transform=structuredClone(reopened.requireObject('motion-1').transform);
+      transform.scale={x:2,y:2,z:2};
+      const premature=reopened.execute({requestId:'premature-edit',op:'set_transform',
+        objectId:'motion-1',transform});
+      assert.equal(premature.ok,false);
+      assert.match(premature.error,/Wait for rigid simulation/);
+      assert.deepEqual(storedWorld(reopened).rigidMotion,saved.rigidMotion);
+      reopened.attachRigidPhysics(await createRigidPhysics());
+      try{
+        assert.equal(reopened.pendingRigidMotion,null);
+        assert.deepEqual(storedWorld(reopened).rigidMotion,saved.rigidMotion);
+        assert.equal(reopened.rigidPhysics.state('motion-2').sleeping,true);
+        const before=reopened.rigidPhysics.state('motion-1');
+        reopened.advanceRigidPhysics(1/60);
+        assert.ok(reopened.rigidPhysics.state('motion-1').position.y<before.position.y);
+      }finally{reopened.rigidPhysics.dispose();}
+    }
+  }finally{world.rigidPhysics.dispose();}
+});
+
+test('forged rigid motion rejects restore before changing the active world',async()=>{
+  const world=await movingWorld();
+  try{
+    const saved=storedWorld(world),solver=world.rigidPhysics.snapshot();
+    const tab=storage(),durable=storage();
+    assert.equal(saveStoredWorld(saved,tab,durable),'');
+    const original=durable.getItem(WORLD_KEY);
+    const corruptions=[
+      body=>{body.objectId='unknown';},
+      body=>{body.position.y+=1;},
+      body=>{body.linearVelocity.y=Infinity;},
+      body=>{body.angularVelocity.z=101;},
+      body=>{body.rotation.w=0;},
+      body=>{body.sleeping=true;body.linearVelocity.y=4;}
+    ];
+    for(const corrupt of corruptions){
+      const forged=structuredClone(saved);
+      corrupt(forged.rigidMotion.bodies[0]);
+      assert.throws(()=>restoreStoredWorld(world,forged),/rigid motion|Sleeping/);
+      assert.match(saveStoredWorld(forged,tab,durable),/could not be serialized/i);
+      assert.equal(durable.getItem(WORLD_KEY),original);
+      assert.deepEqual(storedWorld(world),saved);
+      assert.deepEqual(world.rigidPhysics.snapshot(),solver);
+    }
+    const missing=structuredClone(saved);
+    missing.rigidMotion.bodies.pop();
+    assert.throws(()=>restoreStoredWorld(world,missing),/rigid motion/);
+    assert.deepEqual(storedWorld(world),saved);
+  }finally{world.rigidPhysics.dispose();}
+});
+
+test('legacy world motion loads at authored pose with zero velocity',async()=>{
+  const world=await movingWorld();
+  try{
+    const legacy=storedWorld(world);
+    delete legacy.rigidMotion;
+    const reopened=new MatrixWorld();
+    restoreStoredWorld(reopened,legacy);
+    assert.equal(reopened.pendingRigidMotion,null);
+    assert.throws(()=>storedWorld(reopened),/still loading/);
+    reopened.attachRigidPhysics(await createRigidPhysics());
+    try{
+      const state=reopened.rigidPhysics.state('motion-1');
+      assert.deepEqual(state.linearVelocity,{x:0,y:0,z:0});
+      assert.deepEqual(state.position,legacy.scene.objects[0].transform.position);
+    }finally{reopened.rigidPhysics.dispose();}
+  }finally{world.rigidPhysics.dispose();}
+});
+
+test('failed AR solver commit restores active and suspended selections',async()=>{
+  const world=await movingWorld();
+  try{
+    const saved=storedWorld(world);
+    saved.originBinding='virtual';
+    world.setSelection('motion-1',world.requireObject('motion-1').transform.position);
+    world.enterAR();
+    const before={scene:structuredClone(world.scene),
+      selection:structuredClone(world.selection),
+      virtualScene:structuredClone(world.virtualScene),
+      solver:world.rigidPhysics.snapshot()};
+    const restore=world.rigidPhysics.restore.bind(world.rigidPhysics);
+    let fail=true;
+    world.rigidPhysics.restore=snapshot=>{
+      if(fail){fail=false;throw Error('simulated solver commit failure');}
+      return restore(snapshot);
+    };
+    assert.throws(()=>restoreStoredWorld(world,saved),/simulated solver commit failure/);
+    assert.deepEqual(world.scene,before.scene);
+    assert.deepEqual(world.selection,before.selection);
+    assert.deepEqual(world.virtualScene,before.virtualScene);
+    assert.deepEqual(world.rigidPhysics.snapshot(),before.solver);
+  }finally{world.rigidPhysics.dispose();}
+});
+
+test('failed delayed solver attach keeps saved motion pending without a half-attached engine',async()=>{
+  const source=await movingWorld();
+  try{
+    const saved=storedWorld(source),world=new MatrixWorld();
+    restoreStoredWorld(world,saved);
+    const engine=await createRigidPhysics();
+    engine.restore=()=>{throw Error('solver attach failed');};
+    assert.throws(()=>world.attachRigidPhysics(engine),/solver attach failed/);
+    assert.equal(world.rigidPhysics,null);
+    assert.deepEqual(world.pendingRigidMotion,saved.rigidMotion);
+    assert.equal(engine.disposed,true);
+    world.attachRigidPhysics(await createRigidPhysics());
+    try{assert.deepEqual(storedWorld(world).rigidMotion,saved.rigidMotion);}
+    finally{world.rigidPhysics.dispose();}
+  }finally{source.rigidPhysics.dispose();}
+});
 
 function controlWorld(){
   let next=0;

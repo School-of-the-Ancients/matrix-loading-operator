@@ -61,6 +61,12 @@ Extend existing browser and PC whole-world checkpoints only where the current co
 
 Test settled and moving-body save/reopen, missing/corrupt dependencies, stale/cancelled/duplicate commands and rollback on failed revisions. Label unsupported continuation state and tolerances. Do not turn authoring undo into an undocumented rewind of unrelated simulation state.
 
+The source checkpoint extension now records bounded dynamic-body pose, velocity,
+and sleep state in browser and PC whole-world saves. Automated moving, settled,
+legacy-baseline, malformed-state, and failed-restore checks pass. This remains
+source and desktop evidence; the create → play → save/reopen route on Quest VR
+and AR still needs wearer validation under step 4.
+
 Demonstrate a second interactive exhibit or experiment using the same state/tool/view path; inspect [Scale Experiment](Docs/Scale-Experiment.md) and #31/#32 before adding modules. Show that a missing capability can be developed, tested, deployed and discovered through normal reviewed code, rather than a fixed preset menu. Provide checked units/models and meaningful feedback. Keep School curriculum and learner records in School; a reusable Matrix demo requires no new School backend.
 
 **Outcome:** the saved world survives return and further editing, one concrete concept is taught through interaction, and creation supports a different experience without a second engine or duplicated simulation.

@@ -721,7 +721,7 @@ async function saveWorld(){
   catch(error){feedback(`World checkpoint could not be saved: ${error.message}`,true);return;}
   const warning=saveCheckpoint(value.scene,value.game,localStorage,value.originBinding,
     value.originAnchorHandle,value.citizens??null,value.creatorMode,value.rigidGravity,
-    value.controlStates);
+    value.controlStates,value.rigidMotion);
   if(warning){feedback(warning,true);view.setOperatorWorldNotice('Browser checkpoint failed.','error');return;}
   view.setOperatorWorldNotice('Saved in browser · saving PC scene backup…','pending');
   const name=`WebWorld_${new Date().toISOString().replace(/[-:T.Z]/g,'').slice(0,14)}`;

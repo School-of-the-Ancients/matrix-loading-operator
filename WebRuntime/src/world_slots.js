@@ -93,6 +93,8 @@ export function executeWorldSlotCommand(world,command,tabStorage,durableStorage)
 }
 
 function requireSafeSwitch(world){
+  if(world.pendingRigidMotion&&!world.rigidPhysics)
+    throw Error('Wait for rigid simulation to restore before switching worlds');
   if(world.creatorMode?.mode!=='creator'||world.creatorMode.simulation!=='paused')
     throw Error('Return to paused Creator Mode before switching worlds');
   if(world.spatial?.originUnavailable||world.spatial?.stale)
@@ -116,6 +118,7 @@ function runtimeCopy(world){
     redo:world.redo,creatorMode:world.creatorMode,
     controlStates:world.controlStates,
     rigidGravity:world.rigidGravity,
+    pendingRigidMotion:world.pendingRigidMotion,
     physicsBodies:world.physicsBodies,
     physicsVerification:world.physicsVerification,
     renderedVerification:world.renderedVerification,
@@ -126,6 +129,7 @@ function runtimeCopy(world){
 function restoreRuntime(world,copy){
   for(const key of ['scene','game','citizens','selection','virtualScene','originBinding',
     'originAnchorHandle','arEntryContent','undo','redo','creatorMode','controlStates','rigidGravity',
+    'pendingRigidMotion',
     'physicsBodies','physicsVerification','renderedVerification','authoredGeneration'])
     world[key]=copy[key];
   world.physicsSceneReference=world.scene;

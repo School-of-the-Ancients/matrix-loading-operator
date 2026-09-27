@@ -150,18 +150,24 @@ function checkedBody(value) {
     throw Error('Only static rigid colliders may be sensors');
   const linearVelocity = value.linearVelocity ?? ZERO;
   const angularVelocity = value.angularVelocity ?? ZERO;
+  const sleeping = value.sleeping ?? false;
   if (!vector(linearVelocity) || !vector(angularVelocity) ||
       [...Object.values(linearVelocity), ...Object.values(angularVelocity)]
         .some(number => Math.abs(number) > 100) ||
       type === 'static' && (Object.values(linearVelocity).some(Boolean) ||
         Object.values(angularVelocity).some(Boolean)))
     throw Error('Invalid rigid body velocity');
+  if (typeof sleeping !== 'boolean' || type === 'static' && sleeping ||
+      sleeping && ([...Object.values(linearVelocity),
+        ...Object.values(angularVelocity)].some(number => number !== 0)))
+    throw Error('Invalid rigid body sleeping state');
   const meshes = checkedMeshes(value.meshes, type, bounds);
   return {objectId: value.objectId, type, position: copyVector(value.position),
     rotation: copyQuaternion(rotation),
     bounds: {center: copyVector(bounds.center), size: copyVector(bounds.size)},
     restitution, friction, sensor,
     linearVelocity: copyVector(linearVelocity), angularVelocity: copyVector(angularVelocity),
+    ...(type === 'dynamic' ? {sleeping} : {}),
     ...(meshes ? {meshes} : {})};
 }
 
@@ -205,6 +211,7 @@ export class RigidPhysics {
     if (config.type === 'dynamic') {
       bodyDesc.setLinvel(config.linearVelocity.x, config.linearVelocity.y,
         config.linearVelocity.z).setAngvel(config.angularVelocity).setCcdEnabled(true);
+      if (config.sleeping) bodyDesc.setSleeping(true);
     }
     const body = this.world.createRigidBody(bodyDesc);
     try {
@@ -352,7 +359,8 @@ export class RigidPhysics {
         position: copyVector(entry.heldTarget?.position ?? entry.body.translation()),
         rotation: copyQuaternion(entry.heldTarget?.rotation ?? entry.body.rotation()),
         linearVelocity: entry.held ? copyVector(ZERO) : copyVector(entry.body.linvel()),
-        angularVelocity: entry.held ? copyVector(ZERO) : copyVector(entry.body.angvel())}))};
+        angularVelocity: entry.held ? copyVector(ZERO) : copyVector(entry.body.angvel()),
+        ...(entry.config.type === 'dynamic' ? {sleeping: !entry.held && entry.body.isSleeping()} : {})}))};
   }
 
   restore(snapshot) {

@@ -216,6 +216,25 @@ test('snapshot restores identity, pose, velocity, gravity, and rejects bad state
   });
 });
 
+test('sleeping state survives solver restore and cannot hide nonzero motion', async () => {
+  await withPhysics(physics => {
+    physics.addBody(floor);
+    physics.addBody(box('settled', vec(0, .5, 0)));
+    physics.addBody({...box('moving', vec(2, 2, 0)),
+      linearVelocity: vec(1, -2, 0), angularVelocity: vec(0, 0, .5)});
+    physics.requireBody('settled').body.sleep();
+    const saved=physics.snapshot();
+    assert.equal(saved.bodies.find(body=>body.objectId==='settled').sleeping,true);
+    assert.equal(saved.bodies.find(body=>body.objectId==='moving').sleeping,false);
+    physics.restore(saved);
+    assert.deepEqual(physics.snapshot(),saved);
+    const invalid=structuredClone(saved);
+    invalid.bodies.find(body=>body.objectId==='settled').linearVelocity.x=.001;
+    assert.throws(()=>physics.restore(invalid),/sleeping state/);
+    assert.deepEqual(physics.snapshot(),saved);
+  });
+});
+
 test('invalid bodies and long frame times leave the bounded world usable', async () => {
   await withPhysics(physics => {
     assert.throws(() => physics.addBody({...box('bad', vec(0, 1, 0)),
