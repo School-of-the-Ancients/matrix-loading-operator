@@ -3,6 +3,8 @@ import './hosted.css';
 import {MatrixWorld} from './protocol.js';
 import {MatrixView} from './view.js';
 import {applyHostedObservation} from './hosted_visit.js';
+import {projectCitizensInspector} from './citizens_inspector.js';
+import {renderCitizensInspector} from './citizens_inspector_view.js';
 
 const $=id=>document.getElementById(id);
 const world=new MatrixWorld();
@@ -52,6 +54,13 @@ function renderObservation(){
     return item;
   }));
 }
+function clearObservation(){
+  $('world-id').textContent='—';
+  $('clock-tick').textContent='—';
+  $('observation-sequence').textContent='—';
+  $('residents').replaceChildren();
+  renderCitizensInspector($('citizens-inspector'),null);
+}
 async function poll(run){
   if(run!==generation||!token)return;
   try{
@@ -71,6 +80,8 @@ async function poll(run){
         xrInitialized=true;
         view.initXR($('xr-buttons')).catch(error=>feedback(error.message,true));
       }
+      renderCitizensInspector($('citizens-inspector'),
+        projectCitizensInspector(world.citizens));
     }
     view.setObservationStale(false);
     renderObservation();
@@ -91,6 +102,7 @@ $('connect').addEventListener('click',()=>{
   if(next.length<24){feedback('Enter the separate world view token.',true);return;}
   $('view-token').value='';
   token=next;current=null;rendered=false;
+  clearObservation();
   view.setObservationStale(true);
   clearTimeout(pollTimer);
   generation++;

@@ -14,7 +14,8 @@ from unittest.mock import patch
 
 from procedural_contract import new_recipe
 from server import (APIError, CITIZEN_BENCH_INTERACTION, CITIZEN_BENCH_TRANSFORM,
-                    Server, State, validate_citizens_checkpoint,
+                    Server, State, public_hosted_citizens,
+                    validate_citizens_checkpoint,
                     world_checkpoint_digest)
 
 
@@ -156,6 +157,47 @@ class HostedWorldTests(unittest.TestCase):
         self.state.save_world_checkpoint("AdaBo", world)
         return snapshot, world, request
 
+    def test_view_token_redacts_historical_private_job_error_without_editing_save(self):
+        snapshot, world, _ = self.generated_service()
+        citizens = world["citizens"]
+        record = citizens["generatedConstruction"]
+        entry = citizens["capabilityRequests"][0]
+        job_id = "d" * 32
+        private_reason = "D:/Projects/internal/job failed"
+        record.update(status="failed", jobId=job_id, reason=private_reason)
+        entry.update(status="failed", reason=private_reason,
+                     policy={"allowed": True, "requestId": job_id,
+                             "reason": "", "checkpointSequence": 3})
+        entry["work"]["jobId"] = job_id
+        citizens["log"].append({"tick": 1, "residentId": "bo", "event": "failed",
+                                "message": "Bo's generated rest seat failed: " + private_reason})
+        validate_citizens_checkpoint(citizens, world["scene"])
+        snapshot["citizensState"] = copy.deepcopy(citizens)
+        self.exchange(snapshot)
+        self.state.save_world_checkpoint("AdaBo", world)
+
+        observation = self.state.hosted_observation()
+        visible = observation["world"]["citizens"]
+        self.assertEqual(visible["generatedConstruction"]["reason"],
+                         "Citizen work failed; inspect PC diagnostics")
+        self.assertEqual(visible["capabilityRequests"][0]["reason"],
+                         visible["generatedConstruction"]["reason"])
+        self.assertNotIn(private_reason, json.dumps(visible))
+        self.assertIn(private_reason, json.dumps(self.state.latest["citizensState"]))
+        self.assertIn(private_reason, self.state.world_checkpoint_path("AdaBo").read_text())
+        validate_citizens_checkpoint(visible, world["scene"])
+        self.assertEqual(public_hosted_citizens(visible), visible)
+        for raw in ("/opt/matrix/private-build failed",
+                    "unrecognized subprocess detail from a local job"):
+            with self.subTest(raw=raw):
+                old = copy.deepcopy(citizens)
+                old["generatedConstruction"]["reason"] = raw
+                old["capabilityRequests"][0]["reason"] = raw
+                old["log"][-1]["message"] = "Bo's generated rest seat failed: " + raw
+                projected = public_hosted_citizens(old)
+                self.assertNotIn(raw, json.dumps(projected))
+                validate_citizens_checkpoint(projected, world["scene"])
+
     def ready_generated_job(self):
         snapshot, world, request = self.generated_service()
         calls = []
@@ -235,6 +277,23 @@ class HostedWorldTests(unittest.TestCase):
         self.assertEqual([(item["assetId"], item["sha256"])
                           for item in saved["dependencies"]],
                          [(asset["assetId"], asset["sha256"])])
+        self.state.host_sequence += 1
+        try:
+            with self.assertRaisesRegex(APIError, "not checkpointed"):
+                self.state.hosted_observation()
+            self.assertEqual([item["assetId"] for item in
+                              self.state._saved_hosted_assets(
+                                  include_pending=True, allow_inflight=True)],
+                             [asset["assetId"]])
+        finally:
+            self.state.host_sequence -= 1
+        saved_room = self.state.latest["scene"]["roomId"]
+        self.state.latest["scene"]["roomId"] = "unsaved-room"
+        try:
+            with self.assertRaisesRegex(APIError, "differs from the observed world"):
+                self.state._saved_hosted_assets(allow_inflight=True)
+        finally:
+            self.state.latest["scene"]["roomId"] = saved_room
         registered_file = self.state.web_assets.root / f'{asset["sha256"]}.glb'
         withheld = registered_file.with_suffix(".withheld")
         registered_file.rename(withheld)
