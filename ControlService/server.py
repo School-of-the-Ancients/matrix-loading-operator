@@ -488,10 +488,13 @@ def validate_citizens_checkpoint(value, checked_scene):
     def number(item, minimum, maximum):
         return type(item) in (int, float) and minimum <= item <= maximum and math.isfinite(item)
 
-    shape(value, ("schemaVersion", "world", "seed", "rngState", "requestSequence",
-                  "clockTick", "paused", "residents", "stations", "log"), "state")
-    require(type(value["schemaVersion"]) is int and value["schemaVersion"] == 1,
-            "Unsupported Citizens schemaVersion")
+    require(type(value) is dict and type(value.get("schemaVersion")) is int and
+            value["schemaVersion"] in (1, 2), "Unsupported Citizens schemaVersion")
+    version = value["schemaVersion"]
+    state_fields = ("schemaVersion", "world", "seed", "rngState", "requestSequence",
+                    "clockTick", "paused", "residents", "stations", "log")
+    shape(value, state_fields + (("actionSequence", "retiredResidentIds") if version == 2 else ()),
+          "state")
     shape(value["world"], ("schemaVersion", "roomId"), "world binding")
     require(type(value["world"]["schemaVersion"]) is int and
             value["world"]["schemaVersion"] == checked_scene["schemaVersion"] and
@@ -502,13 +505,32 @@ def validate_citizens_checkpoint(value, checked_scene):
             integer(value["requestSequence"], 0, 1000000000) and
             integer(value["clockTick"], 0, 1000000000) and
             type(value["paused"]) is bool, "Invalid Citizens clock or random state")
+    action_sequence = value["actionSequence"] if version == 2 else 0
+    retired_ids = set()
+    if version == 2:
+        require(integer(action_sequence, 0, 1000000000) and
+                type(value["retiredResidentIds"]) is list and
+                len(value["retiredResidentIds"]) <= 4,
+                "Invalid Citizens action sequence or retired residents")
+        for retired_id in value["retiredResidentIds"]:
+            citizens_text(retired_id, "Citizens retired resident ID", limit=32)
+            require(retired_id not in retired_ids, "Duplicate Citizens retired resident ID")
+            retired_ids.add(retired_id)
     residents, stations, events = value["residents"], value["stations"], value["log"]
-    require(type(residents) is list and 1 <= len(residents) <= 4 and
-            type(stations) is list and len(stations) == 2 and
+    require(type(residents) is list and (1 <= len(residents) <= 4 if version == 1 else
+                                        0 <= len(residents) <= 4) and
+            type(stations) is list and (len(stations) == 2 if version == 1 else
+                                        len(stations) <= 2) and
             type(events) is list and len(events) <= 80, "Invalid Citizens list bounds")
+    if version == 2:
+        require(len(residents) + len(retired_ids) <= 4,
+                "Invalid Citizens live and retired resident count")
+    if version == 2 and not residents:
+        require(value["paused"], "Citizens with no residents must be paused")
 
     scene_objects = {item["objectId"]: item for item in checked_scene["objects"]}
     residents_by_id, stations_by_id, station_kinds, bound_objects = {}, {}, set(), set()
+    active_execution_ids = set()
     for resident in residents:
         shape(resident, ("id", "name", "objectId", "needs", "preferences", "activity",
                          "cooldowns", "lastOutcome"), "resident")
@@ -534,12 +556,18 @@ def validate_citizens_checkpoint(value, checked_scene):
                     for key in ("rest", "eat", "explore")), "Invalid Citizens resident cooldowns")
         activity = resident["activity"]
         if activity is not None:
-            shape(activity, ("kind", "stationId", "phase", "remainingTicks", "travelTicks", "target"),
-                  "activity")
+            activity_fields = ("kind", "stationId", "phase", "remainingTicks", "travelTicks", "target")
+            shape(activity, activity_fields + (("executionId",) if version == 2 else ()), "activity")
             require(activity["kind"] in ("rest", "eat", "explore") and
                     activity["phase"] in ("travel", "use") and
                     integer(activity["remainingTicks"], 0, 12) and
                     integer(activity["travelTicks"], 0, 60), "Invalid Citizens activity")
+            if version == 2:
+                execution_id = activity["executionId"]
+                require(integer(execution_id, 1, action_sequence) and
+                        execution_id not in active_execution_ids,
+                        "Invalid Citizens activity execution ID")
+                active_execution_ids.add(execution_id)
             if activity["kind"] == "explore":
                 shape(activity["target"], ("x", "z"), "exploration target")
                 require(activity["stationId"] is None and
@@ -550,9 +578,14 @@ def validate_citizens_checkpoint(value, checked_scene):
                 require(activity["target"] is None, "Invalid Citizens activity target")
         residents_by_id[resident_id] = resident
         bound_objects.add(object_id)
+    require(not retired_ids.intersection(residents_by_id),
+            "Citizens retired resident ID is still active")
 
+    waiting_residents, waiting_execution_ids = set(), set()
     for station in stations:
-        shape(station, ("id", "kind", "objectId", "capacity", "holder"), "station")
+        station_fields = ("id", "kind", "objectId", "capacity")
+        shape(station, station_fields + (("holder",) if version == 1 else
+                                         ("claim", "waiters")), "station")
         station_id = citizens_text(station["id"], "Citizens station ID", limit=32)
         object_id = citizens_text(station["objectId"], "Citizens station object ID")
         kind = station["kind"]
@@ -567,9 +600,42 @@ def validate_citizens_checkpoint(value, checked_scene):
                 not any(behavior["enabled"] and not behavior["paused"]
                         for behavior in obj.get("behaviors", [])),
                 "Citizens station object is missing or incompatible")
-        holder = station["holder"]
-        require(holder is None or type(holder) is str and holder in residents_by_id,
-                "Invalid Citizens reservation holder")
+        if version == 1:
+            holder = station["holder"]
+            require(holder is None or type(holder) is str and holder in residents_by_id,
+                    "Invalid Citizens reservation holder")
+        else:
+            claim = station["claim"]
+            if claim is not None:
+                shape(claim, ("residentId", "executionId", "expiresTick"), "claim")
+                claim_id = citizens_text(claim["residentId"], "Citizens claim resident ID", limit=32)
+                require(claim_id in residents_by_id and
+                        integer(claim["executionId"], 1, action_sequence) and
+                        integer(claim["expiresTick"], value["clockTick"] + 1,
+                                value["clockTick"] + 72),
+                        "Invalid Citizens claim")
+            waiters = station["waiters"]
+            require(type(waiters) is list and len(waiters) <= 4,
+                    "Invalid Citizens wait queue")
+            previous_order = None
+            for waiter in waiters:
+                shape(waiter, ("residentId", "executionId", "enqueuedTick"), "waiter")
+                waiter_id = citizens_text(waiter["residentId"], "Citizens waiter ID", limit=32)
+                execution_id, enqueued_tick = waiter["executionId"], waiter["enqueuedTick"]
+                order = (enqueued_tick, execution_id)
+                require(waiter_id in residents_by_id and
+                        residents_by_id[waiter_id]["activity"] is None and
+                        waiter_id not in waiting_residents and
+                        integer(execution_id, 1, action_sequence) and
+                        execution_id not in active_execution_ids and
+                        execution_id not in waiting_execution_ids and
+                        integer(enqueued_tick, 0, value["clockTick"]) and
+                        value["clockTick"] - enqueued_tick < 96 and
+                        (previous_order is None or previous_order < order),
+                        "Invalid Citizens wait queue")
+                waiting_residents.add(waiter_id)
+                waiting_execution_ids.add(execution_id)
+                previous_order = order
         stations_by_id[station_id] = station
         station_kinds.add(kind)
         bound_objects.add(object_id)
@@ -578,22 +644,39 @@ def validate_citizens_checkpoint(value, checked_scene):
         activity = resident["activity"]
         if activity is not None and activity["stationId"] is not None:
             station = stations_by_id.get(activity["stationId"])
-            require(station is not None and station["kind"] == activity["kind"] and
-                    station["holder"] == resident_id, "Invalid Citizens reservation")
+            if version == 1:
+                require(station is not None and station["kind"] == activity["kind"] and
+                        station["holder"] == resident_id, "Invalid Citizens reservation")
+            else:
+                claim = station["claim"] if station is not None else None
+                require(station is not None and station["kind"] == activity["kind"] and
+                        claim is not None and claim["residentId"] == resident_id and
+                        claim["executionId"] == activity["executionId"],
+                        "Invalid Citizens reservation")
     for station_id, station in stations_by_id.items():
-        if station["holder"] is not None:
+        if version == 1 and station["holder"] is not None:
             activity = residents_by_id[station["holder"]]["activity"]
             require(activity is not None and activity["stationId"] == station_id,
                     "Invalid Citizens reservation")
+        if version == 2 and station["claim"] is not None:
+            claim = station["claim"]
+            activity = residents_by_id[claim["residentId"]]["activity"]
+            require(activity is not None and activity["stationId"] == station_id and
+                    activity["kind"] == station["kind"] and
+                    activity["executionId"] == claim["executionId"],
+                    "Invalid Citizens reservation")
 
+    log_events = {"selected", "blocked", "arrived", "completed", "failed", "paused", "resumed"}
+    if version == 2:
+        log_events.update(("waiting", "released", "retired", "expired"))
     for event in events:
         shape(event, ("tick", "residentId", "event", "message"), "log entry")
         resident_id = citizens_text(event["residentId"], "Citizens log resident ID", empty=True, limit=32)
         citizens_text(event["message"], "Citizens log message", empty=True, limit=160)
         require(integer(event["tick"], 0, value["clockTick"]) and
-                (not resident_id or resident_id in residents_by_id) and
-                event["event"] in ("selected", "blocked", "arrived", "completed", "failed",
-                                   "paused", "resumed"), "Invalid Citizens log entry")
+                (not resident_id or resident_id in residents_by_id or resident_id in retired_ids) and
+                type(event["event"]) is str and event["event"] in log_events,
+                "Invalid Citizens log entry")
 
 
 def loopback(host):

@@ -8,6 +8,7 @@ export const TAB_WORLD_KEY='matrix-web-world-tab-v2';
 export const CHECKPOINT_KEY='matrix-web-checkpoint-v2';
 export const QUARANTINE_KEY='matrix-web-world-rejected-v2';
 export const QUARANTINE_BACKUP_KEY='matrix-web-world-rejected-backup-v2';
+export const CITIZENS_DELETION_RECOVERY_KEY='matrix-web-citizens-pre-deletion-v1';
 let lastSavedAtMs=0;
 
 const savedAt=value=>Number.isSafeInteger(value?.savedAtMs)&&
@@ -17,6 +18,42 @@ const validEnvelope=value=>value&&value.scene&&typeof value.scene==='object'&&
   (value.version===2?!Object.hasOwn(value,'citizens'):
     value.version===3&&Object.hasOwn(value,'citizens')&&value.citizens!==null&&
       typeof value.citizens==='object'&&!Array.isArray(value.citizens));
+
+function retiresCitizensBinding(previous,next){
+  if(previous?.version!==3||next?.version!==3)return false;
+  const prior=previous.citizens,current=next.citizens;
+  if(!Array.isArray(prior?.residents)||!Array.isArray(current?.residents)||
+    !Array.isArray(prior?.stations)||!Array.isArray(current?.stations))return false;
+  const residentIds=new Set(current.residents.map(resident=>resident.id));
+  const stationIds=new Set(current.stations.map(station=>station.id));
+  return prior.residents.length>current.residents.length&&
+      prior.residents.some(resident=>!residentIds.has(resident.id))||
+    prior.stations.length>current.stations.length&&
+      prior.stations.some(station=>!stationIds.has(station.id));
+}
+
+function validateCitizensRecovery(value){
+  if(!validEnvelope(value)||value.version!==3)
+    throw Error('Citizens deletion recovery copy is invalid');
+  // The backup is always a virtual scene. Validate its Citizens bindings
+  // without touching the active Matrix world or relying on a live simulation.
+  CitizensSimulation.restore({scene:value.scene,spatial:null,execute(){}},value.citizens);
+}
+
+function preserveCitizensDeletionRecovery(previous,storage){
+  const existing=storage.getItem(CITIZENS_DELETION_RECOVERY_KEY);
+  if(existing!==null){
+    const value=JSON.parse(existing);
+    validateCitizensRecovery(value);
+    return;
+  }
+  if(!previous?.raw)
+    throw Error('the prior full world is unavailable');
+  validateCitizensRecovery(previous.value);
+  storage.setItem(CITIZENS_DELETION_RECOVERY_KEY,previous.raw);
+  if(storage.getItem(CITIZENS_DELETION_RECOVERY_KEY)!==previous.raw)
+    throw Error('Citizens deletion recovery write could not be verified');
+}
 
 // Citizens validates against a staged virtual scene. Neither save preflight nor
 // restore preflight may replace the active Matrix scene to check object bindings.
@@ -46,15 +83,19 @@ export function storedBrowserWorld(world){
 }
 
 export function saveStoredWorld(value,tabStorage,durableStorage){
-  let json;
+  let json,latest;
   try{
     if(!validEnvelope(value))throw Error('Invalid world save envelope');
-    const latest=loadStoredWorld(tabStorage,durableStorage);
+    latest=loadStoredWorld(tabStorage,durableStorage);
     lastSavedAtMs=Math.max(lastSavedAtMs,savedAt(latest?.value));
     lastSavedAtMs=Math.max(Date.now(),lastSavedAtMs+1);
     json=JSON.stringify({...value,savedAtMs:lastSavedAtMs});
   }
   catch(error){return `World could not be serialized: ${error.message}. Closing Quest Browser may lose this world.`;}
+  if(retiresCitizensBinding(latest?.value,value)){
+    try{preserveCitizensDeletionRecovery(latest,durableStorage);}
+    catch(error){return `Citizens deletion recovery could not be preserved: ${error.message}. Automatic browser saves were not updated.`;}
+  }
   const warnings=[];
   try{durableStorage.setItem(WORLD_KEY,json);}
   catch(error){warnings.push(`Persistent browser save failed: ${error.message}. Closing Quest Browser may lose this world.`);}
@@ -84,6 +125,36 @@ export function loadStoredWorld(tabStorage,durableStorage){
   }
   const scene=loadStoredScene(tabStorage,durableStorage);
   return scene?{value:{version:2,scene,game:null},source:'scene-only',raw:JSON.stringify(scene)}:rejected;
+}
+
+export function loadCitizensDeletionRecovery(storage){
+  let raw;
+  try{raw=storage.getItem(CITIZENS_DELETION_RECOVERY_KEY);}
+  catch(error){throw Error(`Could not read Citizens deletion recovery: ${error.message}`);}
+  if(raw===null)return null;
+  let value;
+  try{value=JSON.parse(raw);}
+  catch{throw Error('Citizens deletion recovery copy is corrupt');}
+  validateCitizensRecovery(value);
+  return value;
+}
+
+export function restoreCitizensDeletionRecovery(world,storage){
+  const value=loadCitizensDeletionRecovery(storage);
+  if(value===null)throw Error('No Citizens deletion recovery copy is available');
+  restoreStoredWorld(world,value);
+  return value;
+}
+
+// Call only after the explicitly restored world has been saved durably. Until
+// then the first pre-deletion copy remains available even if that save fails.
+export function clearCitizensDeletionRecovery(storage){
+  try{
+    storage.removeItem(CITIZENS_DELETION_RECOVERY_KEY);
+    if(storage.getItem(CITIZENS_DELETION_RECOVERY_KEY)!==null)
+      throw Error('removal could not be verified');
+    return true;
+  }catch(error){throw Error(`Could not clear Citizens deletion recovery: ${error.message}`);}
 }
 
 export function quarantineStoredWorld(pending,storage,index=0){

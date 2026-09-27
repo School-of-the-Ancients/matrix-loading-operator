@@ -3,9 +3,11 @@ import assert from 'node:assert/strict';
 import {MatrixWorld} from '../src/protocol.js';
 import {loadStoredScene,saveStoredScene,restoreStoredScene,saveCheckpoint,loadCheckpoint,
   storedWorld,storedBrowserWorld,saveStoredWorld,loadStoredWorld,restoreStoredWorld,restoreBestStoredWorld,
-  quarantineStoredWorld,TAB_SCENE_KEY,DURABLE_SCENE_KEY,WORLD_KEY,TAB_WORLD_KEY,
-  QUARANTINE_KEY,QUARANTINE_BACKUP_KEY} from '../src/scene_store.js';
-import {createCitizensDemo} from '../src/citizens.js';
+  quarantineStoredWorld,loadCitizensDeletionRecovery,restoreCitizensDeletionRecovery,
+  clearCitizensDeletionRecovery,
+  TAB_SCENE_KEY,DURABLE_SCENE_KEY,WORLD_KEY,TAB_WORLD_KEY,
+  QUARANTINE_KEY,QUARANTINE_BACKUP_KEY,CITIZENS_DELETION_RECOVERY_KEY} from '../src/scene_store.js';
+import {CitizensSimulation,createCitizensDemo} from '../src/citizens.js';
 import {startGame,deliverMovedObject} from '../src/game.js';
 import {rememberTurn,clearConversation} from '../src/conversation.js';
 
@@ -106,6 +108,204 @@ test('Citizens and scene restore together from a v3 browser world and manual che
   const manuallyRestored=new MatrixWorld();
   restoreStoredWorld(manuallyRestored,checkpoint);
   assert.deepEqual(storedWorld(manuallyRestored),snapshot);
+});
+
+test('v1 Citizens browser checkpoints migrate an in-flight reservation to v2',()=>{
+  const original=new MatrixWorld(()=>crypto.randomUUID().replaceAll('-',''));
+  const simulation=createCitizensDemo(original,{seed:17});
+  simulation.step();original.citizens=simulation.snapshot();
+  const legacy=storedWorld(original),state=legacy.citizens;
+  state.schemaVersion=1;
+  delete state.actionSequence;delete state.retiredResidentIds;
+  for(const resident of state.residents)if(resident.activity)
+    delete resident.activity.executionId;
+  state.stations=state.stations.map(station=>({id:station.id,kind:station.kind,
+    objectId:station.objectId,capacity:station.capacity,
+    holder:station.claim?.residentId??null}));
+  state.log=state.log.filter(entry=>['selected','blocked','arrived','completed',
+    'failed','paused','resumed'].includes(entry.event));
+  const reopened=new MatrixWorld();
+  restoreStoredWorld(reopened,legacy);
+  assert.equal(reopened.citizens.schemaVersion,2);
+  assert.equal(reopened.citizens.residents.find(resident=>resident.id==='ada')
+    .activity.executionId,reopened.citizens.stations.find(station=>station.kind==='rest')
+    .claim.executionId);
+  const tab=storage(),durable=storage();
+  assert.equal(saveStoredWorld(storedWorld(reopened),tab,durable),'');
+  const again=new MatrixWorld();
+  restoreStoredWorld(again,loadStoredWorld(storage(),durable).value);
+  assert.deepEqual(storedWorld(again),storedWorld(reopened));
+});
+
+test('the first Citizens deletion preserves the complete prior browser world for explicit recovery',()=>{
+  const tab=storage(),durable=storage();
+  const world=new MatrixWorld(()=>crypto.randomUUID().replaceAll('-',''));
+  const simulation=createCitizensDemo(world,{seed:31});
+  simulation.step();world.citizens=simulation.snapshot();
+  assert.equal(saveStoredWorld(storedBrowserWorld(world),tab,durable),'');
+  const before=durable.getItem(WORLD_KEY);
+  const ada=world.citizens.residents.find(resident=>resident.id==='ada');
+  assert.equal(world.execute({requestId:'delete-ada',op:'delete',
+    objectId:ada.objectId}).ok,true);
+  simulation.step();world.citizens=simulation.snapshot();
+  assert.equal(saveStoredWorld(storedBrowserWorld(world),tab,durable),'');
+  assert.equal(durable.getItem(CITIZENS_DELETION_RECOVERY_KEY),before);
+  assert.deepEqual(loadCitizensDeletionRecovery(durable),JSON.parse(before));
+  assert.deepEqual(world.citizens.retiredResidentIds,['ada']);
+  assert.equal(JSON.parse(durable.getItem(WORLD_KEY)).citizens.residents.length,1);
+
+  // Ordinary progress and a second deletion may update auto-saves, but never
+  // replace the first pre-deletion recovery copy.
+  simulation.step();world.citizens=simulation.snapshot();
+  assert.equal(saveStoredWorld(storedBrowserWorld(world),tab,durable),'');
+  const chair=world.citizens.stations.find(station=>station.kind==='rest');
+  assert.equal(world.execute({requestId:'delete-chair',op:'delete',
+    objectId:chair.objectId}).ok,true);
+  simulation.step();world.citizens=simulation.snapshot();
+  assert.equal(saveStoredWorld(storedBrowserWorld(world),tab,durable),'');
+  assert.equal(durable.getItem(CITIZENS_DELETION_RECOVERY_KEY),before);
+  assert.equal(world.citizens.stations.length,1);
+
+  const restored=restoreCitizensDeletionRecovery(world,durable);
+  assert.deepEqual(restored,JSON.parse(before));
+  assert.equal(world.citizens.residents.length,2);
+  assert.equal(world.citizens.stations.length,2);
+  assert.ok(world.scene.objects.some(object=>object.objectId===ada.objectId));
+  assert.deepEqual(storedWorld(world).scene,JSON.parse(before).scene);
+});
+
+test('explicit recovery plus durable commit rearms backup for a later deletion',()=>{
+  const tab=storage(),durable=storage();
+  const world=new MatrixWorld(()=>crypto.randomUUID().replaceAll('-',''));
+  const simulation=createCitizensDemo(world,{seed:31});
+  simulation.step();world.citizens=simulation.snapshot();
+  assert.equal(saveStoredWorld(storedBrowserWorld(world),tab,durable),'');
+  const firstBefore=durable.getItem(WORLD_KEY);
+  const ada=world.citizens.residents.find(resident=>resident.id==='ada');
+  assert.equal(world.execute({requestId:'delete-ada',op:'delete',
+    objectId:ada.objectId}).ok,true);
+  simulation.step();world.citizens=simulation.snapshot();
+  assert.equal(saveStoredWorld(storedBrowserWorld(world),tab,durable),'');
+  assert.equal(durable.getItem(CITIZENS_DELETION_RECOVERY_KEY),firstBefore);
+
+  restoreCitizensDeletionRecovery(world,durable);
+  assert.equal(saveStoredWorld(storedBrowserWorld(world),tab,durable),'',
+    'the explicit restore must be durably committed before clearing backup');
+  assert.equal(clearCitizensDeletionRecovery(durable),true);
+  assert.equal(loadCitizensDeletionRecovery(durable),null);
+  const resumed=CitizensSimulation.restore(world,world.citizens);
+  resumed.step();world.citizens=resumed.snapshot();
+  assert.equal(saveStoredWorld(storedBrowserWorld(world),tab,durable),'');
+  const secondBefore=durable.getItem(WORLD_KEY);
+  assert.notEqual(secondBefore,firstBefore);
+  const chair=world.citizens.stations.find(station=>station.kind==='rest');
+  assert.equal(world.execute({requestId:'delete-chair',op:'delete',
+    objectId:chair.objectId}).ok,true);
+  resumed.step();world.citizens=resumed.snapshot();
+  assert.equal(saveStoredWorld(storedBrowserWorld(world),tab,durable),'');
+  assert.equal(durable.getItem(CITIZENS_DELETION_RECOVERY_KEY),secondBefore);
+});
+
+test('failed durable commit after explicit recovery retains its first backup',()=>{
+  const tab=storage(),durable=storage();
+  const world=new MatrixWorld(()=>crypto.randomUUID().replaceAll('-',''));
+  const simulation=createCitizensDemo(world,{seed:31});
+  simulation.step();world.citizens=simulation.snapshot();
+  assert.equal(saveStoredWorld(storedBrowserWorld(world),tab,durable),'');
+  const firstBefore=durable.getItem(WORLD_KEY);
+  const ada=world.citizens.residents.find(resident=>resident.id==='ada');
+  assert.equal(world.execute({requestId:'delete-ada',op:'delete',
+    objectId:ada.objectId}).ok,true);
+  simulation.step();world.citizens=simulation.snapshot();
+  assert.equal(saveStoredWorld(storedBrowserWorld(world),tab,durable),'');
+  restoreCitizensDeletionRecovery(world,durable);
+  const noCommit={getItem:key=>durable.getItem(key),setItem:(key,value)=>{
+    if(key===WORLD_KEY)throw Error('quota exceeded');
+    durable.setItem(key,value);
+  }};
+  assert.match(saveStoredWorld(storedBrowserWorld(world),tab,noCommit),
+    /Persistent browser save failed/);
+  assert.equal(durable.getItem(CITIZENS_DELETION_RECOVERY_KEY),firstBefore,
+    'a failed durable commit must keep explicit recovery available');
+});
+
+test('failed Citizens recovery write blocks both auto-saves and preserves the older world',()=>{
+  const tab=storage(),durable=storage();
+  const world=new MatrixWorld(()=>crypto.randomUUID().replaceAll('-',''));
+  const simulation=createCitizensDemo(world,{seed:31});
+  simulation.step();world.citizens=simulation.snapshot();
+  assert.equal(saveStoredWorld(storedBrowserWorld(world),tab,durable),'');
+  const oldDurable=durable.getItem(WORLD_KEY),oldTab=tab.getItem(TAB_WORLD_KEY);
+  const ada=world.citizens.residents.find(resident=>resident.id==='ada');
+  assert.equal(world.execute({requestId:'delete-ada',op:'delete',
+    objectId:ada.objectId}).ok,true);
+  simulation.step();world.citizens=simulation.snapshot();
+  const noBackup={getItem:key=>durable.getItem(key),setItem:(key,value)=>{
+    if(key===CITIZENS_DELETION_RECOVERY_KEY)throw Error('quota exceeded');
+    durable.setItem(key,value);
+  }};
+  const warning=saveStoredWorld(storedBrowserWorld(world),tab,noBackup);
+  assert.match(warning,/Citizens deletion recovery could not be preserved/);
+  assert.match(warning,/Automatic browser saves were not updated/);
+  assert.equal(durable.getItem(WORLD_KEY),oldDurable);
+  assert.equal(tab.getItem(TAB_WORLD_KEY),oldTab);
+  assert.equal(durable.getItem(CITIZENS_DELETION_RECOVERY_KEY),null);
+});
+
+test('a silent recovery write failure also blocks both browser copies',()=>{
+  const tab=storage(),durable=storage();
+  const world=new MatrixWorld(()=>crypto.randomUUID().replaceAll('-',''));
+  const simulation=createCitizensDemo(world,{seed:31});
+  simulation.step();world.citizens=simulation.snapshot();
+  assert.equal(saveStoredWorld(storedBrowserWorld(world),tab,durable),'');
+  const oldDurable=durable.getItem(WORLD_KEY),oldTab=tab.getItem(TAB_WORLD_KEY);
+  const chair=world.citizens.stations.find(station=>station.kind==='rest');
+  assert.equal(world.execute({requestId:'delete-chair',op:'delete',
+    objectId:chair.objectId}).ok,true);
+  simulation.step();world.citizens=simulation.snapshot();
+  const noWrite={getItem:key=>durable.getItem(key),setItem:(key,value)=>{
+    if(key!==CITIZENS_DELETION_RECOVERY_KEY)durable.setItem(key,value);
+  }};
+  assert.match(saveStoredWorld(storedBrowserWorld(world),tab,noWrite),
+    /recovery write could not be verified/);
+  assert.equal(durable.getItem(WORLD_KEY),oldDurable);
+  assert.equal(tab.getItem(TAB_WORLD_KEY),oldTab);
+});
+
+test('scene clear and scene load retire bindings through the same recovery gate',()=>{
+  for(const op of ['clear','load']){
+    const tab=storage(),durable=storage();
+    const world=new MatrixWorld(()=>crypto.randomUUID().replaceAll('-',''));
+    const simulation=createCitizensDemo(world,{seed:31});
+    simulation.step();world.citizens=simulation.snapshot();
+    assert.equal(saveStoredWorld(storedBrowserWorld(world),tab,durable),'');
+    const before=durable.getItem(WORLD_KEY);
+    const command={requestId:`${op}-citizens`,op,
+      ...(op==='load'?{scene:new MatrixWorld().scene}:{})};
+    assert.equal(world.execute(command).ok,true);
+    simulation.reconcileWorld();world.citizens=simulation.snapshot();
+    assert.equal(world.citizens.residents.length,0);
+    assert.equal(world.citizens.stations.length,0);
+    assert.equal(saveStoredWorld(storedBrowserWorld(world),tab,durable),'');
+    assert.equal(durable.getItem(CITIZENS_DELETION_RECOVERY_KEY),before);
+  }
+});
+
+test('Citizens deletion recovery load reports corruption and restore rejects invalid bindings',()=>{
+  const durable=storage(),world=new MatrixWorld(()=>crypto.randomUUID().replaceAll('-',''));
+  assert.equal(loadCitizensDeletionRecovery(durable),null);
+  durable.setItem(CITIZENS_DELETION_RECOVERY_KEY,'{bad');
+  assert.throws(()=>loadCitizensDeletionRecovery(durable),/corrupt/);
+  const simulation=createCitizensDemo(world,{seed:19});
+  simulation.step();world.citizens=simulation.snapshot();
+  const bad=storedBrowserWorld(world);
+  bad.citizens.residents[0].objectId='missing-resident';
+  durable.setItem(CITIZENS_DELETION_RECOVERY_KEY,JSON.stringify(bad));
+  const current=new MatrixWorld();
+  const before=storedWorld(current);
+  assert.throws(()=>restoreCitizensDeletionRecovery(current,durable),/missing or incompatible/);
+  assert.deepEqual(storedWorld(current),before,
+    'rejected recovery must leave the active world unchanged');
 });
 
 test('invalid v3 Citizens bindings reject restore before changing the active world',()=>{

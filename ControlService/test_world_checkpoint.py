@@ -105,6 +105,21 @@ class WorldCheckpointTests(unittest.TestCase):
                      "message": "Chair occupied by Ada."}]}
         return world
 
+    def citizens_v2_world(self):
+        world = self.citizens_world()
+        state = world["citizens"]
+        state.update(schemaVersion=2, actionSequence=2, retiredResidentIds=[])
+        state["residents"][0]["activity"]["executionId"] = 1
+        chair, food = state["stations"]
+        chair.pop("holder")
+        chair.update(claim={"residentId": "ada", "executionId": 1, "expiresTick": 24},
+                     waiters=[{"residentId": "bo", "executionId": 2, "enqueuedTick": 11}])
+        food.pop("holder")
+        food.update(claim=None, waiters=[])
+        state["log"].append({"tick": 11, "residentId": "bo", "event": "waiting",
+                             "message": "Bo queued for the chair."})
+        return world
+
     def test_citizens_v3_roundtrip_keeps_intent_ids_and_legacy_v2_exact(self):
         world = self.citizens_world()
         saved = self.state.save_world_checkpoint("Citizens", world)
@@ -131,6 +146,134 @@ class WorldCheckpointTests(unittest.TestCase):
         legacy = self.state.load_world_checkpoint("LegacyV2")["world"]
         self.assertEqual(set(legacy), {"version", "scene", "game"})
         self.assertEqual(legacy["version"], 2)
+
+    def test_citizens_v2_claim_queue_roundtrip_and_raw_v1_compatibility(self):
+        world = self.citizens_v2_world()
+        self.assertTrue(self.state.save_world_checkpoint("Reservations", world)["saved"])
+        loaded = self.state.load_world_checkpoint("Reservations")["world"]
+        self.assertEqual(loaded["citizens"], world["citizens"])
+        self.assertEqual(loaded["citizens"]["stations"][0]["claim"]["executionId"], 1)
+        self.assertEqual(loaded["citizens"]["stations"][0]["waiters"][0]["residentId"], "bo")
+        self.assertEqual(self.state.latest["scene"], world["scene"],
+                         "loading a PC checkpoint must not replace the live runtime")
+
+        legacy = self.citizens_world()
+        self.assertTrue(self.state.save_world_checkpoint("LegacyCitizens", legacy)["saved"])
+        raw = self.state.load_world_checkpoint("LegacyCitizens")["world"]["citizens"]
+        self.assertEqual(raw, legacy["citizens"])
+        self.assertEqual(raw["schemaVersion"], 1,
+                         "the browser migrates v1 after the PC returns its original checkpoint")
+
+    def test_citizens_v2_rejects_missing_bindings_and_invalid_reservations_atomically(self):
+        world = self.citizens_v2_world()
+        self.state.save_world_checkpoint("Reservations", world)
+        path = self.scenes / "world_checkpoints" / "Reservations.json"
+        before_bytes = path.read_bytes()
+        before_runtime = copy.deepcopy(self.state.latest)
+
+        def scene_object(item, object_id):
+            return next(obj for obj in item["scene"]["objects"]
+                        if obj["objectId"] == object_id)
+
+        def delete_object(item, object_id):
+            item["scene"]["objects"].remove(scene_object(item, object_id))
+
+        def duplicate_waiter(item):
+            item["citizens"]["actionSequence"] = 3
+            item["citizens"]["stations"][0]["waiters"].append(
+                {"residentId": "bo", "executionId": 3, "enqueuedTick": 12})
+
+        def out_of_order_waiters(item):
+            state = item["citizens"]
+            state["actionSequence"] = 3
+            state["residents"][0]["activity"] = None
+            state["stations"][0]["claim"] = None
+            state["stations"][0]["waiters"].append(
+                {"residentId": "ada", "executionId": 3, "enqueuedTick": 10})
+
+        def stale_waiter(item):
+            state = item["citizens"]
+            state["clockTick"] = 107
+            state["stations"][0]["claim"]["expiresTick"] = 130
+
+        cases = (
+            ("deleted actor remains bound", lambda item: delete_object(item, "citizen-ada")),
+            ("deleted resource remains bound", lambda item: delete_object(item, "citizen-chair")),
+            ("claim names idle resident", lambda item: item["citizens"]["stations"][0]["claim"].update(
+                residentId="bo")),
+            ("claim execution differs", lambda item: item["citizens"]["stations"][0]["claim"].update(
+                executionId=2)),
+            ("expired claim", lambda item: item["citizens"]["stations"][0]["claim"].update(
+                expiresTick=12)),
+            ("overlong claim", lambda item: item["citizens"]["stations"][0]["claim"].update(
+                expiresTick=85)),
+            ("future waiter", lambda item: item["citizens"]["stations"][0]["waiters"][0].update(
+                enqueuedTick=13)),
+            ("waiter shares active execution", lambda item: item["citizens"]["stations"][0]["waiters"][0].update(
+                executionId=1)),
+            ("duplicate waiter", duplicate_waiter),
+            ("waiters out of FIFO order", out_of_order_waiters),
+            ("stale waiter", stale_waiter),
+            ("retired resident remains active", lambda item: item["citizens"]["retiredResidentIds"].append(
+                "bo")),
+            ("live and retired exceed four", lambda item: item["citizens"]["retiredResidentIds"].extend(
+                ("former-c", "former-d", "former-e"))),
+            ("missing claim", lambda item: item["citizens"]["stations"][0].update(claim=None)),
+            ("unhashable log event", lambda item: item["citizens"]["log"][0].update(event=[])),
+        )
+        for label, mutate in cases:
+            with self.subTest(label=label):
+                invalid = copy.deepcopy(world)
+                mutate(invalid)
+                with self.assertRaises(APIError) as rejected:
+                    self.state.save_world_checkpoint("Reservations", invalid)
+                self.assertEqual(rejected.exception.status, 400)
+                self.assertEqual(path.read_bytes(), before_bytes)
+                self.assertEqual(self.state.latest, before_runtime)
+
+                document = json.loads(before_bytes)
+                mutate(document["world"])
+                document["payloadSha256"] = world_checkpoint_digest(
+                    document["world"], document["dependencies"])
+                path.write_text(json.dumps(document), encoding="utf-8")
+                with self.assertRaises(APIError) as rejected:
+                    self.state.load_world_checkpoint("Reservations")
+                self.assertEqual(rejected.exception.status, 400)
+                self.assertEqual(self.state.latest, before_runtime)
+                path.write_bytes(before_bytes)
+
+    def test_citizens_v2_retired_actor_and_removed_station_roundtrip(self):
+        world = self.citizens_v2_world()
+        state = world["citizens"]
+        state["residents"] = [resident for resident in state["residents"]
+                              if resident["id"] != "bo"]
+        state["retiredResidentIds"] = ["bo"]
+        state["stations"][0]["waiters"] = []
+        world["scene"]["objects"] = [obj for obj in world["scene"]["objects"]
+                                      if obj["objectId"] != "citizen-bo"]
+        current = copy.deepcopy(self.state.latest)
+        current["scene"] = copy.deepcopy(world["scene"])
+        self.state.exchange({"clientId": "browser", "snapshot": current, "results": []})
+        self.assertTrue(self.state.save_world_checkpoint("RetiredActor", world)["saved"])
+        self.assertEqual(self.state.load_world_checkpoint("RetiredActor")["world"]["citizens"], state)
+
+        state["residents"][0]["activity"] = None
+        state["stations"] = [station for station in state["stations"]
+                             if station["id"] != "chair"]
+        world["scene"]["objects"] = [obj for obj in world["scene"]["objects"]
+                                      if obj["objectId"] != "citizen-chair"]
+        current["scene"] = copy.deepcopy(world["scene"])
+        self.state.exchange({"clientId": "browser", "snapshot": current, "results": []})
+        self.assertTrue(self.state.save_world_checkpoint("RemovedStation", world)["saved"])
+        self.assertEqual(self.state.load_world_checkpoint("RemovedStation")["world"]["citizens"], state)
+
+        state["residents"] = []
+        state["retiredResidentIds"] = ["bo", "ada"]
+        state["paused"] = True
+        self.assertTrue(self.state.save_world_checkpoint("NoResidents", world)["saved"])
+        state["paused"] = False
+        with self.assertRaisesRegex(APIError, "must be paused"):
+            self.state.save_world_checkpoint("NoResidents", world)
 
     def test_citizens_invalid_bindings_do_not_overwrite_or_replace(self):
         world = self.citizens_world()

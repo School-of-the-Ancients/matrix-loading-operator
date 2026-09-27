@@ -1,6 +1,76 @@
 # Matrix Operator checkpoints
 
-## Shared-world Citizens checkpoint candidate (September 26, 2026)
+## Citizens reservation lifecycle candidate (September 26, 2026)
+
+The `codex/citizens-reservation-lifecycle` branch continues the open shared-world
+Citizens work toward [#19](https://github.com/School-of-the-Ancients/matrix-loading-operator/issues/19).
+The saved Matrix world inside browser and named PC checkpoints remains version
+3 when Citizens is present. Its nested Citizens checkpoint is now schema
+version 2. It adds `actionSequence`, execution IDs on active intentions,
+capacity-one station claims, FIFO wait queues, and retired resident IDs. The
+claim records owner, execution, and expiry tick; a waiter records resident,
+execution, and enqueue tick. A claim expires after at most 72 simulation
+ticks, and a wait times out after 96. Release and cancellation clear the
+matching execution, while `MatrixWorld` still validates interaction outcomes
+before needs change.
+
+Live deletion of a bound actor retires that actor and releases its claim or
+wait. Live deletion of a station removes the resource and cancels its claimant
+and waiters. Surviving residents can continue; the last actor's removal pauses
+the simulation. The panel shows retired actors, missing fixture resources,
+claim ownership and queue order. An incompatible remaining binding still
+pauses Citizens and preserves recovery guidance and the previous valid browser
+copy. Checkpoint restore rejects missing/incompatible bindings before changing
+the active world. AR entry clears active claims and queued waits before
+detaching the desktop simulation.
+
+The first removal of a bound Citizens object preserves the prior complete
+browser world in a dedicated pre-deletion recovery slot before autosave. It
+covers Delete, Clear, and scene Load; a failed backup blocks both autosave
+writes. The panel shows the saved minute and offers a double-confirmed full
+restore. A successful durable save of that restored world clears the slot, so
+the next deletion records a fresh copy. The manual browser checkpoint remains
+separate. Scene Undo returns objects but cannot by itself recreate retired
+Citizens bindings. Named PC restore pauses Citizens and gates timer/autosave
+until the service accepts or rejects the candidate; a delayed rejection test
+confirms the staged world is never saved. Pause Citizens before Operator
+scene/game planning because
+the moving scene can change revision during a guarded plan and cause a 409.
+
+Valid nested Citizens v1 saves migrate in the browser: active resident order
+assigns deterministic execution IDs, each old station holder becomes a claim,
+and wait/retired lists start empty. The PC validator accepts both v1 and v2
+without rewriting old files. Scene/game-only version 2 world envelopes remain
+compatible. The fixture still starts with two residents and two stations on an
+empty virtual floor; v2 state is bounded to four live-plus-retired residents,
+two stations, and 80 log entries. This candidate does not add selected authored
+furniture, multi-resource acquisition, or bilateral social sessions. The
+initiate/accept/decline/timeout/end and observed relationship outcomes in #19
+remain work for a later slice. [Runbook and limits](Citizens-Shared-World.md).
+
+Current v2 validation: WebRuntime **190/190**, ControlService **650/650**, and
+Vite production build passed. Chrome **153.0.8010.53** ran the built `/web/`
+page on isolated port **19839**. Seed 17 produced Ada's chair claim and Bo's
+FIFO wait at tick 1. A real actor deletion handed Bo the chair; he completed
+rest, and exact browser reopen plus named PC restore/replay worked. Deleting
+the chair removed its claim and wait state; Bo and the food station remained,
+and another PC checkpoint saved. A second Chrome run confirmed that both
+deletions while **Run** was active left Citizens unpaused and ticking, with no
+page errors. [Browser evidence](../Validation/citizens-reservations-browser-evidence.json),
+[running evidence](../Validation/citizens-reservations-running-evidence.json),
+[queue screenshot](../Validation/citizens-reservations-queue.png), and
+[survivor screenshot](../Validation/citizens-reservations-survivor.png) record
+these checks. A third Chrome run tested the dedicated pre-deletion copy:
+scene Undo alone left Ada retired, explicit restore recovered both scene and
+Citizens, its durable save cleared the slot, and another deletion captured a
+fresh minute-2 copy. The isolated `/web/citizens.html` page displayed the v2
+claim and FIFO wait accurately. [Recovery evidence](../Validation/citizens-pre-deletion-recovery-evidence.json),
+[recovery screenshot](../Validation/citizens-pre-deletion-recovery.png), and
+[isolated-page evidence](../Validation/citizens-standalone-v2-evidence.json)
+record those checks. The older counts and browser evidence below describe v1
+on the shared-world candidate.
+
+## Earlier shared-world Citizens checkpoint candidate (September 26, 2026)
 
 The `codex/citizens-world-checkpoints` branch builds on the open desktop fixture
 PR #100 and brings its two residents into the ordinary `/web/` Matrix world by
@@ -30,12 +100,12 @@ reserved chair released its claim and blocked invalid persistence until Undo.
 and [transform-owner evidence](../Validation/citizens-transform-owner-evidence.json)
 are recorded. No headset simulation or Quest performance budget is claimed.
 
-Next: review the stacked checkpoint PR and its parent PR #100, then bind
-resident activities to selected existing furniture in an authored world and
-complete #19's cancellation/fairness/social outcomes. The interaction receipt
-is still local to `MatrixWorld`; a general finite executor and shared
-multi-client simulation remain open. Preserve the independent M4 Quest wearer
-checks.
+At this earlier checkpoint, the next work was reservation cleanup and fairness
+under #19. The candidate above addresses that lifecycle; bilateral social
+outcomes remain open. Binding selected existing furniture is separate #15
+work. The interaction receipt is still local to `MatrixWorld`; a general finite
+executor and shared multi-client simulation remain open. Preserve the
+independent M4 Quest wearer checks.
 
 ## AI Citizens desktop demo candidate (September 26, 2026)
 

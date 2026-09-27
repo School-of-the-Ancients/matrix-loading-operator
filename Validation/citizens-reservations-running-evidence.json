@@ -1,0 +1,42 @@
+{
+  "ok": true,
+  "origin": "http://127.0.0.1:19839",
+  "seed": 17,
+  "queueTick": 1,
+  "actorDelete": {
+    "status": 200,
+    "body": {
+      "commands": [
+        {
+          "op": "delete",
+          "objectId": "bfb21455d5794e3e858a52057c769748",
+          "requestId": "f9ac93066a254d13bdecd4a25563b69f"
+        }
+      ]
+    }
+  },
+  "retiredResidentIds": [
+    "ada"
+  ],
+  "pausedAfterActorDeletion": false,
+  "boRestCompletedTick": 18,
+  "resourceDelete": {
+    "status": 200,
+    "body": {
+      "commands": [
+        {
+          "op": "delete",
+          "objectId": "666132f8d27d43b9adf147b635e308e0",
+          "requestId": "151039f83e2f460ea88828ae9ff7c3b0"
+        }
+      ]
+    }
+  },
+  "pausedAfterResourceDeletion": false,
+  "continuedToTick": 21,
+  "remainingResident": "bo",
+  "remainingStations": [
+    "food"
+  ],
+  "pageErrors": []
+}

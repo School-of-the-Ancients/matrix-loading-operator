@@ -39,7 +39,7 @@ The learner should be able to change an input, observe a result and ask about it
 
 The September 26 priority change started Citizens development at `/web/citizens.html`, an isolated page that reuses WebRuntime/MatrixWorld code but keeps its world and browser storage separate from the main `/web/` Agent Portal. Unfinished M4 wearer checks stay open and can be resumed separately; they are not prerequisites for a desktop simulation. A browser result does not count as Quest acceptance.
 
-The next candidate adds an opt-in Citizens panel to the ordinary `/web/` desktop virtual room. It starts only on an empty floor, reuses the same Matrix world execution and view, and saves versioned simulation state with the existing browser/manual/PC world checkpoints. Version 2 scene/game worlds still load. This is the first shared-world persistence slice; using selected existing furniture, social actions, generalized finite execution, and Quest budgets remain open. See the [shared-world runbook](Docs/Citizens-Shared-World.md).
+Stacked PR #101 adds an opt-in Citizens panel to the ordinary `/web/` desktop virtual room. It starts only on an empty floor, reuses the same Matrix world execution and view, and saves versioned simulation state with the existing browser/manual/PC world checkpoints. Version 2 scene/game worlds still load. The current #19 candidate strengthens fair shared-object reservations and cleanup after cancelled or deleted actors; a bilateral social action remains next. Using selected existing furniture, generalized finite execution, and Quest budgets remain open. See the [shared-world runbook](Docs/Citizens-Shared-World.md).
 
 ## Keep the architecture we already have
 
