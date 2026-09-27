@@ -1,6 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {execFile} from 'node:child_process';
+import {createHash} from 'node:crypto';
 import {readFileSync} from 'node:fs';
 import {createServer} from 'node:https';
 import {promisify} from 'node:util';
@@ -9,6 +10,23 @@ import {HostedWorld,assertHostedFixture,serviceRequest} from '../src/host_world.
 import {createProceduralRecipe} from '../src/procedural.js';
 
 const copy=value=>structuredClone(value);
+const canonical=value=>Array.isArray(value)?value.map(canonical):
+  value&&typeof value==='object'?
+    Object.fromEntries(Object.keys(value).sort().map(key=>
+      [key,canonical(value[key])])):value;
+const requestSha=request=>createHash('sha256').update(
+  JSON.stringify(canonical(request))).digest('hex');
+const generatedBytes=readFileSync(new URL('./fixtures/static_blender_probe.glb',
+  import.meta.url));
+const generatedSha=createHash('sha256').update(generatedBytes).digest('hex');
+const generatedAsset={assetId:`web:generated-rest-seat:${generatedSha.slice(0,12)}`,
+  displayName:'Generated Rest Seat',description:'Reviewed Blender rest seat',
+  spawnScale:1,sha256:generatedSha,byteLength:generatedBytes.length,
+  url:`/api/web/assets/${generatedSha}.glb`,
+  geometry:{bytes:generatedBytes.length,vertices:24,meshes:1,images:0,
+    animationClips:[]},
+  localBounds:{center:{x:0,y:.3276198312454177,z:0},
+    size:{x:.6552396624908354,y:.6552396624908354,z:.5}}};
 const benchCommand=(world,requestId='operator-bench-1')=>{
   const transform=copy(world.scene.objects[0].transform);
   transform.position={x:-2,y:0,z:2};
@@ -23,11 +41,15 @@ class FakeService {
     this.saveCount=0;this.failSave=false;this.failExchange=false;
     this.citizenConstructionBudget=1;this.citizenRequests=[];
     this.failCitizenPolicy=false;this.badCitizenCommand=false;
+    this.assets=[];this.blenderJobs=new Map();this.generatedByCitizen=new Map();
+    this.spawnByCitizen=new Map();this.generationSubmissions=0;
+    this.badGeneratedCommand=false;this.generatedDispatchStatus=null;
     this.request=this.request.bind(this);
   }
   async request(method,path,body){
     if(path==='/api/state')return {online:this.online,pendingCount:this.commands.length,
       snapshot:copy(this.snapshot),hostWorldId:this.hostWorldId};
+    if(path==='/api/web/assets')return {assets:copy(this.assets)};
     if(path==='/api/web/worlds')return {worlds:[...this.worlds.keys()]};
     if(path==='/api/citizens/capabilities'){
       if(this.failCitizenPolicy)throw Error('policy unavailable');
@@ -35,6 +57,24 @@ class FakeService {
       const journal=this.snapshot?.citizensState?.capabilityRequests;
       assert.deepEqual(body,journal?.find(item=>
         item.request.citizenRequestId===body.citizenRequestId)?.request);
+      if(body.capability==='asset'&&body.action==='generate'){
+        if(this.citizenConstructionBudget===0)
+          return {allowed:false,requestId:null,
+            reason:'Citizen capability budget exhausted',checkpointSequence:2};
+        let jobId=this.generatedByCitizen.get(body.citizenRequestId);
+        if(!jobId){
+          jobId='d'.repeat(32);
+          this.generatedByCitizen.set(body.citizenRequestId,jobId);
+          this.blenderJobs.set(jobId,{jobId,phase:'queued',
+            hostWorldId:'AdaBo',
+            citizenRequestId:body.citizenRequestId,
+            requestSha256:requestSha(body),profileId:'rest-seat-v1',
+            profileRevision:'a'.repeat(64)});
+          this.generationSubmissions++;
+          this.citizenConstructionBudget--;
+        }
+        return {allowed:true,requestId:jobId,reason:'',checkpointSequence:2};
+      }
       if(body.capability!=='procedural'||body.action!=='create')
         return {allowed:false,requestId:null,
           reason:'Citizen capability unavailable',checkpointSequence:2};
@@ -49,6 +89,33 @@ class FakeService {
         procedural:createProceduralRecipe(body.parameters.generatorId,
           body.parameters.parameters)});
       return {allowed:true,requestId:'c'.repeat(32),reason:'',checkpointSequence:2};
+    }
+    if(path.startsWith('/api/web/blender/')){
+      const job=this.blenderJobs.get(path.split('/').at(-1));
+      if(!job)throw Error('Unknown Blender job');
+      return copy(job);
+    }
+    if(path==='/api/citizens/capabilities/dispatch'){
+      const entry=this.snapshot?.citizensState?.capabilityRequests?.find(item=>
+        item.request.citizenRequestId===body.citizenRequestId);
+      assert.equal(entry?.status,'registered');
+      assert.equal(entry.work.jobId,body.jobId);
+      assert.equal(entry.work.assetId,body.assetId);
+      assert.equal(entry.work.sha256,body.sha256);
+      let requestId=this.spawnByCitizen.get(body.citizenRequestId);
+      if(!requestId){
+        requestId='e'.repeat(32);
+        this.spawnByCitizen.set(body.citizenRequestId,requestId);
+        if(this.generatedDispatchStatus!=='unconfirmed'){
+          const pose=copy(entry.request.parameters.transform);
+          if(this.badGeneratedCommand)pose.position.x+=1;
+          this.commands.push({requestId,op:'spawn',assetId:body.assetId,
+            anchorId:'web-floor',transform:pose});
+        }
+      }
+      return {requestId,status:this.generatedDispatchStatus||'queued',
+        assetId:body.assetId,
+        roomId:'web-virtual-room-v1',sceneRevision:this.revision};
     }
     if(path==='/api/exchange'){
       if(this.failExchange)throw Error('exchange unavailable');
@@ -79,6 +146,28 @@ class FakeService {
     }
     throw Error(`Unexpected ${method} ${path}`);
   }
+}
+
+const generatedBytesRequest=async digest=>{
+  assert.equal(digest,generatedSha);
+  return new Uint8Array(generatedBytes);
+};
+
+async function generatingHost(service,assetBytes=generatedBytesRequest){
+  const host=new HostedWorld({name:'AdaBo',seed:29,citizenGeneratedAsset:true,
+    request:service.request,assetBytes});
+  await host.start();
+  await host.tick();
+  assert.equal(host.simulation.snapshot().generatedConstruction.status,
+    'generating');
+  return host;
+}
+
+function readyGeneratedAsset(service){
+  service.assets=[copy(generatedAsset)];
+  service.blenderJobs.set('d'.repeat(32),{
+    ...service.blenderJobs.get('d'.repeat(32)),phase:'ready',
+    asset:copy(generatedAsset)});
 }
 
 test('host persists every virtual tick and resumes without downtime catch-up',async()=>{
@@ -247,6 +336,182 @@ test('Bo requests one reviewed bench from chair contention, uses it, and retains
   assert.equal(service.citizenRequests.length,1);
 });
 
+test('generated Citizen rest seat uses one registered GLB, exact spawn and restart',async()=>{
+  const service=new FakeService();
+  const assetBytes=async digest=>{
+    assert.equal(digest,generatedSha);
+    return new Uint8Array(generatedBytes);
+  };
+  const host=new HostedWorld({name:'AdaBo',seed:29,citizenGeneratedAsset:true,
+    request:service.request,assetBytes});
+  await host.start();
+  const coreIds=host.world.scene.objects.map(item=>item.objectId);
+  await host.tick();
+  let state=host.simulation.snapshot();
+  assert.equal(state.generatedConstruction.status,'generating');
+  assert.equal(state.capabilityRequests[0].request.capability,'asset');
+  assert.equal(service.worlds.get('AdaBo').citizens.capabilityRequests[0]
+    .status,'generating');
+  assert.equal(service.generationSubmissions,1);
+  assert.equal(host.world.scene.objects.length,4);
+  readyGeneratedAsset(service);
+  await host.tick();
+  state=host.simulation.snapshot();
+  assert.equal(state.generatedConstruction.status,'created');
+  assert.equal(state.capabilityRequests[0].status,'succeeded');
+  assert.equal(state.capabilityRequests[0].receipts.length,2);
+  assert.equal(state.capabilityRequests[0].work.jobId,'d'.repeat(32));
+  assert.equal(state.capabilityRequests[0].work.sha256,generatedSha);
+  assert.equal(state.capabilityRequests[0].work.spawnRequestId,'e'.repeat(32));
+  assert.deepEqual(host.world.scene.objects.slice(0,4).map(item=>item.objectId),
+    coreIds);
+  const added=host.world.scene.objects[4];
+  assert.equal(added.assetId,generatedAsset.assetId);
+  assert.equal(host.world.renderedAssetVerified(added),true);
+  assert.equal(service.spawnByCitizen.size,1);
+  assert.equal(service.results.find(item=>item.requestId==='e'.repeat(32))
+    ?.objectId,added.objectId);
+  for(let count=0;count<30&&state.generatedConstruction.status!=='used';count++)
+    state=await host.tick();
+  assert.equal(state.generatedConstruction.status,'used');
+  assert.ok(state.generatedConstruction.useRequestId);
+  service.online=false;
+  const resumed=new HostedWorld({name:'AdaBo',citizenGeneratedAsset:true,
+    request:service.request,assetBytes});
+  await resumed.start();
+  assert.equal(resumed.simulation.snapshot().generatedConstruction.status,'used');
+  assert.equal(resumed.world.scene.objects[4].objectId,added.objectId);
+  assert.equal(resumed.world.renderedAssetVerified(resumed.world.scene.objects[4]),
+    true);
+  await resumed.tick();
+  assert.equal(service.generationSubmissions,1);
+  assert.equal(service.spawnByCitizen.size,1);
+  assert.equal(resumed.world.scene.objects.length,5);
+});
+
+test('generation failure records job provenance without spawning',async()=>{
+  const service=new FakeService();
+  const host=await generatingHost(service);
+  service.blenderJobs.set('d'.repeat(32),{
+    ...service.blenderJobs.get('d'.repeat(32)),
+    phase:'error',error:'Blender build failed'});
+  await host.tick();
+  const state=host.simulation.snapshot();
+  assert.equal(state.generatedConstruction.status,'failed');
+  assert.equal(state.generatedConstruction.jobId,'d'.repeat(32));
+  assert.match(state.generatedConstruction.reason,/Blender build failed/);
+  assert.equal(state.capabilityRequests[0].receipts.length,0);
+  assert.equal(service.worlds.get('AdaBo').scene.objects.length,4);
+  assert.equal(service.spawnByCitizen.size,0);
+});
+
+test('generated capability budget denies Bo without a Blender job or Matrix edit',
+  async()=>{
+    const service=new FakeService();
+    service.citizenConstructionBudget=0;
+    const host=new HostedWorld({name:'AdaBo',seed:29,
+      citizenGeneratedAsset:true,request:service.request,
+      assetBytes:generatedBytesRequest});
+    await host.start();
+    await host.tick();
+    const saved=service.worlds.get('AdaBo');
+    assert.equal(saved.citizens.generatedConstruction.status,'denied');
+    assert.equal(saved.citizens.capabilityRequests[0].status,'denied');
+    assert.equal(saved.citizens.generatedConstruction.residentId,'bo');
+    assert.match(saved.citizens.generatedConstruction.reason,/budget/);
+    assert.equal(saved.scene.objects.length,4);
+    assert.equal(service.generationSubmissions,0);
+    assert.equal(service.spawnByCitizen.size,0);
+  });
+
+test('host refuses a ready Blender job with altered Citizen provenance',async()=>{
+  const wrong={hostWorldId:'Other',citizenRequestId:'other-request',
+    requestSha256:'f'.repeat(64),profileId:'another-profile',
+    profileRevision:'invalid'};
+  for(const [field,value] of Object.entries(wrong)){
+    const service=new FakeService();
+    const host=await generatingHost(service);
+    readyGeneratedAsset(service);
+    service.blenderJobs.get('d'.repeat(32))[field]=value;
+    await assert.rejects(host.tick(),/differs from the saved Citizen request/);
+    assert.equal(service.worlds.get('AdaBo').citizens.generatedConstruction
+      .status,'generating');
+    assert.equal(service.worlds.get('AdaBo').scene.objects.length,4);
+    assert.equal(service.spawnByCitizen.size,0);
+  }
+});
+
+test('registration uncertainty remains durable and cannot restart generation',async()=>{
+  const service=new FakeService();
+  const host=await generatingHost(service);
+  service.blenderJobs.set('d'.repeat(32),{
+    ...service.blenderJobs.get('d'.repeat(32)),phase:'generated',
+    error:'catalog write interrupted',sha256:generatedSha});
+  await assert.rejects(host.tick(),/registration is unresolved/);
+  const saved=service.worlds.get('AdaBo').citizens.generatedConstruction;
+  assert.equal(saved.status,'unconfirmed');
+  assert.equal(saved.jobId,'d'.repeat(32));
+  assert.equal(service.generationSubmissions,1);
+  assert.equal(service.spawnByCitizen.size,0);
+  service.online=false;
+  const resumed=new HostedWorld({name:'AdaBo',citizenGeneratedAsset:true,
+    request:service.request,assetBytes:generatedBytesRequest});
+  await assert.rejects(resumed.start(),/queued Citizen capability/);
+  assert.equal(service.generationSubmissions,1);
+});
+
+test('unconfirmed dispatch records exact reserved spawn ID and never queues again',async()=>{
+  const service=new FakeService();
+  const host=await generatingHost(service);
+  readyGeneratedAsset(service);
+  service.generatedDispatchStatus='unconfirmed';
+  await assert.rejects(host.tick(),/spawn outcome is unconfirmed/);
+  const saved=service.worlds.get('AdaBo').citizens.generatedConstruction;
+  assert.equal(saved.status,'unconfirmed');
+  assert.equal(saved.spawnRequestId,'e'.repeat(32));
+  assert.equal(saved.assetId,generatedAsset.assetId);
+  assert.equal(service.commands.length,0);
+  assert.equal(service.spawnByCitizen.size,1);
+  assert.equal(service.worlds.get('AdaBo').scene.objects.length,4);
+  service.online=false;
+  const resumed=new HostedWorld({name:'AdaBo',citizenGeneratedAsset:true,
+    request:service.request,assetBytes:generatedBytesRequest});
+  await assert.rejects(resumed.start(),/queued Citizen capability/);
+  assert.equal(service.generationSubmissions,1);
+  assert.equal(service.spawnByCitizen.size,1);
+});
+
+test('typed spawn mismatch fails with exact receipt and leaves four core objects',async()=>{
+  const service=new FakeService();
+  const host=await generatingHost(service);
+  readyGeneratedAsset(service);
+  service.badGeneratedCommand=true;
+  await host.tick();
+  const state=host.simulation.snapshot();
+  assert.equal(state.generatedConstruction.status,'failed');
+  assert.equal(state.capabilityRequests[0].receipts[0].requestId,'e'.repeat(32));
+  assert.equal(state.capabilityRequests[0].receipts[0].ok,false);
+  assert.equal(host.world.scene.objects.length,4);
+  assert.equal(service.worlds.get('AdaBo').scene.objects.length,4);
+});
+
+test('incorrect generated GLB bytes force a confirmed Matrix rollback',async()=>{
+  const service=new FakeService();
+  const assetBytes=async()=>new Uint8Array(generatedBytes.subarray(0,
+    generatedBytes.length-1));
+  const host=await generatingHost(service,assetBytes);
+  readyGeneratedAsset(service);
+  await host.tick();
+  const state=host.simulation.snapshot();
+  assert.equal(state.generatedConstruction.status,'failed');
+  assert.deepEqual(state.capabilityRequests[0].receipts.map(item=>item.ok),
+    [true,true]);
+  assert.equal(state.capabilityRequests[0].receipts.at(-1).requestId,
+    `${'e'.repeat(32)}-rollback`);
+  assert.equal(host.world.scene.objects.length,4);
+  assert.equal(service.worlds.get('AdaBo').scene.objects.length,4);
+});
+
 test('a v13 completed bench restores into v14 without inventing Matrix receipts',async()=>{
   const service=new FakeService();
   const first=new HostedWorld({name:'AdaBo',seed:29,citizenCapabilities:true,
@@ -256,12 +521,13 @@ test('a v13 completed bench restores into v14 without inventing Matrix receipts'
   const previous=copy(service.worlds.get('AdaBo'));
   previous.citizens.schemaVersion=13;
   delete previous.citizens.capabilityRequests;
+  delete previous.citizens.generatedConstruction;
   service.worlds.set('AdaBo',previous);
   service.online=false;
   const resumed=new HostedWorld({name:'AdaBo',citizenCapabilities:true,
     request:service.request});
   await resumed.start();
-  assert.equal(resumed.simulation.snapshot().schemaVersion,14);
+  assert.equal(resumed.simulation.snapshot().schemaVersion,15);
   assert.deepEqual(resumed.simulation.snapshot().capabilityRequests,[]);
   assert.deepEqual(resumed.simulation.snapshot().construction,previous.citizens.construction);
   assert.equal(resumed.world.scene.objects[4].objectId,

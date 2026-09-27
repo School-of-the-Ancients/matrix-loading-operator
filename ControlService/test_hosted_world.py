@@ -1,12 +1,16 @@
 """A headless Citizens owner and a separately authenticated observation route."""
 import copy
+import hashlib
 import json
 from pathlib import Path
+import shutil
 import tempfile
 import threading
+import time
 import unittest
 import urllib.error
 import urllib.request
+from unittest.mock import patch
 
 from procedural_contract import new_recipe
 from server import (APIError, CITIZEN_BENCH_INTERACTION, CITIZEN_BENCH_TRANSFORM,
@@ -110,6 +114,224 @@ class HostedWorldTests(unittest.TestCase):
         self.exchange(snapshot)
         self.state.save_world_checkpoint("AdaBo", world)
         return snapshot, world, request
+
+    def requested_generated(self):
+        snapshot, world = self.requested_construction()
+        citizens = world["citizens"]
+        citizens["schemaVersion"] = 15
+        citizens["construction"] = None
+        record = {"intentId": "citizens-29-generated-2", "residentId": "bo",
+                  "blockedStationId": "chair", "waitExecutionId": 2,
+                  "requestedTick": 1, "status": "requested", "jobId": None,
+                  "assetId": None, "sha256": None, "spawnRequestId": None,
+                  "objectId": None, "interactionRequestId": None,
+                  "useRequestId": None, "reason": ""}
+        citizens["generatedConstruction"] = record
+        request = {"citizenRequestId": record["intentId"] + "/asset.generate/1",
+                   "intentId": record["intentId"], "residentId": "bo",
+                   "capability": "asset", "action": "generate",
+                   "parameters": {"profileId": "rest-seat-v1",
+                                  "transform": copy.deepcopy(CITIZEN_BENCH_TRANSFORM)},
+                   "checkpoint": {"roomId": world["scene"]["roomId"],
+                                  "clockTick": 1,
+                                  "objectIds": sorted(item["objectId"] for item in
+                                                      world["scene"]["objects"])}}
+        work = {key: None for key in ("jobId", "assetId", "sha256",
+                                     "spawnRequestId", "objectId",
+                                     "interactionRequestId")}
+        citizens["capabilityRequests"] = [{"request": copy.deepcopy(request),
+                                           "status": "requested", "policy": None,
+                                           "receipts": [], "reason": "", "work": work}]
+        snapshot["citizensState"] = copy.deepcopy(citizens)
+        validate_citizens_checkpoint(citizens, world["scene"])
+        return snapshot, world, request
+
+    def generated_service(self, *, budget=1):
+        self.state = State(Path(self.temp.name) / f"generated-budget-{budget}",
+                           clock=lambda: self.now,
+                           web_assets_directory=Path(self.temp.name) / "assets",
+                           citizen_capability_budget=budget)
+        snapshot, world, request = self.requested_generated()
+        self.exchange(snapshot)
+        self.state.save_world_checkpoint("AdaBo", world)
+        return snapshot, world, request
+
+    def ready_generated_job(self):
+        snapshot, world, request = self.generated_service()
+        calls = []
+        chair = (Path(__file__).parent.parent / "WebRuntime" / "test" /
+                 "fixtures" / "citizens-demo-chair.glb")
+        bounds = {"center": {"x": 0, "y": .475, "z": 0},
+                  "size": {"x": .62, "y": .95, "z": .62}}
+
+        def builder(recipe, folder):
+            calls.append(recipe)
+            target = Path(folder) / "asset.glb"
+            shutil.copyfile(chair, target)
+            return target, bounds
+
+        self.state.blender_authoring.builder = builder
+        with patch("blender_authoring.blender_executable",
+                   return_value="fixture-blender.exe"):
+            decision = self.state.citizen_capability_request(request)
+        self.assertTrue(decision["allowed"], decision)
+        for _ in range(300):
+            job = self.state.blender_authoring.status(decision["requestId"])
+            if job["phase"] == "ready":
+                break
+            time.sleep(.01)
+        else:
+            self.fail("Citizen GLB did not register")
+        self.assertEqual(len(calls), 1)
+        return snapshot, world, request, decision, job, calls
+
+    def test_generated_policy_budget_exact_request_and_ambiguous_replay(self):
+        _, _, request = self.generated_service(budget=0)
+        denied = self.state.citizen_capability_request(request)
+        self.assertFalse(denied["allowed"])
+        self.assertEqual(denied["reason"], "Citizen capability budget is exhausted")
+        self.assertFalse(self.state.blender_authoring.status()["jobs"])
+
+        _, _, request, decision, job, calls = self.ready_generated_job()
+        repeated = self.state.citizen_capability_request(copy.deepcopy(request))
+        self.assertEqual(repeated, decision)
+        self.assertEqual(len(calls), 1)
+        self.assertEqual(len(self.state.blender_authoring.status()["jobs"]), 1)
+        tampered = copy.deepcopy(request)
+        tampered["parameters"]["transform"]["position"]["x"] = True
+        self.assertFalse(self.state.citizen_capability_request(tampered)["allowed"])
+        self.assertEqual(job["citizenRequestId"], request["citizenRequestId"])
+        restarted = State(self.state.directory, clock=lambda: self.now,
+                          web_assets_directory=Path(self.temp.name) / "assets")
+        self.assertEqual(restarted.blender_authoring.status(job["jobId"])["phase"],
+                         "ready")
+        self.assertEqual(len(calls), 1)
+
+    def test_generated_dispatch_and_pending_spawn_checkpoint_are_exact(self):
+        snapshot, world, request, decision, job, calls = self.ready_generated_job()
+        state = world["citizens"]
+        record = state["generatedConstruction"]
+        entry = state["capabilityRequests"][0]
+        record.update(status="generating", jobId=job["jobId"])
+        entry.update(status="generating", policy=copy.deepcopy(decision))
+        entry["work"]["jobId"] = job["jobId"]
+        snapshot["citizensState"] = copy.deepcopy(state)
+        self.exchange(snapshot)
+        self.state.save_world_checkpoint("AdaBo", world)
+
+        asset = job["asset"]
+        metadata = {key: asset[key] for key in
+                    ("assetId", "displayName", "description", "spawnScale",
+                     "localBounds", "sha256")}
+        metadata["animationClips"] = []
+        snapshot["assets"].append(metadata)
+        record.update(status="registered", assetId=asset["assetId"],
+                      sha256=asset["sha256"])
+        entry["status"] = "registered"
+        entry["work"].update(assetId=asset["assetId"], sha256=asset["sha256"])
+        snapshot["citizensState"] = copy.deepcopy(state)
+        self.exchange(snapshot)
+        saved = self.state.save_world_checkpoint("AdaBo", world)
+        self.assertEqual([(item["assetId"], item["sha256"])
+                          for item in saved["dependencies"]],
+                         [(asset["assetId"], asset["sha256"])])
+        registered_file = self.state.web_assets.root / f'{asset["sha256"]}.glb'
+        withheld = registered_file.with_suffix(".withheld")
+        registered_file.rename(withheld)
+        try:
+            with self.assertRaisesRegex(APIError, "missing or corrupt"):
+                self.state.load_world_checkpoint("AdaBo")
+        finally:
+            withheld.rename(registered_file)
+        observed = self.state.hosted_observation()
+        self.assertEqual([item["assetId"] for item in observed["assets"]],
+                         [asset["assetId"]])
+        self.state.web_assets.register(
+            registered_file, asset["displayName"],
+            spawn_scale=asset["spawnScale"] + .1,
+            local_bounds=asset["localBounds"])
+        with self.assertRaisesRegex(APIError, "dependency changed"):
+            self.state.hosted_observation()
+        self.state.web_assets.register(
+            registered_file, asset["displayName"],
+            spawn_scale=asset["spawnScale"], local_bounds=asset["localBounds"])
+        with self.assertRaisesRegex(APIError, "not referenced"):
+            self.state.hosted_asset_file(asset["sha256"])
+        unrelated = self.state.web_assets.register(
+            Path(__file__).parent.parent / "WebRuntime" / "test" /
+            "fixtures" / "citizens-demo-food-table.glb", "Unrelated table")
+        service = Server(("127.0.0.1", 0), self.state, OWNER, VIEWER)
+        thread = threading.Thread(target=service.serve_forever, daemon=True)
+        thread.start()
+        try:
+            def get_status(path, token):
+                call = urllib.request.Request(
+                    f"http://127.0.0.1:{service.server_port}{path}",
+                    headers={"Authorization": "Bearer " + token})
+                try:
+                    response = urllib.request.urlopen(call, timeout=3)
+                except urllib.error.HTTPError as error:
+                    response = error
+                with response:
+                    response.read()
+                    return response.status
+
+            self.assertEqual(get_status(asset["url"], VIEWER), 404)
+            self.assertEqual(get_status(unrelated["url"], VIEWER), 404)
+            self.assertEqual(get_status(asset["url"], OWNER), 200)
+            self.assertEqual(get_status("/api/web/assets", VIEWER), 401)
+        finally:
+            service.shutdown()
+            service.server_close()
+            thread.join(timeout=3)
+
+        dispatch = {"citizenRequestId": request["citizenRequestId"],
+                    "jobId": job["jobId"], "assetId": asset["assetId"],
+                    "sha256": asset["sha256"]}
+        queued = self.state.citizen_capability_dispatch(dispatch)
+        self.assertEqual(queued["status"], "queued")
+        spawn_id = queued["requestId"]
+        self.assertEqual(self.state.pending[spawn_id]["op"], "spawn")
+        self.assertEqual(self.state.pending[spawn_id]["assetId"], asset["assetId"])
+        self.assertEqual(self.state.agent_spawn_ids[spawn_id]["residentId"], "bo")
+        self.assertEqual(self.state.citizen_capability_dispatch(dispatch)["requestId"],
+                         spawn_id)
+        self.assertEqual(len(self.state.pending), 1)
+
+        record.update(status="spawning", spawnRequestId=spawn_id)
+        entry["status"] = "spawning"
+        entry["work"]["spawnRequestId"] = spawn_id
+        snapshot["citizensState"] = copy.deepcopy(state)
+        self.exchange(snapshot)
+        self.assertTrue(self.state.save_world_checkpoint("AdaBo", world)["saved"])
+        with self.assertRaisesRegex(APIError, "pending world commands"):
+            self.state.load_world_checkpoint("AdaBo")
+        command = self.state.pending[spawn_id]
+        command["assetId"] = "web:forged:" + asset["sha256"][:12]
+        with self.assertRaisesRegex(APIError, "pending world commands"):
+            self.state.save_world_checkpoint("AdaBo", world)
+        command["assetId"] = asset["assetId"]
+
+        failed = {"requestId": spawn_id, "ok": False,
+                  "error": "Matrix refused the spawn", "objectId": ""}
+        self.exchange(snapshot, results=[failed])
+        self.assertEqual(self.state.agent_spawn_status(spawn_id)["status"], "failed")
+        record.update(status="failed", reason="Matrix refused the spawn")
+        entry.update(status="failed", reason="Matrix refused the spawn",
+                     receipts=[failed])
+        snapshot["citizensState"] = copy.deepcopy(state)
+        self.exchange(snapshot)
+        self.state.save_world_checkpoint("AdaBo", world)
+        self.assertEqual(self.state.load_world_checkpoint("AdaBo")["world"], world)
+        self.assertEqual([item["assetId"] for item in
+                          self.state.hosted_observation()["assets"]],
+                         [asset["assetId"]])
+        self.assertEqual(len(calls), 1)
+        restarted = State(self.state.directory, clock=lambda: self.now,
+                          web_assets_directory=Path(self.temp.name) / "assets")
+        self.assertEqual(len(restarted.citizen_asset_spawns), 1)
+        self.assertEqual(next(iter(restarted.citizen_asset_spawns.values()))[
+            "requestId"], spawn_id)
 
     def test_citizen_capability_dispatches_saved_request_to_typed_procedural_action(self):
         snapshot, world, request = self.requested_capability_service()

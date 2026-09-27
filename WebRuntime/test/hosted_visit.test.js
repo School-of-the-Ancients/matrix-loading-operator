@@ -1,23 +1,41 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import {createHash} from 'node:crypto';
 import {readFileSync} from 'node:fs';
 import {MatrixWorld} from '../src/protocol.js';
 import {CITIZEN_BENCH_INTERACTION,CITIZEN_BENCH_TRANSFORM,
-  createCitizensDemo} from '../src/citizens.js';
+  citizenGeneratedRestInteraction,createCitizensDemo} from '../src/citizens.js';
 import {createProceduralRecipe} from '../src/procedural.js';
 import {storedWorld} from '../src/scene_store.js';
 import {applyHostedObservation,stageHostedObservation} from '../src/hosted_visit.js';
 import {MatrixView} from '../src/view.js';
 
 const instance='a'.repeat(32);
+const generatedBytes=readFileSync(new URL('./fixtures/static_blender_probe.glb',
+  import.meta.url));
+const generatedSha=createHash('sha256').update(generatedBytes).digest('hex');
+const generatedAsset={assetId:`web:generated-rest-seat:${generatedSha.slice(0,12)}`,
+  displayName:'Generated Rest Seat',description:'Reviewed Blender rest seat',
+  spawnScale:1,sha256:generatedSha,byteLength:generatedBytes.length,
+  url:`/api/web/assets/${generatedSha}.glb`,
+  geometry:{bytes:generatedBytes.length,vertices:24,meshes:1,images:0,
+    animationClips:[]},
+  localBounds:{center:{x:0,y:.3276198312454177,z:0},
+    size:{x:.6552396624908354,y:.6552396624908354,z:.5}}};
 function fixture(){
   const owner=new MatrixWorld();
   const simulation=createCitizensDemo(owner,{seed:29});
   simulation.resume();
   owner.citizens=simulation.snapshot();
-  const observe=(sequence,instanceId=instance)=>({schemaVersion:1,worldId:'AdaBo',
-    instanceId,sequence,clockTick:owner.citizens.clockTick,online:true,readOnly:true,
-    world:storedWorld(owner)});
+  const observe=(sequence,instanceId=instance)=>{
+    const referenced=new Set(owner.scene.objects.map(item=>item.assetId));
+    if(owner.citizens?.generatedConstruction?.assetId)
+      referenced.add(owner.citizens.generatedConstruction.assetId);
+    return {schemaVersion:1,worldId:'AdaBo',instanceId,sequence,
+      clockTick:owner.citizens.clockTick,online:true,readOnly:true,
+      world:storedWorld(owner),assets:structuredClone(owner.externalAssets.filter(item=>
+        referenced.has(item.assetId)))};
+  };
   return {owner,simulation,observe};
 }
 
@@ -53,6 +71,7 @@ function legacyObservation(observation){
   copy.world.citizens.schemaVersion=12;
   delete copy.world.citizens.construction;
   delete copy.world.citizens.capabilityRequests;
+  delete copy.world.citizens.generatedConstruction;
   return copy;
 }
 
@@ -175,6 +194,82 @@ test('visitor accepts one receipt-backed Citizen bench station and its later use
   assert.equal(visitor.citizens.stations.at(-1).objectId,benchId);
 });
 
+test('visitor sees one generated GLB with exact asset and Citizen provenance',()=>{
+  const {owner,simulation,observe}=fixture();
+  const visitor=new MatrixWorld();
+  const first=applyHostedObservation(visitor,observe(1));
+  owner.citizens=simulation.step();
+  simulation.proposeGeneratedConstruction();
+  owner.citizens=simulation.snapshot();
+  const requested=applyHostedObservation(visitor,observe(2),first.state);
+  const jobId='d'.repeat(32),spawnId='e'.repeat(32);
+  owner.citizens=simulation.capabilityDecision(
+    decision(true,jobId));
+  const generating=applyHostedObservation(visitor,observe(3),requested.state);
+  owner.registerAssets([structuredClone(generatedAsset)]);
+  owner.citizens=simulation.generatedAssetRegistered({jobId,
+    assetId:generatedAsset.assetId,sha256:generatedSha});
+  const registered=applyHostedObservation(visitor,observe(4),generating.state);
+  owner.citizens=simulation.generatedSpawnQueued(spawnId);
+  const spawning=applyHostedObservation(visitor,observe(5),registered.state);
+  const spawn=owner.execute({requestId:spawnId,op:'spawn',
+    assetId:generatedAsset.assetId,anchorId:'web-floor',
+    transform:structuredClone(CITIZEN_BENCH_TRANSFORM)});
+  assert.equal(spawn.ok,true,spawn.error);
+  assert.equal(owner.verifyPhysicsAsset(generatedAsset.assetId,
+    generatedAsset.localBounds.size,spawn.objectId),true);
+  const attach=owner.execute({requestId:`${spawnId}-interaction`,
+    op:'set_interaction',objectId:spawn.objectId,
+    interaction:citizenGeneratedRestInteraction(generatedSha),
+    expectedInteraction:null});
+  assert.equal(attach.ok,true,attach.error);
+  owner.citizens=simulation.generatedCapabilityCompleted([spawn,attach]);
+  const created=applyHostedObservation(visitor,observe(6),spawning.state);
+  assert.equal(created.structureChanged,true);
+  assert.equal(visitor.scene.objects[4].objectId,spawn.objectId);
+  assert.equal(visitor.asset(generatedAsset.assetId)?.sha256,generatedSha);
+  assert.equal(created.state.assets[0].sha256,generatedSha);
+  assert.equal(visitor.citizens.capabilityRequests[0].work.jobId,jobId);
+  assert.equal(visitor.citizens.capabilityRequests[0].receipts[0].requestId,
+    spawnId);
+  const tampered=observe(7);
+  tampered.assets[0].sha256='f'.repeat(64);
+  assert.throws(()=>stageHostedObservation(tampered,created.state));
+  assert.equal(visitor.asset(generatedAsset.assetId)?.sha256,generatedSha);
+  const restart=applyHostedObservation(visitor,observe(1,'b'.repeat(32)),
+    created.state);
+  assert.equal(restart.state.assets[0].sha256,generatedSha);
+  assert.equal(visitor.scene.objects[4].objectId,spawn.objectId);
+});
+
+test('visitor retains failed generated asset metadata without a Matrix object',()=>{
+  const {owner,simulation,observe}=fixture();
+  const visitor=new MatrixWorld();
+  const first=applyHostedObservation(visitor,observe(1));
+  owner.citizens=simulation.step();
+  simulation.proposeGeneratedConstruction();
+  owner.citizens=simulation.capabilityDecision(
+    decision(true,'d'.repeat(32)));
+  const generating=applyHostedObservation(visitor,observe(2),first.state);
+  owner.registerAssets([structuredClone(generatedAsset)]);
+  owner.citizens=simulation.generatedAssetRegistered({jobId:'d'.repeat(32),
+    assetId:generatedAsset.assetId,sha256:generatedSha});
+  const registered=applyHostedObservation(visitor,observe(3),generating.state);
+  owner.citizens=simulation.generatedCapabilityFailed(
+    'Registration needs inspection',{unconfirmed:true});
+  const uncertain=applyHostedObservation(visitor,observe(4),registered.state);
+  assert.equal(uncertain.state.generated.status,'unconfirmed');
+  assert.equal(visitor.scene.objects.length,4);
+  assert.equal(visitor.asset(generatedAsset.assetId)?.sha256,generatedSha);
+  assert.equal(visitor.citizens.capabilityRequests[0].work.assetId,
+    generatedAsset.assetId);
+  const restarted=applyHostedObservation(visitor,observe(1,'b'.repeat(32)),
+    uncertain.state);
+  assert.equal(restarted.state.generated.status,'unconfirmed');
+  assert.equal(restarted.state.assets[0].sha256,generatedSha);
+  assert.equal(visitor.scene.objects.length,4);
+});
+
 test('v14 denied Citizen request still permits one unbound human Operator creation',()=>{
   const {owner,simulation,observe}=fixture();
   const visitor=new MatrixWorld();
@@ -206,12 +301,13 @@ test('visitor retains a v13 bench after migration to an empty v14 journal',()=>{
   const legacy=observe(1);
   legacy.world.citizens.schemaVersion=13;
   delete legacy.world.citizens.capabilityRequests;
+  delete legacy.world.citizens.generatedConstruction;
   const visitor=new MatrixWorld();
   const first=applyHostedObservation(visitor,legacy);
   owner.citizens=simulation.snapshot();
   owner.citizens.capabilityRequests=[];
   const migrated=applyHostedObservation(visitor,observe(2),first.state);
-  assert.equal(migrated.world.citizens.schemaVersion,14);
+  assert.equal(migrated.world.citizens.schemaVersion,15);
   assert.deepEqual(migrated.world.citizens.capabilityRequests,[]);
   assert.equal(migrated.world.scene.objects[4].objectId,
     legacy.world.scene.objects[4].objectId);
