@@ -40,11 +40,12 @@ completion. Nested v5 adds `routeRetries` (an integer from 0 through 3) and a
 bounded `routeGeometryId` or `null` to each active activity, plus a `rerouted`
 log event. This preserves a blocked execution and its claim across browser
 reload and named PC restore. Nested v6 adds an exact `interaction` field to
-every station: `null` for a built-in chair/table, or the object-authored v1
-descriptor for one static registered Web GLB. The descriptor is validated
-against the station kind and the matching scene object's descriptor. The PC
-also checks the GLB bytes, SHA-256, catalog metadata, and approach/use geometry
-on save and load. A missing or changed dependency rejects the checkpoint
+every station: `null` for a built-in chair/table, or the exact object-authored
+descriptor. V1 binds a static registered Web GLB to its SHA-256; V2 binds a
+static curved bench to `curved-bench@1.0.0:curved-bench-v1`. The PC checks the
+station kind, matching scene descriptor, pinned generator recipe and availability,
+and approach/use points against the reviewed curved-bench bounds formula. V1
+still checks GLB bytes and catalog metadata. A missing or changed dependency rejects the checkpoint
 without replacing the active world. Older nested v1–v5 shapes remain accepted. A v3
 social file is accepted only while its retained completed events account for
 its relationship score. Browser restore migrates valid v1–v5 Citizens states

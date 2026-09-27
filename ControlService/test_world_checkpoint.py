@@ -9,6 +9,7 @@ from unittest.mock import patch
 import urllib.error
 import urllib.request
 
+from procedural_contract import CURVED_BENCH_PARAMETERS, new_recipe
 from server import APIError, Server, State, world_checkpoint_digest
 from test_web_assets import animated_glb, glb
 
@@ -247,6 +248,63 @@ class WorldCheckpointTests(unittest.TestCase):
             self.state.load_world_checkpoint("RegisteredSeat")
         self.assertEqual(path.read_bytes(), original_bytes)
         self.assertEqual(self.state.latest, before)
+
+    def test_citizens_v6_procedural_rest_checkpoint_checks_source_and_binding(self):
+        world = self.citizens_v5_rerouting_world()
+        generator = {"generatorId": "curved-bench", "generatorVersion": "1.0.0",
+                     "sourceRevision": "curved-bench-v1", "description": "Reviewed curved bench",
+                     "parameterSchema": copy.deepcopy(CURVED_BENCH_PARAMETERS),
+                     "dependencies": []}
+        recipe = new_recipe([generator], "curved-bench")
+        interaction = {"schemaVersion": 2, "interactionId": "bench-rest",
+                       "kind": "rest", "proceduralSource": {
+                           "generatorId": "curved-bench", "generatorVersion": "1.0.0",
+                           "sourceRevision": "curved-bench-v1"},
+                       "requiredCapabilities": ["static-virtual-floor",
+                                                "reviewed-procedural-geometry"],
+                       "availability": ["target-static", "floor-aligned",
+                                        "generator-available"],
+                       "approachPose": {"x": 0, "z": -.65},
+                       "usePose": {"x": 0, "z": .2}, "rangeMeters": 1,
+                       "durationTicks": 7, "capacity": 1,
+                       "effect": {"need": "energy", "delta": 37}}
+        bench = {"objectId": "curved-bench-1", "assetId": "matrix:procedural",
+                 "anchorId": "web-floor", "transform": copy.deepcopy(POSE),
+                 "procedural": recipe, "interaction": copy.deepcopy(interaction)}
+        world["scene"]["objects"].append(bench)
+        world["citizens"]["schemaVersion"] = 6
+        for station in world["citizens"]["stations"]:
+            station["interaction"] = copy.deepcopy(interaction) if station["kind"] == "rest" else None
+            if station["kind"] == "rest":
+                station["objectId"] = bench["objectId"]
+        active = copy.deepcopy(self.snapshot)
+        active["scene"] = copy.deepcopy(world["scene"])
+        active["assets"].extend({"assetId": name, "displayName": name.title()}
+                                for name in ("orb", "chair", "table"))
+        active["assets"].append({"assetId": "matrix:procedural",
+                                 "displayName": "Procedural construction"})
+        active["proceduralGenerators"] = [generator]
+        active["interactionSchemaVersion"] = 2
+        self.state.exchange({"clientId": "browser", "snapshot": active, "results": []})
+        self.assertTrue(self.state.save_world_checkpoint("CurvedCitizenBench", world)["saved"])
+        restored = self.state.load_world_checkpoint("CurvedCitizenBench")
+        self.assertEqual(restored["world"]["citizens"]["stations"][0]["interaction"], interaction)
+        self.assertNotIn("matrix:procedural", {entry["assetId"]
+                                                for entry in restored["dependencies"]})
+        for mutate in (
+                lambda item: item["citizens"]["stations"][0]["interaction"]["effect"].update(delta=38),
+                lambda item: item["scene"]["objects"][-1]["interaction"]["proceduralSource"].update(
+                    sourceRevision="stale"),
+                lambda item: item["scene"]["objects"][-1]["procedural"]["parameters"].update(
+                    depthMeters=1)):
+            with self.subTest(mutate=mutate):
+                invalid = copy.deepcopy(world)
+                mutate(invalid)
+                with self.assertRaises(APIError):
+                    self.state.save_world_checkpoint("CurvedCitizenBench", invalid)
+        self.state.latest["proceduralGenerators"] = []
+        with self.assertRaisesRegex(APIError, "unavailable"):
+            self.state.load_world_checkpoint("CurvedCitizenBench")
 
     def test_citizens_v6_two_reviewed_glb_stations_require_both_exact_asset_files(self):
         world, active, seat_asset = self.citizens_v6_glb_interaction_world()

@@ -757,7 +757,22 @@ export class MatrixView {
     if(this.grab)this.world.resumePhysics?.(this.grab.objectId);
     if(this.pointerGrab)this.world.resumePhysics?.(this.pointerGrab.objectId);
     this.grab=null;this.pointerGrab=null;
+    const currentObjects=new Map(this.world.scene.objects.map(object=>
+      [object.objectId,object]));
+    const retainedProcedural=new Map();
     for(const root of this.objectRoots.values()){
+      const object=currentObjects.get(root.userData.objectId);
+      // An unchanged static construction owns its own buffers and materials.
+      // Keep them through another object's edit; moving bodies and legacy floor
+      // physics still need the regular pose/verification rebuild below.
+      if(object?.procedural&&!object.physics&&
+         object.rigidBody?.type!=='dynamic'&&!object.component&&
+         !object.behaviors?.some(behavior=>behavior.enabled)&&
+         !root.userData.proceduralError&&
+         root.userData.proceduralSignature===JSON.stringify(object)){
+        retainedProcedural.set(object.objectId,root);
+        continue;
+      }
       // A routine redraw rebuilds the same content-addressed model. Keep its
       // measured navigation footprint; only physics needs a fresh instance.
       this.world.invalidatePhysicsAsset?.(root.userData.objectId);
@@ -770,6 +785,12 @@ export class MatrixView {
     if(this.world.spatial)for(const anchor of this.world.spatial.anchors){const root=new THREE.Group();this.anchorPose(root,anchor);this.scene.add(root);this.anchorRoots.set(anchor.anchorId,root);}
     for(const object of this.world.scene.objects){
       if(!this.world.spatial&&object.anchorId!=='web-floor')continue;
+      const retained=retainedProcedural.get(object.objectId);
+      if(retained){
+        (this.anchorRoots.get(object.anchorId)||this.virtualFloorRoot).add(retained);
+        this.objectRoots.set(object.objectId,retained);
+        continue;
+      }
       const root=new THREE.Group();root.userData.objectId=object.objectId;
       root.position.copy(v3(object.transform.position));
       const physics=!this.isAR&&this.world.physicsState?.(object.objectId);
@@ -797,6 +818,7 @@ export class MatrixView {
         const placeholder=new THREE.Mesh(new THREE.BoxGeometry(.35,.35,.35),new THREE.MeshBasicMaterial({color:0x5ee3cf,wireframe:true}));placeholder.position.y=.175;visual.add(placeholder);
       }
       visual.userData.objectId=object.objectId;root.add(visual);root.userData.visual=visual;root.userData.behaviors=object.behaviors||[];
+      if(object.procedural)root.userData.proceduralSignature=JSON.stringify(object);
       if(object.display){
         if(validDisplay(object.display)){
           const board=displayBoard(visual.userData.localBounds?

@@ -6,6 +6,12 @@ Status: **open implementation candidate**, September 26, 2026. [Issue #122](http
 
 `MatrixWorld` still owns scene object IDs, transforms, commands, receipts, and revision checks. The same scene appears through desktop Three.js, WebXR VR, and WebXR AR. PC-local Codex uses the existing Agent Portal and typed Matrix tools; the browser never receives its credentials. Blender/GLB registration, animation, components, Citizens, and older worlds remain supported.
 
+## A generated object that residents can use
+
+The reviewed `curved-bench@1.0.0:curved-bench-v1` source can carry a version-2 `rest` interaction. The descriptor pins the generator ID, version, and source revision, plus floor-local approach/use poses, range, duration, capacity, and energy effect. The PC service independently checks the bench's measured bounds and exact source before queueing or saving it. The Web runtime checks the generated mesh bounds and current recipe before applying it. Other procedural generators and interaction kinds require their own reviewed PC bounds contract. Existing version-1 registered GLB interactions and Blender authoring remain supported.
+
+In paused Creator Mode, create a curved bench through `matrix_create_procedural`, inspect its ID/recipe, then set the reviewed interaction with `matrix_set_interaction`. A compatible parameter revision uses `matrix_update_procedural` and keeps the same object ID and interaction; an incompatible pose or source is rejected before changing the scene. Undo/Redo, browser persistence, and named PC world checkpoints retain the compatible recipe and binding. Select the bench in `/web/` and use **Use selected station** to add the two existing Citizens residents to that world. Their rest need changes only after a checked Matrix interaction outcome. The [isolated browser check](../Validation/Procedural-Citizens-Desktop-2026-09-26.md) records the actual create, revise, Undo/Redo, save/reopen, resident use, and PC restart/restore results.
+
 | Capability | Saved source | Live observation or action |
 | --- | --- | --- |
 | Procedural construction | `object.procedural` pins generator ID, version, source revision, normalized parameters, seed, and dependencies | `generateProcedural` creates indexed meshes with stable part IDs and measured bounds; generic create/update commands keep the Matrix object ID |

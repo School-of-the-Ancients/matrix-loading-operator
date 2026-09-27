@@ -1,7 +1,7 @@
 // Bounded desktop Citizens fixture. Policy and needs live here; MatrixWorld owns
 // scene objects and validates every placement/move. No Agent Portal access.
 import {ANCHOR_ID,INTERACTION_USE_MARGIN_METRES,MAX_OBJECTS,ROOM_ID,
-  interactionWorldPoint,validInteractionDescriptor} from './protocol.js';
+  interactionSourceMatches,interactionWorldPoint,validInteractionDescriptor} from './protocol.js';
 import {checkedMove,planPath,segmentClear} from './citizens_navigation.js';
 
 const VERSION=12;
@@ -105,6 +105,8 @@ const sameTransform=(a,b)=>a&&b&&['position','rotation','scale'].every(part=>
   ['x','y','z'].every(axis=>a[part]?.[axis]===b[part]?.[axis]));
 const objectById=(world,id)=>world.scene.objects.find(object=>object.objectId===id);
 const positionOf=(world,id)=>objectById(world,id)?.transform?.position;
+const proceduralRecipeSignature=object=>object?.procedural?
+  JSON.stringify(object.procedural):null;
 // Runtime motion and GLB clips can move rendered geometry without changing its
 // authored transform. Citizens must not route through that stale footprint.
 const hasActiveTransformOwner=object=>!!(object?.physics||object?.rigidBody||
@@ -139,6 +141,7 @@ function navigationObstacles(world,actorObjectId=''){
       !finite(transform.rotation?.y)||Math.abs(transform.rotation?.x)>0.01||
       Math.abs(transform.rotation?.z)>0.01||
       !finite(transform.scale?.x)||!finite(transform.scale?.z)||
+      !finite(bounds.center?.x)||!finite(bounds.center?.z)||
       !finite(bounds.size?.x)||!finite(bounds.size?.z))
       throw Error(`Navigation needs upright measured bounds for ${object.objectId}`);
     if(Math.abs(transform.position.y)>.05)
@@ -151,9 +154,16 @@ function navigationObstacles(world,actorObjectId=''){
     // loaded and been measured for this exact scene object before routing.
     if(asset.url&&!world.renderedAssetVerified?.(object))
       throw Error(`Navigation is waiting for verified rendered GLB ${object.objectId}`);
-    obstacles.push({id:object.objectId,cx:transform.position.x,
-      cz:transform.position.z,halfX,halfZ,
-      yawRadians:-transform.rotation.y*Math.PI/180});
+    const yawRadians=-transform.rotation.y*Math.PI/180;
+    // Imported GLBs are recentered by MatrixView at the object transform.
+    // Built-in and procedural geometry retain their measured local offset.
+    const centerX=(asset.url?0:bounds.center.x)*transform.scale.x*scale;
+    const centerZ=(asset.url?0:bounds.center.z)*transform.scale.z*scale;
+    const cos=Math.cos(yawRadians),sin=Math.sin(yawRadians);
+    obstacles.push({id:object.objectId,
+      cx:round6(transform.position.x+centerX*cos-centerZ*sin),
+      cz:round6(transform.position.z+centerX*sin+centerZ*cos),
+      halfX,halfZ,yawRadians});
   }
   return obstacles;
 }
@@ -419,12 +429,11 @@ function validStateV2(world,state,activityVersion=RESERVATION_VERSION,
     const object=objectById(world,station.objectId);
     const builtIn=object?.assetId===(station.kind==='rest'?'chair':'table');
     const authored=stationVersion>=INTERACTION_VERSION&&station.interaction!==null&&
-      object?.assetId?.startsWith('web:')&&
       validInteractionDescriptor(station.interaction)&&
       sameJson(station.interaction,object?.interaction)&&
       station.interaction.kind===station.kind&&
-      (!world.asset||world.asset(object.assetId)?.sha256===
-        station.interaction.assetSha256);
+      interactionSourceMatches(object,world.asset?.(object?.assetId),
+        station.interaction);
     if((stationVersion>=INTERACTION_VERSION&&builtIn&&station.interaction!==null)||
       (!builtIn&&!authored)||
       object.anchorId!==ANCHOR_ID||hasActiveTransformOwner(object))
@@ -1113,16 +1122,14 @@ function initialState(world,seed,adaId,boId,stations){
 
 function selectedStation(world,objectId){
   assertWorld(world);
-  if(!objectId)throw Error('Select an existing chair or table first');
+  if(!objectId)throw Error('Select an existing station first');
   const object=objectById(world,objectId);
   if(!object)throw Error('The selected furniture is no longer in the world');
   const asset=world.asset?.(object.assetId);
   const builtIn=['chair','table'].includes(object.assetId);
-  const authored=object.assetId.startsWith('web:')&&
-    validInteractionDescriptor(object.interaction)&&
-    asset?.sha256===object.interaction.assetSha256;
+  const authored=interactionSourceMatches(object,asset,object.interaction);
   if((!builtIn&&!authored)||object.anchorId!==ANCHOR_ID)
-    throw Error('Select a built-in chair/table or a registered GLB with a reviewed interaction');
+    throw Error('Select a built-in chair/table, a registered GLB with a reviewed interaction, or a reviewed procedural construction');
   if(hasActiveTransformOwner(object))
     throw Error('Selected furniture is moving or has physics');
   navigationObstacles(world);
@@ -1292,6 +1299,8 @@ export class CitizensSimulation {
     this.observedScene=world.scene;
     this.observedTransforms=new Map([...current.residents,...current.stations].map(bound=>
       [bound.objectId,clone(objectById(world,bound.objectId).transform)]));
+    this.observedProceduralRecipes=new Map(current.stations.map(station=>
+      [station.objectId,proceduralRecipeSignature(objectById(world,station.objectId))]));
     this.invalidBindings=new Set();
     this.navigationBlockedReason='';
   }
@@ -1484,12 +1493,15 @@ export class CitizensSimulation {
       this.state.stations.push(station);
       this.observedTransforms.set(station.objectId,
         clone(objectById(this.world,station.objectId).transform));
+      this.observedProceduralRecipes.set(station.objectId,
+        proceduralRecipeSignature(objectById(this.world,station.objectId)));
       this.log('','selected',`Reviewed ${station.id} station added to the shared world.`);
       validStateV12(this.world,this.state);
       return this.snapshot();
     }catch(error){
       this.state=previous;
       this.observedTransforms.delete(station.objectId);
+      this.observedProceduralRecipes.delete(station.objectId);
       throw error;
     }
   }
@@ -1542,14 +1554,15 @@ export class CitizensSimulation {
         else this.retireStation(bound);
         this.invalidBindings.delete(bound.objectId);
         this.observedTransforms.delete(bound.objectId);
+        this.observedProceduralRecipes.delete(bound.objectId);
         continue;
       }
       const compatible=kind==='resident'
         ?supportedResident(object)
         :(bound.interaction?
-          object.assetId.startsWith('web:')&&
           sameJson(object.interaction,bound.interaction)&&
-          this.world.asset?.(object.assetId)?.sha256===bound.interaction.assetSha256:
+          interactionSourceMatches(object,this.world.asset?.(object.assetId),
+            bound.interaction):
           object.assetId===(bound.kind==='rest'?'chair':'table'))&&
           object.anchorId===ANCHOR_ID&&!hasActiveTransformOwner(object);
       if(!compatible){
@@ -1570,13 +1583,25 @@ export class CitizensSimulation {
           if(holder)this.replanEgress(holder);
         }
         this.observedTransforms.set(bound.objectId,clone(object.transform));
+        if(kind==='station')this.observedProceduralRecipes.set(bound.objectId,
+          proceduralRecipeSignature(object));
         continue;
       }
-      if(!sameTransform(object.transform,this.observedTransforms.get(bound.objectId))){
+      if(kind==='station'&&proceduralRecipeSignature(object)!==
+          this.observedProceduralRecipes.get(bound.objectId)){
+        const inUse=bound.claim||bound.waiters.length||
+          this.state.residents.some(resident=>resident.activity?.stationId===bound.id);
+        if(inUse||!this.state.paused)
+          this.interruptBinding(kind,bound,`${bound.id} procedural geometry was revised`,true);
+        else this.log('','paused',`${bound.id} procedural geometry was revised; review routes before resuming.`);
+        interrupted=true;
+      }else if(!sameTransform(object.transform,this.observedTransforms.get(bound.objectId))){
         this.interruptBinding(kind,bound,`${bound.name||bound.id} was moved externally`,true);
         interrupted=true;
       }
       this.observedTransforms.set(bound.objectId,clone(object.transform));
+      if(kind==='station')this.observedProceduralRecipes.set(bound.objectId,
+        proceduralRecipeSignature(object));
     }
     if(interrupted)this.state.paused=true;
     return interrupted||this.invalidBindings.size>0;
