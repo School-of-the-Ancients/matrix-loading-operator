@@ -1,4 +1,5 @@
 """Durable Matrix-to-agent session mapping, without starting real Codex."""
+import hashlib
 import io
 import json
 import queue
@@ -301,6 +302,66 @@ class AgentPortalTests(unittest.TestCase):
         self.assertIn("Inspect matrix_list_procedural_generators", message)
         self.assertNotIn("identity and presentation: unknown", message)
         self.assertNotIn("Physical-room alignment: verified", message)
+
+    def test_selected_concept_creation_modes_keep_their_strategy_boundary(self):
+        context = {"kind": "matrix_runtime_context", "online": True,
+                   "runtimeDescriptor": None, "capabilityVersions": {},
+                   "proceduralGeneratorCount": 0}
+        selected = {"conceptId": "a" * 32, "version": 2}
+        auto = build_matrix_turn_message("Build this", context, selected_concept=selected)
+        self.assertIn("Creation mode: Auto", auto)
+        self.assertIn("agent-authored code/geometry, Blender, or a combination", auto)
+
+        procedural = build_matrix_turn_message("Build this", context,
+            ("matrix_list_assets", "matrix_list_procedural_generators"),
+            selected_concept={**selected, "creationMode": "procedural"})
+        self.assertIn("Creation mode: Procedural", procedural)
+        self.assertIn("reviewed Matrix procedural generators", procedural)
+        self.assertIn("report that this mode is unavailable", procedural)
+        self.assertIn("Do not substitute Blender", procedural)
+        self.assertIn("Inspect matrix_list_procedural_generators", procedural)
+        self.assertNotIn("Search all matrix_list_assets", procedural)
+        self.assertNotIn("Choose the best authorized creation path", procedural)
+
+        blender = build_matrix_turn_message("Build this", context,
+            selected_concept={**selected, "creationMode": "blender"})
+        self.assertIn("Creation mode: Blender", blender)
+        self.assertIn("editable Blender source", blender)
+        self.assertIn("export and validate a GLB", blender)
+        self.assertIn("Do not substitute a procedural generator", blender)
+        self.assertNotIn("Choose the best authorized creation path", blender)
+        with self.assertRaisesRegex(ValueError, "creation mode is invalid"):
+            build_matrix_turn_message("Build this", context,
+                selected_concept={**selected, "creationMode": "unknown"})
+
+    def test_selected_creation_mode_reaches_existing_agent_turn(self):
+        class ImageBackend(FakeBackend):
+            def send_text(self, identifier, text, *, image_path=None):
+                self.image_path = image_path
+                return super().send_text(identifier, text)
+
+        backend = ImageBackend(self.persisted)
+        portal = AgentPortal(self.temp.name, lambda: backend)
+        self.addCleanup(portal.close)
+        session_id = portal.open()["sessionId"]
+        image = Path(self.temp.name) / "concepts" / "images" / "selected.png"
+        image.parent.mkdir(parents=True)
+        image.write_bytes(b"\x89PNG\r\n\x1a\nselected")
+        selected = {"conceptId": "a" * 32, "version": 2, "status": "ready",
+                    "imagePath": str(image), "sha256": hashlib.sha256(image.read_bytes()).hexdigest(),
+                    "creationMode": "procedural", "buildRequestId": "b" * 32}
+        context = {"kind": "matrix_runtime_context", "online": True,
+                   "roomId": "web-virtual-room-v1", "sceneRevision": 4,
+                   "sceneSummary": {"objectCount": 0, "objects": []},
+                   "runtimeDescriptor": None, "capabilityVersions": {}}
+        started = portal.send_text(session_id, "Build this", context, selected)
+        self.assertEqual(backend.image_path, image.resolve())
+        self.assertIn('"creationMode":"procedural"', backend.sent_texts[-1])
+        self.assertIn("Creation mode: Procedural", backend.sent_texts[-1])
+        portal.cancel(session_id, started["turnId"])
+        with self.assertRaisesRegex(AgentPortalError, "creation mode is invalid"):
+            portal.send_text(session_id, "Build this", context,
+                             {**selected, "creationMode": "unknown"})
 
     def test_provisional_portal_survives_restart_before_first_turn(self):
         portal = self.portal()
