@@ -131,6 +131,15 @@ test('missing prior checkpoint fails before the host claims a new world',async()
   assert.equal(second.failed,true);
 });
 
+test('case-insensitive checkpoint spelling cannot start a different hosted world',async()=>{
+  const service=new FakeService();
+  service.worlds.set('AdaBo',{version:3});
+  const host=new HostedWorld({name:'adabo',request:service.request});
+  await assert.rejects(host.start(),/conflicts with an existing checkpoint spelling/);
+  assert.equal(service.online,false);
+  assert.equal(service.saveCount,0);
+});
+
 test('paused checkpoint requires explicit operator choice',async()=>{
   const service=new FakeService();
   const first=new HostedWorld({name:'AdaBo',request:service.request});

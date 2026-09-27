@@ -5045,7 +5045,11 @@ class State:
             dependencies = self._checked_world_checkpoint(world, current)
             require(world["scene"] == current["scene"],
                     "Browser world changed since the last exchange; sync it and retry saving", 409)
-            if (current.get("runtimeDescriptor") or {}).get("client") == "matrix-world-host":
+            hosted = (current.get("runtimeDescriptor") or {}).get("client") == "matrix-world-host"
+            if hosted:
+                require(hosted_fixture(current) and set(world) ==
+                        {"version", "scene", "game", "citizens"},
+                        "Hosted checkpoint requires the full Citizens fixture", 409)
                 require(name == self.host_world_id and world.get("citizens") == current.get("citizensState"),
                         "Hosted Citizens world changed since the last exchange", 409)
             if "controlStates" in world or any("control" in item for item in world["scene"]["objects"]):
@@ -5073,10 +5077,25 @@ class State:
                     item["component"]["startedAtMs"] = 0
             document = {"schemaVersion": 1, "world": saved_world,
                         "dependencies": dependencies,
-                        "payloadSha256": world_checkpoint_digest(saved_world, dependencies)}
+                        "payloadSha256": world_checkpoint_digest(saved_world, dependencies),
+                        **({"hostedWorldId": name} if hosted else {})}
             data = json.dumps(document, ensure_ascii=False, allow_nan=False, indent=2).encode("utf-8")
             require(len(data) <= MAX_BODY, "World checkpoint exceeds save size limit", 413)
             target.parent.mkdir(parents=True, exist_ok=True)
+            for existing in target.parent.glob("*.json"):
+                if existing.stem.casefold() != name.casefold():
+                    continue
+                require(existing.name == target.name and not existing.is_symlink(),
+                        "World checkpoint name conflicts with an existing checkpoint", 409)
+                with existing.open("rb") as handle:
+                    prior_data = handle.read(MAX_BODY + 1)
+                require(len(prior_data) <= MAX_BODY,
+                        "Existing world checkpoint exceeds size limit", 409)
+                prior = parse_json(prior_data)
+                require(type(prior) is dict and
+                        (prior.get("hostedWorldId") == name if hosted else
+                         "hostedWorldId" not in prior),
+                        "World checkpoint belongs to a different owner", 409)
             temporary = None
             try:
                 with tempfile.NamedTemporaryFile(dir=target.parent, prefix=".saving-world-", delete=False) as handle:
@@ -5086,7 +5105,7 @@ class State:
                     os.fsync(handle.fileno())
                 os.replace(temporary, target)
                 temporary = None
-                if (current.get("runtimeDescriptor") or {}).get("client") == "matrix-world-host":
+                if hosted:
                     self.host_saved_sequence = self.host_sequence
             finally:
                 if temporary is not None:
@@ -5100,8 +5119,9 @@ class State:
             data = handle.read(MAX_BODY + 1)
         require(len(data) <= MAX_BODY, "World checkpoint exceeds size limit", 413)
         document = parse_json(data)
-        require(type(document) is dict and set(document) ==
-                {"schemaVersion", "world", "dependencies", "payloadSha256"} and
+        base_keys = {"schemaVersion", "world", "dependencies", "payloadSha256"}
+        require(type(document) is dict and set(document) in
+                (base_keys, base_keys | {"hostedWorldId"}) and
                 type(document["schemaVersion"]) is int and document["schemaVersion"] == 1 and
                 type(document["payloadSha256"]) is str and
                 re.fullmatch(r"[0-9a-f]{64}", document["payloadSha256"]) is not None and
@@ -5117,6 +5137,15 @@ class State:
             dependencies = self._checked_world_checkpoint(document["world"], current)
             require(document["dependencies"] == dependencies,
                     "World checkpoint asset version changed; restore the matching PC asset catalog", 409)
+            hosted = (current.get("runtimeDescriptor") or {}).get("client") == "matrix-world-host"
+            require((document.get("hostedWorldId") == name == self.host_world_id) if hosted else
+                    "hostedWorldId" not in document,
+                    "World checkpoint belongs to a different owner", 409)
+            if hosted:
+                require(set(document["world"]) == {"version", "scene", "game", "citizens"} and
+                        hosted_fixture({**current, "scene": document["world"]["scene"],
+                                        "citizensState": document["world"]["citizens"]}),
+                        "Hosted checkpoint requires the full Citizens fixture", 409)
             restored_world = copy.deepcopy(document["world"])
             started_at_ms = int(time.time() * 1000)
             for item in restored_world["scene"]["objects"]:
@@ -5634,8 +5663,9 @@ class Server(ThreadingHTTPServer):
         self.scheme = "http"
         require(self.is_loopback or len(token) >= 24, "Non-loopback binding requires SANDBOX_TOKEN of at least 24 characters")
         require(not world_view_token or
-                (len(world_view_token) >= 24 and world_view_token != token),
-                "SANDBOX_WORLD_VIEW_TOKEN must be a distinct token of at least 24 characters")
+                (len(token) >= 24 and len(world_view_token) >= 24 and
+                 world_view_token != token),
+                "SANDBOX_WORLD_VIEW_TOKEN requires a distinct SANDBOX_TOKEN; both must be at least 24 characters")
         self.state, self.token = state, token
         self.world_view_token = world_view_token
         self.state.client_pairing_enabled = len(token) >= 24
@@ -5791,10 +5821,11 @@ class Handler(BaseHTTPRequestHandler):
             if path == "/web":
                 self.send_redirect("/web/")
                 return
-            if path in ("/web", "/web/", "/web/citizens.html") or path.startswith("/web/assets/"):
+            if path in ("/web", "/web/", "/web/citizens.html", "/web/hosted.html") or path.startswith("/web/assets/"):
                 dist = Path(__file__).resolve().parent.parent / "WebRuntime" / "dist"
-                if path in ("/web", "/web/", "/web/citizens.html"):
-                    asset = dist / ("citizens.html" if path == "/web/citizens.html" else "index.html")
+                if path in ("/web", "/web/", "/web/citizens.html", "/web/hosted.html"):
+                    asset = dist / ("citizens.html" if path == "/web/citizens.html" else
+                                    "hosted.html" if path == "/web/hosted.html" else "index.html")
                     content_type = "text/html; charset=utf-8"
                 else:
                     name = path[len("/web/assets/"):]

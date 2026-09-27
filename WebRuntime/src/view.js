@@ -347,13 +347,16 @@ export function operatorPanel(){
 const v3=v=>new THREE.Vector3(v.x,v.y,v.z);
 const plain=v=>({x:Number(v.x.toFixed(3)),y:Number(v.y.toFixed(3)),z:Number(v.z.toFixed(3))});
 function setRoomContentVisible(view,visible){
-  view.virtualFloorRoot.visible=visible;
-  for(const root of view.anchorRoots?.values()||[])root.visible=visible;
+  const shown=visible&&!view.observationStale;
+  view.virtualFloorRoot.visible=shown;
+  for(const root of view.anchorRoots?.values()||[])root.visible=shown;
 }
 
 export class MatrixView {
-  constructor(container,world,onSelection,getToken=()=>'',onAssetError=()=>{},onSceneEdit=()=>{},onRuntimeChange=()=>{},onVoiceStart=()=>{},onVoiceEnd=()=>{},onVoiceOutputToggle=()=>{},onVisualReview=()=>{},onNewChat=()=>{}){
+  constructor(container,world,onSelection,getToken=()=>'',onAssetError=()=>{},onSceneEdit=()=>{},onRuntimeChange=()=>{},onVoiceStart=()=>{},onVoiceEnd=()=>{},onVoiceOutputToggle=()=>{},onVisualReview=()=>{},onNewChat=()=>{},options={}){
     this.world=world;this.onSelection=onSelection;this.getToken=getToken;this.onAssetError=onAssetError;this.onSceneEdit=onSceneEdit;this.onRuntimeChange=onRuntimeChange;this.onVoiceStart=onVoiceStart;this.onVoiceEnd=onVoiceEnd;this.onVoiceOutputToggle=onVoiceOutputToggle;this.onVisualReview=onVisualReview;this.onNewChat=onNewChat;this.onPanelAction=()=>{};this.onFrame=()=>{};this.onAssetReadinessChange=()=>{};this.onPhysicsContacts=()=>{};this.onPlayInteraction=()=>{};
+    this.readOnly=options.readOnly===true;
+    this.observationStale=false;
     this.container=container;this.objectRoots=new Map();this.anchorRoots=new Map();this.planeOutlines=new Map();this.planeIds=new WeakMap();this.nextPlaneId=0;this.hitSource=null;this.reticleVisible=false;this.xrViewer=null;this.reticleAnchorId='';this.lastPlaneTime=0;
     this.modelCache=new Map();
     this.scene=new THREE.Scene();this.scene.background=new THREE.Color(0x0a1b29);
@@ -381,10 +384,10 @@ export class MatrixView {
       const ray=new THREE.Line(new THREE.BufferGeometry().setFromPoints([new THREE.Vector3(),new THREE.Vector3(0,0,-4)]),
         new THREE.LineBasicMaterial({color:0x5ef7d7,transparent:true,opacity:.7}));
       ray.visible=false;controller.add(ray);this.controllerRays.push(ray);
-      controller.addEventListener('selectstart',()=>{this.lastPointingController=controller;this.selectFromController(controller);});
+      controller.addEventListener('selectstart',()=>{if(this.readOnly)return;this.lastPointingController=controller;this.selectFromController(controller);});
       controller.addEventListener('selectend',()=>{this.releaseOperatorVoice(controller);this.releaseGrab(controller);});
-      controller.addEventListener('squeezestart',()=>{this.lastPointingController=controller;this.onVoiceStart();});
-      controller.addEventListener('squeezeend',()=>this.onVoiceEnd());
+      controller.addEventListener('squeezestart',()=>{if(this.readOnly)return;this.lastPointingController=controller;this.onVoiceStart();});
+      controller.addEventListener('squeezeend',()=>{if(!this.readOnly)this.onVoiceEnd();});
     }
     this.grab=null;this.pointerGrab=null;this.pointerLook=null;
     this.renderer.xr.addEventListener('sessionstart',()=>this.onSessionStart());
@@ -443,7 +446,7 @@ export class MatrixView {
     this.world.runtimePresentation=this.isAR?'ar':'vr';
     document.getElementById('xr-exit').textContent=this.isAR?'Exit AR':'Exit VR';
     if(session.domOverlayState)document.getElementById('xr-overlay').style.display='';
-    this.operatorPanel.group.visible=true;
+    this.operatorPanel.group.visible=!this.readOnly;
     this.operatorMount={kind:'head'};this.operatorPanel.setPinLabel(this.isAR?'PIN TO WALL':'PIN HERE');
     this.operatorThumbstickHeld=false;
     this.sessionStartedAt=performance.now();this.roomCaptureRequested=false;this.virtualFloorCalibrated=false;this.roomAnchorCreationFailed=false;this.roomAnchorRestoreFailed=false;this.roomAnchorLocated=false;this.roomPoseMissingSince=0;
@@ -451,7 +454,7 @@ export class MatrixView {
     this.restoreRoomAnchor(session);
     if(this.isAR)this.sync();
     this.onRuntimeChange();
-    for(const ray of this.controllerRays)ray.visible=true;
+    for(const ray of this.controllerRays)ray.visible=!this.readOnly;
     this.floor.visible=!this.isAR;this.grid.visible=!this.isAR;this.scene.background=this.isAR?null:new THREE.Color(0x0a1b29);
     document.getElementById('view-label').textContent=this.isAR?'WEBXR AR · SCANNING ROOM PLANES':'WEBXR VR · VIRTUAL ROOM';
     if(this.isAR)await this.acquireARHitSource(session);
@@ -645,7 +648,7 @@ export class MatrixView {
     this.hitSource?.cancel();this.hitSource=null;this.reticle.visible=false;this.reticleVisible=false;this.reticleAnchorId='';
     this.xrViewer=null;this.planeIds=new WeakMap();this.nextPlaneId=0;this.clearPlanes();this.isAR=false;
     this.roomAnchor=null;this.roomAnchorPending=false;this.roomAnchorPersistent=false;this.roomAnchorRestoredHandle=null;this.roomAnchorRestoreFailed=false;this.roomAnchorLocated=false;this.roomAnchorHandleAvailable=false;this.roomPoseMissingSince=0;
-    this.virtualFloorRoot.visible=true;this.virtualFloorRoot.position.set(0,0,0);this.virtualFloorRoot.quaternion.identity();this.virtualFloorCalibrated=false;
+    setRoomContentVisible(this,true);this.virtualFloorRoot.position.set(0,0,0);this.virtualFloorRoot.quaternion.identity();this.virtualFloorCalibrated=false;
     this.world.leaveAR();this.world.runtimePresentation='desktop';this.sync();this.onRuntimeChange();
     document.getElementById('xr-overlay').style.display='none';document.getElementById('xr-exit').textContent='Exit AR';this.floor.visible=true;this.grid.visible=true;
     this.scene.background=new THREE.Color(0x0a1b29);document.getElementById('view-label').textContent='DESKTOP · VIRTUAL ROOM';
@@ -764,7 +767,7 @@ export class MatrixView {
       if(!this.roomAnchor)this.virtualFloorRoot.position.y=floorHeight;
       if(!this.virtualFloorCalibrated){
         this.measuredEyeHeight=this.xrViewer.position.y-floorHeight;
-        sessionStorage.setItem('matrix-web-eye-height',String(this.measuredEyeHeight));
+        if(!this.readOnly)sessionStorage.setItem('matrix-web-eye-height',String(this.measuredEyeHeight));
         this.virtualFloorCalibrated=true;
       }
       if(!this.roomAnchor)this.createRoomAnchor(frame,ref,floorHeight);
@@ -874,6 +877,22 @@ export class MatrixView {
     this.refreshGamePresentation();
     setRoomContentVisible(this,!this.isAR||!this.world.spatial?.originUnavailable);
     this.highlight();
+  }
+  syncObservedTransforms(){
+    // The hosted visitor fixture has fixed static assets and IDs. Move their
+    // existing render roots instead of rebuilding four meshes on every tick.
+    for(const object of this.world.scene.objects){
+      const root=this.objectRoots.get(object.objectId);
+      if(!root)throw Error('Hosted render object is missing; reconnect this view');
+      root.position.copy(v3(object.transform.position));
+      root.rotation.set(...['x','y','z'].map(k=>THREE.MathUtils.degToRad(object.transform.rotation[k])),'XYZ');
+      root.scale.copy(v3(object.transform.scale));
+    }
+  }
+  setObservationStale(stale){
+    this.observationStale=stale===true;
+    setRoomContentVisible(this,!this.isAR||
+      !!this.roomAnchorLocated&&!this.world.spatial?.originUnavailable);
   }
   refreshGamePresentation(){
     this.operatorPanel?.setGameStatus?.(gameStatus(this.world));
@@ -1036,6 +1055,7 @@ export class MatrixView {
   }
   pointerDown(event){
     if(this.renderer.xr.isPresenting||![0,2].includes(event.button))return;
+    if(this.readOnly&&event.button!==2)return;
     this.renderer.domElement.focus?.({preventScroll:true});
     this.renderer.domElement.setPointerCapture(event.pointerId);
     if(event.button===2){this.pointerLook={pointerId:event.pointerId,x:event.clientX,y:event.clientY};return;}
@@ -1101,6 +1121,7 @@ export class MatrixView {
       this.pointerGrab=null;this.sync();}
   }
   selectFromController(controller){
+    if(this.readOnly)return;
     if(this.grab)return;
     controller.updateMatrixWorld(true);const origin=new THREE.Vector3().setFromMatrixPosition(controller.matrixWorld);
     const direction=new THREE.Vector3(0,0,-1).applyQuaternion(controller.getWorldQuaternion(new THREE.Quaternion()));
@@ -1351,12 +1372,12 @@ export class MatrixView {
     if(frame&&this.renderer.xr.isPresenting)this.onFrame();
     if(this.lastFrameTime!==null&&!this.renderer.xr.isPresenting)moveDesktopCamera(this.camera,this.keys,(time-this.lastFrameTime)/1000);
     this.lastFrameTime=time;
-    if(!this.world.creatorMode||canPlayWorld(this.world.creatorMode)){
+    if(!this.readOnly&&(!this.world.creatorMode||canPlayWorld(this.world.creatorMode))){
       if(!this.isAR)this.world.advancePhysics?.(delta);
       const contacts=this.world.advanceRigidPhysics?.(delta)||[];
       if(contacts.length)this.onPhysicsContacts(contacts);
     }
-    if(frame&&this.renderer.xr.isPresenting){const ref=this.renderer.xr.getReferenceSpace();if(ref){this.xrViewer=viewerPose(frame,ref);this.updateOperatorShortcut();this.positionOperatorPanel();this.updatePlanes(time,frame,ref);this.updateRoomAnchor(frame,ref);
+    if(frame&&this.renderer.xr.isPresenting){const ref=this.renderer.xr.getReferenceSpace();if(ref){this.xrViewer=viewerPose(frame,ref);if(!this.readOnly){this.updateOperatorShortcut();this.positionOperatorPanel();}this.updatePlanes(time,frame,ref);this.updateRoomAnchor(frame,ref);
       if(!this.isAR&&!this.virtualFloorCalibrated&&this.xrViewer&&this.measuredEyeHeight!==null){
         this.virtualFloorRoot.position.y=this.xrViewer.position.y-this.measuredEyeHeight;
         this.virtualFloorCalibrated=true;

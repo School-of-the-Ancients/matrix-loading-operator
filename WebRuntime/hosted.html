@@ -1,0 +1,37 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <meta name="theme-color" content="#08131e" />
+  <title>Matrix · Hosted Citizens Visit</title>
+</head>
+<body>
+  <div id="app">
+    <div id="view"></div>
+    <header>
+      <div class="brand"><span class="brand-mark" aria-hidden="true">◈</span><span><strong>MATRIX</strong><small>HOSTED CITIZENS VISIT</small></span></div>
+      <div class="status"><span id="connection-dot"></span><span id="connection">Connect to the hosted world</span></div>
+    </header>
+    <button id="toggle-sidebar" class="sidebar-toggle" type="button" aria-controls="visitor-panel" aria-expanded="true">Hide details</button>
+    <aside id="visitor-panel" class="panel" aria-label="Hosted world observation">
+      <div class="panel-title"><span>LIVE DIGITAL WORLD</span><span>READ ONLY</span></div>
+      <p class="hint">Visit the PC-hosted Citizens world from desktop, VR, or AR. The host owns its clock and saves; this page only displays checkpointed observations.</p>
+      <label for="view-token">World view token</label>
+      <input id="view-token" type="password" autocomplete="off" placeholder="Separate read-only token" />
+      <button id="connect" class="primary" type="button">Connect to world</button>
+      <p class="hint">The token stays in this page's memory. It is cleared when this page closes. <a href="/web/">Open your local Matrix world</a>.</p>
+      <p id="feedback" role="status" aria-live="polite">No hosted observation yet.</p>
+      <div class="separator"></div>
+      <p class="hint"><strong>World:</strong> <span id="world-id">—</span><br /><strong>Citizens clock:</strong> <span id="clock-tick">—</span><br /><strong>Saved observation:</strong> <span id="observation-sequence">—</span></p>
+      <h2>Residents</h2>
+      <ul id="residents" class="citizens-list"></ul>
+      <p class="hint">AR uses a tracked view anchor for the digital overlay. Physical-room alignment, floor contact, and collision are unverified.</p>
+    </aside>
+    <div class="xr-buttons" id="xr-buttons"></div>
+    <div class="view-label" id="view-label">DESKTOP · HOSTED DIGITAL WORLD</div>
+    <div class="xr-overlay" id="xr-overlay" style="display:none"><span id="hosted-xr-status" role="status">Hosted view</span><button id="xr-exit" type="button">Exit AR</button></div>
+  </div>
+  <script type="module" src="/src/hosted_main.js"></script>
+</body>
+</html>

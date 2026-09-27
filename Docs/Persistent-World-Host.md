@@ -9,9 +9,10 @@ one chair, and one table. There is no renderer in this process.
 
 ## Run an isolated local world
 
-From a separate checkout, install the WebRuntime dependencies with `npm ci`.
-Give this service its own port, scene directory, asset directory, owner token,
-and optional observation token. The host CLI requires a loopback URL with an
+From a separate checkout, install the WebRuntime dependencies with `npm ci` and
+build the browser pages with `npm run build`. Give this service its own port,
+scene directory, asset directory, owner token, and distinct observation token.
+The host CLI requires a loopback URL with an
 explicit port other than the usual `8765` service port. It also rejects a
 service that has an active runtime, pending commands, or an unrelated prior
 snapshot.
@@ -57,7 +58,20 @@ within that instance, `clockTick`, `online`, `readOnly`, and a version 3
 409 while the host is offline, bootstrapping, or between a tick exchange and
 its completed checkpoint save. The view token cannot call the owner API.
 
-This is a data contract for a future observer client. It does not yet render
-the world in a browser, align it to a physical room, or enable Quest 3 AR
-visiting. The service keeps the hosted world separate from the existing
-browser-owned White Room and the Unity client.
+Open `/web/hosted.html` on that service and enter the **view token**, never the
+owner token. The page keeps the token in memory for that tab, polls only the
+read-only observation endpoint, and renders the existing Matrix scene and
+resident IDs through `MatrixView`. Closing every visitor does not stop the PC
+host. Returning on desktop displays a later virtual clock and the same world
+IDs. The visitor does not exchange as a writer, run a Citizens timer, edit the
+scene, or save a competing browser checkpoint. The ordinary `/web/` Creator
+world and older Citizens desktop fixture keep their existing save contracts;
+they are not silently replaced by the hosted visitor.
+
+The same visitor can enter WebXR AR using the existing digital-world view
+anchor, which places the **digital** scene for this visit. Its tracking state
+and measured room planes are presentation data only. A missing pose hides the
+overlay until tracking returns; it does not pause the PC clock. Source tests
+and desktop observation establish the path, but Quest 3 wearer alignment,
+comfort, performance, and physical collisions still require separate device
+evidence. VR is likewise a view of the hosted world, not another writer.

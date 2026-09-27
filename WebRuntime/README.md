@@ -22,6 +22,16 @@ Whole-world browser saves, manual browser checkpoints, world archives, and named
 
 ### AI Citizens desktop fixture
 
+The [isolated hosted Citizens path](../Docs/Persistent-World-Host.md) runs the
+same `MatrixWorld` and `CitizensSimulation` under one PC process instead of a
+visitor tab. After a separately authenticated service and host start,
+`/web/hosted.html` uses the existing Three.js/WebXR view to observe that
+checkpointed world on desktop or in a digital-world AR visit. The view token
+cannot write; the browser does not advance Citizens or save a local copy.
+The host restarts at the last complete tick without downtime catch-up. This
+fixed two-resident path does not yet migrate arbitrary Creator worlds, and
+Quest wearer alignment and performance remain unverified.
+
 The separate `/web/citizens.html` page runs a small seeded two-resident simulation with changing needs, activity choices, movement, chair/table interactions, shared-resource contention, pause/step controls, an inspector/log, and its own browser-local save. It reuses `MatrixWorld` validation and local receipts but does not join the main `/web/` world or call the Agent Portal. Use the [isolated service commands, demo steps, verification and limits](../Docs/Citizens-Desktop-Demo.md). Its desktop result does not close the [Quest M4 acceptance checks](QUEST3_ACCEPTANCE.md).
 
 The ordinary `/web/` page also has an opt-in **AI Citizens** panel. **Start here** creates the fixed chair/table/two-orb fixture only on an empty desktop virtual floor. **Use selected station** binds one existing built-in chair/table, registered static GLB, or pinned static procedural curved bench with a reviewed object-level interaction in a nonempty desktop virtual scene. It keeps authored objects and adds two orb residents; it refuses an active game, unsupported or moving geometry, and blocked placement. While Citizens is paused, **Add selected station** binds a complementary reviewed `rest` or `eat` object to the same residents and world progress, with at most one station of each kind. If every bound station is deleted, the panel can bind replacements without losing the surviving residents and saved world; [PR #126's isolated desktop replay](../Validation/citizens-zero-station-browser.json) covers deletion, replacement, browser/PC restore and receipt-backed outcomes. Citizens uses bounded movement and local MatrixWorld receipts for need and relationship gains. Individual activity travel replans after changed static geometry with at most three blocked-route retries. An accepted social conversation now has the same three-failed-tick route budget while retaining its session and original expiry; a fourth blocked tick interrupts without benefit. Nested Citizens **v12** saves the social retry count and migrates valid older states in the browser; the outer world remains v3, and version 2 scene/game worlds still load. The [shared-world runbook](../Docs/Citizens-Shared-World.md) records exact assets, the paused add workflow and dated browser evidence. Moving/animated affordances, moving-body navigation, broader [#15 interaction/navigation](https://github.com/School-of-the-Ancients/matrix-loading-operator/issues/15) and [#19 social](https://github.com/School-of-the-Ancients/matrix-loading-operator/issues/19) acceptance, and Quest simulation checks remain open.

@@ -8,7 +8,7 @@ import unittest
 import urllib.error
 import urllib.request
 
-from server import APIError, Server, State
+from server import APIError, Server, State, world_checkpoint_digest
 
 
 FIXTURE = json.loads((Path(__file__).with_name("testdata") /
@@ -60,12 +60,20 @@ class HostedWorldTests(unittest.TestCase):
         self.exchange(empty)
         with self.assertRaises(APIError):
             self.state.hosted_observation()
+        with self.assertRaisesRegex(APIError, "full Citizens fixture"):
+            self.state.save_world_checkpoint("AdaBo", {
+                "version": 2, "scene": empty["scene"], "game": None})
+        self.assertFalse(self.state.world_checkpoint_path("AdaBo").exists())
+        with self.assertRaises(APIError):
+            self.state.hosted_observation()
         self.exchange()
         with self.assertRaisesRegex(APIError, "not checkpointed"):
             self.state.hosted_observation()
         self.assertTrue(self.state.save_world_checkpoint("AdaBo", self.world)["saved"])
         checkpoint = self.state.load_world_checkpoint("AdaBo")
         self.assertEqual(checkpoint["world"], self.world)
+        saved = json.loads(self.state.world_checkpoint_path("AdaBo").read_text(encoding="utf-8"))
+        self.assertEqual(saved["hostedWorldId"], "AdaBo")
         stale = copy.deepcopy(self.world)
         stale["citizens"]["paused"] = not stale["citizens"]["paused"]
         with self.assertRaisesRegex(APIError, "Hosted Citizens world changed"):
@@ -96,6 +104,10 @@ class HostedWorldTests(unittest.TestCase):
             self.exchange(client_id="host-2", name="Other")
 
     def test_observation_token_is_distinct_and_read_only(self):
+        with self.assertRaisesRegex(APIError, "requires a distinct SANDBOX_TOKEN"):
+            Server(("127.0.0.1", 0), self.state, "", VIEWER)
+        with self.assertRaisesRegex(APIError, "requires a distinct SANDBOX_TOKEN"):
+            Server(("127.0.0.1", 0), self.state, OWNER, OWNER)
         self.exchange()
         self.state.save_world_checkpoint("AdaBo", self.world)
         service = Server(("127.0.0.1", 0), self.state, OWNER, VIEWER)
@@ -126,6 +138,41 @@ class HostedWorldTests(unittest.TestCase):
             service.shutdown()
             service.server_close()
             thread.join(timeout=3)
+
+    def test_hosted_checkpoint_cannot_take_over_a_browser_checkpoint(self):
+        target = self.state.world_checkpoint_path("AdaBo")
+        target.parent.mkdir(parents=True)
+        browser_document = {"schemaVersion": 1, "world": self.world,
+                            "dependencies": [],
+                            "payloadSha256": world_checkpoint_digest(self.world, [])}
+        original = json.dumps(browser_document).encode("utf-8")
+        target.write_bytes(original)
+        self.exchange()
+        with self.assertRaisesRegex(APIError, "different owner"):
+            self.state.load_world_checkpoint("AdaBo")
+        with self.assertRaisesRegex(APIError, "different owner"):
+            self.state.save_world_checkpoint("AdaBo", self.world)
+        self.assertEqual(target.read_bytes(), original)
+        with self.assertRaisesRegex(APIError, "not checkpointed"):
+            self.state.hosted_observation()
+
+    def test_browser_cannot_load_or_replace_a_hosted_checkpoint(self):
+        self.exchange()
+        self.state.save_world_checkpoint("AdaBo", self.world)
+        original = self.state.world_checkpoint_path("AdaBo").read_bytes()
+        browser = State(self.state.directory, clock=lambda: self.now,
+                        web_assets_directory=Path(self.temp.name) / "assets")
+        browser_snapshot = copy.deepcopy(self.snapshot)
+        browser_snapshot["runtimeDescriptor"] = {
+            "schemaVersion": 1, "client": "matrix-web",
+            "renderer": "threejs-webxr", "presentation": "desktop"}
+        browser.exchange({"clientId": "browser-1", "snapshot": browser_snapshot,
+                          "results": [], "captureSupported": False})
+        with self.assertRaisesRegex(APIError, "different owner"):
+            browser.load_world_checkpoint("AdaBo")
+        with self.assertRaisesRegex(APIError, "different owner"):
+            browser.save_world_checkpoint("AdaBo", self.world)
+        self.assertEqual(self.state.world_checkpoint_path("AdaBo").read_bytes(), original)
 
 
 if __name__ == "__main__":

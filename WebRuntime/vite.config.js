@@ -5,6 +5,7 @@ export default defineConfig({
   base:'/web/',
   build:{rollupOptions:{input:{
     main:fileURLToPath(new URL('./index.html',import.meta.url)),
-    citizens:fileURLToPath(new URL('./citizens.html',import.meta.url))
+    citizens:fileURLToPath(new URL('./citizens.html',import.meta.url)),
+    hosted:fileURLToPath(new URL('./hosted.html',import.meta.url))
   }}}
 });

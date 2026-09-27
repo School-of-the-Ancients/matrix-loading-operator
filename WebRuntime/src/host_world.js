@@ -120,6 +120,9 @@ export class HostedWorld {
         fail('Service contains a different prior runtime; use a dedicated service');
       const listing=await this.request('GET','/api/web/worlds');
       if(!Array.isArray(listing.worlds))fail('Service omitted world checkpoint list');
+      if(listing.worlds.some(item=>typeof item==='string'&&
+          item.toLowerCase()===this.name.toLowerCase()&&item!==this.name))
+        fail('Hosted world name conflicts with an existing checkpoint spelling');
       const exists=listing.worlds.includes(this.name);
       if(status.snapshot!==null&&!exists)
         fail('Prior hosted runtime has no durable checkpoint; inspect before restarting');
