@@ -1,11 +1,13 @@
 # PC control and scene service
 
 ControlService is the PC-side service for the current
-[Three.js/WebXR Matrix](../WebRuntime/README.md) at `/web/`. It retains the
-original Unity Operator at `/` and its native API for historical compatibility;
-Unity source and build scripts are now [read-only history](../Archive/Unity/README.md).
-Do not treat `/` as the current Matrix entry point. The shared service and
-`/api/exchange` remain in place while the Web runtime uses them.
+[Three.js/WebXR Matrix](../WebRuntime/README.md) at `/web/`. An old `/` bookmark
+now opens `/web/`; the original Unity Operator remains at the loopback-only
+`/legacy/operator` for compatibility. Unity source and build scripts are
+[read-only history](../Archive/Unity/README.md). The shared service and
+`/api/exchange` remain in place while the Web runtime uses them. The
+[route and consumer map](../Docs/Control-Page-Routes.md) explains the other PC
+pages and preserved APIs.
 
 For a new Web checkout, use the [Matrix Web setup](../README.md#start-matrix-web),
 then open `http://127.0.0.1:8765/web/`. For PC-local Codex sessions, approvals
@@ -28,7 +30,7 @@ Requires Python 3.10 or later. Uses only the standard library; no packages need 
 python server.py
 ```
 
-Open <http://127.0.0.1:8765/> on this PC. The default listener accepts loopback connections only. The Unity client polls the service; the service never executes arbitrary code in Unity. The control page shows connection state, asset and target catalogs, object deletion, scene save/load, and optional AI proposals. Placement creates a small object 10 cm above the chosen target origin; fine positioning can be performed through the Unity runtime or `set_transform` commands.
+For an existing native client, open <http://127.0.0.1:8765/legacy/operator> on this PC. The default listener accepts loopback connections only. The Unity client polls the service; the service never executes arbitrary code in Unity. This archival control page shows connection state, asset and target catalogs, object deletion, scene save/load, and optional AI proposals. Placement creates a small object 10 cm above the chosen target origin; fine positioning can be performed through the Unity runtime or `set_transform` commands.
 
 When the headset reports a selected point, **Place at headset selection** places the bundled prefab base at that exact point. The panel shows the anchor and local coordinates so “here” is visible before a command is applied.
 
@@ -38,7 +40,7 @@ Paired clients can request AI scene proposals with `intent: {text, mode: "codex-
 
 ## Connect a native Quest client
 
-For USB, open the Operator on this PC and press **Reconnect Quest** beside the connection status. Keep the headset awake and Matrix open; accept USB debugging in the headset when requested. The button checks the connected Quest and the app's configured URL, restores this service's USB port mapping, then waits for a fresh runtime report. If the app uses another local port, follow the offered Operator link and reconnect there. The page's **This Operator** line identifies its current address; **Content library** opens the library on that same service.
+For USB, open the archived Unity Operator on this PC and press **Reconnect Quest** beside the connection status. Keep the headset awake and Matrix open; accept USB debugging in the headset when requested. The button checks the connected Quest and the app's configured URL, restores this service's USB port mapping, then waits for a fresh runtime report. If the app uses another local port, follow the offered Operator link and reconnect there. The page's **This Operator** line identifies its current address; **Content library** opens the native library on that same service.
 
 The reconnect action does not restart the headset app, rewrite its settings, clear scenes, or change other USB port mappings. An already-online runtime needs no reconnect. With several devices or Matrix apps, the page asks you to leave only the intended device/app connected or running. A missing Android debugging tool is reported explicitly; the service can use a trusted `MATRIX_ADB` executable path, `adb` on PATH, or the installed Unity Android SDK. The existing `Connect-QuestControl.ps1 -Port <port>` is a manual fallback. A new service version must be running for the button to work; reloading HTML cannot update Python code already in memory.
 

@@ -488,9 +488,10 @@ class DefaultLearningBridgeHttpTests(unittest.TestCase):
         self.core_patch.stop()
         self.temp.cleanup()
 
-    def request(self, path, body=None):
+    def request(self, path, body=None, headers=None):
         data = None if body is None else json.dumps(body).encode("utf-8")
-        request = urllib.request.Request(self.base + path, data=data, headers={"Content-Type": "application/json"})
+        request = urllib.request.Request(self.base + path, data=data,
+                                         headers={"Content-Type": "application/json", **(headers or {})})
         try:
             response = self.http.open(request, timeout=3)
         except urllib.error.HTTPError as error:
@@ -507,6 +508,18 @@ class DefaultLearningBridgeHttpTests(unittest.TestCase):
     def ack(self, response, snapshot=None):
         return self.exchange(snapshot, [{"requestId": c["requestId"], "ok": True, "error": "", "objectId": ""}
                                         for c in response["commands"]])
+
+    def test_archived_lesson_rejects_stale_ui_lease_before_core_call(self):
+        self.snap["scene"]["objects"][0]["assetId"] = "block"
+        self.snap["assets"][0]["assetId"] = "block"
+        self.assertEqual(self.exchange()[0], 200)
+        start = {"requestId": "start-stale", "lessonId": "observation-scale", "objectId": "chair-one"}
+        self.assertEqual(self.request("/api/learning/start", start,
+                                      {"X-Matrix-Expected-Client": "old-client"})[0], 409)
+        self.core_call.assert_not_called()
+        self.assertEqual(self.request("/api/learning/start", start,
+                                      {"X-Matrix-Expected-Client": "white-runtime"})[0], 503)
+        self.core_call.assert_called_once()
 
     def test_default_bridge_white_room_save_restore_is_independent_of_unavailable_core(self):
         self.assertEqual(self.request("/api/health"), (200, {"ok": True}))
@@ -539,10 +552,10 @@ class DefaultLearningBridgeHttpTests(unittest.TestCase):
         self.assertEqual(self.core_call.call_count, 1)
         self.assertEqual(self.request("/api/save", {"name": "after-restore"})[0], 200)
 
-    def test_white_home_and_optional_learning_page_remain_separate(self):
-        code, home = self.request("/")
+    def test_archived_operator_and_optional_learning_page_remain_separate(self):
+        code, home = self.request("/legacy/operator")
         self.assertEqual(code, 200)
-        self.assertIn(b"<title>Matrix Operator</title>", home)
+        self.assertIn(b"<title>Archived Unity Operator", home)
         self.assertNotIn(b'src="/learning-ui.js"', home)
         self.assertNotIn(b'id="learningPanel"', home)
         self.assertIn(b'href="/learning"', home)

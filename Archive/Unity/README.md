@@ -12,7 +12,10 @@ PC `ControlService/` remains at the repository root because Matrix Web uses it.
 The exact pre-archive root layout is available at source commit
 [`21cc500`](https://github.com/School-of-the-Ancients/matrix-loading-operator/tree/21cc500).
 The commands below were written for that layout and are historical; use that
-commit to reproduce them. Native builds are no longer maintained or used as
+commit to reproduce them. Its service hosts the native Operator at `/`. On
+current `main`, `/` opens Matrix WebXR and the compatible native control page
+is `/legacy/operator`. Use the page route matching the service version without
+replacing saved data. Native builds are no longer maintained or used as
 acceptance for current WebXR work. Historical APK/PC artifacts remain in
 [releases](https://github.com/School-of-the-Ancients/matrix-loading-operator/releases).
 Quest Pro observations from those releases do not establish Quest 3 WebXR
@@ -49,7 +52,7 @@ Keep the service terminal open. In a second terminal at the same repository:
 & .\Builds\WhiteRoomDesktop\MatrixOperator.exe
 ```
 
-1. Open the [Operator](http://127.0.0.1:8765/), wait for **WHITE ROOM CONNECTED**, and set **Language mode → Offline commands (limited vocabulary)**.
+1. Open the [original Unity Operator](http://127.0.0.1:8765/) with the historical service, wait for **WHITE ROOM CONNECTED**, and set **Language mode → Offline commands (limited vocabulary)**. With current `main`, open `/legacy/operator` instead.
 2. Click a floor point in the player to choose where a prop should go.
 3. Enter **“Summon a chair here”** in the browser, choose **Create proposal**, review it, and **Apply**. Wait for the runtime acknowledgement.
 4. Click the chair to select it, then try **“Make it twice as big”** and **“Undo”** as separate proposals.
@@ -87,7 +90,7 @@ This connection walkthrough supports **Quest Pro and Quest 3** with developer mo
 
 4. Open **Matrix Operator AR** manually in the headset's **Unknown Sources** app list. The separate **Matrix Operator** app is the fully virtual room.
 5. Complete the headset's **Space Setup** and allow **spatial data** permission. Wait for room localization and inspect the floor/table outlines against the real room.
-6. In the [Operator](http://127.0.0.1:8765/), choose **Outlines align — enable editing** after verifying alignment. Point at an open floor or tabletop patch and press **right trigger** to select it.
+6. In the [original Unity Operator](http://127.0.0.1:8765/) with the historical service (or `/legacy/operator` on current `main`), choose **Outlines align — enable editing** after verifying alignment. Point at an open floor or tabletop patch and press **right trigger** to select it.
 7. Try **“Put an orb here”** through the proposal/review/Apply flow.
 
 After reconnecting USB, click **Reconnect Quest** beside the Operator's connection status. Keep the headset awake with Matrix open. The button restores the USB connection and waits for the app to check in; a successful USB operation alone is not reported as an online runtime. `Connect-QuestControl.ps1 -Port <your-port>` remains a terminal fallback.

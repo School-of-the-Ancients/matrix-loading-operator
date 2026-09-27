@@ -1,6 +1,6 @@
 # Quest Pro room AR
 
-**Archived Unity history:** This page records the native Unity build and its evidence. The project and build scripts now live in [Archive/Unity](../Archive/Unity/) as read-only source. Commands and root-relative paths below assume the pre-archive repository layout and are not maintained build instructions. Current runtime development targets [WebRuntime](../WebRuntime/README.md).
+**Archived Unity history:** This page records the native Unity build and its evidence. The project and build scripts now live in [Archive/Unity](../Archive/Unity/) as read-only source. Commands and root-relative paths below assume the pre-archive repository layout and are not maintained build instructions. The original service hosted its Operator at `/`; the current service keeps the compatibility page at `/legacy/operator`. Current runtime development targets [WebRuntime](../WebRuntime/README.md).
 
 Implementation and headset evidence, 2026-09-20. The acceptance loop is: **place an orb on the real table by voice, move it by voice, save, clear, and restore it on the same table**.
 
@@ -60,7 +60,7 @@ In a second terminal in the same checkout:
 .\Connect-QuestControl.ps1
 ```
 
-Open the [PC Operator](http://127.0.0.1:8765/). Open **Matrix Operator AR** manually from the headset's **Unknown Sources** app list. If the HUD reports that another app owns the PC connection, quit the other Matrix Operator app and wait for the lease to expire. The USB connection script establishes forwarding; it does not launch an app.
+Open the [original PC Operator](http://127.0.0.1:8765/) with the historical service, or `/legacy/operator` with the current service. Open **Matrix Operator AR** manually from the headset's **Unknown Sources** app list. If the HUD reports that another app owns the PC connection, quit the other Matrix Operator app and wait for the lease to expire. The USB connection script establishes forwarding; it does not launch an app.
 
 Existing local speech installation and Codex sign-in are reused. A new checkout needs `.\Setup-LocalSpeech.ps1` once before voice can work. Choose **Codex (ChatGPT subscription)** and the desired **Codex model** / **Reasoning effort** in the PC panel. See [Voice and Codex controls](Voice-And-Codex-Controls.md) for provider setup.
 

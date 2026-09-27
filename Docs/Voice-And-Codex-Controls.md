@@ -1,5 +1,11 @@
 # Voice and Codex controls
 
+**Archived Unity workflow:** The native player and build scripts are preserved
+in [Archive/Unity](../Archive/Unity/). The original service hosted its Operator
+at `/`; the current service uses `/legacy/operator` for native compatibility.
+The current Matrix runtime is [WebRuntime](../WebRuntime/README.md); the steps
+below describe historical native behavior and do not establish WebXR acceptance.
+
 Voice and model controls are available in the virtual white room and room-aware AR. The validation section below records the original September 20, 2026 white-room voice milestone; later evidence is linked from the [current checkpoint](Current-Checkpoint.md).
 
 ## Start or resume
@@ -16,7 +22,8 @@ From that checkout in PowerShell:
 Speech setup is needed once per checkout. Keep the service terminal open. In a
 second terminal run `.\Connect-QuestControl.ps1`, then open **Matrix Operator**
 for the virtual room or **Matrix Operator AR** for your physical room. Open the
-PC panel at <http://127.0.0.1:8765/> and confirm the runtime is connected. Port
+PC panel at <http://127.0.0.1:8765/> with the historical service, or
+<http://127.0.0.1:8765/legacy/operator> with the current service, and confirm the runtime is connected. Port
 8765 is the default: match the actual service port, retained headset URL, and
 USB reverse port if using an override. The installed Quest app must include
 voice support. In AR, first [verify the outlines and confirm alignment](Room-AR.md#configure-and-verify-the-physical-room-first).

@@ -59,7 +59,7 @@ class WebRuntimeContractTests(unittest.TestCase):
             return response.status, response.read()
 
     def test_web_runtime_csp_allows_wasm_only_for_web_documents(self):
-        with urllib.request.urlopen(self.base + "/", timeout=3) as response:
+        with urllib.request.urlopen(self.base + "/legacy/operator", timeout=3) as response:
             self.assertEqual(response.status, 200)
             policy = response.headers["Content-Security-Policy"]
             self.assertIn("script-src 'self' 'unsafe-inline'", policy)
