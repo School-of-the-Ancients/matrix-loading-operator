@@ -1,8 +1,9 @@
 # Matrix Agent Portal gateway
 
-Issue #59 tracks the WebXR Agent Portal. The PC gateway connects `/web/` to a
-persistent Codex conversation without sending Codex or MCP credentials to the
-browser. The original Unity `/` client remains separate. Start with the
+Issue #59 tracks the WebXR Agent Portal. The PC gateway connects the canonical
+`/web/` Matrix to a persistent Codex conversation without sending Codex or MCP
+credentials to the browser. The `/` Operator page and archived Unity project are
+historical compatibility surfaces, not another forward runtime. Start with the
 [repository project map](../PROJECTS.md) and [Web runtime guide](../WebRuntime/README.md)
 for the current product path.
 
@@ -95,32 +96,56 @@ The `/api/agent/*` POST routes use the service's existing bearer-token and
 same-origin checks. The browser must store only the opaque Matrix session ID;
 the local Codex executable and configured MCP credentials remain on the PC.
 Approval responses expose a bounded operation summary and turn identity. Raw
-command text and tool arguments remain PC-only. The only XR-approvable command
-form currently recognized is creation of one new file inside the Matrix
-repository with short literal text. Unknown commands, overwrites, outside-repo
-targets, and file-change approvals show a PC-review message and cannot be
-approved through the browser; Deny and Stop remain available. Broader useful
-approval descriptions need their own reviewed allowlist before wearer
-acceptance is complete.
-The `/web/` Operator now shows a compact Agent page with recent text, activity,
+command text and tool arguments remain PC-only. For native shell command
+approvals, the only XR-reviewable form currently recognized is creation of one
+new file inside the Matrix repository with short literal text. Unknown commands,
+overwrites, outside-repo targets, and file-change approvals show a PC-review
+message and cannot be approved through the browser; Deny and Stop remain
+available. Bounded Matrix MCP writes have a separate XR-reviewable description
+allowlist in `agent_session.py`. A configured Blender or other MCP write is not
+automatically XR-reviewable. Broader useful approval descriptions need their own
+reviewed allowlist before wearer acceptance is complete.
+The `/web/` Operator shows a compact Agent page with recent text, activity,
 Approve/Deny, Stop, and a PC speech transcription path that sends spoken text
 to the same Codex conversation. The browser stores only an opaque Matrix
 session ID; when a service bearer token is configured, it must be re-entered
-after page refresh. Matrix tools, Blender-specific agent workflows, and rich
-artifacts remain later slices.
+after page refresh. The Agent Portal enables the PC-local Matrix MCP tool
+allowlist when its bridge and dependencies are present. Codex can also use its
+configured PC repository and Blender tools; Blender authoring has a separate
+validated GLB registration and runtime placement path. Tool availability alone
+does not prove that the connected WebXR runtime supports an action.
 
-An optional version 1 spatial context on `/api/agent/turn` identifies the
-active Matrix client and room, input source, selected object, and a separate
+Every `/api/agent/turn` receives fresh, bounded runtime metadata from the
+connected snapshot, including a validated Matrix Web descriptor when available,
+desktop/VR/AR presentation, advertised capability schema versions, catalog
+counts, and Creator state. Missing or disconnected identity stays unknown. An
+optional version 1 spatial context additionally identifies the active Matrix
+client and room, input source, selected object, and a separate
 pointing hit. The PC checks the IDs against its current room snapshot and adds
 the service scene revision, up to eight object summaries, room recovery state,
 and one relevant viewer frame. The result is advisory turn context, not a
 Matrix command. No camera image, raw hand telemetry, browser credential, or
-free-form asset description is included. A world change still requires a
-future typed Matrix tool and runtime receipt. Desktop text attaches context
-only when the wearer selects the checkbox; in-world speech captures it at
-recording start.
+free-form asset description is included. `agent_portal.py` wraps the unchanged
+utterance and structured context with a short per-turn contract; load/create
+requests get bounded discovery guidance, while transform requests get fresh
+target-inspection guidance based on enabled tools and observed capabilities.
+A world change requires an available typed Matrix tool and a
+matching runtime receipt, followed by an observed state check. Desktop text
+attaches spatial context only when the wearer selects the checkbox; in-world
+speech captures it at recording start.
 
-## Installed-version observations
+The same Codex thread persists across turns and resumes after a supported
+service restart. Its older conversation can contain outdated capability claims;
+the current connected snapshot and tool contract must be checked again before
+an edit. Source changes on `main` do not update an already-running service,
+MCP subprocess, or headset page. See the [prompt-source audit](../Validation/Operator-Prompt-Audit-2026-09-27.md)
+for the exact source boundaries and remaining verification work under #116.
+
+## Dated installed-version observations
+
+The observations below describe their specific installed versions and isolated
+sessions. Later source merges or a different running service require a fresh
+capability check.
 
 On Codex CLI 0.153.4, a real local app-server accepted initialize, thread
 creation, a text turn with streamed completion, `thread/read` with

@@ -11,7 +11,7 @@ from unittest.mock import patch
 from agent_portal import AgentPortal, build_matrix_turn_message
 from agent_session import _mcp_approval_description
 from matrix_tool_bridge import scene_summary
-from server import APIError, Server, State, agent_turn_context, snapshot
+from server import APIError, Server, State, agent_runtime_context, agent_turn_context, snapshot
 from test_agent_portal import FakeBackend
 from test_web_assets import glb
 from web_assets import WebAssetCatalog
@@ -190,7 +190,7 @@ class AgentPortalHTTPTests(unittest.TestCase):
         sent = self.state.agent_portal._backend.sent_texts[-1]
         self.assertIn("User request:\nPut this over there", sent)
         self.assertIn("Live runtime identity and presentation: unknown", sent)
-        self.assertIn("Use only available typed Matrix tools", sent)
+        self.assertIn("available typed Matrix tools", sent)
         self.assertNotIn("matrix_move_object sets position", sent)
         self.assertLess(len(sent), 2000)
         encoded = sent.split("<matrix_spatial_context>", 1)[1].split("</matrix_spatial_context>", 1)[0]
@@ -236,8 +236,30 @@ class AgentPortalHTTPTests(unittest.TestCase):
         grounded = json.loads(encoded)
         self.assertEqual(grounded["capabilityVersions"]["rigidSchemaVersion"], 1)
         self.assertEqual(grounded["assetCatalogCount"], 1)
+        self.assertEqual(grounded["room"], {"mode": "white-room", "state": "ready",
+                                            "alignmentVerified": False, "readOnly": False})
         self.assertNotIn("sceneSummary", grounded)
         self.assertNotIn("selectedObject", grounded)
+
+    def test_text_runtime_context_reports_ar_recovery_without_claiming_alignment(self):
+        self.state.latest = snapshot({
+            "scene": {"schemaVersion": 1, "roomId": "webxr-session-recovery", "objects": []},
+            "assets": [], "anchors": [{"anchorId": "web-floor", "displayName": "Virtual floor"}],
+            "roomContext": {"mode": "ar", "state": "missing", "alignmentVerified": False,
+                            "message": "Room origin unavailable"},
+            "readOnly": True,
+            "runtimeDescriptor": {"schemaVersion": 1, "client": "matrix-web",
+                                  "renderer": "threejs-webxr", "presentation": "ar"}})
+        self.state.client_id = "web-client"
+        self.state.last_seen = self.state.clock()
+        grounded = agent_runtime_context(self.state)
+        self.assertTrue(grounded["online"])
+        self.assertEqual(grounded["room"], {"mode": "ar", "state": "missing",
+                                            "alignmentVerified": False, "readOnly": True})
+        self.assertNotIn("Room origin unavailable", json.dumps(grounded))
+        self.assertNotIn("sceneSummary", grounded)
+        self.state.latest = None
+        self.assertIsNone(agent_runtime_context(self.state)["room"])
 
     def test_live_descriptor_capability_guidance_and_catalog_beyond_preview(self):
         context = {"schemaVersion": 1, "inputSource": "text", "clientId": "web-client",
@@ -301,9 +323,13 @@ class AgentPortalHTTPTests(unittest.TestCase):
                 "scale": {"x": 1, "y": 1, "z": 1}}
         objects = [{"objectId": f"chair-{index}", "assetId": "chair",
                     "anchorId": "web-floor", "transform": pose} for index in range(12)]
+        binding = {"loopClip": "Flight", "selectClip": None}
+        objects[10]["animation"] = binding
         self.state.latest = snapshot({"scene": {"schemaVersion": 1, "roomId": "room-1", "objects": objects},
-                                      "assets": [{"assetId": "chair", "displayName": "Chair"}],
+                                      "assets": [{"assetId": "chair", "displayName": "Chair",
+                                                  "animationClips": ["Flight"]}],
                                       "anchors": [{"anchorId": "web-floor", "displayName": "Floor"}],
+                                      "animationSchemaVersion": 1,
                                       "selection": {"objectId": "chair-10", "anchorId": "web-floor",
                                                     "position": pose["position"]}})
         self.state.client_id = "web-client"
@@ -317,6 +343,12 @@ class AgentPortalHTTPTests(unittest.TestCase):
         self.assertEqual(included[:2], ["chair-10", "chair-11"])
         self.assertEqual(len(included), 8)
         self.assertEqual(grounded["sceneSummary"]["omittedObjectCount"], 4)
+        self.assertEqual(grounded["selectedObject"]["assetDisplayName"], "Chair")
+        self.assertEqual(grounded["selectedObject"]["animation"], binding)
+        self.assertEqual(grounded["sceneSummary"]["objects"][0]["animation"], binding)
+        self.assertEqual(grounded["sceneSummary"]["objects"][1]["assetDisplayName"], "Chair")
+        self.assertNotIn("animation", grounded["sceneSummary"]["objects"][1])
+        self.assertNotIn("assetDisplayName", grounded["sceneSummary"]["objects"][2])
 
 
 if __name__ == "__main__":

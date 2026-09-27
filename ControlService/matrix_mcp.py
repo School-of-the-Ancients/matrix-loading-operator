@@ -42,7 +42,7 @@ def matrix_move_object(room_id: str, scene_revision: int, object_id: str,
                        expected_asset_id: str, position: dict[str, float],
                        rotation: dict[str, float] | None = None,
                        scale: dict[str, float] | None = None) -> dict:
-    """Move, turn, or resize one existing virtual-floor object after native approval.
+    """Move, turn, or resize one existing virtual-floor object under the configured approval policy.
 
     Use current room_id and scene_revision from Matrix context or
     matrix_scene_summary. Position is the target in room metres. Optional
@@ -522,7 +522,7 @@ def matrix_world_archive_status(request_id: str) -> dict:
 def matrix_bind_animation(room_id: str, scene_revision: int, object_id: str,
                           expected_asset_id: str, loop_clip: str | None,
                           select_clip: str | None) -> dict:
-    """Bind validated GLB clips to one virtual-floor object after native approval.
+    """Bind validated GLB clips to one virtual-floor object under the configured approval policy.
 
     loop_clip repeats at rest; select_clip plays once on object selection then
     returns to the loop. Use exact names from matrix_list_assets. Both null
@@ -546,13 +546,14 @@ def matrix_animation_status(request_id: str) -> dict:
                                          idempotentHint=False, openWorldHint=False))
 def matrix_set_physics(room_id: str, scene_revision: int, object_id: str,
                        expected_asset_id: str, restitution: float = 0.4) -> dict:
-    """Drop one registered GLB onto the Matrix Web White Room's virtual floor.
+    """Use the legacy bounded floor-drop on one GLB in web-virtual-room-v1.
 
     The bounded approximation uses gravity 9.81 m/s² and a catalog bounds box.
     Restitution is 0–0.75. The GLB must be loaded, upright, within 5 m of the
     floor, and have no competing transform writer. Check matrix_physics_status:
     the command receipt confirms configuration; contact requires a matching
-    observed physics state. No real-floor or object collision is measured.
+    observed physics state. No real-floor or object collision is measured. For
+    general virtual rigid bodies/colliders, use matrix_set_rigid_body instead.
     """
     return physics_action(os.environ["MATRIX_CONTROL_URL"], os.environ["MATRIX_CONTROL_TOKEN"],
                           {"action": "set", "room_id": room_id,
@@ -582,12 +583,13 @@ def matrix_physics_status(request_id: str) -> dict:
                                          idempotentHint=False, openWorldHint=False))
 def matrix_set_interaction(room_id: str, scene_revision: int, object_id: str,
                            expected_asset_id: str, interaction: dict) -> dict:
-    """Author a reviewed rest or eat affordance on one static Matrix object.
+    """Author a reviewed rest or eat affordance in the ready desktop virtual room.
 
-    Read matrix_scene_summary first. V1 names a registered GLB asset SHA;
+    The target must be one static Matrix object. Read matrix_scene_summary
+    first. V1 names a registered GLB asset SHA;
     V2 names the exact curved-bench procedural generator source. Both use local
     floor X/Z poses and a bounded effect. The PC checks the matching GLB bytes
-    or reviewed bench geometry. Native approval reviews the effect. Check
+    or reviewed bench geometry. The configured approval policy reviews the effect. Check
     matrix_interaction_status: queued or unconfirmed is not applied.
     """
     return interaction_action(os.environ["MATRIX_CONTROL_URL"],
