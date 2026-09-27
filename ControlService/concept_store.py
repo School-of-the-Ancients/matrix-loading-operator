@@ -516,7 +516,7 @@ class ConceptStore:
         require(isinstance(provenance, dict) and set(provenance) <= {
             "buildRequestId", "conceptId", "turnId", "status", "strategy", "sourcePaths",
             "assetIds", "objectIds", "receipts", "roomId", "sceneRevision", "hostWorldId",
-            "runtimeGeneration", "recipe"} and
+            "runtimeGeneration", "recipe", "creationMode"} and
             {"buildRequestId", "conceptId", "status"} <= set(provenance),
             "Invalid concept build provenance")
         build_request_id = checked_id(provenance["buildRequestId"], "build request ID")
@@ -525,6 +525,11 @@ class ConceptStore:
                 "Invalid concept build status")
         result = {"buildRequestId": build_request_id, "conceptId": concept_id,
                   "status": provenance["status"]}
+        if "creationMode" in provenance:
+            require(type(provenance["creationMode"]) is str and
+                    provenance["creationMode"] in ("auto", "procedural", "blender"),
+                    "Invalid concept creation mode")
+            result["creationMode"] = provenance["creationMode"]
         if "turnId" in provenance:
             result["turnId"] = (checked_text(provenance["turnId"], "build turn ID", 128)
                                 if provenance["turnId"] is not None else None)
@@ -577,7 +582,8 @@ class ConceptStore:
                 if result["status"] == "completed":
                     require(result.get("turnId") or prior.get("turnId"),
                             "Completed concept build needs its Codex turn ID", 409)
-                for key in ("roomId", "sceneRevision", "hostWorldId", "runtimeGeneration"):
+                for key in ("roomId", "sceneRevision", "hostWorldId", "runtimeGeneration",
+                            "creationMode"):
                     require(key not in result or key not in prior or result[key] == prior[key],
                             "Build request world context cannot change", 409)
                 prior.update(result, updatedAt=time.time())

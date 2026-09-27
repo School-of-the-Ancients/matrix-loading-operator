@@ -13,7 +13,10 @@ import zlib
 from agent_portal import AgentPortal
 from content_catalog import ContentError
 from matrix_tool_bridge import MatrixToolBridge, record_concept_build, spawn_builtin
+from procedural_contract import new_recipe
 from server import APIError, State, agent_portal_action, concept_build_request
+from test_matrix_procedural import GENERATOR
+from test_web_assets import glb
 
 
 def png_pixel():
@@ -118,10 +121,28 @@ class ConceptHandoffTests(unittest.TestCase):
                 "roomId": self.room["scene"]["roomId"], "selectedObjectId": None,
                 "pointingTarget": None, "viewerFrame": None}
 
-    def build(self, request="Now build this in the Matrix"):
+    def build(self, request="Now build this in the Matrix", **expected):
         return agent_portal_action(self.state, "/api/agent/turn",
                                    {"sessionId": self.session_id, "text": request,
-                                    "context": self.context()})
+                                    "context": self.context(), **expected})
+
+    def observed_spawn(self, asset_id, object_id, *, builtin=False):
+        request = {"room_id": self.room["scene"]["roomId"],
+                   "scene_revision": self.state.revision, "asset_id": asset_id,
+                   "transform": copy.deepcopy(POSE)}
+        queued = (self.state.agent_spawn_builtin(request) if builtin
+                  else self.state.agent_spawn(request))
+        self.room["scene"]["objects"].append({"objectId": object_id,
+            "assetId": asset_id, "anchorId": "web-floor", "transform": copy.deepcopy(POSE)})
+        self.exchange(result={"requestId": queued["requestId"], "ok": True,
+                              "error": "", "objectId": object_id})
+        self.assertEqual(self.state.agent_spawn_status(queued["requestId"])["status"], "succeeded")
+        return queued["requestId"]
+
+    def build_result(self, build, receipt_id, object_id, asset_id, **extra):
+        return {"build_request_id": build["buildRequestId"], "concept_id": self.concept_id,
+                "strategy": "verified Matrix creation", "receipt_ids": [receipt_id],
+                "object_ids": [object_id], "asset_ids": [asset_id], **extra}
 
     def test_selected_image_and_scene_enter_same_existing_agent_turn(self):
         result = self.build()
@@ -146,12 +167,110 @@ class ConceptHandoffTests(unittest.TestCase):
     def test_image_only_and_selection_phrases_do_not_trigger_build(self):
         for request in ("Create an image of a forest temple", "Make another version",
                         "Use version 2", "Show this image", "Place this there",
-                        "Build this bridge in Matrix", "Create this spaceship in Matrix"):
+                        "Build this bridge in Matrix", "Create this spaceship in Matrix",
+                        "Build an image viewer"):
             self.assertFalse(concept_build_request(request), request)
         for request in ("Build this", "Build this in Matrix", "Build selected image",
+                        "Create this", "Make this",
                         "Make this in Blender", "Create this around what's already here",
                         "Use this design"):
             self.assertTrue(concept_build_request(request), request)
+
+    def test_expected_concept_must_match_current_selection(self):
+        with self.assertRaisesRegex(APIError, "Selected concept changed"):
+            self.build("Create this", expectedConceptId="b" * 32,
+                       expectedConceptVersion=2)
+        with self.assertRaisesRegex(APIError, "Selected concept changed"):
+            self.build("Create this", expectedConceptId=self.concept_id,
+                       expectedConceptVersion=1)
+        self.assertEqual(self.backend.sent, [])
+        self.assertEqual(self.state.concepts.status(self.session_id, refresh=False)["builds"], [])
+        self.build("Create this", expectedConceptId=self.concept_id,
+                   expectedConceptVersion=2)
+        self.assertEqual(Path(self.backend.sent[0][2]).read_bytes(), png_pixel())
+
+    def test_creation_mode_reaches_same_agent_and_durable_build_record(self):
+        result = self.build("Make this in Blender", expectedConceptId=self.concept_id,
+                            expectedConceptVersion=2, creationMode="blender")
+        self.assertIn('"creationMode":"blender"', self.backend.sent[0][1])
+        self.assertIn("editable Blender source", self.backend.sent[0][1])
+        self.assertEqual(self.state.concepts.build_provenance(
+            self.session_id, result["buildRequestId"])["creationMode"], "blender")
+
+    def test_creation_mode_rejects_invalid_or_non_concept_turn(self):
+        with self.assertRaisesRegex(APIError, "Invalid concept creation mode"):
+            self.build("Build this", creationMode="automatic")
+        with self.assertRaisesRegex(APIError, "Concept build options require"):
+            self.build("Build this bridge", creationMode="blender")
+        self.assertEqual(self.backend.sent, [])
+
+    def test_procedural_mode_rejects_a_verified_builtin_spawn(self):
+        build = self.build("Create this", creationMode="procedural")
+        receipt_id = self.observed_spawn("block", "builtin-1", builtin=True)
+        with self.assertRaisesRegex(APIError, "Procedural creation mode needs"):
+            self.state.agent_record_concept_build(self.build_result(
+                build, receipt_id, "builtin-1", "block"))
+        self.assertEqual(self.state.concepts.build_provenance(
+            self.session_id, build["buildRequestId"])["status"], "requested")
+
+    def test_procedural_mode_accepts_only_a_verified_generator_create(self):
+        self.room["assets"].append({"assetId": "matrix:procedural",
+                                    "displayName": "Procedural object"})
+        self.room["proceduralGenerators"] = [copy.deepcopy(GENERATOR)]
+        self.exchange()
+        build = self.build("Create this", creationMode="procedural")
+        queued = self.state.agent_procedural_action({
+            "action": "create", "room_id": self.room["scene"]["roomId"],
+            "scene_revision": self.state.revision, "generator_id": "bridge",
+            "parameters": {"lengthMeters": 7}, "transform": copy.deepcopy(POSE)})
+        self.room["scene"]["objects"].append({
+            "objectId": "bridge-1", "assetId": "matrix:procedural",
+            "anchorId": "web-floor", "transform": copy.deepcopy(POSE),
+            "procedural": new_recipe([GENERATOR], "bridge", {"lengthMeters": 7})})
+        self.exchange(result={"requestId": queued["requestId"], "ok": True,
+                              "error": "", "objectId": "bridge-1"})
+        self.assertEqual(self.state.agent_procedural_status(queued["requestId"])["status"],
+                         "succeeded")
+        recorded = self.state.agent_record_concept_build(self.build_result(
+            build, queued["requestId"], "bridge-1", "matrix:procedural"))
+        self.assertEqual(recorded["status"], "completed")
+        self.assertEqual(recorded["creationMode"], "procedural")
+
+    def test_blender_mode_rejects_a_verified_builtin_spawn(self):
+        build = self.build("Create this", creationMode="blender")
+        receipt_id = self.observed_spawn("block", "builtin-1", builtin=True)
+        with self.assertRaisesRegex(APIError, "Blender creation mode needs registered GLB"):
+            self.state.agent_record_concept_build(self.build_result(
+                build, receipt_id, "builtin-1", "block"))
+
+    def test_blender_mode_requires_matching_registered_glb_and_editable_source(self):
+        self.state.directory.mkdir(parents=True, exist_ok=True)
+        source_glb = self.state.directory / "bridge.glb"
+        source_glb.write_bytes(glb())
+        build = self.build("Create this", creationMode="blender")
+        asset = self.state.web_assets.register(source_glb, "Blender bridge")
+        self.room["assets"].append({"assetId": asset["assetId"],
+                                    "displayName": asset["displayName"]})
+        self.exchange()
+        receipt_id = self.observed_spawn(asset["assetId"], "blender-1")
+        value = self.build_result(build, receipt_id, "blender-1", asset["assetId"])
+        with self.assertRaisesRegex(APIError, "editable .blend source"):
+            self.state.agent_record_concept_build(value)
+        blend = self.state.directory / "bridge.blend"
+        blend.write_bytes(b"not a Blender project")
+        value["source_paths"] = [str(blend), str(source_glb)]
+        with self.assertRaisesRegex(APIError, "not a readable .blend file"):
+            self.state.agent_record_concept_build(value)
+        blend.write_bytes(b"BLENDER-v300" + b"\x00" * 32)
+        wrong_glb = self.state.directory / "other.glb"
+        wrong_glb.write_bytes(b"different export")
+        value["source_paths"] = [str(blend), str(wrong_glb)]
+        with self.assertRaisesRegex(APIError, "does not match the spawned registered asset"):
+            self.state.agent_record_concept_build(value)
+        value["source_paths"] = [str(blend), str(source_glb)]
+        recorded = self.state.agent_record_concept_build(value)
+        self.assertEqual(recorded["status"], "completed")
+        self.assertEqual(recorded["creationMode"], "blender")
 
     def test_explicit_version_must_match_persisted_selection(self):
         with self.assertRaisesRegex(APIError, "not selected"):
