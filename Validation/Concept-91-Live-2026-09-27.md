@@ -84,6 +84,9 @@ could not summarize, so it was declined without changing the catalog. A second
 request containing only the local source path, hash, and name was reviewable and
 approved. The catalog registered
 `web:luminous-garden-footbridge-v4:27db9e18cca4`, and the browser loaded it.
+After the authoring-only Agent turn ended, its build request
+`defc9691db2d4d819de310d6a0922de9` reconciled to `failed`/unverified on
+service restart. The later receipt-backed Blender build stayed `completed`.
 
 Codex issued a typed spawn at `(-3, 0, -2)` in revision 9. Receipt
 `8000b04dd3174f449a4eb31c884beb26` returned `ok: true`; live scene state
@@ -128,8 +131,8 @@ build provenance and rejects a stale selected ID/version. The in-world panel
 currently reports concepts as text rather than image thumbnails. This run does
 not claim Quest wearer readability or input testing.
 
-- Full ControlService suite: **841 passed** in 152.334 seconds. WebRuntime:
-  **601 passed**. Vite production build and `git diff --check` passed.
+- Full ControlService suite: **843 passed** in 151.073 seconds. WebRuntime:
+  **602 passed**. Vite production build and `git diff --check` passed.
 - The desktop microphone path routes speech to the same intent, but this live
   image-to-build run used text.
 - #150 skybox runtime, #149 room-aware composition, #26 physical camera
