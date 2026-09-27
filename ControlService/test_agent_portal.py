@@ -235,6 +235,24 @@ class AgentPortalTests(unittest.TestCase):
         self.assertIn("Physical-room alignment: unverified", message)
         self.assertNotIn("Physical-room alignment: verified.", message)
 
+    def test_hosted_runtime_is_grounded_as_the_same_saved_world(self):
+        context = {"kind": "matrix_runtime_context", "online": True,
+                   "runtimeDescriptor": {"schemaVersion": 1,
+                                         "client": "matrix-world-host",
+                                         "renderer": "none", "presentation": "host"},
+                   "room": {"mode": "white-room", "state": "ready",
+                            "alignmentVerified": False, "readOnly": False},
+                   "proceduralGeneratorCount": 3, "capabilityVersions": {}}
+        message = build_matrix_turn_message(
+            "Create a curved bench in the hosted world", context,
+            ("matrix_scene_summary", "matrix_list_procedural_generators",
+             "matrix_create_procedural", "matrix_procedural_status"))
+        self.assertIn("Matrix Web world host, one PC owner with no renderer", message)
+        self.assertIn("typed receipt and saved observation", message)
+        self.assertIn("Inspect matrix_list_procedural_generators", message)
+        self.assertNotIn("identity and presentation: unknown", message)
+        self.assertNotIn("Physical-room alignment: verified", message)
+
     def test_provisional_portal_survives_restart_before_first_turn(self):
         portal = self.portal()
         session_id = portal.open()["sessionId"]

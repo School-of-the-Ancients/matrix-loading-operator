@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import {readFileSync} from 'node:fs';
 import {MatrixWorld} from '../src/protocol.js';
 import {createCitizensDemo} from '../src/citizens.js';
+import {createProceduralRecipe} from '../src/procedural.js';
 import {storedWorld} from '../src/scene_store.js';
 import {applyHostedObservation,stageHostedObservation} from '../src/hosted_visit.js';
 import {MatrixView} from '../src/view.js';
@@ -17,6 +18,13 @@ function fixture(){
     instanceId,sequence,clockTick:owner.citizens.clockTick,online:true,readOnly:true,
     world:storedWorld(owner)});
   return {owner,simulation,observe};
+}
+
+function createBench(owner){
+  return owner.execute({requestId:'operator-create-bench',op:'create_procedural',
+    anchorId:'web-floor',procedural:createProceduralRecipe('curved-bench'),
+    transform:{position:{x:-2,y:0,z:2},rotation:{x:0,y:0,z:0},
+      scale:{x:1,y:1,z:1}}});
 }
 
 test('desktop and AR visitor project the same checkpointed IDs and later Citizens tick',()=>{
@@ -42,6 +50,68 @@ test('desktop and AR visitor project the same checkpointed IDs and later Citizen
   assert.deepEqual(visitor.scene,owner.scene);
   visitor.leaveAR();
   assert.deepEqual(visitor.scene,owner.scene);
+});
+
+test('AR visitor accepts one procedural addition and rebuilds only on scene structure changes',()=>{
+  const {owner,simulation,observe}=fixture();
+  const visitor=new MatrixWorld();
+  const first=applyHostedObservation(visitor,observe(1));
+  const coreIds=first.state.coreIds;
+  const residentBindings=first.state.bindingIds;
+  visitor.enterAR();
+  const origin=visitor.spatial;
+  visitor.setOriginUnavailable(true);
+  owner.citizens=simulation.advance();
+  const receipt=createBench(owner);
+  assert.equal(receipt.ok,true);
+  const created=applyHostedObservation(visitor,observe(2),first.state);
+  assert.equal(created.structureChanged,true);
+  assert.equal(visitor.scene.objects.length,5);
+  assert.equal(visitor.scene.objects.at(-1).objectId,receipt.objectId);
+  assert.deepEqual(created.state.coreIds,coreIds);
+  assert.deepEqual(created.state.bindingIds,residentBindings);
+  assert.equal(visitor.spatial,origin);
+  assert.equal(visitor.spatial.originUnavailable,true);
+  assert.equal(visitor.canVisitDigitalWorld(),false,'AR tracking state remains local');
+  owner.citizens=simulation.advance();
+  const later=applyHostedObservation(visitor,observe(3),created.state);
+  assert.equal(later.structureChanged,false);
+  assert.equal(later.state.clockTick,2);
+  assert.equal(visitor.scene.objects.at(-1).objectId,receipt.objectId);
+  assert.equal(visitor.citizens.paused,false);
+  const restarted=applyHostedObservation(visitor,observe(1,'b'.repeat(32)),later.state);
+  assert.equal(restarted.structureChanged,false);
+  assert.equal(visitor.scene.objects.at(-1).objectId,receipt.objectId);
+  visitor.leaveAR();
+  assert.deepEqual(visitor.scene,owner.scene);
+});
+
+test('visitor rejects a removed creation, rebound citizen, or second procedural object',()=>{
+  const {owner,observe}=fixture();
+  const visitor=new MatrixWorld();
+  const first=applyHostedObservation(visitor,observe(1));
+  assert.equal(createBench(owner).ok,true);
+  const created=applyHostedObservation(visitor,observe(2),first.state);
+  const scene=structuredClone(visitor.scene);
+  const citizens=structuredClone(visitor.citizens);
+  const removed=observe(3);
+  removed.world.scene.objects.pop();
+  assert.throws(()=>applyHostedObservation(visitor,removed,created.state),
+    /identity or clock moved backward/);
+  const rebound=observe(3);
+  [rebound.world.citizens.residents[0].objectId,
+    rebound.world.citizens.residents[1].objectId]=[
+    rebound.world.citizens.residents[1].objectId,
+    rebound.world.citizens.residents[0].objectId];
+  assert.throws(()=>applyHostedObservation(visitor,rebound,created.state));
+  const second=owner.execute({requestId:'operator-create-second',op:'create_procedural',
+    anchorId:'web-floor',procedural:createProceduralRecipe('curved-bench'),
+    transform:{position:{x:4,y:0,z:2},rotation:{x:0,y:0,z:0},scale:{x:1,y:1,z:1}}});
+  assert.equal(second.ok,true);
+  assert.throws(()=>applyHostedObservation(visitor,observe(3),created.state),
+    /outside the supported Citizens fixture/);
+  assert.deepEqual(visitor.scene,scene);
+  assert.deepEqual(visitor.citizens,citizens);
 });
 
 test('stale, inconsistent and changed-world observations leave the visitor intact',()=>{

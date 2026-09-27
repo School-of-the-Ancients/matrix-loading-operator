@@ -63,6 +63,13 @@ def build_matrix_turn_message(user_text: str, context: dict,
             if descriptor["presentation"] == "ar":
                 runtime += (" Physical-room alignment: verified." if room.get("alignmentVerified") is True
                             else " Physical-room alignment: unverified.")
+    elif (type(descriptor) is dict and descriptor.get("schemaVersion") == 1 and
+          descriptor.get("client") == "matrix-world-host" and
+          descriptor.get("renderer") == "none" and
+          descriptor.get("presentation") == "host"):
+        runtime = ("Live runtime: Matrix Web world host, one PC owner with no renderer. "
+                   "Desktop, VR and AR visitors observe saved checkpoints of this world. "
+                   "Confirm a hosted creation by its typed receipt and saved observation.")
     else:
         runtime = ("Live runtime identity and presentation: unknown. "
                    "Inspect current capabilities; do not infer them from the room name or earlier turns.")

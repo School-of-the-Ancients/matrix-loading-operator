@@ -1126,7 +1126,7 @@ def runtime_descriptor(value):
 
 
 def hosted_fixture(current):
-    """A headless claim is limited to the built-in, non-rendered Citizens demo."""
+    """A headless claim keeps Ada/Bo and at most one reviewed construction."""
     objects = current["scene"]["objects"]
     citizens = current.get("citizensState")
     require(current["scene"]["roomId"] == "web-virtual-room-v1" and
@@ -1148,18 +1148,31 @@ def hosted_fixture(current):
             len(citizens["residents"]) == 2 and len(citizens["stations"]) == 2 and
             {item["id"] for item in citizens["residents"]} == {"ada", "bo"} and
             {item["id"] for item in citizens["stations"]} == {"chair", "food"} and
-            len(objects) == 4 and
-            sorted(item["assetId"] for item in objects) == ["chair", "orb", "orb", "table"] and
-            all(set(item) == {"objectId", "assetId", "anchorId", "transform"} and
-                item["anchorId"] == "web-floor" for item in objects),
+            len(objects) in (4, 5),
             "Hosted world supports only two resident markers and two stations")
     by_id = {item["objectId"]: item for item in objects}
-    require(all(by_id.get(item["objectId"], {}).get("assetId") == "orb"
+    bound = {item["objectId"] for item in
+             citizens["residents"] + citizens["stations"]}
+    require(len(bound) == 4 and
+            all(by_id.get(item["objectId"], {}).get("assetId") == "orb"
                 for item in citizens["residents"]) and
             all(by_id.get(item["objectId"], {}).get("assetId") ==
                 ("chair" if item["id"] == "chair" else "table")
-                for item in citizens["stations"]),
+                for item in citizens["stations"]) and
+            all(set(by_id[object_id]) == {"objectId", "assetId", "anchorId", "transform"} and
+                by_id[object_id]["anchorId"] == "web-floor" for object_id in bound),
             "Hosted Citizens bindings do not match the scene")
+    additions = [item for item in objects if item["objectId"] not in bound]
+    require(len(additions) <= 1 and
+            all(set(item) == {"objectId", "assetId", "anchorId", "transform", "procedural"} and
+                item["assetId"] == "matrix:procedural" and
+                item["anchorId"] == "web-floor" for item in additions),
+            "Hosted world supports one reviewed procedural construction")
+    for item in additions:
+        try:
+            available_recipe(item["procedural"], current.get("proceduralGenerators", []))
+        except ProceduralError as error:
+            raise APIError(409, str(error)) from None
     return True
 
 
@@ -3116,7 +3129,7 @@ class State:
             self.voice_capture_id = body["captureId"]
             return self.capture_status()
 
-    def queue(self, raw_commands, *, ordered=False):
+    def queue(self, raw_commands, *, ordered=False, hosted_procedural=False):
         require(isinstance(raw_commands, list) and 0 < len(raw_commands) <= MAX_BATCH,
                 f"Expected 1-{MAX_BATCH} commands")
         checked = [command(item, allow_precondition=True) for item in raw_commands]
@@ -3159,6 +3172,17 @@ class State:
             require(not self.learning or not self.learning.restore, "Finish the pending lesson restore before editing", 409)
             require(self.online(), "Headset client is offline", 409)
             require(self.latest is not None, self.room_unavailable_message(), 409)
+            if self.host_world_id is not None:
+                require(self.host_saved_sequence == self.host_sequence,
+                        "Hosted world is waiting for a durable checkpoint", 409)
+                if any(item["op"] in {"create_procedural", "update_procedural"}
+                       for item in checked):
+                    require(hosted_procedural,
+                            "Hosted procedural edits require the typed Agent capability", 403)
+                    require(len(checked) == 1 and
+                            checked[0]["op"] == "create_procedural" and
+                            len(self.latest["scene"]["objects"]) == 4,
+                            "Hosted world accepts one procedural creation", 409)
             require(not self.latest.get("digitalWorldVisit"),
                     "AR digital-world visit is observing the canonical world; return to Creator Mode for edits", 409)
             require(not self.content.busy(), "Wait for content installation before editing", 409)
@@ -3877,11 +3901,12 @@ class State:
                            "expectedTransform": pose}
             except ProceduralError as error:
                 raise APIError(409, str(error)) from None
-            queued = self.queue([raw])["commands"][0]
+            queued = self.queue([raw], hosted_procedural=True)["commands"][0]
             request_id = queued["requestId"]
             self.agent_procedural_ids[request_id] = {
                 "action": action, "roomId": room_id, "objectId": object_id,
-                "recipe": copy.deepcopy(recipe), "transform": pose}
+                "recipe": copy.deepcopy(recipe), "transform": pose,
+                "hostWorldId": self.host_world_id}
             while len(self.agent_procedural_ids) > 64:
                 self.agent_procedural_ids.popitem(last=False)
             return self.agent_procedural_status(request_id)
@@ -3922,6 +3947,9 @@ class State:
                               item["anchorId"] == "web-floor" and
                               item.get("procedural") == recipe and
                               item["transform"] == issued["transform"]), None))
+            if issued["hostWorldId"] is not None:
+                observed = (observed and self.host_world_id == issued["hostWorldId"] and
+                            self.host_saved_sequence == self.host_sequence)
             result["status"] = "succeeded" if observed else "unconfirmed"
             if observed:
                 result["objectId"] = object_id

@@ -6,8 +6,15 @@ import {createServer} from 'node:https';
 import {promisify} from 'node:util';
 import {fileURLToPath} from 'node:url';
 import {HostedWorld,assertHostedFixture,serviceRequest} from '../src/host_world.js';
+import {createProceduralRecipe} from '../src/procedural.js';
 
 const copy=value=>structuredClone(value);
+const benchCommand=(world,requestId='operator-bench-1')=>{
+  const transform=copy(world.scene.objects[0].transform);
+  transform.position={x:-2,y:0,z:2};
+  return {requestId,op:'create_procedural',anchorId:'web-floor',transform,
+    procedural:createProceduralRecipe('curved-bench')};
+};
 
 class FakeService {
   constructor(){
@@ -108,6 +115,51 @@ test('operator mutations receive explicit failure receipts, without touching the
   assert.equal(service.results[0].ok,false);
   assert.deepEqual(service.snapshot.scene.objects.map(item=>item.assetId),
     ['chair','table','orb','orb']);
+});
+
+test('one procedural construction survives the next tick and exact checkpoint restart',async()=>{
+  const service=new FakeService();
+  const host=new HostedWorld({name:'AdaBo',request:service.request});
+  await host.start();
+  const residentIds=host.simulation.snapshot().residents.map(item=>item.objectId);
+  const coreIds=host.world.scene.objects.map(item=>item.objectId);
+  service.commands.push(benchCommand(host.world));
+  await host.tick();
+  const receipt=service.results.find(item=>item.requestId==='operator-bench-1');
+  assert.equal(receipt.ok,true);
+  assert.equal(receipt.objectId,host.world.scene.objects[4].objectId);
+  assert.equal(service.worlds.get('AdaBo').scene.objects.length,5);
+  assert.deepEqual(service.worlds.get('AdaBo').scene.objects.slice(0,4).map(item=>item.objectId),coreIds);
+  assert.equal(service.worlds.get('AdaBo').citizens.clockTick,1);
+  service.online=false;
+  const resumed=new HostedWorld({name:'AdaBo',request:service.request});
+  await resumed.start();
+  assert.equal(resumed.simulation.snapshot().clockTick,1);
+  assert.equal(resumed.world.scene.objects[4].objectId,receipt.objectId);
+  assert.deepEqual(resumed.simulation.snapshot().residents.map(item=>item.objectId),residentIds);
+  await resumed.tick();
+  assert.equal(service.worlds.get('AdaBo').citizens.clockTick,2);
+  assert.equal(service.worlds.get('AdaBo').scene.objects[4].objectId,receipt.objectId);
+  assert.deepEqual(resumed.simulation.snapshot().residents.map(item=>item.objectId),residentIds);
+});
+
+test('host rejects a second construction and unrelated mutations without scene changes',async()=>{
+  const service=new FakeService();
+  const host=new HostedWorld({name:'AdaBo',request:service.request});
+  await host.start();
+  service.commands.push(benchCommand(host.world));
+  await host.tick();
+  const scene=copy(host.world.scene);
+  service.commands.push(benchCommand(host.world,'operator-bench-2'));
+  service.commands.push({requestId:'operator-spawn-2',op:'spawn',assetId:'orb'});
+  await host.tick();
+  assert.deepEqual(host.world.scene.objects.map(item=>item.objectId),
+    scene.objects.map(item=>item.objectId));
+  assert.deepEqual(host.world.scene.objects.slice(0,2),scene.objects.slice(0,2));
+  assert.deepEqual(host.world.scene.objects[4],scene.objects[4]);
+  assert.deepEqual(service.results.slice(-2).map(item=>[item.requestId,item.ok]),
+    [['operator-bench-2',false],['operator-spawn-2',false]]);
+  assert.equal(service.worlds.get('AdaBo').scene.objects.length,5);
 });
 
 test('unsupported checkpoint is rejected before restore or overwrite',async()=>{

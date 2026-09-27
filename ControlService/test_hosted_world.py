@@ -8,6 +8,7 @@ import unittest
 import urllib.error
 import urllib.request
 
+from procedural_contract import new_recipe
 from server import APIError, Server, State, world_checkpoint_digest
 
 
@@ -33,6 +34,114 @@ class HostedWorldTests(unittest.TestCase):
         return self.state.exchange({"clientId": client_id, "hostWorldId": name,
                                     "snapshot": copy.deepcopy(snapshot or self.snapshot),
                                     "results": [], "captureSupported": False, **extra})
+
+    def procedural_object(self, *, object_id="host-bench-1"):
+        pose = copy.deepcopy(self.snapshot["scene"]["objects"][0]["transform"])
+        pose["position"].update(x=8, z=8)
+        return {"objectId": object_id, "assetId": "matrix:procedural",
+                "anchorId": "web-floor", "transform": pose,
+                "procedural": new_recipe(self.snapshot["proceduralGenerators"],
+                                         "curved-bench")}
+
+    def test_operator_procedural_receipt_waits_for_atomic_hosted_checkpoint(self):
+        self.exchange()
+        added = self.procedural_object()
+        request = {"action": "create", "room_id": "web-virtual-room-v1",
+                   "scene_revision": self.state.revision,
+                   "generator_id": "curved-bench", "parameters": {},
+                   "transform": added["transform"]}
+        with self.assertRaisesRegex(APIError, "durable checkpoint"):
+            self.state.agent_procedural_action(request)
+        self.assertFalse(self.state.pending)
+        self.state.save_world_checkpoint("AdaBo", self.world)
+        original_ids = {item["objectId"] for item in self.world["scene"]["objects"]}
+        original_citizens = copy.deepcopy(self.world["citizens"])
+        queued = self.state.agent_procedural_action(request)
+        self.assertEqual(queued["status"], "queued")
+        command = self.state.pending[queued["requestId"]]
+        self.assertEqual(command["op"], "create_procedural")
+        self.assertEqual(command["procedural"], added["procedural"])
+        changed = copy.deepcopy(self.snapshot)
+        changed["scene"]["objects"].append(added)
+        world = copy.deepcopy(self.world)
+        world["scene"]["objects"].append(copy.deepcopy(added))
+        self.exchange(changed, results=[{"requestId": queued["requestId"],
+                                         "ok": True, "error": "",
+                                         "objectId": added["objectId"]}])
+        self.assertEqual(self.state.agent_procedural_status(queued["requestId"])["status"],
+                         "unconfirmed")
+        with self.assertRaisesRegex(APIError, "durable checkpoint"):
+            self.state.agent_procedural_action({**request,
+                                                "scene_revision": self.state.revision})
+        with self.assertRaisesRegex(APIError, "durable checkpoint"):
+            self.state.queue([{"op": "get_scene"}])
+        self.assertFalse(self.state.pending)
+        with self.assertRaisesRegex(APIError, "not checkpointed"):
+            self.state.hosted_observation()
+        self.state.save_world_checkpoint("AdaBo", world)
+        receipt = self.state.agent_procedural_status(queued["requestId"])
+        self.assertEqual((receipt["status"], receipt["objectId"]),
+                         ("succeeded", added["objectId"]))
+        self.assertEqual(self.state.hosted_observation()["world"], world)
+        self.assertEqual(self.state.load_world_checkpoint("AdaBo")["world"], world)
+        self.assertTrue(original_ids <= {item["objectId"] for item in world["scene"]["objects"]})
+        self.assertEqual(world["citizens"], original_citizens)
+        with self.assertRaisesRegex(APIError, "one procedural creation"):
+            self.state.agent_procedural_action({**request,
+                                                "scene_revision": self.state.revision})
+        self.assertFalse(self.state.pending)
+
+        restarted = State(self.state.directory, clock=lambda: self.now,
+                          web_assets_directory=Path(self.temp.name) / "assets")
+        bootstrap = copy.deepcopy(self.snapshot)
+        bootstrap["scene"]["objects"] = []
+        bootstrap["citizensState"] = None
+        bootstrap.pop("citizensObservation", None)
+        restarted.exchange({"clientId": "host-after-restart", "hostWorldId": "AdaBo",
+                            "snapshot": bootstrap, "results": [],
+                            "captureSupported": False})
+        restored = restarted.load_world_checkpoint("AdaBo")["world"]
+        self.assertEqual(restored, world)
+        self.assertEqual(restored["citizens"]["residents"], original_citizens["residents"])
+
+    def test_hosted_procedural_queue_requires_typed_agent_path(self):
+        self.exchange()
+        self.state.save_world_checkpoint("AdaBo", self.world)
+        added = self.procedural_object()
+        raw = {"op": "create_procedural", "anchorId": "web-floor",
+               "transform": added["transform"],
+               "procedural": added["procedural"]}
+        with self.assertRaisesRegex(APIError, "typed Agent capability"):
+            self.state.queue([raw])
+        self.assertFalse(self.state.pending)
+
+        browser = State(Path(self.temp.name) / "browser-scenes", clock=lambda: self.now,
+                        web_assets_directory=Path(self.temp.name) / "browser-assets")
+        browser_snapshot = copy.deepcopy(self.snapshot)
+        browser_snapshot["runtimeDescriptor"] = {
+            "schemaVersion": 1, "client": "matrix-web",
+            "renderer": "threejs-webxr", "presentation": "desktop"}
+        browser.exchange({"clientId": "browser-1", "snapshot": browser_snapshot,
+                          "results": [], "captureSupported": False})
+        self.assertEqual(browser.queue([raw])["commands"][0]["op"],
+                         "create_procedural")
+
+    def test_host_rejects_second_or_unreviewed_construction_without_mutating_state(self):
+        self.exchange()
+        before = copy.deepcopy(self.state.latest)
+        valid = copy.deepcopy(self.snapshot)
+        valid["scene"]["objects"].append(self.procedural_object())
+        second = copy.deepcopy(valid)
+        second["scene"]["objects"].append(self.procedural_object(object_id="host-bench-2"))
+        unreviewed = copy.deepcopy(valid)
+        unreviewed["scene"]["objects"][-1]["behaviors"] = [{
+            "kind": "rotate", "enabled": True, "paused": False, "speed": 1}]
+        wrong_recipe = copy.deepcopy(valid)
+        wrong_recipe["scene"]["objects"][-1]["procedural"]["sourceRevision"] = "unknown"
+        for candidate in (second, unreviewed, wrong_recipe):
+            with self.assertRaises(APIError):
+                self.exchange(candidate)
+            self.assertEqual(self.state.latest, before)
 
     def test_host_descriptor_and_static_fixture_are_truthful(self):
         self.assertEqual(self.snapshot["runtimeDescriptor"], {
@@ -125,6 +234,19 @@ class HostedWorldTests(unittest.TestCase):
             with response:
                 return response.status, json.loads(response.read())
 
+        def post(path, token, body):
+            request = urllib.request.Request(
+                f"http://127.0.0.1:{service.server_port}{path}",
+                data=json.dumps(body).encode("utf-8"),
+                headers={"Authorization": "Bearer " + token,
+                         "Content-Type": "application/json"})
+            try:
+                response = urllib.request.urlopen(request, timeout=3)
+            except urllib.error.HTTPError as error:
+                response = error
+            with response:
+                return response.status
+
         try:
             self.assertEqual(get("/api/web/hosted/observe")[0], 401)
             self.assertEqual(get("/api/web/hosted/observe", OWNER)[0], 401)
@@ -134,6 +256,8 @@ class HostedWorldTests(unittest.TestCase):
             self.assertEqual(value["world"], self.world)
             self.assertEqual(get("/api/state", VIEWER)[0], 401)
             self.assertEqual(get("/api/state", OWNER)[0], 200)
+            self.assertEqual(post("/api/agent/session", VIEWER, {}), 401)
+            self.assertEqual(post("/api/exchange", VIEWER, {}), 401)
         finally:
             service.shutdown()
             service.server_close()

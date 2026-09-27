@@ -4,8 +4,10 @@ This slice gives the digital White Room an owner independent of any browser or
 Quest visitor. One Node process runs the existing `MatrixWorld` and
 `CitizensSimulation` for the built-in Ada and Bo demo. It exchanges each
 virtual tick with the PC `ControlService`, then saves the version 3 world
-checkpoint atomically. The scene contains exactly two orb resident markers,
-one chair, and one table. There is no renderer in this process.
+checkpoint atomically. The scene starts with two orb resident markers, one
+chair, and one table. The owner can add one reviewed procedural construction
+through the existing Agent Portal and typed Matrix tool. There is no renderer
+in this process.
 
 ## Run an isolated local world
 
@@ -52,10 +54,35 @@ explicit `--resume-paused` on restart.
 
 Each world has one named PC checkpoint under the chosen scene directory. A
 hosted exchange publishes a headless runtime descriptor
-`matrix-world-host/none/host`. The service accepts only the built-in static
-Citizens fixture under that descriptor. Operator commands returned by the
-exchange receive explicit failure receipts; the host does not run editor or
-gameplay commands.
+`matrix-world-host/none/host`. The service accepts the four built-in Citizens
+objects and at most one floor-aligned `matrix:procedural` object under that
+descriptor. It checks the versioned recipe against the host generator registry
+on restore. The host executes only one `create_procedural` command after its
+first checkpoint; other Operator commands receive explicit failure receipts.
+A second creation, revision, or deletion is outside this prototype's hosted
+edit contract.
+
+## PC Operator creation
+
+Configure the existing PC Agent Portal with a native Codex CLI and the optional
+`ControlService/requirements-agent-mcp.txt` dependency. An owner-authenticated
+human can call `/api/agent/session`, then `/api/agent/turn` with a request such
+as “Operator, create one curved bench in the hosted AdaBo world at x=-2, y=0,
+z=-4.” The per-turn prompt identifies the connected headless Matrix Web owner.
+Codex reads the live scene and generator list, then uses
+`matrix_create_procedural` through the private loopback MCP bridge. Reviewed
+mode presents the bounded creation for approval. The view token cannot open an
+Agent session, queue an edit, or call the owner API.
+
+The service accepts hosted procedural writes only through that typed Agent
+path. It rejects a new request while an exchange is awaiting its atomic
+checkpoint and rejects another creation once the object exists. The host uses
+the existing `MatrixWorld.execute` generator path. The typed status reports
+`succeeded` only after the matching object, runtime receipt, and saved
+checkpoint all agree. The visitor then receives the five-object observation;
+there is no second world-state owner. The ordinary browser-owned `/web/`
+Creator Mode remains available for its existing broader create/revise/save
+flow.
 
 ## Read-only observation contract
 
@@ -73,8 +100,10 @@ read-only observation endpoint, and renders the existing Matrix scene and
 resident IDs through `MatrixView`. Closing every visitor does not stop the PC
 host. Returning on desktop displays a later virtual clock and the same world
 IDs. The visitor does not exchange as a writer, run a Citizens timer, edit the
-scene, or save a competing browser checkpoint. The ordinary `/web/` Creator
-world and older Citizens desktop fixture keep their existing save contracts;
+scene, or save a competing browser checkpoint. A newly checkpointed procedural
+object rebuilds the visitor's mesh; ordinary Citizen motion updates only
+transforms. The ordinary `/web/` Creator world and older Citizens desktop
+fixture keep their existing save contracts;
 they are not silently replaced by the hosted visitor.
 
 The same visitor can enter WebXR AR using the existing digital-world view
