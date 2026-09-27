@@ -3,6 +3,7 @@ import {validSavedGame} from './game.js';
 import {CitizensSimulation} from './citizens.js';
 import {listProceduralGenerators} from './procedural.js';
 import {createCreatorMode,restoredCreatorMode} from './creator_mode.js';
+import {validateControlStates} from './protocol.js';
 export const TAB_SCENE_KEY='matrix-web-scene';
 export const DURABLE_SCENE_KEY='matrix-web-scene-v1';
 export const WORLD_KEY='matrix-web-world-v2';
@@ -74,7 +75,10 @@ export function storedWorld(world){
     ...(world.creatorMode&&JSON.stringify(world.creatorMode)!==JSON.stringify(createCreatorMode())?
       {creatorMode:structuredClone(world.creatorMode)}:{}),
     ...(world.rigidGravity&&JSON.stringify(world.rigidGravity)!==
-      JSON.stringify({x:0,y:-9.81,z:0})?{rigidGravity:structuredClone(world.rigidGravity)}:{})};
+      JSON.stringify({x:0,y:-9.81,z:0})?{rigidGravity:structuredClone(world.rigidGravity)}:{}),
+    ...(savedScene.objects.some(object=>object.control)?{
+      controlSchemaVersion:1,
+      controlStates:validateControlStates(world.controlStates,savedScene)}:{})};
   if(world.citizens==null)return {version:2,scene:savedScene,game,...additions};
   const citizens=checkedCitizens(world,savedScene,world.citizens);
   return {version:3,scene:savedScene,game,citizens,...additions};
@@ -281,11 +285,17 @@ export function restoreStoredWorld(world,value,{waitForWebAssets=false}={}){
       Number.isFinite(gravity[axis]))||
       Math.hypot(gravity.x,gravity.y,gravity.z)>30)
     throw Error('Invalid saved rigid gravity');
+  if(Object.hasOwn(value,'controlSchemaVersion')&&value.controlSchemaVersion!==1||
+     Object.hasOwn(value,'controlStates')&&!Object.hasOwn(value,'controlSchemaVersion')||
+     Object.hasOwn(value,'controlSchemaVersion')&&!Object.hasOwn(value,'controlStates'))
+    throw Error('Invalid saved control state schema');
+  const controlStates=validateControlStates(value.controlStates,savedScene);
   restoreStoredScene(world,savedScene);
   world.game=game;
   world.citizens=citizens;
   world.creatorMode=creatorMode;
   world.rigidGravity=structuredClone(gravity);
+  world.controlStates=controlStates;
   if(world.rigidPhysics)world.rebuildRigidPhysics({preserve:false});
   world.originBinding=world.spatial&&world.originBinding==='ar'?'ar':binding;
   world.originAnchorHandle=world.spatial&&world.originBinding==='ar'&&binding!=='ar'?
@@ -297,13 +307,15 @@ const hasSavedWorldContent=value=>value.scene.objects?.length>0||value.game!==nu
   value.citizens!=null;
 
 export function saveCheckpoint(scene,game,storage,originBinding,originAnchorHandle,
-  citizens=null,creatorMode=undefined,rigidGravity=undefined){
+  citizens=null,creatorMode=undefined,rigidGravity=undefined,controlStates=undefined){
   try{storage.setItem(CHECKPOINT_KEY,JSON.stringify({version:citizens==null?2:3,scene,game,
     ...(citizens==null?{}:{citizens}),
     ...(creatorMode&&JSON.stringify(creatorMode)!==JSON.stringify(createCreatorMode())?
       {creatorMode}:{}),
     ...(rigidGravity&&JSON.stringify(rigidGravity)!==JSON.stringify({x:0,y:-9.81,z:0})?
       {rigidGravity}:{}),
+    ...(scene.objects.some(object=>object.control)?{
+      controlSchemaVersion:1,controlStates:validateControlStates(controlStates,scene)}:{}),
     ...(originBinding?{originBinding}:{}),
     ...(originBinding==='ar'&&originAnchorHandle?{originAnchorHandle}:{})}));return '';}
   catch(error){return `World checkpoint could not be saved: ${error.message}`;}

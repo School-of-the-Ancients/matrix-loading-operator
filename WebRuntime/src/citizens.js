@@ -1485,9 +1485,10 @@ export class CitizensSimulation {
     const station=this.additionalStation(objectId,{checkRoutes:true});
     const previous=this.snapshot();
     try{
-      // Legacy two-station worlds are the built-in seeded fixture. Mark both
-      // selected stations so adding one does not change an in-flight goal.
-      this.state.stations[0].approachMode='selected';
+      // Legacy two-station worlds are the built-in seeded fixture. Mark an
+      // existing station selected without assuming one survived deletion.
+      if(this.state.stations.length===1)
+        this.state.stations[0].approachMode='selected';
       station.approachMode='selected';
       this.state.stations.push(station);
       this.observedTransforms.set(station.objectId,

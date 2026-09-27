@@ -9,7 +9,7 @@ import {generateProcedural,listProceduralGenerators} from './procedural.js';
 import {eulerDegreesToQuaternion,quaternionToEulerDegrees,RIGID_FLOOR_ID} from './physics_rigid.js';
 import {canPlayWorld,createCreatorMode} from './creator_mode.js';
 import {assertCompatibleGameScene,bindGame,recordGameEvent,updateGame} from './game.js';
-import {validDisplay} from './display.js';
+import {displayObservation,validDisplay} from './display.js';
 export const ROOM_ID = 'web-virtual-room-v1';
 export const ANCHOR_ID = 'web-floor';
 export const PROCEDURAL_ASSET_ID = 'matrix:procedural';
@@ -32,7 +32,7 @@ const proceduralAsset={assetId:PROCEDURAL_ASSET_ID,displayName:'Procedural const
 const clone = value => structuredClone(value);
 const RIGID_REBUILD_OPS=new Set(['set_rigid_body','remove_rigid_body',
   'set_transform','create_procedural','update_procedural','duplicate','delete',
-  'clear','load','undo','redo']);
+  'clear','load','undo','redo','activate_control']);
 const finite = (n,min,max) => typeof n === 'number' && Number.isFinite(n) && n >= min && n <= max;
 const vec = (v,min,max) => v && ['x','y','z'].every(k=>finite(v[k],min,max));
 const validTransform = t => t && vec(t.position,-100,100) && vec(t.rotation,-36000,36000) && vec(t.scale,.01,20);
@@ -51,6 +51,85 @@ const sameVector=(a,b)=>a&&b&&['x','y','z'].every(axis=>a[axis]===b[axis]);
 const sameTransform=(a,b)=>a&&b&&['position','rotation','scale'].every(key=>sameVector(a[key],b[key]));
 const exactKeys=(value,keys)=>value&&typeof value==='object'&&!Array.isArray(value)&&
   Object.keys(value).sort().join(',')===keys.slice().sort().join(',');
+const CONTROL_MIN_SCALE=.01;
+const CONTROL_MAX_SCALE=20;
+const controlValueScale=value=>({x:value[0],y:value[1],z:value[2]});
+const controlValueIndex=(control,scale)=>control.action.values.findIndex(value=>
+  sameVector(controlValueScale(value),scale));
+export function validControlDescriptor(value){
+  if(!exactKeys(value,['schemaVersion','label','action'])||value.schemaVersion!==1||
+     typeof value.label!=='string'||[...value.label].length<1||
+     [...value.label].length>48||
+     value.label.trim()!==value.label||/[\x00-\x1f]/.test(value.label)||
+     !exactKeys(value.action,['kind','channel','targetObjectId','values'])||
+     value.action.kind!=='cycle-values'||value.action.channel!=='transform.scale'||
+     !validId(value.action.targetObjectId)||
+     !Array.isArray(value.action.values)||value.action.values.length<2||
+     value.action.values.length>8)return false;
+  const values=value.action.values;
+  return values.every(item=>Array.isArray(item)&&item.length===3&&
+    item.every(axis=>finite(axis,CONTROL_MIN_SCALE,CONTROL_MAX_SCALE)))&&
+    new Set(values.map(item=>JSON.stringify(item))).size===values.length;
+}
+const validControlState=(value,control)=>exactKeys(value,['index','revision'])&&
+  Number.isSafeInteger(value.index)&&value.index>=0&&
+  value.index<control.action.values.length&&
+  Number.isSafeInteger(value.revision)&&value.revision>=0;
+const sameControl=(left,right)=>left===null&&right===null||
+  validControlDescriptor(left)&&validControlDescriptor(right)&&
+  JSON.stringify(left)===JSON.stringify(right);
+const sameControlState=(left,right)=>left&&right&&
+  left.index===right.index&&left.revision===right.revision;
+function assertControlBinding(scene,object,control){
+  if(!validControlDescriptor(control))throw Error('Invalid control descriptor');
+  if(object.anchorId!==ANCHOR_ID||object.physics||object.component||
+     object.interaction||object.animation||object.rigidBody?.type==='dynamic'||
+     object.behaviors?.some(behavior=>behavior.enabled&&!behavior.paused))
+    throw Error('Control needs a static virtual-floor entity without another action owner');
+  const target=scene.objects.find(item=>item.objectId===control.action.targetObjectId);
+  if(!target||target.objectId===object.objectId||target.anchorId!==ANCHOR_ID||
+     target.physics||target.component||target.interaction||target.animation||
+     target.control||target.rigidBody?.type==='dynamic'||
+     target.behaviors?.some(behavior=>behavior.enabled&&!behavior.paused))
+    throw Error('Control target needs a different static virtual-floor object without another transform owner');
+  if(scene.objects.some(item=>item.objectId!==object.objectId&&
+     item.control?.action?.targetObjectId===target.objectId))
+    throw Error('Another control already owns this target scale');
+  const index=controlValueIndex(control,target.transform.scale);
+  if(index<0)throw Error('Control target scale must match one authored value');
+  return {target,index};
+}
+export function validateControlStates(value,scene){
+  if(!scene||!Array.isArray(scene.objects))throw Error('Invalid control state scene');
+  if(value!==undefined&&(!value||typeof value!=='object'||Array.isArray(value)))
+    throw Error('Invalid saved control states');
+  const states=Object.create(null),controls=scene.objects.filter(item=>item.control);
+  if(value!==undefined&&Object.keys(value).length!==controls.length)
+    throw Error('Saved control states do not match authored controls');
+  for(const object of controls){
+    const {index}=assertControlBinding(scene,object,object.control);
+    const state=value===undefined?{index,revision:0}:value[object.objectId];
+    if(!validControlState(state,object.control)||state.index!==index)
+      throw Error('Saved control state disagrees with target scale');
+    states[object.objectId]=clone(state);
+  }
+  return states;
+}
+function reconciledControlStates(scene,previous){
+  const states=Object.create(null);
+  for(const object of scene.objects.filter(item=>item.control)){
+    const {index}=assertControlBinding(scene,object,object.control);
+    const old=previous[object.objectId];
+    if(old&&old.index===index&&validControlState(old,object.control))
+      states[object.objectId]=clone(old);
+    else{
+      if(old?.revision===Number.MAX_SAFE_INTEGER)
+        throw Error('Control state revision exhausted');
+      states[object.objectId]={index,revision:old?old.revision+1:0};
+    }
+  }
+  return states;
+}
 const validExpectedTransform=transform=>
   exactKeys(transform,['position','rotation','scale'])&&
   ['position','rotation','scale'].every(key=>exactKeys(transform[key],['x','y','z']))&&
@@ -59,7 +138,8 @@ const expectedTransformOps=new Set(['set_transform','set_behavior','remove_behav
   'attach_component','stop_component','remove_component','bind_animation',
   'set_physics','remove_physics','set_interaction','remove_interaction',
   'delete','duplicate','select','update_procedural','set_rigid_body','remove_rigid_body',
-  'set_display','remove_display','begin_grab','move_grab','release_grab']);
+  'set_display','remove_display','begin_grab','move_grab','release_grab',
+  'set_control','remove_control','activate_control']);
 const AGENT_GRAB_TIMEOUT_MS=120000;
 const MAX_AGENT_GRAB_MOVE_METRES=3;
 const validGrabPose=pose=>exactKeys(pose,['position','rotation'])&&
@@ -229,6 +309,9 @@ export class MatrixWorld {
     this.scene={schemaVersion:1,roomId:ROOM_ID,objects:[]};
     this.game=null;
     this.creatorMode=createCreatorMode();
+    // Play state is separate from authored scene history: undoing a Creator
+    // edit must not rewind a control that someone used in Play/Test.
+    this.controlStates=Object.create(null);
     // An exchange may resume with the same browser clientId after a reload.
     // Give each world a fresh authored generation so observed Citizens poses
     // cannot hide an authored restore across that boundary.
@@ -262,7 +345,7 @@ export class MatrixWorld {
     const anchors=this.availableAnchors();
     const context=this.spatial?{mode:'ar',state:this.spatial.originUnavailable||this.spatial.stale?'missing':'ready',message:this.spatial.originUnavailable?'Saved room origin is unavailable. The old world is hidden and editing is paused until it is restored or explicitly archived for a new room.':this.spatial.stale?'A plane holding a scene object is no longer tracked; keep the scene for recovery and recheck the room.':this.spatial.anchors.length?`${this.spatial.anchors.length} WebXR room plane(s) detected. Virtual-floor objects remain visible as unanchored previews.`:'Waiting for Quest room planes. Virtual-floor objects remain visible as unanchored previews.',alignmentVerified:this.spatial.alignmentVerified&&!this.spatial.originUnavailable}
       :{mode:'white-room',state:'ready',message:'Browser virtual floor; physical room alignment is not verified.',alignmentVerified:false};
-    const snapshot={scene:clone(this.scene),assets:clone([...ASSETS,proceduralAsset,...this.externalAssets].map(({assetId,displayName,description,spawnScale,localBounds,geometry,interactions,sha256})=>({assetId,displayName,description,spawnScale,...(localBounds?{localBounds}:{}),...(interactions?{interactions}:{}),...(sha256?{sha256}:{}),...(geometry?.animationClips?{animationClips:geometry.animationClips.map(clip=>clip.name)}:{})}))),anchors:clone(anchors),selection:clone(this.selection),behaviorKinds:['rotate','bob'],componentSchemaVersion:1,animationSchemaVersion:1,physicsSchemaVersion:1,interactionSchemaVersion:2,physicsStates:this.physicsStates(),rigidSchemaVersion:1,rigidGravity:clone(this.rigidGravity),rigidStates:this.rigidPhysics?.states().filter(state=>this.scene.objects.some(item=>item.objectId===state.objectId))||[],entityActionSchemaVersion:1,agentGrab:clone(this.agentGrab),proceduralGenerators:listProceduralGenerators(),creatorMode:clone(this.creatorMode),game:clone(this.game),gameStatus:this.game?{phase:this.game.state.phase,score:this.game.state.score,objectiveProgress:clone(this.game.state.objectiveProgress),unlockedObjectIds:clone(this.game.state.unlockedObjectIds||[])}:null,roomContext:context,runtimeDescriptor:{schemaVersion:1,client:'matrix-web',renderer:'threejs-webxr',presentation:this.runtimePresentation}};
+    const snapshot={scene:clone(this.scene),assets:clone([...ASSETS,proceduralAsset,...this.externalAssets].map(({assetId,displayName,description,spawnScale,localBounds,geometry,interactions,sha256})=>({assetId,displayName,description,spawnScale,...(localBounds?{localBounds}:{}),...(interactions?{interactions}:{}),...(sha256?{sha256}:{}),...(geometry?.animationClips?{animationClips:geometry.animationClips.map(clip=>clip.name)}:{})}))),anchors:clone(anchors),selection:clone(this.selection),behaviorKinds:['rotate','bob'],componentSchemaVersion:1,animationSchemaVersion:1,physicsSchemaVersion:1,interactionSchemaVersion:2,physicsStates:this.physicsStates(),rigidSchemaVersion:1,rigidGravity:clone(this.rigidGravity),rigidStates:this.rigidPhysics?.states().filter(state=>this.scene.objects.some(item=>item.objectId===state.objectId))||[],entityActionSchemaVersion:1,agentGrab:clone(this.agentGrab),controlSchemaVersion:1,controlStates:clone(this.controlStates),proceduralGenerators:listProceduralGenerators(),creatorMode:clone(this.creatorMode),game:clone(this.game),gameStatus:this.game?{phase:this.game.state.phase,score:this.game.state.score,objectiveProgress:clone(this.game.state.objectiveProgress),unlockedObjectIds:clone(this.game.state.unlockedObjectIds||[])}:null,roomContext:context,runtimeDescriptor:{schemaVersion:1,client:'matrix-web',renderer:'threejs-webxr',presentation:this.runtimePresentation}};
     // The PC-local exchange uses this persisted state as an exact switch guard.
     // Agent-facing summaries must omit it; authoredGeneration alone does not
     // cover Citizens clock, appointment, or pause progress.
@@ -585,11 +668,25 @@ export class MatrixWorld {
       !this.spatial?.stale&&!this.spatial?.originUnavailable&&
       object.anchorId===ANCHOR_ID&&object.rigidBody?.type==='dynamic'&&rigidState?
       agentHeld?['move_grab','release_grab']:rigidState.held?[]:['begin_grab']:[];
+    const controlState=object.control?this.controlStates[objectId]??null:null;
+    if(object.control&&controlState&&canPlayWorld(this.creatorMode)&&
+       !this.spatial?.stale&&!this.spatial?.originUnavailable&&
+       !this.agentGrab&&!this.rigidPhysics?.states().some(body=>body.held)){
+      try{
+        const {index}=assertControlBinding(this.scene,object,object.control);
+        if(controlState.index===index&&
+           !this.citizens?.residents?.some(resident=>
+             resident.objectId===object.control.action.targetObjectId))
+          availableActions.push('activate_control');
+      }catch{ /* A stale or unavailable control is inspectable, not operable. */ }
+    }
     const gameRoles=this.game?.spec?.roles.filter(role=>
       this.game.bindings[role.roleId]?.includes(objectId)).map(role=>clone(role))||[];
     return {schemaVersion:1,kind:'entity-inspection',roomId:this.scene.roomId,
       object:clone(object),rigidState:rigidState?clone(rigidState):null,
+      displayObservation:object.display?displayObservation(this,object.display):null,
       colliderScope:object.rigidBody?'virtual-floor':null,availableActions,
+      controlState:controlState?clone(controlState):null,
       creatorMode:clone(this.creatorMode),gameStatus:this.game?{
         phase:this.game.state.phase,score:this.game.state.score,
         objectiveProgress:clone(this.game.state.objectiveProgress),
@@ -745,6 +842,7 @@ export class MatrixWorld {
     const result={requestId:command?.requestId||'',ok:false,error:'',objectId:''};
     let rigidRollback=null,rigidRollbackSolver=null;
     let rigidMutationStarted=false,rigidRebuildCompleted=false;
+    let controlRigidRebuild=false;
     try {
       if (!command || !validId(command.requestId)) throw Error('Invalid requestId');
       const op=command.op;
@@ -753,12 +851,13 @@ export class MatrixWorld {
           'set_behavior','remove_behavior','attach_component','stop_component',
           'remove_component','bind_animation','set_physics','remove_physics',
           'set_rigid_body','remove_rigid_body','set_gravity','set_interaction',
-          'remove_interaction','set_display','remove_display','bind_game','update_game',
+          'remove_interaction','set_display','remove_display','set_control',
+          'remove_control','bind_game','update_game',
           'delete','clear','load','undo','redo'].includes(op))
         throw Error('Return to Creator Mode before editing the world');
       if(this.spatial?.originUnavailable&&!['get_scene','list_assets','list_targets','inspect_entity'].includes(op))
         throw Error('Saved room origin is unavailable; restore it or archive the old world before editing');
-      if(this.spatial?.stale&&['spawn','duplicate','set_transform','set_behavior','remove_behavior','attach_component','stop_component','remove_component','bind_animation','set_physics','remove_physics','set_interaction','remove_interaction','set_display','remove_display','delete','load','undo','redo','select','create_procedural','update_procedural','set_rigid_body','remove_rigid_body','set_gravity','bind_game','update_game','begin_grab','move_grab','release_grab'].includes(op))
+      if(this.spatial?.stale&&['spawn','duplicate','set_transform','set_behavior','remove_behavior','attach_component','stop_component','remove_component','bind_animation','set_physics','remove_physics','set_interaction','remove_interaction','set_display','remove_display','set_control','remove_control','activate_control','delete','load','undo','redo','select','create_procedural','update_procedural','set_rigid_body','remove_rigid_body','set_gravity','bind_game','update_game','begin_grab','move_grab','release_grab'].includes(op))
         throw Error('Room tracking is stale; editing is paused until the room is recovered');
       if(Object.hasOwn(command,'expectedTransform')){
         if(!expectedTransformOps.has(op)||!validExpectedTransform(command.expectedTransform))
@@ -766,13 +865,30 @@ export class MatrixWorld {
         if(!sameTransform(this.requireObject(command.objectId).transform,command.expectedTransform))
           throw Error('Object transform changed since command was queued');
       }
+      if(Object.hasOwn(command,'expectedAssetId')){
+        if(op!=='set_transform'||!validId(command.expectedAssetId)||
+           this.requireObject(command.objectId).assetId!==command.expectedAssetId)
+          throw Error('Object asset changed since command was queued');
+      }
+      if(op==='set_transform'&&Object.hasOwn(command,'expectedCreatorRevision')){
+        if(!Number.isSafeInteger(command.expectedCreatorRevision)||
+           command.expectedCreatorRevision!==this.creatorMode.revision||
+           this.creatorMode.mode!=='creator'||this.creatorMode.simulation!=='paused')
+          throw Error('Creator Mode changed since command was queued');
+      }
       if(Object.hasOwn(command,'expectedTargetTransform')){
-        if(op!=='attach_component'||!validExpectedTransform(command.expectedTargetTransform))
+        if(!['attach_component','set_control','activate_control'].includes(op)||
+           !validExpectedTransform(command.expectedTargetTransform))
           throw Error('Invalid expectedTargetTransform precondition');
-        if(!sameTransform(this.requireObject(command.targetObjectId).transform,command.expectedTargetTransform))
+        const targetObjectId=op==='activate_control'?
+          this.requireObject(command.objectId).control?.action?.targetObjectId:
+          op==='set_control'?command.control?.action?.targetObjectId:
+            command.targetObjectId;
+        if(!sameTransform(this.requireObject(targetObjectId).transform,
+           command.expectedTargetTransform))
           throw Error('Component target transform changed since command was queued');
       }
-      const mutation=['spawn','duplicate','set_transform','set_behavior','remove_behavior','attach_component','stop_component','remove_component','bind_animation','set_physics','remove_physics','set_interaction','remove_interaction','set_display','remove_display','delete','clear','load','create_procedural','update_procedural','set_rigid_body','remove_rigid_body'].includes(op);
+      const mutation=['spawn','duplicate','set_transform','set_behavior','remove_behavior','attach_component','stop_component','remove_component','bind_animation','set_physics','remove_physics','set_interaction','remove_interaction','set_display','remove_display','set_control','remove_control','delete','clear','load','create_procedural','update_procedural','set_rigid_body','remove_rigid_body'].includes(op);
       // Local finite simulation steps use the same validation and receipt path
       // without filling the user's scene Undo history with each movement tick.
       const before=mutation&&recordHistory?clone(this.scene):null;
@@ -785,7 +901,7 @@ export class MatrixWorld {
         renderedVerification:this.renderedVerification,
         physicsSceneReference:this.physicsSceneReference,
         rigidSceneReference:this.rigidSceneReference,agentGrab:this.agentGrab,
-        authoredGeneration:this.authoredGeneration}):null;
+        authoredGeneration:this.authoredGeneration,controlStates:this.controlStates}):null;
       if(rigidRollback)rigidRollbackSolver=this.rigidPhysics.snapshot();
       let object,replayEntry;
       switch(op) {
@@ -907,6 +1023,10 @@ export class MatrixWorld {
           if(Object.hasOwn(command,'expectedRigidBody')&&
              !sameRigidBody(command.expectedRigidBody,object.rigidBody))
             throw Error('Rigid body changed since command was queued');
+          if(command.rigidBody?.type==='dynamic'&&
+             (object.control||this.scene.objects.some(item=>
+               item.control?.action?.targetObjectId===object.objectId)))
+            throw Error('Remove the control before enabling dynamic motion');
           if(object.anchorId!==ANCHOR_ID||!validRigidBodyConfig(command.rigidBody)||
              object.physics||object.component||object.interaction||
              object.behaviors?.some(behavior=>behavior.enabled)||object.animation)
@@ -957,6 +1077,92 @@ export class MatrixWorld {
              JSON.stringify(command.expectedDisplay)!==JSON.stringify(object.display))
             throw Error('Display changed since command was queued');
           delete object.display;result.objectId=object.objectId;break;
+        case 'set_control': {
+          if(this.creatorMode.mode!=='creator'||this.creatorMode.simulation!=='paused'||
+             !Number.isSafeInteger(command.expectedCreatorRevision)||
+             command.expectedCreatorRevision!==this.creatorMode.revision)
+            throw Error('Paused Creator Mode changed since control review');
+          object=this.requireObject(command.objectId);
+          if(!Object.hasOwn(command,'expectedTransform')||
+             !Object.hasOwn(command,'expectedTargetTransform')||
+             !Object.hasOwn(command,'expectedControl')||
+             !sameControl(command.expectedControl,object.control??null))
+            throw Error('Control entity changed since command was queued');
+          const previous=this.controlStates[object.objectId];
+          if(object.control){
+            const {index:oldIndex}=assertControlBinding(this.scene,object,object.control);
+            if(!validControlState(previous,object.control)||previous.index!==oldIndex)
+              throw Error('Control progress changed; inspect before revising');
+          }
+          const candidate={...object,control:command.control};
+          const candidateScene={...this.scene,objects:this.scene.objects.map(item=>
+            item.objectId===object.objectId?candidate:item)};
+          const {target,index}=assertControlBinding(candidateScene,candidate,command.control);
+          if(this.citizens?.residents?.some(resident=>resident.objectId===target.objectId))
+            throw Error('A Citizens resident owns the control target transform');
+          if(target.rigidBody)for(const value of command.control.action.values)
+            this.rigidBodyInput({...target,transform:{...target.transform,
+              scale:controlValueScale(value)}});
+          if(previous?.revision===Number.MAX_SAFE_INTEGER)
+            throw Error('Control state revision exhausted');
+          object.control=clone(command.control);
+          this.controlStates[object.objectId]={index,
+            revision:previous?previous.revision+1:0};
+          result.objectId=object.objectId;break;}
+        case 'remove_control':
+          if(this.creatorMode.mode!=='creator'||this.creatorMode.simulation!=='paused'||
+             !Number.isSafeInteger(command.expectedCreatorRevision)||
+             command.expectedCreatorRevision!==this.creatorMode.revision)
+            throw Error('Paused Creator Mode changed since control review');
+          object=this.requireObject(command.objectId);
+          if(!Object.hasOwn(command,'expectedTransform')||!object.control||
+             !Object.hasOwn(command,'expectedControl')||
+             !sameControl(command.expectedControl,object.control))
+            throw Error('Control definition changed since command was queued');
+          delete object.control;delete this.controlStates[object.objectId];
+          result.objectId=object.objectId;break;
+        case 'activate_control': {
+          if(!canPlayWorld(this.creatorMode)||
+             !Number.isSafeInteger(command.expectedCreatorRevision)||
+             command.expectedCreatorRevision!==this.creatorMode.revision)
+            throw Error('Running Play/Test Mode changed since control inspection');
+          if(!Object.hasOwn(command,'expectedTransform')||
+             !Object.hasOwn(command,'expectedTargetTransform')||
+             !Object.hasOwn(command,'expectedControl')||
+             !Object.hasOwn(command,'expectedControlState'))
+            throw Error('Control activation needs observed entity, target and state');
+          object=this.requireObject(command.objectId);
+          if(!object.control||!sameControl(command.expectedControl,object.control))
+            throw Error('Control definition changed since it was inspected');
+          const {target,index}=assertControlBinding(this.scene,object,object.control);
+          const state=this.controlStates[object.objectId];
+          if(!validControlState(state,object.control)||state.index!==index||
+             !validControlState(command.expectedControlState,object.control)||
+             !sameControlState(command.expectedControlState,state))
+            throw Error('Control state changed since it was inspected');
+          if(this.citizens?.residents?.some(resident=>resident.objectId===target.objectId))
+            throw Error('A Citizens resident owns the control target transform');
+          if(this.agentGrab||this.rigidPhysics?.states().some(body=>body.held))
+            throw Error('Release the held rigid object before activating a control');
+          if(state.revision===Number.MAX_SAFE_INTEGER)
+            throw Error('Control state revision exhausted');
+          if(target.rigidBody&&!this.rigidPhysics)
+            throw Error('Rigid solver is still loading');
+          const nextIndex=(index+1)%object.control.action.values.length;
+          const nextTransform=clone(target.transform);
+          nextTransform.scale=controlValueScale(object.control.action.values[nextIndex]);
+          if(target.rigidBody)this.rigidBodyInput({...target,transform:nextTransform});
+          rigidMutationStarted=true;
+          controlRigidRebuild=!!target.rigidBody;
+          target.transform=nextTransform;
+          this.controlStates[object.objectId]={index:nextIndex,
+            revision:state.revision+1};
+          result.objectId=object.objectId;
+          result.outcome={schemaVersion:1,kind:'control-activated',
+            objectId:object.objectId,targetObjectId:target.objectId,
+            controlState:clone(this.controlStates[object.objectId]),
+            transform:clone(target.transform),creatorMode:clone(this.creatorMode)};
+          break;}
         case 'bind_game':
           if(this.spatial?.originUnavailable||this.spatial?.stale)
             throw Error('Room origin is unavailable for game binding');
@@ -982,6 +1188,9 @@ export class MatrixWorld {
           if(this.spatial||this.scene.roomId!==ROOM_ID)
             throw Error('Interaction authoring requires the desktop virtual room');
           object=this.requireObject(command.objectId);
+          if(object.control||this.scene.objects.some(item=>
+             item.control?.action?.targetObjectId===object.objectId))
+            throw Error('Remove the control before authoring a Citizens interaction');
           if(!Object.hasOwn(command,'expectedInteraction')||
              command.expectedInteraction!==null&&
                !validInteractionDescriptor(command.expectedInteraction)||
@@ -1126,6 +1335,7 @@ export class MatrixWorld {
           break;
         case 'duplicate':
           object=this.requireObject(command.objectId);
+          if(object.control)throw Error('Remove or separately author a control before duplicating its entity');
           if (this.scene.objects.length>=MAX_OBJECTS) throw Error('Scene object limit reached');
           if(object.physics&&this.scene.objects.filter(item=>item.physics).length>=16)
             throw Error('Physics object limit reached');
@@ -1147,6 +1357,23 @@ export class MatrixWorld {
           if (!validTransform(command.transform)) throw Error('Invalid transform');
           if (command.anchorId && command.anchorId!==object.anchorId) throw Error('Changing an object anchor is not supported');
           {const resolved=this.resolvedTransform(command,object.assetId,object.anchorId);
+            const controlling=this.scene.objects.find(item=>
+              item.control?.action?.targetObjectId===object.objectId);
+            const controlState=controlling?this.controlStates[controlling.objectId]:null;
+            const controlIndex=controlling?
+              controlValueIndex(controlling.control,resolved.scale):-1;
+            if(controlling&&(controlIndex<0||
+               !validControlState(controlState,controlling.control)||
+               controlState.index!==controlValueIndex(controlling.control,
+                 object.transform.scale)))
+              throw Error('Revise the control presets before changing its target scale');
+            if(controlling&&controlIndex!==controlState.index&&
+               controlState.revision===Number.MAX_SAFE_INTEGER)
+              throw Error('Control state revision exhausted');
+            if(this.citizens?.residents?.some(resident=>resident.objectId===object.objectId)&&
+               (Math.abs(resolved.position.y)>.05||
+                !['x','y','z'].every(axis=>resolved.scale[axis]===.7)))
+              throw Error('Citizens resident requires floor height and 0.7 scale');
             if(object.physics)this.assertPhysicsEligible(object,resolved,{verified:!this.spatial});
             if(object.rigidBody&&this.rigidSceneReference===this.scene&&
                this.rigidPhysics?.state(object.objectId)?.held)
@@ -1155,6 +1382,9 @@ export class MatrixWorld {
               this.asset(object.assetId),object.interaction);
             rigidMutationStarted=true;
             object.transform=resolved;
+            if(controlling&&controlIndex!==controlState.index)
+              this.controlStates[controlling.objectId]={index:controlIndex,
+                revision:controlState.revision+1};
             if(object.physics){
               if(this.spatial)this.physicsBodies.delete(object.objectId);
               else this.startPhysics(object,command.requestId);
@@ -1163,6 +1393,10 @@ export class MatrixWorld {
         case 'set_behavior':
           object=this.requireObject(command.objectId);
           if (!validBehavior(command.behavior)) throw Error('Invalid behavior');
+          if(command.behavior.enabled&&!command.behavior.paused&&
+             (object.control||this.scene.objects.some(item=>
+               item.control?.action?.targetObjectId===object.objectId)))
+            throw Error('Remove the control before enabling a transform behavior');
           if((object.physics||object.rigidBody)&&command.behavior.enabled)
             throw Error('Remove physics before enabling a transform behavior');
           if(object.interaction&&command.behavior.enabled&&!command.behavior.paused)
@@ -1177,6 +1411,9 @@ export class MatrixWorld {
           result.objectId=object.objectId; break;
         case 'attach_component':
           object=this.requireObject(command.objectId);
+          if(object.control||this.scene.objects.some(item=>
+             item.control?.action?.targetObjectId===object.objectId))
+            throw Error('Remove the control before attaching a transform component');
           if(object.anchorId!==ANCHOR_ID)throw Error('Components currently require virtual-floor objects');
           if(object.physics||object.rigidBody)throw Error('Remove physics before attaching a component');
           if(object.interaction)throw Error('Remove the authored interaction before attaching a component');
@@ -1208,6 +1445,10 @@ export class MatrixWorld {
           {const binding={loopClip:command.loopClip,selectClip:command.selectClip};
             if(!validAnimationBinding(binding,this.asset(object.assetId),true))
               throw Error('Invalid GLB animation binding');
+            if((binding.loopClip||binding.selectClip)&&
+               (object.control||this.scene.objects.some(item=>
+                 item.control?.action?.targetObjectId===object.objectId)))
+              throw Error('Remove the control before binding animation');
             if(object.interaction&&(binding.loopClip||binding.selectClip))
               throw Error('Remove the authored interaction before binding animation');
             if(binding.loopClip||binding.selectClip)object.animation=clone(binding);
@@ -1217,6 +1458,9 @@ export class MatrixWorld {
           if(this.spatial||this.scene.roomId!==ROOM_ID)
             throw Error('Physics currently runs in the white room only');
           object=this.requireObject(command.objectId);
+          if(object.control||this.scene.objects.some(item=>
+             item.control?.action?.targetObjectId===object.objectId))
+            throw Error('Remove the control before enabling floor physics');
           if(!validPhysicsConfig(command.physics))throw Error('Invalid physics configuration');
           if(object.interaction||object.rigidBody)throw Error('Remove the authored interaction or rigid body before enabling floor physics');
           if(!object.physics&&this.scene.objects.filter(item=>item.physics).length>=16)
@@ -1232,6 +1476,9 @@ export class MatrixWorld {
           result.objectId=object.objectId;break;
         case 'delete':
           object=this.requireObject(command.objectId);
+          if(this.scene.objects.some(item=>item.objectId!==object.objectId&&
+             item.control?.action?.targetObjectId===object.objectId))
+            throw Error('Remove the control before deleting its target');
           if(this.game)assertCompatibleGameScene(this,{...this.scene,objects:
             this.scene.objects.filter(item=>item.objectId!==object.objectId)});
           rigidMutationStarted=true;
@@ -1241,34 +1488,42 @@ export class MatrixWorld {
           if (this.selection.objectId===object.objectId) this.selection.objectId='';
           this.physicsBodies.delete(object.objectId);this.physicsVerification.delete(object.objectId);
           this.renderedVerification.delete(object.objectId);
+          delete this.controlStates[object.objectId];
           result.objectId=object.objectId; break;
         case 'clear':
           if(this.game)throw Error('Clear would discard an active game; migrate or reset it explicitly');
           rigidMutationStarted=true;
           this.scene.objects=[]; this.selection.objectId='';
           this.physicsBodies.clear();this.physicsVerification.clear();
-          this.renderedVerification.clear();break;
+          this.renderedVerification.clear();this.controlStates=Object.create(null);break;
         case 'load':
           this.validateScene(command.scene);
           assertCompatibleGameScene(this,command.scene);
+          {const states=validateControlStates(undefined,command.scene);
           rigidMutationStarted=true;
           this.scene=clone(command.scene); this.selection.objectId='';
           this.physicsBodies.clear();this.physicsVerification.clear();
-          this.renderedVerification.clear();this.physicsSceneReference=this.scene;break;
+          this.renderedVerification.clear();this.physicsSceneReference=this.scene;
+          this.controlStates=states;break;}
         case 'undo':
-          if(this.undo.length)assertCompatibleGameScene(this,this.undo.at(-1).scene);
-          rigidMutationStarted=this.undo.length>0;
-          replayEntry=this.replay(this.undo,this.redo);break;
+          if(!this.undo.length)throw Error('History is empty');
+          assertCompatibleGameScene(this,this.undo.at(-1).scene);
+          {const states=reconciledControlStates(this.undo.at(-1).scene,this.controlStates);
+            rigidMutationStarted=true;
+            replayEntry=this.replay(this.undo,this.redo);this.controlStates=states;break;}
         case 'redo':
-          if(this.redo.length)assertCompatibleGameScene(this,this.redo.at(-1).scene);
-          rigidMutationStarted=this.redo.length>0;
-          replayEntry=this.replay(this.redo,this.undo);break;
+          if(!this.redo.length)throw Error('History is empty');
+          assertCompatibleGameScene(this,this.redo.at(-1).scene);
+          {const states=reconciledControlStates(this.redo.at(-1).scene,this.controlStates);
+            rigidMutationStarted=true;
+            replayEntry=this.replay(this.redo,this.undo);this.controlStates=states;break;}
         default: throw Error('Unknown operation');
       }
       // Scene history records edits, while the solver owns unrelated live poses.
       const replayRigidIds=replayEntry?.preserveRigid&&this.rigidPhysics?
         new Set(this.rigidPhysics.states().map(state=>state.objectId)):null;
-      if(this.rigidPhysics&&RIGID_REBUILD_OPS.has(op)){
+      if(this.rigidPhysics&&RIGID_REBUILD_OPS.has(op)&&
+         (op!=='activate_control'||controlRigidRebuild)){
         this.rebuildRigidPhysics({preserve:replayEntry?replayEntry.preserveRigid:
           !['clear','load'].includes(op),resetObjectId:replayEntry?.rigidResetObjectId??
           (op==='set_transform'?object?.objectId:null)});
@@ -1283,7 +1538,14 @@ export class MatrixWorld {
         if(this.undo.length>32)this.undo.shift();}
       // An unrecorded simulation edit still supersedes any undone future.
       if (mutation)this.redo=[];
-      if(recordHistory&&(mutation||op==='undo'||op==='redo'))this.markAuthoredSceneChange();
+      // Creator history contains whole scene snapshots. After a Play action,
+      // replaying an older authored snapshot would rewind earned state.
+      if(op==='activate_control'){
+        result.outcome.creatorHistoryCleared=this.undo.length>0||this.redo.length>0;
+        this.undo=[];this.redo=[];
+      }
+      if(recordHistory&&(mutation||op==='undo'||op==='redo'||op==='activate_control'))
+        this.markAuthoredSceneChange();
       result.ok=true;
     } catch(error) {
       if(rigidRollback&&rigidMutationStarted){
@@ -1320,6 +1582,8 @@ export class MatrixWorld {
       ids.add(o.objectId);
       if(o.behaviors && (!Array.isArray(o.behaviors)||o.behaviors.length>2||new Set(o.behaviors.map(b=>b.kind)).size!==o.behaviors.length||!o.behaviors.every(validBehavior))) throw Error('Invalid scene behavior');
       if(Object.hasOwn(o,'display')&&!validDisplay(o.display))throw Error('Invalid scene display');
+      if(Object.hasOwn(o,'control')&&!validControlDescriptor(o.control))
+        throw Error('Invalid scene control');
       if(o.assetId===PROCEDURAL_ASSET_ID){
         if(!o.procedural||o.anchorId!==ANCHOR_ID)throw Error('Invalid procedural construction');
         generateProcedural(o.procedural);
@@ -1346,6 +1610,12 @@ export class MatrixWorld {
       if(o.animation&&(o.anchorId!==ANCHOR_ID||!validAnimationBinding(o.animation,this.asset(o.assetId))))
         throw Error('Invalid GLB animation binding');
       if(o.physics)this.assertPhysicsEligible(o);
+    }
+    for(const o of scene.objects)if(o.control){
+      const {target}=assertControlBinding(scene,o,o.control);
+      if(target.rigidBody)for(const value of o.control.action.values)
+        this.rigidBodyInput({...target,transform:{...target.transform,
+          scale:controlValueScale(value)}});
     }
   }
   replay(from,to) {

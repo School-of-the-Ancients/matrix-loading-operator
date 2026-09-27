@@ -13,9 +13,10 @@
       <div class="brand"><span class="brand-mark">◈</span><span><strong>MATRIX</strong><small>WEB RUNTIME · v0.1</small></span></div>
       <div class="status"><span id="connection-dot"></span><span id="connection">Connecting…</span></div>
     </header>
-    <aside class="panel">
+    <button id="toggle-sidebar" class="sidebar-toggle" type="button" aria-controls="world-operator-panel" aria-expanded="true">Hide controls</button>
+    <aside id="world-operator-panel" class="panel">
       <div class="panel-title"><span>WORLD OPERATOR</span><span id="object-count">0 objects</span></div>
-      <p class="hint">Describe the experience to Operator, inspect its objects and rules, then enter Play/Test. Desktop: WASD moves, right-drag looks, and left-drag grabs. In VR or AR, open the in-world Operator panel with either thumbstick and use the controller trigger to grab. Return to Creator Mode to revise the same world.</p>
+      <p class="hint">Describe the experience to Operator, inspect its objects and rules, then enter Play/Test. Desktop: WASD moves, right-drag looks, left-drag grabs a dynamic body, and click activates a labeled world control. In VR or AR, open the in-world Operator panel with either thumbstick; use the controller trigger to grab a dynamic body or activate a labeled control. Return to Creator Mode to revise the same world.</p>
       <p class="hint"><a href="/web/citizens.html" target="_blank" rel="noopener">Open the isolated AI Citizens desktop demo</a> to watch two seeded residents choose activities and share a chair.</p>
       <section class="creator-controls" aria-label="Creator and Play/Test mode">
         <strong id="creator-mode-status" role="status">Creator Mode · simulation paused</strong>

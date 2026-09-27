@@ -205,6 +205,8 @@ class WebInteractionContractTests(unittest.TestCase):
         present["scene"]["objects"][0]["interaction"] = copy.deepcopy(self.interaction)
         present["physicsSchemaVersion"] = 1
         present["behaviorKinds"] = ["rotate"]
+        present["creatorMode"] = {"schemaVersion": 1, "mode": "creator",
+                                  "simulation": "paused", "revision": 0}
         self.state.exchange({"clientId": "web-interaction-test", "snapshot": present,
                              "results": []})
         valid_pose = copy.deepcopy(POSE)
@@ -218,6 +220,15 @@ class WebInteractionContractTests(unittest.TestCase):
         with self.assertRaisesRegex(APIError, "floor-aligned"):
             self.state.queue([{"op": "set_transform", "objectId": "seat-1",
                               "transform": invalid_pose}])
+        revision = self.state.revision
+        with self.assertRaisesRegex(APIError, "floor-aligned"):
+            self.state.agent_move({"room_id": "web-virtual-room-v1",
+                                   "scene_revision": revision,
+                                   "object_id": "seat-1",
+                                   "expected_asset_id": self.asset["assetId"],
+                                   "position": invalid_pose["position"]})
+        self.assertEqual(self.state.revision, revision)
+        self.assertFalse(self.state.pending)
         with self.assertRaisesRegex(APIError, "interaction before enabling physics"):
             self.state.queue([{"op": "set_physics", "objectId": "seat-1",
                               "physics": {"schemaVersion": 1, "kind": "gravity-floor",

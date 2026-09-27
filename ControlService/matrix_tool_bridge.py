@@ -121,6 +121,18 @@ def display_status(url: str, token: str, request_id: str) -> dict:
     return _request_json(url[:-6] + "/displays/" + request_id, token)
 
 
+def control_action(url: str, token: str, value: dict) -> dict:
+    if not url.endswith("/scene"):
+        raise ValueError("Invalid Matrix tool bridge URL")
+    return _request_json(url[:-6] + "/control", token, value)
+
+
+def control_status(url: str, token: str, request_id: str) -> dict:
+    if not url.endswith("/scene") or not re.fullmatch(r"[0-9a-f]{32}", request_id):
+        raise ValueError("Invalid Matrix control receipt request")
+    return _request_json(url[:-6] + "/controls/" + request_id, token)
+
+
 def rigid_action(url: str, token: str, value: dict) -> dict:
     if not url.endswith("/scene"):
         raise ValueError("Invalid Matrix tool bridge URL")
@@ -279,6 +291,8 @@ def scene_summary(state) -> dict:
                 "animationSchemaVersion": snapshot.get("animationSchemaVersion") if online else None,
                 "physicsSchemaVersion": snapshot.get("physicsSchemaVersion") if online else None,
                 "rigidSchemaVersion": snapshot.get("rigidSchemaVersion") if online else None,
+                "controlSchemaVersion": snapshot.get("controlSchemaVersion") if online else None,
+                "controlStates": snapshot.get("controlStates", {}) if online else {},
                 "rigidGravity": snapshot.get("rigidGravity") if online else None,
                 "rigidStates": snapshot.get("rigidStates", [])[:32] if online else [],
                 "entityActionSchemaVersion": snapshot.get("entityActionSchemaVersion") if online else None,
@@ -296,6 +310,7 @@ def scene_summary(state) -> dict:
                              **({"physics": item["physics"]} if "physics" in item else {}),
                              **({"rigidBody": item["rigidBody"]} if "rigidBody" in item else {}),
                              **({"display": item["display"]} if "display" in item else {}),
+                             **({"control": item["control"]} if "control" in item else {}),
                              **({"procedural": item["procedural"]} if "procedural" in item else {}),
                              **({"interaction": item["interaction"]} if "interaction" in item else {}),
                              **({"component": {"componentId": item["component"]["componentId"],
@@ -399,6 +414,13 @@ class _Handler(BaseHTTPRequestHandler):
             except Exception as error:
                 self._send_json(getattr(error, "status", 500),
                                 {"error": str(error) if hasattr(error, "status") else "Matrix tool failed"})
+        elif re.fullmatch(r"/controls/[0-9a-f]{32}", self.path):
+            try:
+                self._send_json(200, self.server.state.agent_control_status(
+                    self.path.rsplit("/", 1)[1]))
+            except Exception as error:
+                self._send_json(getattr(error, "status", 500),
+                                {"error": str(error) if hasattr(error, "status") else "Matrix tool failed"})
         elif re.fullmatch(r"/rigid/[0-9a-f]{32}", self.path):
             try:
                 self._send_json(200, self.server.state.agent_rigid_status(
@@ -487,7 +509,7 @@ class _Handler(BaseHTTPRequestHandler):
     def do_POST(self):
         if not self._authorized():
             return
-        if self.path not in ("/move", "/spawn", "/spawn-builtin", "/procedural", "/bind-game", "/update-game", "/display", "/rigid", "/inspect-entity", "/entity-action", "/world-archive", "/bind-animation", "/register-glb", "/publish-component", "/component-action", "/scale", "/physics", "/interaction"):
+        if self.path not in ("/move", "/spawn", "/spawn-builtin", "/procedural", "/bind-game", "/update-game", "/display", "/control", "/rigid", "/inspect-entity", "/entity-action", "/world-archive", "/bind-animation", "/register-glb", "/publish-component", "/component-action", "/scale", "/physics", "/interaction"):
             self.send_error(404)
             return
         try:
@@ -530,6 +552,12 @@ class _Handler(BaseHTTPRequestHandler):
                 while result["status"] == "queued" and time.monotonic() < deadline:
                     time.sleep(.1)
                     result = self.server.state.agent_display_status(result["requestId"])
+            elif self.path == "/control":
+                result = self.server.state.agent_control_action(value)
+                deadline = time.monotonic() + MOVE_WAIT
+                while result["status"] == "queued" and time.monotonic() < deadline:
+                    time.sleep(.1)
+                    result = self.server.state.agent_control_status(result["requestId"])
             elif self.path == "/rigid":
                 result = self.server.state.agent_rigid_action(value)
                 deadline = time.monotonic() + MOVE_WAIT

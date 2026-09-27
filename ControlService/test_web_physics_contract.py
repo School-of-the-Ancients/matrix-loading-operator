@@ -187,6 +187,22 @@ class WebPhysicsContractTests(unittest.TestCase):
             self.assertEqual(state.revision, revision)
             self.assertFalse(state.pending)
 
+    def test_typed_transform_keeps_existing_physics_preflight(self):
+        with tempfile.TemporaryDirectory() as directory:
+            current = snapshot_value([object_value(physics=True)])
+            current["creatorMode"] = {"schemaVersion": 1, "mode": "creator",
+                                      "simulation": "paused", "revision": 0}
+            state = state_with_asset(directory, current)
+            revision = state.revision
+            with self.assertRaisesRegex(APIError, "upright start"):
+                state.agent_move({"room_id": "web-virtual-room-v1",
+                                  "scene_revision": revision,
+                                  "object_id": "glb-0", "expected_asset_id": ASSET_ID,
+                                  "position": copy.deepcopy(POSE["position"]),
+                                  "rotation": {"x": 10, "y": 0, "z": 0}})
+            self.assertEqual(state.revision, revision)
+            self.assertFalse(state.pending)
+
     def test_batch_cannot_overfill_physics_body_budget(self):
         with tempfile.TemporaryDirectory() as directory:
             objects = [object_value(i) for i in range(MAX_PHYSICS_BODIES + 1)]
