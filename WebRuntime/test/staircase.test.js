@@ -32,9 +32,9 @@ test('staircase edits keep object IDs, independent recipes and saved source',()=
   const before=structuredClone(world.scene),history=world.undo.length;
   const fractional=world.execute({requestId:'invalid-steps',op:'update_procedural',
     objectId:firstId,expectedProcedural:wider,expectedTransform:pose(0),
-    procedural:reviseProceduralRecipe(wider,{stepCount:5.5})});
+    procedural:{...wider,parameters:{...wider.parameters,stepCount:5.5}}});
   assert.equal(fractional.ok,false);
-  assert.match(fractional.error,/whole number/);
+  assert.match(fractional.error,/Invalid procedural parameter/);
   assert.deepEqual(world.scene,before);
   assert.equal(world.undo.length,history);
   execute(world,'undo-stairs','undo');

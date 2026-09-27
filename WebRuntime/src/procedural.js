@@ -30,11 +30,13 @@ function parameterSchema(definition) {
     throw Error('Invalid procedural parameter schema');
   for (const [name, field] of Object.entries(definition)) {
     if (!parameterNamePattern.test(name) || !record(field) ||
-        !['number', 'boolean'].includes(field.type))
+        !['number', 'integer', 'boolean'].includes(field.type))
       throw Error('Invalid procedural parameter field');
-    if (field.type === 'number') {
+    if (field.type !== 'boolean') {
+      const validNumber = field.type === 'integer' ? Number.isSafeInteger : finite;
       if (!exactKeys(field, ['type', 'default', 'min', 'max']) ||
-          !finite(field.min) || !finite(field.max) || !finite(field.default) ||
+          !validNumber(field.min) || !validNumber(field.max) ||
+          !validNumber(field.default) ||
           field.min >= field.max || field.default < field.min || field.default > field.max)
         throw Error('Invalid procedural numeric parameter');
     } else if (!exactKeys(field, ['type', 'default']) || typeof field.default !== 'boolean') {
@@ -53,9 +55,11 @@ function normalizedParameters(schema, input, partial) {
     if (!partial && !Object.hasOwn(input, name))
       throw Error(`Missing procedural parameter: ${name}`);
     const value = Object.hasOwn(input, name) ? input[name] : field.default;
-    if (field.type === 'number' ?
-        !finite(value) || value < field.min || value > field.max :
-        typeof value !== 'boolean')
+    const validValue = field.type === 'number' ? finite(value) :
+      field.type === 'integer' ? Number.isSafeInteger(value) :
+        typeof value === 'boolean';
+    if (!validValue || (field.type !== 'boolean' &&
+        (value < field.min || value > field.max)))
       throw Error(`Invalid procedural parameter: ${name}`);
     parameters[name] = value;
   }
@@ -235,13 +239,13 @@ const staircaseGenerator = {
   description: 'A bounded straight staircase with flat treads rising along local +X.',
   dependencies: [],
   parameterSchema: {
-    stepCount: {type: 'number', default: 6, min: 2, max: 12},
+    stepCount: {type: 'integer', default: 6, min: 2, max: 12},
     widthMeters: {type: 'number', default: 1.2, min: .8, max: 3},
     treadDepthMeters: {type: 'number', default: .32, min: .25, max: .5},
     stepRiseMeters: {type: 'number', default: .18, min: .12, max: .25}
   },
   estimate(p) {
-    if (!Number.isInteger(p.stepCount))
+    if (!Number.isSafeInteger(p.stepCount))
       throw Error('Staircase stepCount must be a whole number');
     // Each closed prism has six quads, with independent face vertices.
     return {parts: p.stepCount, vertices: p.stepCount * 24,

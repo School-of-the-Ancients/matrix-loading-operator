@@ -21,6 +21,15 @@ GENERATOR = {"generatorId": "bridge", "generatorVersion": "1.0.0",
                  "widthMeters": {"type": "number", "default": 1.5, "min": .8, "max": 4},
                  "railings": {"type": "boolean", "default": True}},
              "dependencies": []}
+STAIRCASE_GENERATOR = {
+    "generatorId": "staircase", "generatorVersion": "1.0.0",
+    "sourceRevision": "staircase-v1", "description": "A bounded straight staircase",
+    "parameterSchema": {
+        "stepCount": {"type": "integer", "default": 6, "min": 2, "max": 12},
+        "widthMeters": {"type": "number", "default": 1.2, "min": .8, "max": 3},
+        "treadDepthMeters": {"type": "number", "default": .32, "min": .25, "max": .5},
+        "stepRiseMeters": {"type": "number", "default": .18, "min": .12, "max": .25}},
+    "dependencies": []}
 RIGID = {"schemaVersion": 1, "type": "static", "collider": "procedural-mesh",
          "restitution": .2, "friction": .8, "sensor": False}
 
@@ -122,6 +131,45 @@ class MatrixProceduralTests(unittest.TestCase):
         self.assertEqual(self.state.latest["scene"]["objects"], [])
         self.assertEqual(self.state.agent_procedural_status(queued["requestId"])["status"],
                          "failed")
+
+    def test_staircase_integer_contract_rejects_before_queue_and_checkpoint(self):
+        self.snapshot["proceduralGenerators"] = [copy.deepcopy(STAIRCASE_GENERATOR)]
+        self.exchange()
+        self.assertEqual(new_recipe([STAIRCASE_GENERATOR], "staircase")
+                         ["parameters"]["stepCount"], 6)
+        self.assertEqual(new_recipe([STAIRCASE_GENERATOR], "staircase",
+                                    {"stepCount": 5.0})["parameters"]["stepCount"], 5)
+        self.assertEqual(new_recipe([GENERATOR], "bridge", {"widthMeters": 1.75})
+                         ["parameters"]["widthMeters"], 1.75)
+        with self.assertRaisesRegex(APIError, "Invalid procedural parameter: stepCount"):
+            self.state.agent_procedural_action(self.request(
+                generator_id="staircase", parameters={"stepCount": 5.5}))
+        with self.assertRaisesRegex(ProceduralError, "Invalid procedural parameter"):
+            new_recipe([STAIRCASE_GENERATOR], "staircase", {"stepCount": 10**1000})
+        self.assertFalse(self.state.pending)
+        recipe = new_recipe([STAIRCASE_GENERATOR], "staircase")
+        created = self.object(recipe, object_id="stairs-1")
+        self.exchange(objects=[created])
+        before = copy.deepcopy(self.state.latest["scene"])
+        with self.assertRaisesRegex(APIError, "Invalid procedural parameter: stepCount"):
+            self.state.agent_procedural_action({
+                "action": "update", "room_id": "web-virtual-room-v1",
+                "scene_revision": self.state.revision, "object_id": "stairs-1",
+                "expected_source_revision": "staircase-v1",
+                "parameters_patch": {"stepCount": 5.5}})
+        self.assertFalse(self.state.pending)
+        self.assertEqual(self.state.latest["scene"], before)
+        bad_scene = copy.deepcopy(before)
+        bad_scene["objects"][0]["procedural"]["parameters"]["stepCount"] = 5.5
+        with self.assertRaisesRegex(APIError, "Invalid procedural parameter: stepCount"):
+            self.state.save_world_checkpoint("bad-stairs", {
+                "version": 2, "scene": bad_scene, "game": None})
+        self.assertNotIn("bad-stairs", self.state.world_checkpoints()["worlds"])
+        self.assertEqual(self.state.latest["scene"], before)
+        invalid_metadata = copy.deepcopy(STAIRCASE_GENERATOR)
+        invalid_metadata["parameterSchema"]["stepCount"]["default"] = 5.5
+        with self.assertRaisesRegex(ProceduralError, "numeric parameter"):
+            checked_generators([invalid_metadata])
 
     def test_browser_and_pc_checkpoint_preserve_recipe_rigid_body_and_mode(self):
         created = self.object(rigid=True)

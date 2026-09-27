@@ -10,6 +10,7 @@ test('discovery exposes bounded versioned recipes without executable code', () =
   const listed = listProceduralGenerators();
   assert.deepEqual(listed.map(item => item.generatorId),
     ['bridge', 'curved-bench', 'staircase']);
+  assert.equal(listed[2].parameterSchema.stepCount.type, 'integer');
   assert.equal(listed[0].parameterSchema.lengthMeters.default, 6);
   listed[0].parameterSchema.lengthMeters.default = 100;
   assert.equal(listProceduralGenerators()[0].parameterSchema.lengthMeters.default, 6);
@@ -112,14 +113,23 @@ test('staircase recipes generate bounded closed steps with stable part identitie
 
 test('staircase rejects fractional, out-of-range and stale recipes before geometry', () => {
   const original = createProceduralRecipe('staircase');
-  assert.throws(() => generateProcedural(reviseProceduralRecipe(original,
-    {stepCount: 5.5})), /whole number/);
+  assert.equal(createProceduralRecipe('staircase', {stepCount: 5.0})
+    .parameters.stepCount, 5);
+  assert.throws(() => createProceduralRecipe('staircase', {stepCount: 5.5}),
+    /Invalid procedural parameter/);
+  assert.throws(() => reviseProceduralRecipe(original, {stepCount: 5.5}),
+    /Invalid procedural parameter/);
+  assert.throws(() => normalizeProceduralRecipe({...original,
+    parameters: {...original.parameters, stepCount: 5.5}}),
+    /Invalid procedural parameter/);
   assert.throws(() => createProceduralRecipe('staircase', {stepCount: 13}),
     /Invalid procedural parameter/);
   assert.throws(() => normalizeProceduralRecipe({...original,
     sourceRevision: 'staircase-v2'}), /version or dependency unavailable/);
   assert.deepEqual(generateProcedural(original).parts.map(part => part.partId),
     ['step-01', 'step-02', 'step-03', 'step-04', 'step-05', 'step-06']);
+  assert.equal(createProceduralRecipe('bridge', {riseMeters: .5})
+    .parameters.riseMeters, .5, 'existing numeric parameters remain fractional');
 });
 
 test('invalid edits, stale versions and tampered output fail without altering the prior result', () => {
