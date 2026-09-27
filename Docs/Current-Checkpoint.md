@@ -1,5 +1,74 @@
 # Matrix Operator checkpoints
 
+## Bilateral Citizens social session candidate (September 26, 2026)
+
+Open [PR #103](https://github.com/School-of-the-Ancients/matrix-loading-operator/pull/103)
+(`codex/citizens-social-sessions`) extends the Citizens PR stack
+toward [#19](https://github.com/School-of-the-Ancients/matrix-loading-operator/issues/19).
+It keeps the outer Matrix world checkpoint envelope at version 3 and moves the
+nested Citizens state to schema version 4 after the relationship-evidence review fix. Two available residents carry the
+same stable social session ID. A saved random response produces an acceptance,
+decline, or unanswered invitation; offers and accepted sessions have explicit
+simulation-tick deadlines. An accepted initiator moves through `MatrixWorld`
+and must receive a matching in-range `converse` receipt before either fun or
+the pair's relationship score rises. Terminal outcomes and receipt references
+are visible in both Citizens inspectors and persist with browser and named PC
+world checkpoints. V4 saves a bounded per-pair list of completed session and
+receipt IDs, derives relationship score from that list, and requires each
+retained `ended` event to match it. Nested v1/v2 saves migrate in the browser;
+v3 migrates only when its visible completed events account for its score.
+The PC service accepts exact v1–v4 shapes without rewriting older files.
+
+The PR #103 review found that v3 restore accepted an arbitrary score without
+a completed receipt. The v4 ledger keeps the last ten confirmed completions
+per pair and requires the displayed score and retained `ended` events to
+match. Browser and PC validation reject a forged v3 score such as 99 with no
+completed event. If an older v3 event ring has already discarded a completion
+needed to explain its score, restore reports incomplete history instead of
+silently granting a benefit; keep the old checkpoint for recovery or review.
+The PC service validates historical receipt references but cannot independently
+attest a past browser-only MatrixWorld action.
+
+The review fix passed **206/206** WebRuntime tests, **654/654** ControlService
+tests, and the Vite production build. The built `/web/` page on isolated port
+**19842** restored the earlier raw v3 named checkpoint `social-seed2-m112` at
+minute 112 with relationship 55. Saving it as `ledger-v4-restored` produced
+nested v4 with one completion record for `social-2-9` and receipt
+`citizens-2-social-9-80`; all four Matrix object IDs matched the old file.
+Browser reload retained minute 113 and the outcome, while v4 PC restore to
+minute 112 and the next step reproduced the earlier minute-113 resident and
+station state. Neither browser run reported a page error. See the [migration
+screenshot](../Validation/citizens-receipt-ledger-migration.png) and [structured
+evidence](../Validation/citizens-receipt-ledger-migration.json). The original
+isolated demo on port 19841 was left running unchanged.
+
+The fixed-seed fixture has one active bilateral session at a time. Deletion,
+authored movement, scene replacement, AR entry, Stop, and rejected interaction
+cancel it without a relationship benefit. The open [#19](https://github.com/School-of-the-Ancients/matrix-loading-operator/issues/19)
+still covers broader multi-resource ordering and future social policy. This
+candidate adds no dialogue generation, multiplayer synchronization, selected
+furniture binding, obstacle-aware paths, or Quest wearer validation.
+
+After rebasing on the PR #102 AR deletion recovery fix, the local WebRuntime
+suite passed **203/203** and the Vite build passed. The full ControlService
+suite passed **652/652** on the identical Python source before the rebase;
+the checkpoint module passed **20/20** afterward. Browser restore now also
+rejects malformed surrogate text under the same UTF-16 limits as the PC
+checkpoint validator. The built desktop browser
+on isolated port **19841** ran seed 2 in `/web/`: Ada
+invited Bo at minute 76, Bo accepted at 77, and the local MatrixWorld receipt
+`citizens-2-social-9-80` ended the session at 87. The relationship inspector
+rose from 50 to 55. Browser reload preserved minute 112 and the social
+events; named PC checkpoint `social-seed2-m112` restored that state after a
+step to 113, and stepping the restored world reproduced minute 113. In the
+isolated fixture, seed 1 produced a timeout at minute 48 and a decline at
+minute 80. The relationship stayed 50, and browser reload preserved the
+events at minute 97. Both pages reported no page errors. See the [shared
+screenshot](../Validation/citizens-social-shared.png), [failed-attempt
+screenshot](../Validation/citizens-social-failed.png), [browser
+evidence](../Validation/citizens-social-browser-evidence.json), and
+[shared-world runbook](Citizens-Shared-World.md) for reproduction and limits.
+
 ## Citizens reservation lifecycle candidate (September 26, 2026)
 
 The `codex/citizens-reservation-lifecycle` branch continues the open shared-world

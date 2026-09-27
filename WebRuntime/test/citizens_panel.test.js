@@ -69,6 +69,52 @@ test('panel renders execution claims, FIFO waiters, and retired and missing bind
   }
 });
 
+test('panel shows offered, active, and completed social sessions with relationship score',()=>{
+  const dom=stubDocument();
+  let panel;
+  try{
+    const world=new MatrixWorld(()=> 'unused');
+    panel=new CitizensPanel(world,{onChange(){},canStart:()=>'',onFeedback(){}});
+    const state={schemaVersion:3,paused:true,clockTick:12,seed:17,
+      residents:[{id:'ada',name:'Ada',socialSessionId:'social-17-3',activity:null,
+        needs:{hunger:50,energy:40,fun:60},lastOutcome:''},
+      {id:'bo',name:'Bo',socialSessionId:'social-17-3',activity:null,
+        needs:{hunger:50,energy:40,fun:60},lastOutcome:''}],
+      retiredResidentIds:[],stations:[],log:[],
+      socialSession:{id:'social-17-3',initiatorId:'ada',inviteeId:'bo',
+        phase:'offered',expiresTick:16},
+      socialEvents:[{id:'social-17-3',event:'initiated',tick:12,
+        initiatorId:'ada',inviteeId:'bo'}],
+      relationships:[{a:'ada',b:'bo',score:1}]};
+    world.citizens=state;
+    panel.simulation={snapshot:()=>state};
+    panel.render();
+    assert.match(dom.elements.get('citizens-social-status').textContent,/Ada invited Bo · offered/);
+    assert.match(dom.elements.get('citizens-residents').children[0].textContent,/Ada: inviting Bo · session social-17-3/);
+    assert.match(dom.elements.get('citizens-residents').children[1].textContent,/Bo: invited by Ada · session social-17-3/);
+    assert.match(dom.elements.get('citizens-social-events').children[0].textContent,/initiated · Ada and Bo/);
+    assert.match(dom.elements.get('citizens-relationships').children[0].textContent,/Ada ↔ Bo: 1\/100/);
+
+    state.socialSession.phase='active';
+    panel.render();
+    assert.match(dom.elements.get('citizens-social-status').textContent,/Ada is conversing with Bo · active/);
+    assert.match(dom.elements.get('citizens-residents').children[0].textContent,/conversing with Bo/);
+
+    state.socialSession=null;
+    state.residents.forEach(resident=>{resident.socialSessionId=null;});
+    state.socialEvents.push({id:'social-17-3-ended-14',event:'ended',tick:14,
+      initiatorId:'ada',inviteeId:'bo',requestId:'citizens-17-social-3-9'});
+    state.relationships[0].score=2;
+    panel.render();
+    assert.match(dom.elements.get('citizens-social-status').textContent,/latest ended at m 14/);
+    assert.match(dom.elements.get('citizens-relationships').children[0].textContent,/Ada ↔ Bo: 2\/100/);
+    assert.match(dom.elements.get('citizens-social-events').children[0].textContent,/receipt citizens-17-social-3-9/);
+  }finally{
+    if(panel)clearInterval(panel.timer);
+    dom.restore();
+  }
+});
+
 test('compatible deletions keep survivors running; incompatible binding shows recovery',()=>{
   const dom=stubDocument();
   let panel;

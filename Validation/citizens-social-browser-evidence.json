@@ -1,0 +1,59 @@
+{
+  "recordedAtUtc": "2026-09-26T10:36:17.967Z",
+  "service": "isolated loopback ControlService port 19841",
+  "scenarioTrace": {
+    "sharedSeed2": [
+      "Started the opt-in Citizens fixture on the built /web/ page and ran it.",
+      "Minute 76: Ada initiated an invitation to Bo; minute 77: accepted.",
+      "Minute 87: observed local MatrixWorld receipt citizens-2-social-9-80 ended the session; relationship rose from 50 to 55.",
+      "Paused and saved named PC checkpoint social-seed2-m112 at minute 112; browser reload restored minute 112 and its event history.",
+      "Stepped to minute 113, restored social-seed2-m112 to minute 112, then stepped again to minute 113 with the same resident and station state."
+    ],
+    "isolatedSeed1": [
+      "Reset the isolated /web/citizens.html fixture to seed 1 and ran it.",
+      "Minute 44 invitation timed out at minute 48; minute 79 invitation was declined at minute 80.",
+      "Relationship remained 50; saved while paused at minute 97, reloaded the browser, and restored minute 97 with both failed-attempt events."
+    ]
+  },
+  "shared": {
+    "events": [
+      "m 87 · ended · Ada and Bo · social-2-9-ended-87 · receipt citizens-2-social-9-80",
+      "m 77 · accepted · Ada and Bo · social-2-9-accepted-77",
+      "m 76 · initiated · Ada and Bo · social-2-9-initiated-76"
+    ],
+    "feedback": "PC world checkpoint restored: social-seed2-m112. Object IDs, game and Citizens progress are active.",
+    "objects": "4 objects",
+    "relationships": [
+      "Ada ↔ Bo: 55/100"
+    ],
+    "residents": [
+      "Ada: choosing · fullness 100 · energy 69 · fun 94 · Completed eat at minute 113",
+      "Bo: using rest · execution 13 · fullness 77 · energy 41 · fun 38 · Completed eat at minute 100"
+    ],
+    "social": "No active session · latest ended at m 87 · social-2-9-ended-87",
+    "stations": [
+      "chair: claimed by Bo · execution 13 · expires m 173",
+      "food: available"
+    ],
+    "status": "Paused · minute 113 · seed 2",
+    "url": "http://127.0.0.1:19841/web/"
+  },
+  "isolated": {
+    "events": [
+      "m 80declined · Ada and Bo · social-1-11-declined-80",
+      "m 79initiated · Ada and Bo · social-1-11-initiated-79",
+      "m 48timed_out · Ada and Bo · social-1-6-timed_out-48",
+      "m 44initiated · Ada and Bo · social-1-6-initiated-44"
+    ],
+    "feedback": "Resumed saved world at minute 97.",
+    "relationship": "Ada ↔ BoScore 50/100",
+    "social": "No active session. Latest outcome: declined at minute 80 (social-1-11-declined-80).",
+    "status": "Paused",
+    "tick": "Tick 97",
+    "url": "http://127.0.0.1:19841/web/citizens.html"
+  },
+  "pageErrors": {
+    "shared": [],
+    "isolated": []
+  }
+}

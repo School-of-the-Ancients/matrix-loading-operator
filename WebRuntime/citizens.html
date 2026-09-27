@@ -17,13 +17,13 @@
       <section class="world-panel" aria-label="Three-dimensional Citizens world">
         <div id="view" class="world-view"></div>
         <div class="world-caption"><span class="live-dot" aria-hidden="true"></span><span id="run-state">Starting…</span><span id="clock" class="clock">Day 1 · 00:00</span></div>
-        <p class="world-note">The two colored figures are temporary resident markers. The chair is a shared, one-person resource. Use WASD or arrow keys to move the camera; right-drag to look around.</p>
+        <p class="world-note">The two colored figures are temporary resident markers. They share a chair and can invite each other to converse. Use WASD or arrow keys to move the camera; right-drag to look around.</p>
       </section>
 
       <aside class="dashboard" aria-label="Citizens simulation inspector">
         <section class="dashboard-section control-section">
           <div class="section-heading"><div><span class="eyebrow">SCENARIO</span><h1>Residents choose what to do</h1></div><span id="tick-count" class="tick-count">Tick 0</span></div>
-          <p class="intro">Needs change over simulated time. Residents choose available activities, travel, and update their needs only when an interaction succeeds.</p>
+          <p class="intro">Needs change over simulated time. Residents choose activities and can invite each other to converse. Successful actions improve needs; completed observed conversations raise relationships.</p>
           <div class="seed-row"><label for="seed">Seed</label><input id="seed" inputmode="numeric" type="number" min="1" max="4294967295" step="1" value="29" /><button id="reset" type="button">Reset seed</button></div>
           <div class="controls"><button id="toggle-run" class="primary" type="button">Pause</button><button id="step" type="button">Step one minute</button><button id="save" type="button">Save</button><button id="load" type="button">Load saved</button></div>
           <p id="feedback" role="status" aria-live="polite">Loading the isolated demo…</p>
@@ -38,6 +38,14 @@
         <section class="dashboard-section" aria-labelledby="resources-heading">
           <div class="section-heading"><div><span class="eyebrow">SHARED WORLD</span><h2 id="resources-heading">Activities &amp; resources</h2></div></div>
           <div id="stations" class="station-list"></div>
+        </section>
+
+        <section class="dashboard-section" aria-labelledby="social-heading">
+          <div class="section-heading"><div><span class="eyebrow">TWO RESIDENTS</span><h2 id="social-heading">Social interaction</h2></div></div>
+          <p id="social-status" class="intro">No active social session yet.</p>
+          <ol id="social-events" class="event-log" aria-label="Social session outcomes"></ol>
+          <div class="section-heading"><h2>Relationships</h2></div>
+          <div id="relationships" class="station-list"></div>
         </section>
 
         <section class="dashboard-section log-section" aria-labelledby="log-heading">

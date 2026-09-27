@@ -489,11 +489,12 @@ def validate_citizens_checkpoint(value, checked_scene):
         return type(item) in (int, float) and minimum <= item <= maximum and math.isfinite(item)
 
     require(type(value) is dict and type(value.get("schemaVersion")) is int and
-            value["schemaVersion"] in (1, 2), "Unsupported Citizens schemaVersion")
+            value["schemaVersion"] in (1, 2, 3, 4), "Unsupported Citizens schemaVersion")
     version = value["schemaVersion"]
     state_fields = ("schemaVersion", "world", "seed", "rngState", "requestSequence",
                     "clockTick", "paused", "residents", "stations", "log")
-    shape(value, state_fields + (("actionSequence", "retiredResidentIds") if version == 2 else ()),
+    shape(value, state_fields + (("actionSequence", "retiredResidentIds") if version >= 2 else ()) +
+          (("socialSession", "socialEvents", "relationships", "nextSocialTick") if version >= 3 else ()),
           "state")
     shape(value["world"], ("schemaVersion", "roomId"), "world binding")
     require(type(value["world"]["schemaVersion"]) is int and
@@ -505,9 +506,9 @@ def validate_citizens_checkpoint(value, checked_scene):
             integer(value["requestSequence"], 0, 1000000000) and
             integer(value["clockTick"], 0, 1000000000) and
             type(value["paused"]) is bool, "Invalid Citizens clock or random state")
-    action_sequence = value["actionSequence"] if version == 2 else 0
+    action_sequence = value["actionSequence"] if version >= 2 else 0
     retired_ids = set()
-    if version == 2:
+    if version >= 2:
         require(integer(action_sequence, 0, 1000000000) and
                 type(value["retiredResidentIds"]) is list and
                 len(value["retiredResidentIds"]) <= 4,
@@ -522,10 +523,10 @@ def validate_citizens_checkpoint(value, checked_scene):
             type(stations) is list and (len(stations) == 2 if version == 1 else
                                         len(stations) <= 2) and
             type(events) is list and len(events) <= 80, "Invalid Citizens list bounds")
-    if version == 2:
+    if version >= 2:
         require(len(residents) + len(retired_ids) <= 4,
                 "Invalid Citizens live and retired resident count")
-    if version == 2 and not residents:
+    if version >= 2 and not residents:
         require(value["paused"], "Citizens with no residents must be paused")
 
     scene_objects = {item["objectId"]: item for item in checked_scene["objects"]}
@@ -533,11 +534,16 @@ def validate_citizens_checkpoint(value, checked_scene):
     active_execution_ids = set()
     for resident in residents:
         shape(resident, ("id", "name", "objectId", "needs", "preferences", "activity",
-                         "cooldowns", "lastOutcome"), "resident")
+                         "cooldowns", "lastOutcome") +
+              (("socialSessionId",) if version >= 3 else ()), "resident")
         resident_id = citizens_text(resident["id"], "Citizens resident ID", limit=32)
         citizens_text(resident["name"], "Citizens resident name", limit=40)
         object_id = citizens_text(resident["objectId"], "Citizens resident object ID")
         citizens_text(resident["lastOutcome"], "Citizens last outcome", empty=True, limit=160)
+        if version >= 3:
+            session_id = resident["socialSessionId"]
+            if session_id is not None:
+                citizens_text(session_id, "Citizens resident social session ID", limit=32)
         require(resident_id not in residents_by_id and object_id not in bound_objects,
                 "Duplicate Citizens resident binding")
         obj = scene_objects.get(object_id)
@@ -557,12 +563,12 @@ def validate_citizens_checkpoint(value, checked_scene):
         activity = resident["activity"]
         if activity is not None:
             activity_fields = ("kind", "stationId", "phase", "remainingTicks", "travelTicks", "target")
-            shape(activity, activity_fields + (("executionId",) if version == 2 else ()), "activity")
+            shape(activity, activity_fields + (("executionId",) if version >= 2 else ()), "activity")
             require(activity["kind"] in ("rest", "eat", "explore") and
                     activity["phase"] in ("travel", "use") and
                     integer(activity["remainingTicks"], 0, 12) and
                     integer(activity["travelTicks"], 0, 60), "Invalid Citizens activity")
-            if version == 2:
+            if version >= 2:
                 execution_id = activity["executionId"]
                 require(integer(execution_id, 1, action_sequence) and
                         execution_id not in active_execution_ids,
@@ -658,7 +664,7 @@ def validate_citizens_checkpoint(value, checked_scene):
             activity = residents_by_id[station["holder"]]["activity"]
             require(activity is not None and activity["stationId"] == station_id,
                     "Invalid Citizens reservation")
-        if version == 2 and station["claim"] is not None:
+        if version >= 2 and station["claim"] is not None:
             claim = station["claim"]
             activity = residents_by_id[claim["residentId"]]["activity"]
             require(activity is not None and activity["stationId"] == station_id and
@@ -666,8 +672,185 @@ def validate_citizens_checkpoint(value, checked_scene):
                     activity["executionId"] == claim["executionId"],
                     "Invalid Citizens reservation")
 
+    if version >= 3:
+        require(integer(value["nextSocialTick"], 0, 1000000100),
+                "Invalid Citizens next social tick")
+        session = value["socialSession"]
+        if session is not None:
+            shape(session, ("id", "executionId", "initiatorId", "inviteeId", "phase",
+                            "startedTick", "expiresTick", "acceptedTick", "travelTicks",
+                            "remainingTicks"), "social session")
+            execution_id = session["executionId"]
+            session_id = f"social-{value['seed']}-{execution_id}"
+            require(integer(execution_id, 1, action_sequence) and
+                    session["id"] == session_id and len(session_id) <= 32 and
+                    execution_id not in active_execution_ids and
+                    execution_id not in waiting_execution_ids,
+                    "Invalid Citizens social session ID or execution")
+            initiator_id = citizens_text(session["initiatorId"],
+                                         "Citizens social initiator ID", limit=32)
+            invitee_id = citizens_text(session["inviteeId"],
+                                       "Citizens social invitee ID", limit=32)
+            participants = (initiator_id, invitee_id)
+            require(initiator_id != invitee_id and
+                    all(resident_id in residents_by_id and
+                        residents_by_id[resident_id]["activity"] is None and
+                        residents_by_id[resident_id]["socialSessionId"] == session_id and
+                        resident_id not in waiting_residents
+                        for resident_id in participants),
+                    "Invalid Citizens social participants")
+            started_tick = session["startedTick"]
+            accepted_tick = session["acceptedTick"]
+            require(integer(started_tick, 0, value["clockTick"]) and
+                    integer(session["expiresTick"], value["clockTick"] + 1, 1000000100) and
+                    integer(session["travelTicks"], 0, 60) and
+                    integer(session["remainingTicks"], 0, 3) and
+                    type(session["phase"]) is str and
+                    session["phase"] in ("offered", "active"),
+                    "Invalid Citizens social phase or clock")
+            if session["phase"] == "offered":
+                require(accepted_tick is None and session["travelTicks"] == 0 and
+                        session["remainingTicks"] == 3 and
+                        session["expiresTick"] == started_tick + 4 and
+                        value["clockTick"] < session["expiresTick"],
+                        "Invalid Citizens social offer")
+            else:
+                require(integer(accepted_tick, started_tick + 1, started_tick + 3) and
+                        accepted_tick <= value["clockTick"] and
+                        session["expiresTick"] == accepted_tick + 72 and
+                        session["travelTicks"] <= value["clockTick"] - accepted_tick and
+                        value["clockTick"] < session["expiresTick"],
+                        "Invalid Citizens active social session")
+        for resident in residents:
+            expected_id = session["id"] if session is not None and resident["id"] in (
+                session["initiatorId"], session["inviteeId"]) else None
+            require(resident["socialSessionId"] == expected_id,
+                    "Invalid Citizens resident social session binding")
+
+        social_events = value["socialEvents"]
+        require(type(social_events) is list and len(social_events) <= 24,
+                "Invalid Citizens social events")
+        social_event_names = {"initiated", "accepted", "declined", "timed_out",
+                              "ended", "interrupted"}
+        known_ids = set(residents_by_id).union(retired_ids)
+        event_ids = set()
+        ended_events = []
+        last_event_tick = -1
+        for social_event in social_events:
+            shape(social_event, ("id", "event", "tick", "initiatorId", "inviteeId",
+                                 "requestId"), "social event")
+            event_name = social_event["event"]
+            require(type(event_name) is str and event_name in social_event_names and
+                    integer(social_event["tick"], last_event_tick, value["clockTick"]),
+                    "Invalid Citizens social event clock")
+            event_tick = social_event["tick"]
+            event_id = citizens_text(social_event["id"], "Citizens social event ID", limit=96)
+            suffix = f"-{event_name}-{event_tick}"
+            require(event_id.endswith(suffix) and event_id not in event_ids,
+                    "Invalid Citizens social event ID")
+            source_id = event_id[:-len(suffix)]
+            source_prefix = f"social-{value['seed']}-"
+            source_execution = source_id[len(source_prefix):] if source_id.startswith(source_prefix) else ""
+            require(source_execution.isascii() and source_execution.isdigit() and
+                    source_execution == str(int(source_execution)) and
+                    integer(int(source_execution), 1, action_sequence),
+                    "Invalid Citizens social event execution ID")
+            initiator_id = citizens_text(social_event["initiatorId"],
+                                         "Citizens social event initiator ID", limit=32)
+            invitee_id = citizens_text(social_event["inviteeId"],
+                                       "Citizens social event invitee ID", limit=32)
+            require(initiator_id != invitee_id and
+                    initiator_id in known_ids and invitee_id in known_ids,
+                    "Invalid Citizens social event participants")
+            request_id = citizens_text(social_event["requestId"],
+                                       "Citizens social event receipt", empty=True, limit=128)
+            if event_name == "ended":
+                receipt_prefix = f"citizens-{value['seed']}-social-{source_execution}-"
+                receipt_sequence = (request_id[len(receipt_prefix):]
+                                    if request_id.startswith(receipt_prefix) else "")
+                require(receipt_sequence.isascii() and receipt_sequence.isdigit() and
+                        receipt_sequence == str(int(receipt_sequence)) and
+                        integer(int(receipt_sequence), 1, value["requestSequence"]),
+                        "Invalid Citizens social completion receipt")
+                ended_events.append((source_id, request_id, event_tick,
+                                     frozenset((initiator_id, invitee_id))))
+            else:
+                require(request_id == "", "Invalid Citizens social event receipt")
+            event_ids.add(event_id)
+            last_event_tick = event_tick
+
+        relationships = value["relationships"]
+        require(type(relationships) is list and len(relationships) <= 6,
+                "Invalid Citizens relationships")
+        previous_pair = None
+        completed_by_key = {}
+        completed_session_ids = set()
+        completed_request_ids = set()
+        for relationship in relationships:
+            shape(relationship, ("a", "b", "score") +
+                  (("completed",) if version == 4 else ()), "relationship")
+            a = citizens_text(relationship["a"], "Citizens relationship resident ID", limit=32)
+            b = citizens_text(relationship["b"], "Citizens relationship resident ID", limit=32)
+            # JavaScript compares identifiers by UTF-16 code units.
+            pair = (a.encode("utf-16-be"), b.encode("utf-16-be"))
+            require(a in known_ids and b in known_ids and pair[0] < pair[1] and
+                    (previous_pair is None or previous_pair < pair) and
+                    number(relationship["score"], 0, 100),
+                    "Invalid Citizens relationship")
+            # V3 has no durable receipt ledger. Accept it only while its
+            # bounded event ring still proves the entire relationship score;
+            # the browser migrates those ended events to v4 records.
+            completed = (relationship["completed"] if version == 4 else [
+                {"sessionId": session_id, "requestId": request_id, "tick": tick}
+                for session_id, request_id, tick, participants in ended_events
+                if participants == frozenset((a, b))])
+            require(type(completed) is list and len(completed) <= 10 and
+                    relationship["score"] == 50 + 5 * len(completed),
+                    "Citizens relationship history is incomplete or inconsistent")
+            last_tick, last_execution, last_request = -1, 0, 0
+            for record in completed:
+                shape(record, ("sessionId", "requestId", "tick"),
+                      "relationship completion")
+                session_id = citizens_text(record["sessionId"],
+                                           "Citizens completion session ID", limit=32)
+                request_id = citizens_text(record["requestId"],
+                                           "Citizens completion request ID", limit=128)
+                social_prefix = f"social-{value['seed']}-"
+                execution_text = (session_id[len(social_prefix):]
+                                  if session_id.startswith(social_prefix) else "")
+                require(execution_text.isascii() and execution_text.isdigit() and
+                        execution_text == str(int(execution_text)) and
+                        integer(int(execution_text), 1, action_sequence),
+                        "Invalid Citizens completion session ID")
+                execution_id = int(execution_text)
+                receipt_prefix = f"citizens-{value['seed']}-social-{execution_id}-"
+                request_text = (request_id[len(receipt_prefix):]
+                                if request_id.startswith(receipt_prefix) else "")
+                require(request_text.isascii() and request_text.isdigit() and
+                        request_text == str(int(request_text)) and
+                        integer(int(request_text), 1, value["requestSequence"]),
+                        "Invalid Citizens completion request ID")
+                request_sequence = int(request_text)
+                tick = record["tick"]
+                require(integer(tick, max(1, last_tick + 1), value["clockTick"]) and
+                        execution_id > last_execution and
+                        request_sequence > last_request and
+                        session_id not in completed_session_ids and
+                        request_id not in completed_request_ids and
+                        (session is None or session_id != session["id"]),
+                        "Invalid Citizens completion order or duplicate")
+                key = (session_id, request_id, tick)
+                completed_by_key[key] = frozenset((a, b))
+                completed_session_ids.add(session_id)
+                completed_request_ids.add(request_id)
+                last_tick, last_execution, last_request = tick, execution_id, request_sequence
+            previous_pair = pair
+        require(all(completed_by_key.get((session_id, request_id, tick)) == participants
+                    for session_id, request_id, tick, participants in ended_events),
+                "Citizens social completion has no matching relationship record")
+
     log_events = {"selected", "blocked", "arrived", "completed", "failed", "paused", "resumed"}
-    if version == 2:
+    if version >= 2:
         log_events.update(("waiting", "released", "retired", "expired"))
     for event in events:
         shape(event, ("tick", "residentId", "event", "message"), "log entry")

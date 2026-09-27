@@ -1,0 +1,47 @@
+{
+  "service": "isolated loopback ControlService port 19842",
+  "sourcePcCheckpoint": "social-seed2-m112",
+  "sourceNestedCitizensSchemaVersion": 3,
+  "browserRestore": {
+    "status": "Paused · minute 112 · seed 2",
+    "relationship": "Ada ↔ Bo: 55/100",
+    "pageErrors": []
+  },
+  "savedPcCheckpoint": "ledger-v4-restored",
+  "savedNestedCitizensSchemaVersion": 4,
+  "savedCompletion": {
+    "sessionId": "social-2-9",
+    "requestId": "citizens-2-social-9-80",
+    "tick": 87
+  },
+  "sceneObjectIdsPreserved": true,
+  "sceneObjectIds": [
+    "f58f4a3e11e14196897ce16beff77069",
+    "688d97848f874774b18bbac6280e1d57",
+    "ed69889b02be401db9d1048bc5e15107",
+    "25d860ed229743e8a260b89e136b5e4c"
+  ],
+  "browserReload": {
+    "status": "Paused · minute 113 · seed 2",
+    "relationship": "Ada ↔ Bo: 55/100",
+    "socialOutcome": "m 87 · ended · Ada and Bo · social-2-9-ended-87 · receipt citizens-2-social-9-80",
+    "pageErrors": []
+  },
+  "v4PcRestore": {
+    "status": "Paused · minute 112 · seed 2",
+    "feedback": "PC world checkpoint restored: ledger-v4-restored. Object IDs, game and Citizens progress are active."
+  },
+  "replayedMinute113": {
+    "status": "Paused · minute 113 · seed 2",
+    "residents": [
+      "Ada: choosing · fullness 100 · energy 69 · fun 94 · Completed eat at minute 113",
+      "Bo: using rest · execution 13 · fullness 77 · energy 41 · fun 38 · Completed eat at minute 100"
+    ],
+    "stations": [
+      "chair: claimed by Bo · execution 13 · expires m 173",
+      "food: available"
+    ],
+    "relationship": "Ada ↔ Bo: 55/100",
+    "pageErrors": []
+  }
+}
