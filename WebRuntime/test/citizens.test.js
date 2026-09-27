@@ -752,6 +752,257 @@ test('critical hunger overrides optional morning windows without awarding food e
   assert.equal(ada.activity?.kind,'eat');
 });
 
+test('critical hunger yields an optional traveling chair claim to its FIFO waiter',()=>{
+  const matrix=world(),sim=createCitizensDemo(matrix,{seed:31});
+  const first=sim.step();
+  const chairBefore=first.stations.find(item=>item.id==='chair');
+  const adaExecution=chairBefore.claim.executionId;
+  const boTicket=chairBefore.waiters[0].executionId;
+  const saved=sim.exportState();
+  saved.residents.find(item=>item.id==='ada').needs.hunger=15.4;
+  const resumed=CitizensSimulation.restore(matrix,saved);
+  const after=resumed.step();
+  const ada=after.residents.find(item=>item.id==='ada');
+  const chair=after.stations.find(item=>item.id==='chair');
+  assert.equal(after.clockTick,2);
+  assert.equal(chair.claim?.residentId,'bo');
+  assert.equal(chair.claim?.executionId,boTicket,
+    'the original FIFO execution receives the released chair');
+  assert.equal(chair.waiters.length,0);
+  assert.equal(ada.activity?.kind,'eat');
+  assert.notEqual(ada.activity?.executionId,adaExecution);
+  assert.equal(ada.needs.hunger,14.95,'choosing food grants no benefit');
+  assert.equal(ada.needs.energy,first.residents[0].needs.energy-.55,
+    'abandoned rest grants no benefit');
+  assert.match(ada.lastOutcome,/Interrupted rest for critical hunger/);
+  assert.ok(after.log.some(entry=>entry.residentId==='ada'&&
+    entry.message.includes(`interrupted optional rest execution ${adaExecution}`)));
+  assert.deepEqual(resumed.exportState(),after);
+  const fed=stepUntil(resumed,state=>
+    state.residents.find(item=>item.id==='ada').needs.hunger>14.95,70);
+  assert.ok(fed.log.some(entry=>entry.event==='completed'&&
+    entry.residentId==='ada'&&entry.message.includes('completed eat')));
+});
+
+test('a routine edit cannot hide an optional travel claim from critical hunger',()=>{
+  const matrix=world(),sim=createCitizensDemo(matrix,{seed:31});
+  const first=sim.step();
+  const oldExecution=first.residents[0].activity.executionId;
+  const waitingExecution=first.stations.find(item=>item.id==='chair')
+    .waiters[0].executionId;
+  const edited=sim.editRoutine('ada','morning-meal',{
+    startMinute:480,endMinute:620,priority:'high'});
+  assert.equal(edited.residents[0].lastDecision,null);
+  assert.equal(edited.residents[0].appointmentSequence,0);
+  assert.equal(edited.residents[0].activity.executionId,oldExecution);
+  const saved=sim.exportState();
+  saved.residents[0].needs.hunger=15.4;
+  const after=CitizensSimulation.restore(matrix,saved).step();
+  assert.equal(after.residents[0].activity?.kind,'eat');
+  assert.match(after.residents[0].lastOutcome,/Interrupted rest for critical hunger/);
+  assert.equal(after.stations.find(item=>item.id==='chair').claim?.executionId,
+    waitingExecution);
+});
+
+test('migrated v6 optional FIFO ticket can yield despite its missing choice trace',()=>{
+  const matrix=world(),sim=createCitizensDemo(matrix,{seed:31});
+  const first=sim.step();
+  const old=sim.exportState();
+  old.schemaVersion=6;
+  delete old.clockSpeed;
+  stripV9Fields(old);
+  for(const resident of old.residents){
+    delete resident.routines;
+    delete resident.lastDecision;
+  }
+  old.residents.find(item=>item.id==='bo').needs.hunger=15.4;
+  const restored=CitizensSimulation.restore(matrix,old);
+  const before=restored.snapshot();
+  assert.equal(before.residents[1].lastDecision,null);
+  assert.equal(before.residents[1].appointmentSequence,0);
+  assert.equal(before.stations.find(item=>item.id==='chair').waiters[0].residentId,
+    'bo');
+  const after=restored.step();
+  assert.equal(after.stations.find(item=>item.id==='chair').claim?.executionId,
+    first.stations.find(item=>item.id==='chair').claim.executionId);
+  assert.equal(after.stations.find(item=>item.id==='chair').waiters.length,0);
+  assert.equal(after.residents.find(item=>item.id==='bo').activity?.kind,'eat');
+  assert.match(after.residents.find(item=>item.id==='bo').lastOutcome,
+    /Interrupted rest for critical hunger/);
+});
+
+test('a booked resident with no choice trace keeps its in-flight execution',()=>{
+  const matrix=world(),sim=createCitizensDemo(matrix,{seed:31});
+  const details={kind:'eat',startTick:20,deadlineTick:40};
+  sim.scheduleAppointment('ada',details);
+  sim.cancelAppointment('ada','appointment-1',details);
+  const first=sim.step();
+  const oldExecution=first.residents[0].activity.executionId;
+  assert.equal(first.residents[0].activity.kind,'rest');
+  const edited=sim.editRoutine('ada','morning-meal',{
+    startMinute:480,endMinute:620,priority:'high'});
+  assert.equal(edited.residents[0].lastDecision,null);
+  assert.equal(edited.residents[0].appointmentSequence,1);
+  const saved=sim.exportState();
+  saved.residents[0].needs.hunger=15.4;
+  const after=CitizensSimulation.restore(matrix,saved).step();
+  assert.equal(after.residents[0].activity?.executionId,oldExecution);
+  assert.equal(after.stations.find(item=>item.id==='chair').claim?.residentId,'ada');
+  assert.ok(!after.log.some(entry=>entry.message.includes('interrupted optional')));
+});
+
+test('critical hunger removes an optional FIFO wait and optional explore travel',()=>{
+  const matrix=world(),sim=createCitizensDemo(matrix,{seed:31});
+  const first=sim.step(),saved=sim.exportState();
+  const chairBefore=first.stations.find(item=>item.id==='chair');
+  const adaExecution=chairBefore.claim.executionId;
+  saved.residents.find(item=>item.id==='bo').needs.hunger=15.4;
+  const after=CitizensSimulation.restore(matrix,saved).step();
+  const chair=after.stations.find(item=>item.id==='chair');
+  const bo=after.residents.find(item=>item.id==='bo');
+  assert.equal(chair.claim?.executionId,adaExecution);
+  assert.equal(chair.waiters.length,0);
+  assert.equal(bo.activity?.kind,'eat');
+  assert.equal(bo.needs.hunger,14.95);
+  assert.match(bo.lastOutcome,/Interrupted rest for critical hunger/);
+
+  const roamWorld=world(),roam=createCitizensDemo(roamWorld,{seed:31});
+  const beforeRoam=roam.exportState();
+  const ada=beforeRoam.residents.find(item=>item.id==='ada');
+  ada.needs={hunger:16,energy:95,fun:0,social:100};
+  ada.preferences={...ada.preferences,rest:.2,eat:.2,explore:2};
+  ada.routines=[];
+  beforeRoam.nextSocialTick=1000;
+  const roaming=CitizensSimulation.restore(roamWorld,beforeRoam);
+  assert.equal(roaming.step().residents[0].activity?.kind,'explore');
+  const roamSaved=roaming.exportState();
+  roamSaved.residents[0].needs.hunger=15.4;
+  const rescued=CitizensSimulation.restore(roamWorld,roamSaved).step();
+  assert.equal(rescued.residents[0].activity?.kind,'eat');
+  assert.match(rescued.residents[0].lastOutcome,
+    /Interrupted explore for critical hunger/);
+  assert.equal(rescued.residents[0].needs.fun,0,
+    'abandoned exploration gives no fun benefit');
+});
+
+test('critical hunger preserves committed use, egress and appointment executions',()=>{
+  const phaseCheck=phase=>{
+    const matrix=world(),sim=createCitizensDemo(matrix,{seed:31});
+    const atPhase=stepUntil(sim,state=>
+      state.residents[0].activity?.phase===phase&&
+      (phase!=='use'||state.residents[0].activity.remainingTicks>2),65);
+    const saved=sim.exportState();
+    saved.residents[0].needs.hunger=15.4;
+    const execution=saved.residents[0].activity.executionId;
+    const after=CitizensSimulation.restore(matrix,saved).step();
+    assert.ok(after.residents[0].activity?.executionId===execution||
+      phase==='egress'&&after.residents[0].activity===null);
+    assert.ok(!after.log.some(entry=>entry.tick===after.clockTick&&
+      entry.residentId==='ada'&&entry.message.includes('interrupted optional')));
+    return atPhase;
+  };
+  phaseCheck('use');
+  phaseCheck('egress');
+
+  const matrix=world(),sim=createCitizensDemo(matrix,{seed:29});
+  sim.scheduleAppointment('ada',{kind:'rest',startTick:1,deadlineTick:2});
+  sim.step();
+  const saved=sim.exportState();
+  saved.residents[0].needs.hunger=15.4;
+  const execution=appointmentOf(saved).executionId;
+  const restored=CitizensSimulation.restore(matrix,saved);
+  assert.equal(restored.step().residents[0].activity?.executionId,execution);
+  const missed=restored.step();
+  assert.equal(appointmentOf(missed).status,'missed');
+  assert.equal(missed.residents[0].activity?.executionId,execution,
+    'a missed appointment still owns its finite in-flight execution');
+  assert.ok(!missed.log.some(entry=>entry.message.includes('interrupted optional')));
+});
+
+test('critical meal cooldown keeps the current action and prevents idle retry',()=>{
+  const matrix=world(),sim=createCitizensDemo(matrix,{seed:31});
+  sim.step();
+  const saved=sim.exportState();
+  saved.residents[0].needs.hunger=15.4;
+  saved.residents[0].cooldowns.eat=4;
+  const execution=saved.residents[0].activity.executionId;
+  const resumed=CitizensSimulation.restore(matrix,saved);
+  const held=resumed.step();
+  assert.equal(held.residents[0].activity?.executionId,execution);
+  assert.equal(held.stations.find(item=>item.id==='chair').claim?.residentId,'ada');
+  assert.ok(!held.log.some(entry=>entry.message.includes('interrupted optional')));
+
+  const idleWorld=world(),idle=createCitizensDemo(idleWorld,{seed:31});
+  const idleSaved=idle.exportState();
+  idleSaved.residents[0].needs.hunger=14;
+  idleSaved.residents[0].cooldowns.eat=4;
+  const waiting=CitizensSimulation.restore(idleWorld,idleSaved);
+  for(let tick=1;tick<4;tick++){
+    const state=waiting.step();
+    assert.equal(state.residents[0].activity,null);
+    assert.ok(!state.stations.some(station=>station.waiters.some(item=>
+      item.residentId==='ada')));
+  }
+  assert.equal(waiting.step().residents[0].activity?.kind,'eat');
+});
+
+test('a rejected urgent meal waits through its cooldown before another goal',()=>{
+  const matrix=world(),created=createCitizensDemo(matrix,{seed:31});
+  const initial=created.exportState();
+  initial.residents[0].needs.hunger=14;
+  const sim=CitizensSimulation.restore(matrix,initial);
+  const adaId=initial.residents[0].objectId;
+  const original=matrix.execute.bind(matrix);
+  matrix.execute=(command,options)=>command.op==='set_transform'&&
+    command.objectId===adaId?{requestId:command.requestId,ok:false,
+      error:'urgent movement rejected',objectId:''}:original(command,options);
+  const failed=sim.step();
+  assert.equal(failed.residents[0].activity,null);
+  assert.equal(failed.residents[0].cooldowns.eat,5);
+  assert.equal(failed.residents[0].needs.hunger,13.55);
+  matrix.execute=original;
+  for(let tick=2;tick<5;tick++){
+    const held=sim.step();
+    assert.equal(held.residents[0].activity,null);
+    assert.ok(!held.stations.some(station=>station.waiters.some(item=>
+      item.residentId==='ada')));
+  }
+  assert.equal(sim.step().residents[0].activity?.kind,'eat');
+});
+
+test('unreachable food does not discard an optional travel claim',()=>{
+  const matrix=world(),sim=createCitizensDemo(matrix,{seed:31});
+  const first=sim.step();
+  const saved=sim.exportState();
+  saved.residents[0].needs.hunger=15.4;
+  spawn(matrix,'block',pose(2.15,-2,0,2));
+  const resumed=CitizensSimulation.restore(matrix,saved);
+  const actor=matrix.requireObject(saved.residents[0].objectId).transform.position;
+  const food=resumed.decisionCandidate(resumed.state.residents[0],actor,'eat');
+  assert.ok(food.unavailable,'the block must cover every food approach');
+  const after=resumed.step();
+  assert.equal(after.residents[0].activity?.executionId,
+    first.residents[0].activity.executionId);
+  assert.equal(after.stations.find(item=>item.id==='chair').claim?.residentId,'ada');
+  assert.ok(!after.log.some(entry=>entry.message.includes('interrupted optional')));
+});
+
+test('a mid-interruption checkpoint replays the exact world and Citizens state',()=>{
+  const a=world(),b=world();
+  const first=createCitizensDemo(a,{seed:31});
+  const second=createCitizensDemo(b,{seed:31});
+  first.step();second.step();
+  const saved=first.exportState();
+  saved.residents[0].needs.hunger=15.4;
+  const other=structuredClone(saved);
+  const left=CitizensSimulation.restore(a,saved);
+  const right=CitizensSimulation.restore(b,other);
+  for(let tick=0;tick<25;tick++){
+    assert.deepEqual(left.step(),right.step());
+    assert.deepEqual(a.scene,b.scene);
+  }
+});
+
 test('overnight routine wraps into the next day and ends at 06:00',()=>{
   const night=simulationAtMinute(29,1440,{hunger:90,energy:20,fun:90});
   const midnight=night.simulation.step();

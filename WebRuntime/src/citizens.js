@@ -1944,6 +1944,54 @@ export class CitizensSimulation {
       station.waiters=station.waiters.filter(waiter=>waiter.residentId!==resident.id);
     }
   }
+  interruptOptionalForCriticalHunger(resident){
+    if(resident.needs.hunger>15||
+      resident.cooldowns.eat>this.state.clockTick||
+      this.state.actionSequence>=1000000000)return false;
+    const action=resident.activity;
+    const waiting=action?null:this.waitingFor(resident);
+    const kind=action?.kind??waiting?.station.kind;
+    const executionId=action?.executionId??waiting?.entry.executionId;
+    if(action?(action.phase!=='travel'||!['rest','explore'].includes(kind)):
+      waiting?.station.kind!=='rest')return false;
+    // Routine edits and older checkpoints can erase an optional choice trace
+    // while leaving its execution in flight. A resident that has never booked
+    // an appointment can only have an optional execution in this position.
+    // Once booked, stay fail-closed: a missed appointment can keep executing
+    // after its deadline and its terminal history may later be pruned.
+    const decision=resident.lastDecision;
+    const tracedOptional=['routine','needs'].includes(decision?.mode)&&
+      decision.selectedKind===kind;
+    const neverBooked=decision===null&&resident.appointmentSequence===0&&
+      resident.appointments.length===0;
+    if(!tracedOptional&&!neverBooked||
+      resident.appointments.some(item=>item.executionId===executionId))
+      return false;
+    const actor=positionOf(this.world,resident.objectId);
+    if(!actor)return false;
+    const food=this.decisionCandidate(resident,actor,'eat');
+    if(!food.station||food.unavailable)return false;
+    if(action?.stationId){
+      const station=this.station(action.stationId);
+      if(!station||station.claim?.residentId!==resident.id||
+        station.claim.executionId!==executionId||
+        holderBlocksStationApproach(this.world,station,resident.objectId))
+        return false;
+      const head=station.waiters[0];
+      const waiter=head&&this.state.residents.find(item=>item.id===head.residentId);
+      if(waiter&&!stationApproach(this.world,waiter.objectId,station).ok)
+        return false;
+    }
+    this.release(resident);
+    resident.activity=null;
+    resident.cooldowns[kind]=Math.max(resident.cooldowns[kind],
+      this.state.clockTick+4);
+    resident.lastDecision=null;
+    resident.lastOutcome=`Interrupted ${kind} for critical hunger at minute ${this.state.clockTick}`;
+    this.log(resident.id,'failed',
+      `${resident.name} interrupted optional ${kind} execution ${executionId} for critical hunger; claim or FIFO ticket released.`);
+    return true;
+  }
   fail(resident,reason){
     const waiting=this.waitingFor(resident);
     const kind=resident.activity?.kind||waiting?.station.kind;
@@ -2380,10 +2428,12 @@ export class CitizensSimulation {
       if(urgent.station&&!urgent.unavailable){
         urgent.score=Math.max(1,urgent.score);
         urgent.trace.score=urgent.score;
+        // A rejected urgent meal uses the same bounded cooldown whether it
+        // was linked to an appointment or selected directly by need.
+        if(resident.cooldowns.eat>this.state.clockTick)return;
       }
       const meal=due.find(appointment=>appointment.kind==='eat');
       if(meal&&urgent.station&&!urgent.unavailable){
-        if(resident.cooldowns.eat>this.state.clockTick)return;
         this.attemptAppointment(resident,meal,urgent);
         return;
       }
@@ -2570,6 +2620,7 @@ export class CitizensSimulation {
     for(const resident of this.state.residents){
       if(socialParticipants.has(resident.id)||resident.socialSessionId||
         expiredWaiters.has(resident.id))continue;
+      this.interruptOptionalForCriticalHunger(resident);
       if(!resident.activity){
         const waiting=this.waitingFor(resident);
         if(waiting)this.progressWaiting(resident,waiting.station,waiting.entry);
