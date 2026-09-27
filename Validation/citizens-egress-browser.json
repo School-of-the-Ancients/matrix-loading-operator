@@ -1,0 +1,47 @@
+{
+  "date": "2026-09-26",
+  "surface": "built ordinary /web/ desktop virtual room",
+  "isolation": {
+    "loopbackPort": 19852,
+    "sceneDirectory": "work/citizens-egress-demo-state/scenes",
+    "assetDirectory": "work/citizens-egress-demo-catalog",
+    "sourceCheckpoint": "dual-stations-m1",
+    "earlierDemoPortsUntouched": [19849, 19850, 19851]
+  },
+  "seed": 29,
+  "reviewedStaticAssets": [
+    "web:citizens-demo-chair:fb5408949487",
+    "web:citizens-demo-food-table:53b79a6a6f7f"
+  ],
+  "stableSceneObjectIds": [
+    "821fc875805840c5b4d3dfa9e4b21d8b",
+    "7448c0018a8a45e1acf5d0a55aa7e561",
+    "48c153fafbb3405590749fabbd0630d8",
+    "3fc1c2b72653498a94baf423dc760e71"
+  ],
+  "observedBrowserTimeline": [
+    "Restoring the prior v6 minute-1 PC checkpoint displayed four objects, Ada's chair claim execution 1, and Bo's FIFO wait execution 2 in migrated v8 state.",
+    "At minute 14 Ada completed rest and gained energy. The panel showed 'leaving chair'; Ada kept claim 1 while Bo still waited with execution 2. The PC accepted named v8 checkpoint egress-m14.",
+    "At minute 18 the panel logged Ada clearing and releasing the chair, followed by Bo's FIFO turn with the original execution 2. The chair claim then belonged to Bo.",
+    "Bo reached the chair at minute 24, completed rest at minute 31, and was leaving it at minute 32. Named checkpoint egress-m32 saved the four object IDs and nested v8 state.",
+    "Restoring egress-m14 from the PC after reaching minute 32 returned the exact claim and waiter. Eighteen browser Step actions reproduced the visible minute-32 state; browser reload retained it.",
+    "After the egress safety fixes and final Vite build, another reload still showed minute 32, four objects, both rendered GLBs, Bo leaving the chair, and zero browser console errors."
+  ],
+  "checkpoints": {
+    "outerWorldVersion": 3,
+    "citizensSchemaVersion": 8,
+    "egress-m14": {"minute": 14, "paused": true, "chairClaim": "ada", "chairWaiters": 1},
+    "egress-m32": {"minute": 32, "paused": true, "chairClaim": "bo", "chairWaiters": 0}
+  },
+  "validation": {
+    "webRuntimeTests": "306/306",
+    "controlServiceTests": "687/687",
+    "viteBuild": "passed",
+    "browserConsoleErrors": 0,
+    "screenshots": ["citizens-egress-claimed.png", "citizens-egress-handoff.png"]
+  },
+  "limits": [
+    "The browser inspector shows observed completion and changed needs but does not expose every raw Matrix interaction receipt. Focused runtime tests assert exact receipt matching, uncertain movement, independent waiter obstruction, retained claims and FIFO tickets through pause or scene replacement, and saveable waiter expiry.",
+    "This replay covers reviewed static GLBs, one capacity-one chair, and two residents on a desktop virtual floor. Animated or moving furniture, a second-station rejected edit in the browser, and Quest wearer checks remain open."
+  ]
+}

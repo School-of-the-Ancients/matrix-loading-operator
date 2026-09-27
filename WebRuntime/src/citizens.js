@@ -4,7 +4,8 @@ import {ANCHOR_ID,INTERACTION_USE_MARGIN_METRES,MAX_OBJECTS,ROOM_ID,
   interactionWorldPoint,validInteractionDescriptor} from './protocol.js';
 import {checkedMove,planPath,segmentClear} from './citizens_navigation.js';
 
-const VERSION=7;
+const VERSION=8;
+const VIRTUAL_DAY_VERSION=7;
 const INTERACTION_VERSION=6;
 const ROUTE_VERSION=5;
 const COMPLETION_VERSION=4;
@@ -18,6 +19,7 @@ const FLOOR_TARGET_LIMIT=99.8;
 const ARRIVAL_METRES=.08;
 const MAX_TRAVEL_TICKS=60;
 const MAX_ROUTE_RETRIES=3;
+const EGRESS_METRES=1;
 const LEASE_TICKS=MAX_TRAVEL_TICKS+12;
 const MAX_WAIT_TICKS=96;
 const MAX_LOG=80;
@@ -138,12 +140,13 @@ function navigationObstacles(world,actorObjectId=''){
 }
 
 function stationApproach(world,actorObjectId,station,actorPosition=null,
-  extraObstacles=[],preferredGoal=null){
+  extraObstacles=[],preferredGoal=null,ignoredObstacleObjectId=''){
   const actor=actorPosition||positionOf(world,actorObjectId);
   const object=objectById(world,station.objectId);
   if(!actor||!object)return {ok:false,reason:'Interaction actor or target is missing'};
   let obstacles;
-  try{obstacles=[...navigationObstacles(world,actorObjectId),...extraObstacles];}
+  try{obstacles=[...navigationObstacles(world,actorObjectId).filter(item=>
+    item.id!==ignoredObstacleObjectId),...extraObstacles];}
   catch(error){return {ok:false,reason:error.message};}
   const footprint=obstacles.find(item=>item.id===station.objectId);
   if(!footprint)return {ok:false,reason:'Interaction target has no navigation bounds'};
@@ -184,6 +187,37 @@ function stationApproach(world,actorObjectId,station,actorPosition=null,
       best={ok:true,target:goal,route,index};
   }
   return best||{ok:false,reason,code:'no_path'};
+}
+
+function holderBlocksStationApproach(world,station,holderObjectId){
+  let obstacles;
+  try{obstacles=navigationObstacles(world);}
+  catch{return true;}
+  const holder=obstacles.find(item=>item.id===holderObjectId);
+  const footprint=obstacles.find(item=>item.id===station.objectId);
+  const object=objectById(world,station.objectId);
+  if(!holder||!footprint||!object)return true;
+  let goals;
+  if(station.interaction){
+    const asset=world.asset?.(object.assetId);
+    if(!asset)return true;
+    goals=[interactionWorldPoint(object,asset,station.interaction.approachPose)];
+  }else{
+    const range=station.kind==='eat'?.9:.8;
+    const offsets=[
+      {x:0,z:footprint.halfZ+ACTOR_RADIUS+APPROACH_MARGIN},
+      {x:-footprint.halfX-ACTOR_RADIUS-APPROACH_MARGIN,z:0},
+      {x:footprint.halfX+ACTOR_RADIUS+APPROACH_MARGIN,z:0},
+      {x:0,z:-footprint.halfZ-ACTOR_RADIUS-APPROACH_MARGIN}
+    ];
+    const cos=Math.cos(footprint.yawRadians),sin=Math.sin(footprint.yawRadians);
+    goals=offsets.map(offset=>({
+      x:round6(footprint.cx+offset.x*cos-offset.z*sin),
+      z:round6(footprint.cz+offset.x*sin+offset.z*cos)
+    })).filter(goal=>distance(goal,object.transform.position)<=range-.01);
+  }
+  return !goals.some(goal=>planPath({start:goal,goal,obstacles:[holder],
+    actorRadius:ACTOR_RADIUS}).ok);
 }
 
 function fixtureApproach(world,station){
@@ -661,7 +695,7 @@ function validStateV6(world,state){
 function migrateV6(world,saved){
   validStateV6(world,saved);
   const state=clone(saved);
-  state.schemaVersion=VERSION;
+  state.schemaVersion=VIRTUAL_DAY_VERSION;
   state.clockSpeed=1;
   for(const resident of state.residents){
     resident.routines=defaultRoutines(resident.id);
@@ -675,7 +709,7 @@ function validStateV7(world,state){
   if(!keys(state,['schemaVersion','world','seed','rngState','requestSequence',
     'actionSequence','clockTick','paused','clockSpeed','residents',
     'retiredResidentIds','stations','log','socialSession','socialEvents',
-    'relationships','nextSocialTick'])||state.schemaVersion!==VERSION||
+    'relationships','nextSocialTick'])||state.schemaVersion!==VIRTUAL_DAY_VERSION||
     !CLOCK_SPEEDS.includes(state.clockSpeed))
     throw Error('Invalid Citizens virtual-day state');
   const v6=clone(state);
@@ -763,6 +797,37 @@ function validStateV7(world,state){
           candidate.kind===decision.selectedKind&&candidate.score>0))))
       throw Error('Invalid Citizens needs decision');
   }
+}
+
+function migrateV7(world,saved){
+  validStateV7(world,saved);
+  const state=clone(saved);
+  state.schemaVersion=VERSION;
+  return state;
+}
+
+function validStateV8(world,state){
+  if(!state||state.schemaVersion!==VERSION)
+    throw Error('Invalid Citizens egress state');
+  const v7=clone(state);
+  v7.schemaVersion=VIRTUAL_DAY_VERSION;
+  for(const resident of v7.residents||[]){
+    const action=resident?.activity;
+    if(action?.phase!=='egress')continue;
+    if(!keys(action,['kind','stationId','phase','remainingTicks','travelTicks',
+      'target','executionId','routeRetries','routeGeometryId'])||
+      action.kind==='explore'||action.remainingTicks!==0||
+      !keys(action.target,['x','z'])||
+      !finite(action.target.x)||!finite(action.target.z)||
+      Math.abs(action.target.x)>FLOOR_TARGET_LIMIT||
+      Math.abs(action.target.z)>FLOOR_TARGET_LIMIT||
+      typeof resident.lastOutcome!=='string'||
+      !resident.lastOutcome.startsWith(`Completed ${action.kind} `))
+      throw Error('Invalid Citizens egress activity');
+    action.phase='use';
+    action.target=null;
+  }
+  validStateV7(world,v7);
 }
 
 function pose(x,z,scale=1){
@@ -955,7 +1020,8 @@ export class CitizensSimulation {
     if(current?.schemaVersion===COMPLETION_VERSION)current=migrateV4(world,current);
     if(current?.schemaVersion===ROUTE_VERSION)current=migrateV5(world,current);
     if(current?.schemaVersion===INTERACTION_VERSION)current=migrateV6(world,current);
-    validStateV7(world,current);
+    if(current?.schemaVersion===VIRTUAL_DAY_VERSION)current=migrateV7(world,current);
+    validStateV8(world,current);
     this.world=world;
     this.state=clone(current);
     // Runtime-only baseline: the serialized scene supplies it again on restore.
@@ -987,7 +1053,7 @@ export class CitizensSimulation {
     if(checkRoutes){
       if(this.world.scene!==this.observedScene)
         throw Error('The scene changed; review Citizens bindings before adding a station');
-      validStateV7(this.world,this.state);
+      validStateV8(this.world,this.state);
       for(const bound of [...this.state.residents,...this.state.stations]){
         const object=objectById(this.world,bound.objectId);
         if(!object||!sameTransform(object.transform,
@@ -1018,7 +1084,7 @@ export class CitizensSimulation {
       this.observedTransforms.set(station.objectId,
         clone(objectById(this.world,station.objectId).transform));
       this.log('','selected',`Reviewed ${station.id} station added to the shared world.`);
-      validStateV7(this.world,this.state);
+      validStateV8(this.world,this.state);
       return this.snapshot();
     }catch(error){
       this.state=previous;
@@ -1029,7 +1095,7 @@ export class CitizensSimulation {
   exportState(){
     this.reconcileWorld();
     if(this.invalidBindings.size)throw Error('Citizens binding is missing or incompatible');
-    validStateV7(this.world,this.state);
+    validStateV8(this.world,this.state);
     return this.snapshot();
   }
   reconcileWorld(){this.reconcileBindings();return this.snapshot();}
@@ -1049,10 +1115,21 @@ export class CitizensSimulation {
     this.observedScene=this.world.scene;
     if(replaced){
       this.cancelSocial('the scene was replaced');
-      for(const resident of this.state.residents)if(resident.activity||this.waitingFor(resident))
-        this.fail(resident,'the scene was replaced');
+      const heldEgressStations=new Set(this.state.residents.filter(resident=>
+        resident.activity?.phase==='egress').map(resident=>resident.activity.stationId));
+      for(const resident of this.state.residents){
+        if(resident.activity?.phase==='egress')
+          this.pauseEgress(resident,'the scene was replaced');
+        else{
+          const waiting=this.waitingFor(resident);
+          if(waiting&&heldEgressStations.has(waiting.station.id))
+            this.log(resident.id,'paused',
+              `${resident.name}: FIFO ticket retained while the scene was replaced.`);
+          else if(resident.activity||waiting)this.fail(resident,'the scene was replaced');
+        }
+      }
       this.state.paused=true;
-      this.log('','paused','Scene replacement cancelled all Citizens claims; review before resuming.');
+      this.log('','paused','Scene replacement paused Citizens; review bindings before resuming.');
     }
     let interrupted=replaced;
     for(const [kind,bound] of [
@@ -1083,11 +1160,19 @@ export class CitizensSimulation {
         continue;
       }
       if(this.invalidBindings.delete(bound.objectId)){
+        if(kind==='resident'&&bound.activity?.phase==='egress')
+          this.replanEgress(bound);
+        if(kind==='station'){
+          const holder=this.state.residents.find(resident=>
+            resident.id===bound.claim?.residentId&&
+            resident.activity?.phase==='egress');
+          if(holder)this.replanEgress(holder);
+        }
         this.observedTransforms.set(bound.objectId,clone(object.transform));
         continue;
       }
       if(!sameTransform(object.transform,this.observedTransforms.get(bound.objectId))){
-        this.interruptBinding(kind,bound,`${bound.name||bound.id} was moved externally`);
+        this.interruptBinding(kind,bound,`${bound.name||bound.id} was moved externally`,true);
         interrupted=true;
       }
       this.observedTransforms.set(bound.objectId,clone(object.transform));
@@ -1124,14 +1209,26 @@ export class CitizensSimulation {
     this.state.stations=this.state.stations.filter(item=>item.id!==station.id);
     this.log('','retired',`${station.id} was removed after object deletion; surviving residents continue.`);
   }
-  interruptBinding(kind,bound,reason){
+  interruptBinding(kind,bound,reason,replanEgress=false){
     if(kind==='resident'&&bound.socialSessionId)this.cancelSocial(reason);
     const affected=kind==='resident'?[bound]:
       this.state.residents.filter(resident=>resident.activity?.stationId===bound.id||
         bound.waiters.some(waiter=>waiter.residentId===resident.id));
+    const heldEgressStations=new Set(affected.filter(resident=>
+      resident.activity?.phase==='egress').map(resident=>resident.activity.stationId));
     let cancelled=false;
     for(const resident of affected)if(resident.activity||this.waitingFor(resident)){
-      this.fail(resident,reason);cancelled=true;
+      if(resident.activity?.phase==='egress'){
+        if(replanEgress)this.replanEgress(resident);
+        this.pauseEgress(resident,reason);
+      }else{
+        const waiting=this.waitingFor(resident);
+        if(waiting&&heldEgressStations.has(waiting.station.id))
+          this.log(resident.id,'paused',
+            `${resident.name}: FIFO ticket retained while ${reason}.`);
+        else this.fail(resident,reason);
+      }
+      cancelled=true;
     }
     if(!cancelled)this.log(kind==='resident'?bound.id:'','failed',
       `${reason}; simulation paused.`);
@@ -1148,9 +1245,23 @@ export class CitizensSimulation {
   pauseForNavigation(reason){
     if(this.navigationBlockedReason===reason&&this.state.paused)return;
     this.cancelSocial(`navigation unavailable: ${reason}`);
-    for(const resident of this.state.residents)
-      if(resident.activity||this.waitingFor(resident))
-        this.fail(resident,`navigation unavailable: ${reason}`);
+    const heldEgressStations=new Set(this.state.residents.filter(resident=>
+      resident.activity?.phase==='egress').map(resident=>resident.activity.stationId));
+    for(const resident of this.state.residents){
+      if(resident.activity?.phase==='egress'){
+        const station=this.station(resident.activity.stationId);
+        if(station?.claim)station.claim.expiresTick=this.state.clockTick+LEASE_TICKS;
+        this.log(resident.id,'paused',
+          `${resident.name}: egress paused; ${reason}. Station claim retained.`);
+      }else{
+        const waiting=this.waitingFor(resident);
+        if(waiting&&heldEgressStations.has(waiting.station.id))
+          this.log(resident.id,'paused',
+            `${resident.name}: FIFO ticket retained while navigation is unavailable.`);
+        else if(resident.activity||waiting)
+          this.fail(resident,`navigation unavailable: ${reason}`);
+      }
+    }
     this.state.paused=true;
     this.navigationBlockedReason=reason;
     this.log('','paused',`Navigation unavailable: ${reason}. Verify the scene before resuming.`);
@@ -1161,7 +1272,11 @@ export class CitizensSimulation {
     const reason=this.navigationIssue();
     if(reason){this.pauseForNavigation(reason);return this.snapshot();}
     this.navigationBlockedReason='';
-    if(this.state.paused){this.state.paused=false;this.log('','resumed','Simulation resumed.');}
+    if(this.state.paused){
+      for(const resident of this.state.residents)
+        if(resident.activity?.phase==='egress')resident.activity.routeRetries=0;
+      this.state.paused=false;this.log('','resumed','Simulation resumed.');
+    }
     return this.snapshot();
   }
   advance(){return this.state.paused?this.reconcileWorld():this.step();}
@@ -1355,6 +1470,116 @@ export class CitizensSimulation {
     this.log(resident.id,'rerouted',
       `${resident.name}: route unavailable; retry ${action.routeRetries}/${MAX_ROUTE_RETRIES}: ${reason}`);
   }
+  egressTarget(resident,station){
+    const actor=positionOf(this.world,resident.objectId);
+    const stationPoint=positionOf(this.world,station.objectId);
+    if(!actor||!stationPoint)return null;
+    const dx=actor.x-stationPoint.x,dz=actor.z-stationPoint.z;
+    const length=Math.hypot(dx,dz);
+    const forward=length>.01?{x:dx/length,z:dz/length}:{x:0,z:-1};
+    const directions=[forward,{x:-forward.z,z:forward.x},
+      {x:forward.z,z:-forward.x},{x:-forward.x,z:-forward.z}];
+    const candidates=[];
+    for(const radius of [EGRESS_METRES,EGRESS_METRES*1.5])
+      for(const direction of directions){
+        const target={x:round6(actor.x+direction.x*radius),
+          z:round6(actor.z+direction.z*radius)};
+        if(Math.abs(target.x)<=FLOOR_TARGET_LIMIT&&
+          Math.abs(target.z)<=FLOOR_TARGET_LIMIT)candidates.push(target);
+      }
+    if(!candidates.length)return {x:round6(actor.x),z:round6(actor.z)};
+    let obstacles;
+    try{obstacles=navigationObstacles(this.world,resident.objectId);}
+    catch{return candidates[0];}
+    return candidates.find(target=>planPath({start:actor,goal:target,obstacles,
+      actorRadius:ACTOR_RADIUS}).ok)||candidates[0];
+  }
+  replanEgress(resident){
+    const action=resident.activity;
+    const station=this.station(action.stationId);
+    const target=station&&this.egressTarget(resident,station);
+    if(!target)return;
+    action.target=target;
+    action.travelTicks=0;
+    action.routeRetries=0;
+  }
+  pauseEgress(resident,reason){
+    const station=this.station(resident.activity.stationId);
+    if(station?.claim)station.claim.expiresTick=this.state.clockTick+LEASE_TICKS;
+    this.state.paused=true;
+    this.log(resident.id,'paused',
+      `${resident.name}: egress blocked at ${resident.activity.stationId}; ${reason}. Claim retained; review path, then resume.`);
+  }
+  retryEgress(resident,reason){
+    const action=resident.activity;
+    if(action.routeRetries>=MAX_ROUTE_RETRIES){
+      this.pauseEgress(resident,`route unavailable after ${MAX_ROUTE_RETRIES} retries: ${reason}`);
+      return;
+    }
+    action.routeRetries++;
+    this.log(resident.id,'rerouted',
+      `${resident.name}: egress route unavailable; retry ${action.routeRetries}/${MAX_ROUTE_RETRIES}: ${reason}`);
+  }
+  progressEgress(resident){
+    const action=resident.activity;
+    const station=this.station(action.stationId);
+    if(!station||station.claim?.residentId!==resident.id||
+      station.claim.executionId!==action.executionId){
+      this.fail(resident,'egress station or claim changed');return;
+    }
+    const actor=positionOf(this.world,resident.objectId);
+    if(!actor){this.pauseEgress(resident,'resident object is missing');return;}
+    if(distance(actor,action.target)>ARRIVAL_METRES){
+      if(action.travelTicks>=MAX_TRAVEL_TICKS){
+        this.pauseEgress(resident,'egress travel timed out');return;
+      }
+      const receipt=this.requestMove(resident,action.target,action.executionId,'egress');
+      if(!receipt.ok){
+        // A command can mutate Matrix and still return an unusable receipt.
+        // Remember the observed pose, then require a fresh, verified departure.
+        const observed=objectById(this.world,resident.objectId);
+        if(observed&&!sameTransform(observed.transform,
+          this.observedTransforms.get(resident.objectId))){
+          this.observedTransforms.set(resident.objectId,clone(observed.transform));
+          this.replanEgress(resident);
+        }
+        if(['no_path','start_blocked','goal_blocked','obstacle'].includes(receipt.code))
+          this.retryEgress(resident,receipt.error);
+        else this.pauseEgress(resident,`movement rejected: ${receipt.error}`);
+        return;
+      }
+      action.travelTicks++;
+      station.claim.expiresTick=this.state.clockTick+LEASE_TICKS;
+      if(distance(positionOf(this.world,resident.objectId),action.target)>ARRIVAL_METRES)return;
+    }
+    const head=station.waiters[0];
+    const waiter=head&&this.state.residents.find(item=>item.id===head.residentId);
+    let approachAvailable=false;
+    if(waiter){
+      const approach=stationApproach(this.world,waiter.objectId,station);
+      if(!approach.ok){
+        const withoutHolder=stationApproach(this.world,waiter.objectId,station,
+          null,[],null,resident.objectId);
+        if(withoutHolder.ok||holderBlocksStationApproach(this.world,station,
+          resident.objectId)){
+          const next=this.egressTarget(resident,station);
+          if(next&&distance(next,action.target)>ARRIVAL_METRES){
+            action.target=next;
+            this.retryEgress(resident,`FIFO approach still blocked: ${approach.reason}`);
+            return;
+          }
+          this.pauseEgress(resident,`FIFO approach remains blocked: ${approach.reason}`);
+          return;
+        }
+      }else approachAvailable=true;
+    }
+    const kind=action.kind;
+    this.release(resident);
+    resident.activity=null;
+    resident.cooldowns[kind]=this.state.clockTick+6;
+    this.log(resident.id,'arrived',
+      `${resident.name} cleared ${station.id}${approachAvailable?'; its FIFO approach is available.':'.'}`);
+  }
   requestMove(resident,target,executionId=resident.activity?.executionId,domain='action'){
     const object=objectById(this.world,resident.objectId);
     if(!object||object.anchorId!==ANCHOR_ID)
@@ -1526,15 +1751,34 @@ export class CitizensSimulation {
     this.beginActivity(resident,station.kind,station,entry.executionId,
       `FIFO turn after waiting since minute ${entry.enqueuedTick}; execution ${entry.executionId}.`);
   }
+  expireWaiters(){
+    const expired=new Set();
+    for(const station of this.state.stations)
+      for(const entry of [...station.waiters]){
+        if(this.state.clockTick-entry.enqueuedTick<MAX_WAIT_TICKS)continue;
+        const resident=this.state.residents.find(item=>item.id===entry.residentId);
+        if(resident){
+          this.fail(resident,`wait for ${station.id} timed out`);
+          this.log(resident.id,'expired',`${resident.name}'s wait for ${station.id} expired.`);
+          expired.add(resident.id);
+        }else station.waiters=station.waiters.filter(item=>item!==entry);
+      }
+    return expired;
+  }
   expireClaims(){
     for(const station of this.state.stations){
       const claim=station.claim;
       if(!claim||this.state.clockTick<claim.expiresTick)continue;
       const resident=this.state.residents.find(item=>item.id===claim.residentId);
+      if(resident?.activity?.phase==='egress'){
+        this.pauseEgress(resident,'departure lease reached its limit');
+        return true;
+      }
       if(resident)this.fail(resident,`lease for ${station.id} expired`);
       else station.claim=null;
       this.log(claim.residentId,'expired',`${station.id} lease for execution ${claim.executionId} expired.`);
     }
+    return false;
   }
   decisionCandidate(resident,actor,kind,routine=null,{legacyJitter=false}={}){
     const station=routine?.stationId?
@@ -1671,6 +1915,10 @@ export class CitizensSimulation {
   progress(resident){
     const action=resident.activity;
     if(!action)return;
+    if(action.phase==='egress'){
+      this.progressEgress(resident);
+      return;
+    }
     if(action.phase==='travel'){
       const geometryId=this.routeGeometryId();
       if(action.routeGeometryId!==null&&action.routeGeometryId!==geometryId)
@@ -1722,11 +1970,27 @@ export class CitizensSimulation {
       if(kind==='eat')resident.needs.hunger=clamp(resident.needs.hunger+43);
     }
     if(kind==='explore')resident.needs.fun=clamp(resident.needs.fun+27);
-    this.release(resident);
-    resident.activity=null;
-    resident.cooldowns[kind]=this.state.clockTick+6;
     resident.lastOutcome=`Completed ${kind} at minute ${this.state.clockTick}`;
     this.log(resident.id,'completed',`${resident.name} completed ${kind}; observed outcome updated needs.`);
+    if(station){
+      action.phase='egress';
+      action.remainingTicks=0;
+      action.travelTicks=0;
+      action.routeRetries=0;
+      action.target=this.egressTarget(resident,station);
+      if(!action.target){
+        this.fail(resident,'departure actor or station disappeared after interaction');
+        this.state.paused=true;
+        return;
+      }
+      station.claim.expiresTick=this.state.clockTick+LEASE_TICKS;
+      this.log(resident.id,'selected',
+        `${resident.name} is leaving ${station.id} before its FIFO handoff.`);
+    }else{
+      this.release(resident);
+      resident.activity=null;
+      resident.cooldowns[kind]=this.state.clockTick+6;
+    }
   }
   step(){
     if(this.reconcileBindings())return this.snapshot();
@@ -1739,7 +2003,8 @@ export class CitizensSimulation {
       return this.snapshot();
     }
     this.state.clockTick++;
-    this.expireClaims();
+    const expiredWaiters=this.expireWaiters();
+    if(this.expireClaims())return this.snapshot();
     for(const resident of this.state.residents){
       resident.needs.hunger=clamp(resident.needs.hunger-.45);
       resident.needs.energy=clamp(resident.needs.energy-.55);
@@ -1756,7 +2021,8 @@ export class CitizensSimulation {
       this.state.clockTick>=this.state.nextSocialTick&&
       this.state.clockTick<this.state.nextSocialTick+SOCIAL_WINDOW_TICKS;
     for(const resident of this.state.residents){
-      if(socialParticipants.has(resident.id)||resident.socialSessionId)continue;
+      if(socialParticipants.has(resident.id)||resident.socialSessionId||
+        expiredWaiters.has(resident.id))continue;
       if(!resident.activity){
         const waiting=this.waitingFor(resident);
         if(waiting)this.progressWaiting(resident,waiting.station,waiting.entry);

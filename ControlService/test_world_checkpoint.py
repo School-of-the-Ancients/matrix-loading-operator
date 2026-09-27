@@ -344,6 +344,94 @@ class WorldCheckpointTests(unittest.TestCase):
                             "score": 92.4}]}
         return world
 
+    def citizens_v8_egress_world(self):
+        world = self.citizens_v7_schedule_world()
+        state = world["citizens"]
+        state["schemaVersion"] = 8
+        state["actionSequence"] = 5
+        state["residents"][0]["activity"].update(
+            phase="egress", remainingTicks=0, travelTicks=2,
+            target={"x": 0, "z": -.6}, routeRetries=1)
+        state["residents"][0]["lastOutcome"] = "Completed rest at minute 15"
+        state["stations"][0]["waiters"] = [
+            {"residentId": "bo", "executionId": 5, "enqueuedTick": 15}]
+        for obj in world["scene"]["objects"]:
+            if obj["objectId"] == "citizen-ada":
+                obj["transform"]["position"].update(x=0, z=-1.35)
+        active = copy.deepcopy(self.state.latest)
+        active["scene"] = copy.deepcopy(world["scene"])
+        self.state.exchange({"clientId": "browser", "snapshot": active, "results": []})
+        return world
+
+    def test_citizens_v8_egress_and_fifo_wait_roundtrip_with_v7_compatibility(self):
+        world = self.citizens_v8_egress_world()
+        before = copy.deepcopy(self.state.latest)
+        self.assertTrue(self.state.save_world_checkpoint("Egress", world)["saved"])
+        restored = self.state.load_world_checkpoint("Egress")["world"]
+        self.assertEqual(restored["citizens"], world["citizens"])
+        self.assertEqual(restored["version"], 3)
+        self.assertEqual([item["objectId"] for item in restored["scene"]["objects"]],
+                         [item["objectId"] for item in world["scene"]["objects"]])
+        self.assertEqual(restored["citizens"]["stations"][0]["claim"]["residentId"], "ada")
+        self.assertEqual(restored["citizens"]["stations"][0]["waiters"][0]["executionId"], 5)
+        self.assertEqual(self.state.latest, before,
+                         "loading an egress checkpoint must not replace the live world")
+
+        older = copy.deepcopy(world)
+        older["citizens"]["schemaVersion"] = 7
+        older["citizens"]["residents"][0]["activity"].update(
+            phase="use", remainingTicks=1, target=None)
+        self.assertTrue(self.state.save_world_checkpoint("BeforeEgress", older)["saved"])
+        self.assertEqual(self.state.load_world_checkpoint("BeforeEgress")["world"]["citizens"],
+                         older["citizens"],
+                         "the PC retains the exact v7 payload for browser migration")
+
+    def test_citizens_v8_rejects_invalid_egress_without_replacing_checkpoint(self):
+        world = self.citizens_v8_egress_world()
+        self.state.save_world_checkpoint("Egress", world)
+        path = self.scenes / "world_checkpoints" / "Egress.json"
+        original = path.read_bytes()
+        live_before = copy.deepcopy(self.state.latest)
+
+        def activity(item):
+            return item["citizens"]["residents"][0]["activity"]
+
+        cases = (
+            ("v7 cannot contain egress", lambda item: item["citizens"].update(schemaVersion=7)),
+            ("egress cannot explore", lambda item: activity(item).update(kind="explore")),
+            ("egress needs a station", lambda item: activity(item).update(stationId=None)),
+            ("egress needs a target", lambda item: activity(item).update(target=None)),
+            ("egress target must be finite", lambda item: activity(item)["target"].update(x=float("inf"))),
+            ("egress target must be bounded", lambda item: activity(item)["target"].update(z=101)),
+            ("egress target matches browser floor bound", lambda item: activity(item)["target"].update(z=99.9)),
+            ("egress target has exact shape", lambda item: activity(item)["target"].update(y=0)),
+            ("egress cannot grant benefit again", lambda item: activity(item).update(remainingTicks=1)),
+            ("egress requires observed completion", lambda item: item["citizens"]["residents"][0].update(lastOutcome="")),
+            ("egress retains its claim", lambda item: item["citizens"]["stations"][0].update(claim=None)),
+        )
+        for label, mutate in cases:
+            with self.subTest(label=label):
+                invalid = copy.deepcopy(world)
+                mutate(invalid)
+                with self.assertRaises(APIError) as rejected:
+                    self.state.save_world_checkpoint("Egress", invalid)
+                self.assertEqual(rejected.exception.status, 400)
+                self.assertEqual(path.read_bytes(), original)
+                self.assertEqual(self.state.latest, live_before)
+
+                if label == "egress target must be finite":
+                    continue  # Non-finite JSON cannot be stored in a named checkpoint.
+                document = json.loads(original)
+                mutate(document["world"])
+                document["payloadSha256"] = world_checkpoint_digest(
+                    document["world"], document["dependencies"])
+                path.write_text(json.dumps(document), encoding="utf-8")
+                with self.assertRaises(APIError) as rejected:
+                    self.state.load_world_checkpoint("Egress")
+                self.assertEqual(rejected.exception.status, 400)
+                self.assertEqual(self.state.latest, live_before)
+                path.write_bytes(original)
+
     def test_citizens_v7_schedule_roundtrip_and_older_exact_shapes(self):
         world = self.citizens_v7_schedule_world()
         live_before = copy.deepcopy(self.state.latest)

@@ -423,7 +423,8 @@ export class CitizensPanel {
           `${resident.id===social.initiatorId?'inviting':'invited by'} ${peer} · session ${social.id}`:
           `conversing with ${peer} · session ${social.id}`:null;
       const action=socialAction|| (queue?`waiting for ${queue.stationId} · queue #${queue.position} · execution ${queue.executionId}`:
-        resident.activity?`${resident.activity.phase==='travel'?'going to':'using'} ${resident.activity.kind} · execution ${resident.activity.executionId}`:'choosing');
+        resident.activity?`${resident.activity.phase==='egress'?`leaving ${resident.activity.stationId}`:
+          `${resident.activity.phase==='travel'?'going to':'using'} ${resident.activity.kind}`} · execution ${resident.activity.executionId}`:'choosing');
       item.textContent=`${resident.name}: ${action} · fullness ${Math.round(resident.needs.hunger)} · energy ${Math.round(resident.needs.energy)} · fun ${Math.round(resident.needs.fun)}${resident.lastOutcome?` · ${resident.lastOutcome}`:''}`;
       cards.push(item);
     }
