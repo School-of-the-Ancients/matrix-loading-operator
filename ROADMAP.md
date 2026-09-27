@@ -2,74 +2,87 @@
 
 Keep this intentionally short. Detailed acceptance belongs in the issue being worked; evidence belongs in `Docs/` and `Validation/`.
 
-## Now
+## Current release baseline
 
-Build the core Matrix loop as **one persistent inhabited world** rather than separate demos.
+`v0.8.0-preview.1` is the frozen working baseline.
 
-### Creation loop — #122
+It establishes the forward Three.js/WebXR Matrix Creator/Operator loop on Quest VR/AR: request, create/import, interact, revise, save/reopen, plus a separately hosted read-only Ada/Bo Citizens world.
 
-Finish:
+Do not rebuild the engine or reopen completed v0.8 milestones to implement v1.0.
 
-```text
-request -> create -> interact -> revise -> save -> reopen
-```
+## Now — Matrix v1.0
 
-Keep procedural creation, reusable assets and Blender import converging on the same world. Finish immersive readability/input and actual VR/AR wearer evidence without rebuilding the engine.
+Canonical implementation epic: [#152](https://github.com/School-of-the-Ancients/matrix-loading-operator/issues/152).
 
-### Persistent AI Citizens world — #20 / #29
+Complete these milestones in order:
 
-Move the existing Citizens implementation toward one persistent simulation owner:
+### 1. Grab + thumbstick transforms — #147
 
-- citizens keep stable identities and state;
-- the world can progress without a browser running;
-- durable checkpoints/replay remain bounded and versioned;
-- desktop/VR/AR visitors rejoin the same world rather than starting another citizen clock.
+Improve direct VR/AR manipulation while preserving the existing ray-grab, animation, physics and persistence behavior.
 
-### AR visit into the same world — #22
+### 2. ComfyUI visual ideation — #91
 
-Let AR observe/interact with the persistent digital world without cloning it. Physical room alignment, planes and recovery are presentation/registration state; claims of physical alignment require actual device evidence.
+Add voice/text → real image variants → explicit selected concept → actual image supplied to the existing Codex Agent.
 
-### Operator grounding — #116
+The selected image is design context. Codex remains free to choose existing assets, procedural generation, Blender, agent-authored Python/code generation, or a combination.
 
-Keep Operator prompts/tool choices based on live Matrix capabilities and receipts rather than legacy Unity/White-Room assumptions.
+### 3. Persistent panorama / skybox environment — #150
 
-## Next
+Add the smallest world-level equirectangular panorama capability for desktop/VR, with typed Operator actions and save/reopen persistence. Keep passthrough AR honest.
 
-### Generalize "Operator, load XYZ"
+### 4. Restore room-aware Operator context — #149
 
-Make creation feel like one capability with multiple backends:
+Repair the spatial-context capability lost in the Unity/MRUK → Three.js/WebXR port.
 
-- procedural generation;
-- Blender MCP + validated import;
-- reusable asset lookup;
-- optional ComfyUI/image mockup -> revise/select -> build;
-- reusable animation, sounds and behaviors.
+Restore a bounded renderer-neutral room model so Operator can ground interactions such as:
 
-### Citizens build too — #109
+- “put that there”;
+- “put this on that table”;
+- “reorganize this to fit my room.”
 
-Let authorized citizens request bounded world creation through the same capability layer humans use, with separate authority, provenance and receipts. No resident gets Operator/PC credentials.
+Reuse the relevant WebXR room/alignment work from #22 rather than reintroducing Unity/MRUK.
 
-### Deeper resident simulation
+### 5. Quest physical-camera context — #26
 
-Use [RESOURCES.md](RESOURCES.md) to evolve memory/reflection, needs/schedules, planning, social behavior and larger inhabited-world experiments. Open/reopen only the specific implementation slice being worked.
+Let the wearer explicitly share an environment-camera frame with Operator for qualitative visual understanding.
 
-## Later
+Keep camera imagery separate from measured room geometry. #149 supplies metric/spatial constraints; camera pixels must not be treated as precise measurements.
 
-Only pull these forward when a concrete experience needs them:
+## v1.0 release gate
 
-- multiplayer/shared worlds;
-- georeferenced Boulder/Earth layers;
-- richer dynamic citizen quests;
-- portal-linked worlds/places;
-- dynamic world improvement/upgrader agents;
-- remote/astral presence;
-- very large persistent societies;
-- future everyday AR glasses.
+After #147 → #91 → #150 → #149 → #26:
+
+1. stop feature work;
+2. run the integrated Quest VR/AR journey defined in #152;
+3. run full ControlService and WebRuntime suites plus production build;
+4. build from an exact frozen commit;
+5. smoke the extracted package;
+6. run wearer acceptance on that exact package;
+7. publish `v1.0.0` only from the tested frozen artifact.
+
+The target experience is:
+
+> **Ask Operator to imagine, create and revise a world; manipulate it naturally in VR; surround it with generated visual environments; bring it into AR with actual room-aware spatial context; optionally let Operator see an explicitly shared physical-room image; save it and return.**
+
+## Parallel / post-v1.0 work
+
+Important, but not blockers for this v1.0 definition:
+
+- #148 — interactive Operator inside the persistent hosted Citizens world;
+- #20 / #29 — deeper persistent Citizens and SwarmWorld-like society work;
+- #9 — broader provider/catalog integrations;
+- #31 — external/School client-neutral integration;
+- #32 — broader reusable experiment capabilities;
+- #24 — coursework report/video/slides and later submission packaging.
+
+The existing v0.8 hosted Citizens world remains available as its currently supported read-only visitor experience. Do not claim hosted human editing until #148 passes.
 
 ## Work-selection rule
 
-1. Continue compatible work already underway.
-2. Prefer one user-visible end-to-end slice.
-3. Do not start a new engine or duplicate world/simulation state.
-4. A new research link goes to [RESOURCES.md](RESOURCES.md) unless it creates a concrete implementation need.
-5. GitHub issues are implementation tasks/epics, not the product definition.
+1. Follow #152 and the currently active milestone issue.
+2. Continue compatible merged work; do not create a second world, Agent loop, renderer, or asset system.
+3. Preserve v0.8 behavior as the regression floor.
+4. Prefer one user-visible end-to-end slice over framework expansion.
+5. Separate automated/desktop evidence from actual Quest wearer evidence.
+6. Finish and merge the active milestone before starting the next one.
+7. New research links go to [RESOURCES.md](RESOURCES.md) unless they create a concrete implementation need.
