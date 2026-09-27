@@ -412,6 +412,122 @@ class WorldCheckpointTests(unittest.TestCase):
                             "score": 74.8}]}
         return world
 
+    def citizens_v11_revisions_world(self):
+        world = self.citizens_v10_appointments_world()
+        state = world["citizens"]
+        state["schemaVersion"] = 11
+        ada, bo = state["residents"]
+        ada["appointmentSequence"] = 4
+        bo["appointmentSequence"] = 2
+        ada["appointments"].append({
+            "id": "appointment-4", "kind": "eat", "startTick": 20,
+            "deadlineTick": 30, "status": "cancelled", "executionId": None,
+            "resolvedTick": 15, "requestId": None, "reason": "cancelled by operator"})
+        return world
+
+    def test_citizens_v11_revisions_roundtrip_and_v10_compatibility(self):
+        world = self.citizens_v11_revisions_world()
+        live_before = copy.deepcopy(self.state.latest)
+        self.assertTrue(self.state.save_world_checkpoint("AppointmentRevisions", world)["saved"])
+        restored = self.state.load_world_checkpoint("AppointmentRevisions")["world"]
+        self.assertEqual(restored["citizens"], world["citizens"])
+        self.assertEqual(restored["citizens"]["residents"][0]["appointmentSequence"], 4)
+        self.assertEqual(restored["citizens"]["residents"][0]["appointments"][-1]["status"],
+                         "cancelled")
+        self.assertEqual(self.state.latest, live_before)
+
+        old = self.citizens_v10_appointments_world()
+        self.assertTrue(self.state.save_world_checkpoint("BeforeRevisions", old)["saved"])
+        self.assertEqual(self.state.load_world_checkpoint("BeforeRevisions")["world"]["citizens"],
+                         old["citizens"], "v10 remains exact for browser migration")
+
+        pruned = copy.deepcopy(world)
+        ada = pruned["citizens"]["residents"][0]
+        ada["appointments"] = [entry for entry in ada["appointments"]
+                               if entry["id"] != "appointment-1"]
+        ada["appointmentSequence"] = 5
+        ada["appointments"].append({
+            "id": "appointment-5", "kind": "rest", "startTick": 21,
+            "deadlineTick": 31, "status": "pending", "executionId": None,
+            "resolvedTick": None, "requestId": None, "reason": ""})
+        self.assertTrue(self.state.save_world_checkpoint("PrunedRevisions", pruned)["saved"])
+        self.assertEqual(self.state.load_world_checkpoint("PrunedRevisions")["world"]["citizens"],
+                         pruned["citizens"], "pruned IDs retain a monotonic sequence")
+
+    def test_citizens_v11_rejects_malformed_revisions_atomically(self):
+        world = self.citizens_v11_revisions_world()
+        self.assertTrue(self.state.save_world_checkpoint("AppointmentRevisions", world)["saved"])
+        path = self.scenes / "world_checkpoints" / "AppointmentRevisions.json"
+        original = path.read_bytes()
+        live_before = copy.deepcopy(self.state.latest)
+
+        def ada(item):
+            return item["citizens"]["residents"][0]
+
+        def bo(item):
+            return item["citizens"]["residents"][1]
+
+        def extra_open(item):
+            resident = bo(item)
+            resident["appointmentSequence"] = 5
+            for number in (3, 4, 5):
+                resident["appointments"].append({
+                    "id": f"appointment-{number}", "kind": "eat", "startTick": 20,
+                    "deadlineTick": 30, "status": "pending", "executionId": None,
+                    "resolvedTick": None, "requestId": None, "reason": ""})
+
+        def extra_terminal(item):
+            resident = ada(item)
+            resident["appointmentSequence"] = 6
+            for number in (5, 6):
+                resident["appointments"].append({
+                    "id": f"appointment-{number}", "kind": "rest", "startTick": 10,
+                    "deadlineTick": 14, "status": "missed", "executionId": None,
+                    "resolvedTick": 15, "requestId": None, "reason": "deadline passed"})
+
+        cases = (
+            ("missing sequence", lambda item: ada(item).pop("appointmentSequence")),
+            ("boolean sequence", lambda item: ada(item).update(appointmentSequence=True)),
+            ("sequence below retained ID", lambda item: ada(item).update(appointmentSequence=3)),
+            ("noncanonical ID", lambda item: ada(item)["appointments"][-1].update(id="appointment-04")),
+            ("duplicate ID", lambda item: ada(item)["appointments"][-1].update(id="appointment-2")),
+            ("too many open", extra_open),
+            ("too many terminal", extra_terminal),
+            ("cancelled execution", lambda item: ada(item)["appointments"][-1].update(executionId=3)),
+            ("cancelled future tick", lambda item: ada(item)["appointments"][-1].update(resolvedTick=16)),
+            ("cancelled wrong reason", lambda item: ada(item)["appointments"][-1].update(reason="")),
+            ("social receipt reuse", lambda item: ada(item)["appointments"][0].update(
+                requestId="citizens-73-action-4-10")),
+            ("active execution unlinked", lambda item: bo(item)["appointments"][0].update(
+                executionId=3)),
+            ("decision target absent", lambda item: bo(item)["lastDecision"].update(
+                selectedAppointmentId="appointment-3")),
+            ("v10 rejects v11 state", lambda item: item["citizens"].update(schemaVersion=10)),
+            ("other resident fields exact", lambda item: ada(item).update(revisionClock=15)),
+        )
+        for label, mutate in cases:
+            with self.subTest(save=label):
+                invalid = copy.deepcopy(world)
+                mutate(invalid)
+                with self.assertRaises(APIError) as rejected:
+                    self.state.save_world_checkpoint("AppointmentRevisions", invalid)
+                self.assertEqual(rejected.exception.status, 400)
+                self.assertEqual(path.read_bytes(), original)
+                self.assertEqual(self.state.latest, live_before)
+
+        for label, mutate in cases:
+            with self.subTest(load=label):
+                document = json.loads(original)
+                mutate(document["world"])
+                document["payloadSha256"] = world_checkpoint_digest(
+                    document["world"], document["dependencies"])
+                path.write_text(json.dumps(document), encoding="utf-8")
+                with self.assertRaises(APIError) as rejected:
+                    self.state.load_world_checkpoint("AppointmentRevisions")
+                self.assertEqual(rejected.exception.status, 400)
+                self.assertEqual(self.state.latest, live_before)
+                path.write_bytes(original)
+
     def test_citizens_v10_appointments_roundtrip_and_v9_compatibility(self):
         world = self.citizens_v10_appointments_world()
         live_before = copy.deepcopy(self.state.latest)

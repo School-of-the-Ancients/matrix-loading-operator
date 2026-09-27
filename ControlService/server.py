@@ -716,12 +716,13 @@ def validate_citizens_checkpoint(value, checked_scene):
         return type(item) in (int, float) and minimum <= item <= maximum and math.isfinite(item)
 
     require(type(value) is dict and type(value.get("schemaVersion")) is int and
-            value["schemaVersion"] in (1, 2, 3, 4, 5, 6, 7, 8, 9, 10), "Unsupported Citizens schemaVersion")
+            value["schemaVersion"] in (1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11), "Unsupported Citizens schemaVersion")
     version = value["schemaVersion"]
-    if version == 10:
-        # Appointments are resident-local commitments. Validate their exact
-        # lifecycle and active execution links before projecting back to the
-        # v9 state, which continues to check all world and action bindings.
+    if version in (10, 11):
+        # Validate resident-local appointment lifecycles before projecting to
+        # v9, which still checks every world, resident and action binding. V11
+        # admits repeated commitments with monotonic IDs and bounded history;
+        # the exact v10 contract remains valid for old saved worlds.
         require(type(value.get("residents")) is list and
                 len(value["residents"]) <= 4 and
                 type(value.get("stations")) is list and
@@ -746,12 +747,18 @@ def validate_citizens_checkpoint(value, checked_scene):
         for resident, old_resident in zip(value["residents"], projected["residents"]):
             require(type(resident) is dict and
                     type(resident.get("appointments")) is list and
-                    len(resident["appointments"]) <= 3,
+                    len(resident["appointments"]) <= (6 if version == 11 else 3),
                     "Invalid Citizens appointments")
             del old_resident["appointments"]
+            if version == 11:
+                require(integer(resident.get("appointmentSequence"), 0, 1000000000),
+                        "Invalid Citizens appointment sequence")
+                del old_resident["appointmentSequence"]
             appointment_ids = set()
             appointments_by_id = {}
             active_count = 0
+            open_count = 0
+            terminal_count = 0
             for appointment in resident["appointments"]:
                 shape(appointment, ("id", "kind", "startTick", "deadlineTick", "status",
                                     "executionId", "resolvedTick", "requestId", "reason"),
@@ -759,8 +766,14 @@ def validate_citizens_checkpoint(value, checked_scene):
                 appointment_id = appointment["id"]
                 kind = appointment["kind"]
                 start, deadline = appointment["startTick"], appointment["deadlineTick"]
+                id_match = (re.fullmatch(r"appointment-([1-9][0-9]*)", appointment_id)
+                            if version == 11 and type(appointment_id) is str and
+                            len(appointment_id) <= 32 else None)
                 require(type(appointment_id) is str and
-                        appointment_id in ("appointment-1", "appointment-2", "appointment-3") and
+                        (id_match is not None and
+                         integer(int(id_match[1]), 1, resident["appointmentSequence"])
+                         if version == 11 else
+                         appointment_id in ("appointment-1", "appointment-2", "appointment-3")) and
                         appointment_id not in appointment_ids and
                         type(kind) is str and kind in ("rest", "eat") and
                         integer(start, 1, 999999999) and
@@ -774,9 +787,15 @@ def validate_citizens_checkpoint(value, checked_scene):
                 request_id = appointment["requestId"]
                 reason = appointment["reason"]
                 require(type(status) is str and
-                        status in ("pending", "active", "completed", "missed") and
+                        status in (("pending", "active", "completed", "missed", "cancelled")
+                                   if version == 11 else
+                                   ("pending", "active", "completed", "missed")) and
                         type(reason) is str and len(reason) <= 128,
                         "Invalid Citizens appointment lifecycle")
+                if status in ("pending", "active"):
+                    open_count += 1
+                else:
+                    terminal_count += 1
                 if execution_id is not None:
                     require(integer(execution_id, 1, value["actionSequence"]) and
                             execution_id not in used_executions,
@@ -821,14 +840,22 @@ def validate_citizens_checkpoint(value, checked_scene):
                             int(match[3]) not in used_request_sequences and reason == "",
                             "Invalid completed Citizens appointment")
                     used_request_sequences.add(int(match[3]))
-                else:
+                elif status == "missed":
                     require((execution_id is None or
                              integer(execution_id, 1, value["actionSequence"])) and
                             resolved == deadline + 1 and
                             resolved <= value["clockTick"] and
                             request_id is None and reason == "deadline passed",
                             "Invalid missed Citizens appointment")
+                else:
+                    require(version == 11 and execution_id is None and
+                            integer(resolved, 0, min(deadline, value["clockTick"])) and
+                            request_id is None and reason == "cancelled by operator",
+                            "Invalid cancelled Citizens appointment")
             require(active_count <= 1, "Multiple active Citizens appointments")
+            if version == 11:
+                require(open_count <= 3 and terminal_count <= 3,
+                        "Invalid Citizens appointment retention bounds")
             decision = resident.get("lastDecision")
             if type(decision) is dict and decision.get("mode") == "appointment":
                 shape(decision, ("tick", "mode", "roll", "selectedKind",
