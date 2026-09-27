@@ -24,6 +24,12 @@ import {CitizensPanel} from './citizens_panel.js';
 import {citizensFurnitureReadiness} from './citizens.js';
 
 const $=id=>document.getElementById(id);
+const sidebarToggle=$('toggle-sidebar');
+sidebarToggle.addEventListener('click',()=>{
+  const expanded=sidebarToggle.getAttribute('aria-expanded')==='true';
+  sidebarToggle.setAttribute('aria-expanded',String(!expanded));
+  sidebarToggle.textContent=expanded?'Show controls':'Hide controls';
+});
 const world=new MatrixWorld();
 const cameraStream=new CameraStream();
 let scaleUI=null;
