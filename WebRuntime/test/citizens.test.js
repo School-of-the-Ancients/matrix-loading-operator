@@ -73,7 +73,7 @@ test('selected authored table stays in the scene and its stable ID survives save
   assert.equal(matrix.selection.objectId,tableId);
   assert.equal(matrix.scene.objects.length,4);
   assert.deepEqual(sim.snapshot().stations,[{id:'food',kind:'eat',objectId:tableId,
-    capacity:1,claim:null,waiters:[]}]);
+    capacity:1,claim:null,waiters:[],interaction:null}]);
   assert.equal(matrix.scene.objects[1].objectId,blockId);
   const startIds=sim.snapshot().residents.map(resident=>resident.objectId);
   stepUntil(sim,state=>state.log.some(entry=>entry.event==='completed'&&
@@ -269,7 +269,7 @@ test('selected furniture readiness rejects unsupported, moving and unknown scene
   const wallId=spawn(matrix,'wall',pose(4,0));
   const authored=structuredClone(matrix.scene);
   assert.match(citizensFurnitureReadiness(matrix,''),/Select an existing chair/);
-  assert.match(citizensFurnitureReadiness(matrix,wallId),/chair or table/);
+  assert.match(citizensFurnitureReadiness(matrix,wallId),/registered GLB with a reviewed interaction/);
   matrix.game={active:true};
   assert.match(citizensFurnitureReadiness(matrix,chairId),/active game/);
   matrix.game=null;
@@ -611,7 +611,7 @@ test('v1 mid-action state migrates atomically and replays deletion and FIFO hand
   const a=restore(),b=restore();
   for(const copy of [a,b]){
     const migrated=copy.sim.exportState();
-    assert.equal(migrated.schemaVersion,5);
+    assert.equal(migrated.schemaVersion,6);
     assert.equal(migrated.actionSequence,1);
     assert.equal(migrated.stations.find(station=>station.kind==='rest').claim.executionId,
       migrated.residents.find(resident=>resident.id==='ada').activity.executionId);
@@ -899,7 +899,7 @@ test('deleting the last resident yields a valid paused zero-resident state',()=>
   assert.deepEqual(sim.resume(),after,'empty simulation cannot run');
 });
 
-test('v2 checkpoints migrate to v5 without changing active claims or Matrix objects',()=>{
+test('v2 checkpoints migrate to v6 without changing active claims or Matrix objects',()=>{
   const matrix=world(),sim=createCitizensDemo(matrix,{seed:31});
   sim.step();
   const saved=sim.exportState();
@@ -913,10 +913,12 @@ test('v2 checkpoints migrate to v5 without changing active claims or Matrix obje
       delete resident.activity.routeGeometryId;
     }
   }
+  for(const station of saved.stations)delete station.interaction;
   const scene=structuredClone(matrix.scene);
   const migrated=CitizensSimulation.restore(matrix,saved).exportState();
-  assert.equal(migrated.schemaVersion,5);
-  assert.deepEqual(migrated.stations,saved.stations);
+  assert.equal(migrated.schemaVersion,6);
+  assert.deepEqual(migrated.stations,saved.stations.map(station=>
+    ({...station,interaction:null})));
   assert.deepEqual(migrated.relationships,[{a:'ada',b:'bo',score:50,completed:[]}]);
   assert.equal(migrated.socialSession,null);
   assert.ok(migrated.nextSocialTick>=35);
@@ -930,6 +932,7 @@ test('v3 social checkpoints migrate only when visible ended receipts explain the
   assert.equal(current.relationships[0].score,55);
   const old=structuredClone(current);
   old.schemaVersion=3;
+  for(const station of old.stations)delete station.interaction;
   for(const relation of old.relationships)delete relation.completed;
   for(const resident of old.residents)if(resident.activity){
     delete resident.activity.routeRetries;

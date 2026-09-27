@@ -19,11 +19,11 @@
       <p class="hint"><a href="/web/citizens.html" target="_blank" rel="noopener">Open the isolated AI Citizens desktop demo</a> to watch two seeded residents choose activities and share a chair.</p>
       <section class="citizens-panel" aria-labelledby="citizens-heading">
         <div class="panel-title"><span id="citizens-heading">AI CITIZENS</span><span>Shared Matrix world</span></div>
-        <p class="hint">Start a seeded two-resident fixture on an empty desktop floor, or select an existing built-in chair or table to add residents to this world. Both use browser save and PC world checkpoints. Starting preserves the authored scene.</p>
+        <p class="hint">Start a seeded two-resident fixture on an empty desktop floor, or select a built-in chair/table or a registered static GLB with a reviewed rest/eat interaction. Both use browser save and PC world checkpoints. Starting preserves the authored scene.</p>
         <label for="citizens-seed">Scenario seed</label>
         <div class="row"><input id="citizens-seed" type="number" min="1" max="4294967295" step="1" value="29" /><button id="citizens-start" type="button">Start here</button></div>
-        <div class="row"><button id="citizens-bind-selected" type="button" disabled>Use selected chair or table</button></div>
-        <p id="citizens-selection-status" class="hint" role="status">Select an existing built-in chair or table on the virtual floor to start in this world.</p>
+        <div class="row"><button id="citizens-bind-selected" type="button" disabled>Use selected station</button></div>
+        <p id="citizens-selection-status" class="hint" role="status">Select a built-in chair/table or a registered GLB with a reviewed interaction on the virtual floor.</p>
         <div class="row"><button id="citizens-toggle" type="button" disabled>Run</button><button id="citizens-step" type="button" disabled>Step</button><button id="citizens-stop" type="button" disabled>Stop Citizens</button></div>
         <div class="row"><button id="citizens-recover" type="button" aria-describedby="citizens-recovery-status" disabled>Restore before deletion</button></div>
         <p id="citizens-recovery-status" class="hint" role="status">No pre-deletion browser copy is available. This does not use the manual Save world checkpoint.</p>

@@ -25,11 +25,18 @@ score must match that record, and retained `ended` events must name a recorded
 completion. Nested v5 adds `routeRetries` (an integer from 0 through 3) and a
 bounded `routeGeometryId` or `null` to each active activity, plus a `rerouted`
 log event. This preserves a blocked execution and its claim across browser
-reload and named PC restore. Older nested v1/v2 shapes remain accepted. A v3
+reload and named PC restore. Nested v6 adds an exact `interaction` field to
+every station: `null` for a built-in chair/table, or the object-authored v1
+descriptor for one static registered Web GLB. The descriptor is validated
+against the station kind and the matching scene object's descriptor. The PC
+also checks the GLB bytes, SHA-256, catalog metadata, and approach/use geometry
+on save and load. A missing or changed dependency rejects the checkpoint
+without replacing the active world. Older nested v1–v5 shapes remain accepted. A v3
 social file is accepted only while its retained completed events account for
-its relationship score. Browser restore migrates valid v1–v4 Citizens states
-through the intermediate schemas to v5; a v4 active activity starts with zero
-route retries and a null geometry identity. The PC validates and returns older
+its relationship score. Browser restore migrates valid v1–v5 Citizens states
+through the intermediate schemas to v6; a v4 active activity starts with zero
+route retries and a null geometry identity, and older built-in stations gain a
+null interaction field. The PC validates and returns older
 checkpoint files in their original shape without rewriting the raw file. A
 historical browser receipt reference is checkpoint consistency evidence; the PC
 service does not re-execute that conversation or authenticate the browser's old

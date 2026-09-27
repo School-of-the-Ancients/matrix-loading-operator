@@ -263,6 +263,51 @@ def _mcp_approval_description(params: dict) -> tuple[str, bool]:
                        f"in {arguments['room_id']} at revision {arguments['scene_revision']}.")
             if len(summary) <= 230:
                 return summary, True
+    interaction_tool = params.get("message")
+    if interaction_tool in (
+            'Allow the matrix_webxr MCP server to run tool "matrix_set_interaction"?',
+            'Allow the matrix_webxr MCP server to run tool "matrix_remove_interaction"?') and isinstance(arguments, dict):
+        setting = '"matrix_set_interaction"' in interaction_tool
+        required = {"room_id", "scene_revision", "object_id", "expected_asset_id"}
+        if setting:
+            required.add("interaction")
+        if (set(arguments) == required and
+                type(arguments["scene_revision"]) is int and arguments["scene_revision"] >= 0 and
+                isinstance(arguments["room_id"], str) and
+                re.fullmatch(r"[A-Za-z0-9._:-]{1,128}", arguments["room_id"]) and
+                (arguments["room_id"] == "web-virtual-room-v1" or
+                 not setting and arguments["room_id"].startswith("webxr-session-")) and
+                all(isinstance(arguments[key], str) and
+                    re.fullmatch(r"[A-Za-z0-9._:-]{1,128}", arguments[key])
+                    for key in ("object_id", "expected_asset_id")) and
+                re.fullmatch(r"web:[a-z0-9][a-z0-9-]{0,39}:[0-9a-f]{12}",
+                             arguments["expected_asset_id"])):
+            if setting:
+                # The module is already loaded by the time native approval is
+                # requested; reuse its exact descriptor contract here.
+                from server import APIError, interaction_descriptor
+                try:
+                    descriptor = interaction_descriptor(arguments["interaction"])
+                except (APIError, TypeError, KeyError):
+                    descriptor = None
+                if descriptor is not None:
+                    approach, use = descriptor["approachPose"], descriptor["usePose"]
+                    summary = (f"Set {descriptor['kind']} {descriptor['interactionId']} on "
+                               f"{arguments['object_id']} ({arguments['expected_asset_id']}) "
+                               f"at revision {arguments['scene_revision']}: "
+                               f"{descriptor['effect']['need']} +{descriptor['effect']['delta']} "
+                               f"in {descriptor['durationTicks']} ticks; approach "
+                               f"({approach['x']},{approach['z']}), use ({use['x']},{use['z']}), "
+                               f"range {descriptor['rangeMeters']} m; "
+                               f"asset SHA {descriptor['assetSha256'][:12]}…")
+                    if len(summary) <= MAX_XR_APPROVAL_SUMMARY:
+                        return summary, True
+            else:
+                summary = (f"Remove the saved interaction from {arguments['object_id']} "
+                           f"({arguments['expected_asset_id']}) in {arguments['room_id']} "
+                           f"at revision {arguments['scene_revision']}.")
+                if len(summary) <= MAX_XR_APPROVAL_SUMMARY:
+                    return summary, True
     for action in ("attach", "stop", "remove"):
         if params.get("message") != f'Allow the matrix_webxr MCP server to run tool "matrix_{action}_component"?':
             continue
@@ -359,6 +404,8 @@ class LocalCodexAgentBackend:
                                           "matrix_spawn_asset", "matrix_spawn_status",
                                           "matrix_bind_animation", "matrix_animation_status",
                                           "matrix_set_physics", "matrix_remove_physics", "matrix_physics_status",
+                                          "matrix_set_interaction", "matrix_remove_interaction",
+                                          "matrix_interaction_status",
                                           "matrix_publish_component", "matrix_list_components",
                                           "matrix_attach_component", "matrix_stop_component",
                                           "matrix_remove_component", "matrix_component_status"],
@@ -371,7 +418,8 @@ class LocalCodexAgentBackend:
                              "matrix_register_glb", "matrix_spawn_asset",
                              "matrix_bind_animation", "matrix_publish_component", "matrix_attach_component",
                              "matrix_stop_component", "matrix_remove_component",
-                             "matrix_set_physics", "matrix_remove_physics"):
+                             "matrix_set_physics", "matrix_remove_physics",
+                             "matrix_set_interaction", "matrix_remove_interaction"):
                     command += ["-c", f'mcp_servers.matrix_webxr.tools.{name}.approval_mode="prompt"']
             environment = {"MATRIX_CONTROL_URL": matrix_bridge.url,
                            "MATRIX_CONTROL_TOKEN": matrix_bridge.token}

@@ -57,7 +57,9 @@ NAME = re.compile(r"[A-Za-z0-9][A-Za-z0-9 _-]{0,63}\Z")
 OPS = {"spawn", "set_transform", "select", "duplicate", "delete", "undo", "redo", "clear", "load",
        "get_scene", "list_assets", "list_targets", "confirm_room", "set_behavior", "remove_behavior",
        "attach_component", "stop_component", "remove_component", "bind_animation",
-       "set_physics", "remove_physics"}
+       "set_physics", "remove_physics", "set_interaction", "remove_interaction"}
+INTERACTION_ID = re.compile(r"[a-z0-9](?:[a-z0-9-]{0,30}[a-z0-9])?\Z")
+GLB_SHA = re.compile(r"[0-9a-f]{64}\Z")
 
 
 class APIError(Exception):
@@ -146,6 +148,121 @@ def physics_config(value):
             "restitution": restitution}
 
 
+def interaction_descriptor(value):
+    """Validate one finite, object-authored Web GLB interaction."""
+    fields = {"schemaVersion", "interactionId", "kind", "assetSha256",
+              "requiredCapabilities", "availability", "approachPose", "usePose",
+              "rangeMeters", "durationTicks", "capacity", "effect"}
+    require(type(value) is dict and set(value) == fields, "Invalid interaction descriptor")
+    kind = value["kind"]
+    require(type(value["schemaVersion"]) is int and value["schemaVersion"] == 1 and
+            type(value["interactionId"]) is str and
+            INTERACTION_ID.fullmatch(value["interactionId"]) is not None and
+            kind in ("rest", "eat") and
+            type(value["assetSha256"]) is str and
+            GLB_SHA.fullmatch(value["assetSha256"]) is not None and
+            value["requiredCapabilities"] ==
+            ["static-virtual-floor", "verified-rendered-bounds"] and
+            value["availability"] ==
+            ["target-static", "floor-aligned", "rendered-verified"],
+            "Unsupported interaction descriptor")
+    for key in ("approachPose", "usePose"):
+        pose = value[key]
+        require(type(pose) is dict and set(pose) == {"x", "z"} and
+                all(type(pose[axis]) in (int, float) and math.isfinite(pose[axis]) and
+                    abs(pose[axis]) <= 20 for axis in ("x", "z")),
+                f"Invalid interaction {key}")
+    require(type(value["rangeMeters"]) in (int, float) and
+            math.isfinite(value["rangeMeters"]) and .1 <= value["rangeMeters"] <= 2 and
+            type(value["durationTicks"]) is int and 1 <= value["durationTicks"] <= 12 and
+            type(value["capacity"]) is int and value["capacity"] == 1,
+            "Invalid interaction range, duration or capacity")
+    effect = value["effect"]
+    require(type(effect) is dict and set(effect) == {"need", "delta"} and
+            effect["need"] == ("energy" if kind == "rest" else "hunger") and
+            type(effect["delta"]) is int and 1 <= effect["delta"] <= 50,
+            "Invalid interaction effect")
+    return copy.deepcopy(value)
+
+
+def interaction_world_point(obj, asset, pose):
+    """Apply the same local X/Z pose transform used by Matrix Web."""
+    transform = obj["transform"]
+    factor = asset.get("spawnScale", 1)
+    x = pose["x"] * transform["scale"]["x"] * factor
+    z = pose["z"] * transform["scale"]["z"] * factor
+    yaw = math.radians(transform["rotation"]["y"])
+    return (transform["position"]["x"] + x * math.cos(yaw) + z * math.sin(yaw),
+            transform["position"]["z"] - x * math.sin(yaw) + z * math.cos(yaw))
+
+
+def require_interaction_eligible(obj, asset, descriptor):
+    """Check catalog identity and bounded static-footprint pose semantics."""
+    require(obj is not None and asset is not None and
+            obj["assetId"].startswith("web:") and obj["anchorId"] == "web-floor" and
+            asset["assetId"] == obj["assetId"] and
+            asset.get("sha256") == descriptor["assetSha256"] and
+            asset.get("localBounds") is not None and
+            not asset.get("animationClips") and
+            "animation" not in obj and
+            "physics" not in obj and
+            obj.get("component", {}).get("status") != "running" and
+            not any(behavior["enabled"] and not behavior["paused"]
+                    for behavior in obj.get("behaviors", [])),
+            "Interaction needs a matching static registered Web GLB", 409)
+    transform = obj["transform"]
+    require(abs(transform["position"]["y"]) <= .05 and
+            abs(transform["rotation"]["x"]) <= .01 and
+            abs(transform["rotation"]["z"]) <= .01,
+            "Interaction target needs an upright floor-aligned pose", 409)
+    size = asset["localBounds"]["size"]
+    factor = asset.get("spawnScale", 1)
+    half_x = size["x"] * transform["scale"]["x"] * factor / 2
+    half_z = size["z"] * transform["scale"]["z"] * factor / 2
+    require(math.isfinite(half_x) and math.isfinite(half_z) and
+            0 < half_x <= 20 and 0 < half_z <= 20,
+            "Interaction target footprint exceeds supported bounds", 409)
+    approach = descriptor["approachPose"]
+    use = descriptor["usePose"]
+    ax = approach["x"] * transform["scale"]["x"] * factor
+    az = approach["z"] * transform["scale"]["z"] * factor
+    ux = use["x"] * transform["scale"]["x"] * factor
+    uz = use["z"] * transform["scale"]["z"] * factor
+    require(abs(ax) > half_x + .24 or abs(az) > half_z + .24,
+            "Interaction approach pose lacks actor clearance", 409)
+    require(abs(ux) <= half_x + 1e-9 and abs(uz) <= half_z + 1e-9,
+            "Interaction use pose lies outside target footprint", 409)
+    start = interaction_world_point(obj, asset, approach)
+    target = interaction_world_point(obj, asset, use)
+    require(all(abs(axis) <= 99.8 for point in (start, target) for axis in point) and
+            math.dist(start, target) <= descriptor["rangeMeters"] - .1 + 1e-9,
+            "Interaction points exceed floor or use range", 409)
+
+
+def require_registered_interaction(obj, browser_assets, web_assets):
+    """Bind an authored interaction to exact installed GLB bytes and metadata."""
+    asset_id = obj["assetId"]
+    browser_asset = next((item for item in browser_assets if item["assetId"] == asset_id), None)
+    try:
+        registered = next((item for item in web_assets.list() if item["assetId"] == asset_id), None)
+    except WebAssetError as error:
+        raise APIError(409, f"Interaction GLB catalog is unavailable: {error}") from None
+    require(browser_asset is not None and registered is not None,
+            "Interaction GLB is missing from the connected browser or PC catalog", 409)
+    try:
+        web_assets.file(registered["sha256"])
+    except WebAssetError as error:
+        raise APIError(409, f"Interaction GLB is missing or corrupt: {error}") from None
+    clips = [clip["name"] for clip in registered["geometry"].get("animationClips", [])]
+    require(browser_asset.get("sha256") == registered["sha256"] and
+            browser_asset.get("localBounds") == registered.get("localBounds") and
+            browser_asset.get("spawnScale", 1) == registered.get("spawnScale", 1) and
+            browser_asset.get("animationClips", []) == clips,
+            "Interaction GLB metadata is stale; refresh assets and retry", 409)
+    require_interaction_eligible(obj, {**registered, "animationClips": clips},
+                                 obj["interaction"])
+
+
 def scene(value):
     require(isinstance(value, dict), "Invalid scene")
     require(type(value.get("schemaVersion")) is int and value["schemaVersion"] == 1,
@@ -191,6 +308,21 @@ def scene(value):
                     "component" not in authored and
                     not any(behavior["enabled"] for behavior in authored.get("behaviors", [])),
                     "Physics requires an upright virtual-floor object without another motion writer")
+        if "interaction" in item:
+            authored = normalized[-1]
+            pose = authored["transform"]
+            require(authored["assetId"].startswith("web:") and
+                    authored["anchorId"] == "web-floor" and
+                    abs(pose["position"]["y"]) <= .05 and
+                    abs(pose["rotation"]["x"]) <= .01 and
+                    abs(pose["rotation"]["z"]) <= .01 and
+                    "animation" not in authored and
+                    "physics" not in authored and
+                    authored.get("component", {}).get("status") != "running" and
+                    not any(behavior["enabled"] and not behavior["paused"]
+                            for behavior in authored.get("behaviors", [])),
+                    "Interaction requires a static virtual-floor Web GLB")
+            authored["interaction"] = interaction_descriptor(item["interaction"])
     require(sum("physics" in item for item in normalized) <= MAX_PHYSICS_BODIES,
             "Scene physics body limit reached")
     for item in normalized:
@@ -281,6 +413,12 @@ def catalog(value, key, limit):
                 raise APIError(400, str(error)) from None
             if bounds is not None:
                 entry["localBounds"] = bounds
+        if key == "assetId" and "sha256" in item:
+            digest = item["sha256"]
+            require(identifier.startswith("web:") and type(digest) is str and
+                    GLB_SHA.fullmatch(digest) is not None,
+                    "Invalid Web asset SHA-256")
+            entry["sha256"] = digest
         if key == "assetId" and "animationClips" in item:
             clips = item["animationClips"]
             require(isinstance(clips, list) and len(clips) <= 8 and
@@ -327,6 +465,11 @@ def snapshot(value):
             require(type(value["physicsSchemaVersion"]) is int and value["physicsSchemaVersion"] == 1,
                     "Unsupported physics schema")
             result["physicsSchemaVersion"] = 1
+        if value.get("interactionSchemaVersion") is not None:
+            require(type(value["interactionSchemaVersion"]) is int and
+                    value["interactionSchemaVersion"] == 1,
+                    "Unsupported interaction schema")
+            result["interactionSchemaVersion"] = 1
         require(result.get("componentSchemaVersion") == 1 or
                 not any("component" in item for item in result["scene"]["objects"]),
                 "Scene components require the WebXR component runtime")
@@ -336,6 +479,9 @@ def snapshot(value):
         require(result.get("physicsSchemaVersion") == 1 or
                 not any("physics" in item for item in result["scene"]["objects"]),
                 "Scene physics requires the WebXR physics runtime")
+        require(result.get("interactionSchemaVersion") == 1 or
+                not any("interaction" in item for item in result["scene"]["objects"]),
+                "Scene interactions require the Matrix Web runtime")
         for item in result["scene"]["objects"]:
             if "animation" not in item:
                 continue
@@ -363,6 +509,9 @@ def snapshot(value):
         result["pointing"] = pointing
     if room is not None:
         result["roomContext"] = room
+    # Keep a structurally valid authored descriptor available for cleanup when
+    # a registered GLB later becomes unavailable, or the wearer enters AR.
+    # Set/use and checkpoint restore validate current catalog dependencies.
     if "physicsStates" in value:
         require(result.get("physicsSchemaVersion") == 1,
                 "Physics observations require the WebXR physics runtime")
@@ -458,7 +607,8 @@ def resident_motion_current(value, dependencies):
 RESIDENT_PRECONDITION_OPS = {"set_transform", "set_behavior", "remove_behavior",
                              "delete", "duplicate", "select", "attach_component",
                              "stop_component", "remove_component", "bind_animation",
-                             "set_physics", "remove_physics"}
+                             "set_physics", "remove_physics", "set_interaction",
+                             "remove_interaction"}
 
 
 def command(value, *, allow_precondition=False):
@@ -472,6 +622,8 @@ def command(value, *, allow_precondition=False):
                 "stop_component": {"objectId"}, "remove_component": {"objectId"},
                 "bind_animation": {"objectId", "loopClip", "selectClip"},
                 "set_physics": {"objectId", "physics"}, "remove_physics": {"objectId"},
+                 "set_interaction": {"objectId", "interaction"},
+                 "remove_interaction": {"objectId"},
                 "select": {"objectId"}, "duplicate": {"objectId"}, "delete": {"objectId"},
                 "load": {"scene"}}.get(op, set())
     allowed |= required
@@ -507,6 +659,8 @@ def command(value, *, allow_precondition=False):
             raise APIError(400, str(error)) from None
     if "physics" in value:
         result["physics"] = physics_config(value["physics"])
+    if "interaction" in value:
+        result["interaction"] = interaction_descriptor(value["interaction"])
     if "behaviorKind" in value:
         require(isinstance(value["behaviorKind"], str) and value["behaviorKind"] in ("rotate", "bob", "all"),
                 "Unknown behavior kind")
@@ -562,7 +716,7 @@ def validate_citizens_checkpoint(value, checked_scene):
         return type(item) in (int, float) and minimum <= item <= maximum and math.isfinite(item)
 
     require(type(value) is dict and type(value.get("schemaVersion")) is int and
-            value["schemaVersion"] in (1, 2, 3, 4, 5), "Unsupported Citizens schemaVersion")
+            value["schemaVersion"] in (1, 2, 3, 4, 5, 6), "Unsupported Citizens schemaVersion")
     version = value["schemaVersion"]
     state_fields = ("schemaVersion", "world", "seed", "rngState", "requestSequence",
                     "clockTick", "paused", "residents", "stations", "log")
@@ -677,7 +831,8 @@ def validate_citizens_checkpoint(value, checked_scene):
     for station in stations:
         station_fields = ("id", "kind", "objectId", "capacity")
         shape(station, station_fields + (("holder",) if version == 1 else
-                                         ("claim", "waiters")), "station")
+                                         ("claim", "waiters")) +
+              (("interaction",) if version >= 6 else ()), "station")
         station_id = citizens_text(station["id"], "Citizens station ID", limit=32)
         object_id = citizens_text(station["objectId"], "Citizens station object ID")
         kind = station["kind"]
@@ -686,8 +841,17 @@ def validate_citizens_checkpoint(value, checked_scene):
                 type(station["capacity"]) is int and station["capacity"] == 1,
                 "Invalid Citizens station or duplicate binding")
         obj = scene_objects.get(object_id)
-        require(obj is not None and obj["assetId"] == ("chair" if kind == "rest" else "table") and
-                obj["anchorId"] == "web-floor" and "physics" not in obj and
+        if version >= 6 and station["interaction"] is not None:
+            descriptor = interaction_descriptor(station["interaction"])
+            require(obj is not None and obj.get("interaction") == descriptor and
+                    obj["assetId"].startswith("web:") and descriptor["kind"] == kind,
+                    "Citizens interaction binding is missing or changed")
+        else:
+            require(obj is not None and
+                    obj["assetId"] == ("chair" if kind == "rest" else "table") and
+                    (version < 6 or station["interaction"] is None),
+                    "Citizens station object is missing or incompatible")
+        require(obj["anchorId"] == "web-floor" and "physics" not in obj and
                 obj.get("component", {}).get("status") != "running" and
                 not any(behavior["enabled"] and not behavior["paused"]
                         for behavior in obj.get("behaviors", [])),
@@ -1108,7 +1272,7 @@ def virtual_floor_command(snapshot, item):
                 other["objectId"] != target["objectId"])
     return item["op"] in {"duplicate", "set_behavior", "remove_behavior",
                           "stop_component", "remove_component", "bind_animation",
-                          "remove_physics", "delete"}
+                           "remove_physics", "remove_interaction", "delete"}
 
 
 def require_physics_eligible(obj, assets, registered_assets, pose=None):
@@ -1161,6 +1325,7 @@ class State:
         self.agent_animation_ids = collections.OrderedDict()
         self.agent_component_ids = collections.OrderedDict()
         self.agent_physics_ids = collections.OrderedDict()
+        self.agent_interaction_ids = collections.OrderedDict()
         self.agent_scale_session_id = None
         self.client_pairing_enabled = False
         self.revision = 0
@@ -1481,6 +1646,9 @@ class State:
         require(isinstance(raw_commands, list) and 0 < len(raw_commands) <= MAX_BATCH,
                 f"Expected 1-{MAX_BATCH} commands")
         checked = [command(item, allow_precondition=True) for item in raw_commands]
+        if any(item["op"] in {"set_interaction", "remove_interaction"} for item in checked):
+            require(len(checked) == 1,
+                    "Review one interaction change at a time", 409)
         physics_targets = [item["objectId"] for item in checked
                            if item["op"] in {"set_physics", "remove_physics"}]
         if physics_targets:
@@ -1508,6 +1676,10 @@ class State:
                     require(behavior_target is not None, "Behavior target object is unavailable", 409)
                     require(item["op"] != "set_behavior" or "physics" not in behavior_target,
                             "Remove physics before adding a visual behavior", 409)
+                    require(item["op"] != "set_behavior" or
+                            "interaction" not in behavior_target or
+                            not item["behavior"]["enabled"] or item["behavior"]["paused"],
+                            "Remove the interaction before enabling a transform behavior", 409)
                     if item["op"] == "set_behavior" and kind == "select_toggle":
                         target = next(obj for obj in self.latest["scene"]["objects"] if obj["objectId"] == item["objectId"])
                         asset = next((asset for asset in self.latest["assets"] if asset["assetId"] == target["assetId"]), None)
@@ -1523,6 +1695,8 @@ class State:
                                                  if obj["objectId"] == item["objectId"]), None)
                         require(component_target is not None and "physics" not in component_target,
                                 "Remove physics before attaching a component", 409)
+                        require("interaction" not in component_target,
+                                "Remove the interaction before attaching a component", 409)
                         try:
                             registered = self.web_components.get(item["componentId"])
                         except ComponentError as error:
@@ -1543,6 +1717,30 @@ class State:
                     require(registered is not None and
                             all(not item[key] or item[key] in names for key in ("loopClip", "selectClip")),
                             "Requested GLB animation clip is unavailable", 409)
+                    require("interaction" not in obj or
+                            not any(item[key] for key in ("loopClip", "selectClip")),
+                            "Remove the interaction before binding an animation", 409)
+                elif item["op"] in {"set_interaction", "remove_interaction"}:
+                    require(self.latest.get("interactionSchemaVersion") == 1 and
+                            web_virtual_floor_ready(self.latest),
+                            "Connected Matrix Web virtual floor does not support interactions", 409)
+                    obj = next((obj for obj in self.latest["scene"]["objects"]
+                                if obj["objectId"] == item["objectId"]), None)
+                    require(obj is not None and obj["anchorId"] == "web-floor",
+                            "Interaction target is unavailable on the virtual floor", 409)
+                    item["expectedTransform"] = copy.deepcopy(obj["transform"])
+                    item["expectedInteraction"] = copy.deepcopy(obj.get("interaction"))
+                    if item["op"] == "set_interaction":
+                        require(room and room["mode"] == "white-room" and
+                                room["state"] == "ready" and
+                                self.latest["scene"]["roomId"] == "web-virtual-room-v1",
+                                "Author interactions in the ready desktop virtual room", 409)
+                        require_registered_interaction(
+                            {**obj, "interaction": item["interaction"]},
+                            self.latest["assets"], self.web_assets)
+                    else:
+                        require("interaction" in obj,
+                                "Object has no interaction descriptor", 409)
                 elif item["op"] in {"set_physics", "remove_physics"}:
                     require(self.latest.get("physicsSchemaVersion") == 1,
                             "Connected WebXR runtime does not support physics", 409)
@@ -1551,6 +1749,8 @@ class State:
                     require(obj is not None and obj["anchorId"] == "web-floor",
                             "Physics target is unavailable on the virtual floor", 409)
                     if item["op"] == "set_physics":
+                        require("interaction" not in obj,
+                                "Remove the interaction before enabling physics", 409)
                         require(room and room["mode"] == "white-room" and room["state"] == "ready",
                                 "Gravity-floor physics runs only in the ready White Room", 409)
                         configured = sum("physics" in other for other in self.latest["scene"]["objects"])
@@ -1565,12 +1765,22 @@ class State:
                     if obj is not None and "physics" in obj:
                         require_physics_eligible(obj, self.latest["assets"], self.web_assets.list(),
                                                  item["transform"])
+                    if obj is not None and "interaction" in obj:
+                        require_registered_interaction(
+                            {**obj, "transform": item["transform"]},
+                            self.latest["assets"], self.web_assets)
                 elif item["op"] == "duplicate":
                     obj = next((obj for obj in self.latest["scene"]["objects"]
                                 if obj["objectId"] == item["objectId"]), None)
                     if obj is not None and "physics" in obj:
                         require(sum("physics" in other for other in self.latest["scene"]["objects"]) <
                                 MAX_PHYSICS_BODIES, "Scene physics body limit reached", 409)
+                    if obj is not None and "interaction" in obj:
+                        duplicated = copy.deepcopy(obj)
+                        duplicated["transform"]["position"]["x"] = min(
+                            100, duplicated["transform"]["position"]["x"] + .3)
+                        require_registered_interaction(duplicated, self.latest["assets"],
+                                                       self.web_assets)
                 elif item["op"] == "load":
                     require(all(behavior["kind"] in supported for obj in item["scene"]["objects"]
                                 for behavior in obj.get("behaviors", [])),
@@ -1581,6 +1791,14 @@ class State:
                     require(self.latest.get("animationSchemaVersion") == 1 or
                             not any("animation" in obj for obj in item["scene"]["objects"]),
                             "Saved animation bindings need the WebXR runtime; scene has not been loaded", 409)
+                    interaction_objects = [obj for obj in item["scene"]["objects"]
+                                           if "interaction" in obj]
+                    require(self.latest.get("interactionSchemaVersion") == 1 or
+                            not interaction_objects,
+                            "Saved interactions need the Matrix Web runtime; scene has not been loaded", 409)
+                    for obj in interaction_objects:
+                        require_registered_interaction(obj, self.latest["assets"],
+                                                       self.web_assets)
                     physics_objects = [obj for obj in item["scene"]["objects"] if "physics" in obj]
                     require(self.latest.get("physicsSchemaVersion") == 1 or not physics_objects,
                             "Saved physics needs the WebXR runtime; scene has not been loaded", 409)
@@ -1937,6 +2155,84 @@ class State:
                                                 for item in current.get("physicsStates", [])) else "unconfirmed")
             return result
 
+    def agent_interaction_action(self, value):
+        """Author or remove one reviewed, object-level Web GLB affordance."""
+        require(type(value) is dict and value.get("action") in ("set", "remove"),
+                "Invalid Matrix interaction action")
+        action = value["action"]
+        required = {"action", "room_id", "scene_revision", "object_id", "expected_asset_id"}
+        if action == "set":
+            required.add("interaction")
+        require(set(value) == required, "Invalid Matrix interaction action fields")
+        room_id = text(value["room_id"], "room_id")
+        object_id = text(value["object_id"], "object_id")
+        asset_id = text(value["expected_asset_id"], "expected_asset_id")
+        revision = value["scene_revision"]
+        require(type(revision) is int and revision >= 0, "Invalid scene revision")
+        descriptor = interaction_descriptor(value["interaction"]) if action == "set" else None
+        with self.lock:
+            self.expire()
+            require(self.online() and self.latest is not None,
+                    self.room_unavailable_message(), 409)
+            current = self.latest
+            require(current["scene"]["roomId"] == room_id and self.revision == revision,
+                    "Matrix scene changed; inspect the current room and retry", 409)
+            require(current.get("interactionSchemaVersion") == 1,
+                    "Connected Matrix Web runtime does not support interactions", 409)
+            require(not current.get("readOnly") and not self.pending and not self.content.busy(),
+                    "Matrix world is not ready for an interaction change", 409)
+            obj = next((item for item in current["scene"]["objects"]
+                        if item["objectId"] == object_id), None)
+            require(obj is not None and obj["assetId"] == asset_id and
+                    obj["anchorId"] == "web-floor" and asset_id.startswith("web:"),
+                    "Interaction object is no longer available on the virtual floor", 409)
+            if action == "set":
+                command_value = {"op": "set_interaction", "objectId": object_id,
+                                 "interaction": descriptor}
+            else:
+                require("interaction" in obj, "Object has no interaction descriptor", 409)
+                command_value = {"op": "remove_interaction", "objectId": object_id}
+            queued = self.queue([command_value])["commands"][0]
+            request_id = queued["requestId"]
+            self.agent_interaction_ids[request_id] = {
+                "action": action, "roomId": room_id, "objectId": object_id,
+                "assetId": asset_id, "interaction": descriptor}
+            while len(self.agent_interaction_ids) > 64:
+                self.agent_interaction_ids.popitem(last=False)
+            return self.agent_interaction_status(request_id)
+
+    def agent_interaction_status(self, request_id):
+        require(isinstance(request_id, str) and re.fullmatch(r"[0-9a-f]{32}", request_id),
+                "Invalid Matrix interaction receipt ID")
+        with self.lock:
+            self.expire()
+            issued = self.agent_interaction_ids.get(request_id)
+            require(issued is not None, "Matrix interaction receipt is unavailable", 404)
+            receipt = next((item for item in reversed(self.results)
+                            if item["requestId"] == request_id), None)
+            result = {"requestId": request_id, "roomId": issued["roomId"],
+                      "objectId": issued["objectId"], "assetId": issued["assetId"],
+                      "action": issued["action"], "sceneRevision": self.revision}
+            if receipt is None:
+                result["status"] = "queued" if request_id in self.pending else "unconfirmed"
+            elif not receipt["ok"]:
+                result["status"] = ("unconfirmed" if "outcome unknown" in receipt["error"]
+                                    else "failed")
+                if result["status"] == "failed":
+                    result["error"] = receipt["error"][:200]
+            else:
+                current = self.latest
+                obj = (next((item for item in current["scene"]["objects"]
+                             if item["objectId"] == issued["objectId"] and
+                             item["assetId"] == issued["assetId"]), None)
+                       if current and current["scene"]["roomId"] == issued["roomId"] else None)
+                expected = issued["interaction"]
+                result["status"] = ("succeeded" if obj and
+                                    obj.get("interaction") == expected else "unconfirmed")
+                if result["status"] == "succeeded" and expected is not None:
+                    result["interaction"] = copy.deepcopy(expected)
+            return result
+
     def agent_publish_component(self, value):
         require(isinstance(value, dict) and set(value) == {"package"},
                 "Invalid component publication")
@@ -2155,7 +2451,8 @@ class State:
                 all(item["anchorId"] == "web-floor" for item in checked_scene["objects"]),
                 "World checkpoint contains unsupported scene data or session-local anchors")
         capabilities = {key: current[key] for key in ("componentSchemaVersion", "animationSchemaVersion",
-                                                    "physicsSchemaVersion", "behaviorKinds")
+                                                     "physicsSchemaVersion", "interactionSchemaVersion",
+                                                     "behaviorKinds")
                         if key in current}
         snapshot({"scene": checked_scene, "assets": current["assets"], "anchors": current["anchors"],
                   **capabilities})
@@ -2175,6 +2472,9 @@ class State:
         available = {item["assetId"] for item in current["assets"]}
         require(referenced <= available, "World checkpoint asset is unavailable in the connected browser", 409)
         browser_assets = {item["assetId"]: item for item in current["assets"]}
+        for obj in checked_scene["objects"]:
+            if "interaction" in obj:
+                require_registered_interaction(obj, current["assets"], self.web_assets)
         try:
             catalog = ({item["assetId"]: item for item in self.web_assets.list()}
                        if any(asset_id.startswith("web:") for asset_id in referenced) else {})

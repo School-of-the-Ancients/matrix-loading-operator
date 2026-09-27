@@ -1,0 +1,60 @@
+{
+  "date": "2026-09-26",
+  "surface": "ordinary /web/ desktop virtual room",
+  "isolation": {
+    "loopbackPort": 19848,
+    "separateSceneAndAssetDirectories": true,
+    "earlierDemoPortsUntouched": [19846, 19847]
+  },
+  "reviewedAsset": {
+    "fixture": "WebRuntime/test/fixtures/citizens-demo-chair.glb",
+    "generator": "WebRuntime/test/fixtures/build_citizens_demo_chair.py",
+    "descriptor": "WebRuntime/test/fixtures/citizens-demo-chair-interaction.json",
+    "assetId": "web:citizens-demo-chair:fb5408949487",
+    "sha256": "fb54089494875f803bcd00dedd8410906ec213e52071351b7911e1ad5ceefa55",
+    "bytes": 2488,
+    "measuredBoundsMeters": {"x": 0.62, "y": 0.95, "z": 0.62},
+    "animationClips": 0,
+    "interactionId": "seat-rest",
+    "effect": {"need": "energy", "delta": 22}
+  },
+  "browserObservations": [
+    "The rendered chair was visible in the Three.js view after a queued spawn. The PC state reported an applied spawn receipt for f3f1d3c804d742af8c8e79ee50f6e560.",
+    "The queued set_interaction command returned an applied browser receipt. Clicking the visible chair enabled Use selected station; seed 29 added exactly two orb residents without replacing the chair.",
+    "After refreshing the final PC service and browser build, an identical queued set_interaction included the observed expectedTransform and exact expectedInteraction. The browser returned applied receipt aa130f784d3647519e89e7b39adbf74b for the same chair; the paused minute-29 residents and object IDs remained intact.",
+    "At minute 1 Ada held capacity-one chair execution 1; Bo held FIFO wait execution 2. The panel displayed their changing energy and a readable decision log.",
+    "At minute 16 Ada displayed Completed rest at minute 14 with energy 33. Bo had the chair claim; a temporary route blockage from Ada's orb reported retry 2/3.",
+    "At minute 29 Bo displayed Completed rest at minute 29 with energy 35; the chair was available again. The screenshot includes both residents, the shared object and Bo's completion log.",
+    "A browser reload of the saved minute-51 world first disabled Run and Step while the GLB awaited renderer verification, then enabled both after the model loaded. A named PC restore returned the same three object IDs and minute-1 claim/wait state; 28 manual browser Step actions replayed the minute-29 Bo completion.",
+    "Browser console error log was empty after the final replay."
+  ],
+  "checkpoints": {
+    "outerWorldVersion": 3,
+    "nestedCitizensVersion": 6,
+    "minute1": {
+      "name": "authored-seat-m1",
+      "chairObjectId": "f3f1d3c804d742af8c8e79ee50f6e560",
+      "residentObjectIds": ["d6c9fc9fd1354650b53fe3abf09eba89", "e34096045d7f4cdc9758e8d2c2040f7e"],
+      "claim": "ada",
+      "waiter": "bo",
+      "adaEnergy": 19.45,
+      "boEnergy": 28.45
+    },
+    "minute29": {
+      "name": "authored-seat-m29",
+      "sameObjectIds": true,
+      "claim": null,
+      "waiters": [],
+      "adaEnergy": 26.05,
+      "boEnergy": 35.05,
+      "boLastOutcome": "Completed rest at minute 29"
+    },
+    "registeredAssetDependencies": 1
+  },
+  "screenshot": "citizens-authored-seat-browser.png",
+  "limits": [
+    "The browser trace exercised one static registered chair in the desktop virtual room; it did not exercise animated furniture, moving targets or AR room alignment.",
+    "The browser panel records observed completion and needs. Exact interaction receipt matching and rejected-effect behavior are asserted in the focused automated tests; the browser UI does not expose raw local Citizens receipts.",
+    "Quest wearer acceptance and broader issue #15 interactions remain open."
+  ]
+}

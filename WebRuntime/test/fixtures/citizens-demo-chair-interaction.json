@@ -1,0 +1,14 @@
+{
+  "schemaVersion": 1,
+  "interactionId": "seat-rest",
+  "kind": "rest",
+  "assetSha256": "fb54089494875f803bcd00dedd8410906ec213e52071351b7911e1ad5ceefa55",
+  "requiredCapabilities": ["static-virtual-floor", "verified-rendered-bounds"],
+  "availability": ["target-static", "floor-aligned", "rendered-verified"],
+  "approachPose": {"x": 0, "z": -0.75},
+  "usePose": {"x": 0, "z": -0.2},
+  "rangeMeters": 0.8,
+  "durationTicks": 7,
+  "capacity": 1,
+  "effect": {"need": "energy", "delta": 22}
+}
