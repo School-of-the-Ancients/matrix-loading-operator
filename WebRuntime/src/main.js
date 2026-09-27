@@ -473,8 +473,7 @@ function sendAgent(){
       $('agent-input').value='';feedback(message);view.setOperatorStatus(message);});
     return;
   }
-  const context=$('agent-include-context').checked||
-    !!conceptUI.selected&&isSelectedConceptBuildRequest(text)?
+  const context=$('agent-include-context').checked||isSelectedConceptBuildRequest(text)?
     captureAgentContext(world,view,bridge.clientId,'text'):null;
   agentAction(async()=>{await agentClient.send(text,context);$('agent-input').value='';
     feedback(context?'Sent to Codex with Matrix spatial context.':'Sent to Codex.');});
@@ -582,7 +581,7 @@ async function refreshPCWorlds(){
 }
 function operatorRoute(text){
   if(parseConceptIntent(text))return {destination:'concept',reason:'image-concept'};
-  if(conceptUI?.selected&&isSelectedConceptBuildRequest(text))
+  if(isSelectedConceptBuildRequest(text))
     return {destination:'agent',reason:'selected-concept-build'};
   return routeOperatorRequest(text,{assets:world.snapshot().assets,
     savedScenes:[...$('saved-scenes').options].map(option=>option.value).filter(Boolean)});

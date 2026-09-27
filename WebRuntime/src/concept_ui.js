@@ -60,6 +60,7 @@ export class ConceptUI {
     const sessionId=await this._session();
     const job=await this.client.generate(sessionId,prompt);
     this.els.prompt.value=prompt.trim();
+    if(job.status==='failed')throw Error(`${label(job)} failed: ${job.message||'Image submission failed.'}`);
     this.notice=`${label(job)} ${job.status}. Earlier versions and the current selection remain available.`;
     this.noticeError=false;
     void this.refresh().catch(()=>{});
@@ -77,6 +78,7 @@ export class ConceptUI {
       typed&&typed!==source.prompt?typed:undefined;
     const job=await this.client.vary(sessionId,source.conceptId,prompt);
     if(prompt)this.els.prompt.value=prompt;
+    if(job.status==='failed')throw Error(`${label(job)} failed: ${job.message||'Image submission failed.'}`);
     this.notice=`${label(job)} ${job.status}. This is a new text-to-image sample from ${label(source)}; the selected design does not change.`;
     this.noticeError=false;
     void this.refresh().catch(()=>{});
@@ -85,7 +87,7 @@ export class ConceptUI {
   async select(conceptId,notes){
     const sessionId=await this._session();
     const concept=await this.client.select(sessionId,conceptId,notes);
-    this.notice=`${label(concept)} selected. Ask Codex to build from this design when ready.`;
+    this.notice=`${label(concept)} selected${notes?' with design notes':''}. The image was not edited. Ask Codex to build from this design when ready.`;
     this.noticeError=false;
     return concept;
   }
