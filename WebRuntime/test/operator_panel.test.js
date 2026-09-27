@@ -1,6 +1,14 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {operatorPanel} from '../src/view.js';
+import {MatrixView,operatorPanel} from '../src/view.js';
+
+test('MatrixView exposes the creation-mode setter used by the shared UI',()=>{
+  const view=Object.create(MatrixView.prototype);
+  let selected=null;
+  view.operatorPanel={setCreationMode:mode=>{selected=mode;}};
+  view.setOperatorCreationMode('procedural');
+  assert.equal(selected,'procedural');
+});
 
 test('Codex XR page exposes one shared creation-mode selector and keeps turn controls',()=>{
   const drawn=[];
