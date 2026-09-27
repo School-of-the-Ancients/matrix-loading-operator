@@ -1,4 +1,4 @@
-"""Durable PC-local concept versions around the existing ComfyUI content connector.
+"""Durable PC-local concept versions from native Codex or ComfyUI generation.
 
 The selected image is art direction. Nothing in this module requests a Matrix
 world mutation, and a later image result never changes the selection.
