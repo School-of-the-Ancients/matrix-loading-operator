@@ -15,6 +15,7 @@ export async function applyPCWorld(world,saved,sync){
     originBinding:world.originBinding,originAnchorHandle:world.originAnchorHandle,
     undo:structuredClone(world.undo),redo:structuredClone(world.redo),
     creatorMode:structuredClone(world.creatorMode),rigidGravity:structuredClone(world.rigidGravity),
+    controlStates:structuredClone(world.controlStates),
     rigidSnapshot:world.rigidPhysics?.snapshot()??null,
     physicsBodies:structuredClone(world.physicsBodies),
     physicsVerification:structuredClone(world.physicsVerification),
@@ -31,6 +32,7 @@ export async function applyPCWorld(world,saved,sync){
     world.citizens=previous.citizens;
     world.creatorMode=previous.creatorMode;
     world.rigidGravity=previous.rigidGravity;
+    world.controlStates=previous.controlStates;
     world.originBinding=previous.originBinding;
     world.originAnchorHandle=previous.originAnchorHandle;
     world.selection=previous.selection;world.undo=previous.undo;world.redo=previous.redo;

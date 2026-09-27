@@ -24,6 +24,12 @@ import {CitizensPanel} from './citizens_panel.js';
 import {citizensFurnitureReadiness} from './citizens.js';
 
 const $=id=>document.getElementById(id);
+const sidebarToggle=$('toggle-sidebar');
+sidebarToggle.addEventListener('click',()=>{
+  const expanded=sidebarToggle.getAttribute('aria-expanded')==='true';
+  sidebarToggle.setAttribute('aria-expanded',String(!expanded));
+  sidebarToggle.textContent=expanded?'Show controls':'Hide controls';
+});
 const world=new MatrixWorld();
 const cameraStream=new CameraStream();
 let scaleUI=null;
@@ -63,8 +69,17 @@ const feedback=(message,isError=false)=>{
 const view=new MatrixView($('view'),world,()=>{discardProposal();scaleUI?.refreshTargets();citizensPanel?.render();feedback(`Selected ${world.selection.objectId||'placement point'} at ${Object.values(world.selection.position).join(', ')} m.`);},()=>$('token').value.trim(),message=>feedback(message,true),(id,position)=>{discardProposal();const delivered=deliverMovedObject(world,id);if(delivered)speakReply(delivered);renderScene();feedback(delivered||`Moved ${id.slice(0,8)} to ${Object.values(position).join(', ')} m. Undo and Save are available.`);},()=>{if(!view.isAR)cameraStream.stop();if(!view.isAR||!world.spatial?.originUnavailable){roomResetArmedUntil=0;roomRecoveryChoice='';}updateCameraControls();discardProposal();renderScene();},beginVoice,endVoice,()=>{$('speak-replies').checked=!$('speak-replies').checked;view.setVoiceOutputEnabled($('speak-replies').checked);unlockReplyAudio();},reviewView,newChat);
 view.onPanelAction=panelAction;
 view.onAssetReadinessChange=()=>citizensPanel?.render();
-view.onPlayInteraction=({kind,objectId})=>{
-  if(kind!=='release'||!canPlayWorld(world.creatorMode))return;
+view.onPlayInteraction=({kind,objectId,receipt})=>{
+  if(!canPlayWorld(world.creatorMode))return;
+  if(kind==='control'){
+    const label=world.requireObject(objectId).control?.label||'World control';
+    const state=receipt?.outcome?.controlState;
+    updateWorldControls();
+    persistCurrentWorld({errorPrefix:'World control save paused'});
+    feedback(`${label}: setting ${(state?.index??0)+1} applied. The bound display and Agent state are current.${receipt?.outcome?.creatorHistoryCleared?' Earlier Creator Undo history was cleared to preserve Play progress.':''}`);
+    return;
+  }
+  if(kind!=='release')return;
   const delivered=deliverMovedObject(world,objectId);
   if(delivered){refreshGameProgress();feedback(delivered);speakReply(delivered);}
   else persistCurrentWorld({errorPrefix:'Play release save paused'});
@@ -705,7 +720,8 @@ async function saveWorld(){
   try{value=storedBrowserWorld(world);}
   catch(error){feedback(`World checkpoint could not be saved: ${error.message}`,true);return;}
   const warning=saveCheckpoint(value.scene,value.game,localStorage,value.originBinding,
-    value.originAnchorHandle,value.citizens??null,value.creatorMode,value.rigidGravity);
+    value.originAnchorHandle,value.citizens??null,value.creatorMode,value.rigidGravity,
+    value.controlStates);
   if(warning){feedback(warning,true);view.setOperatorWorldNotice('Browser checkpoint failed.','error');return;}
   view.setOperatorWorldNotice('Saved in browser · saving PC scene backup…','pending');
   const name=`WebWorld_${new Date().toISOString().replace(/[-:T.Z]/g,'').slice(0,14)}`;

@@ -110,6 +110,8 @@ class AgentSessionTests(unittest.TestCase):
                               "matrix_set_display", "matrix_remove_display",
                               "matrix_set_rigid_body", "matrix_remove_rigid_body",
                               "matrix_set_gravity",
+                              "matrix_set_control", "matrix_remove_control",
+                              "matrix_activate_control",
                               "matrix_begin_grab", "matrix_move_grab", "matrix_release_grab",
                               "matrix_start_new_world", "matrix_restore_world_archive",
                               "matrix_bind_animation", "matrix_publish_component", "matrix_attach_component",

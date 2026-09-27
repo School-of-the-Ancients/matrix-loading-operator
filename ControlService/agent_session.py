@@ -217,7 +217,8 @@ def _xr_game_summary(tool, arguments):
 def _new_matrix_approval_summary(tool, arguments):
     """Return an exact bounded intent, or decline XR review of unfamiliar input."""
     from procedural_contract import GENERATOR_ID
-    from server import (APIError, display_descriptor, grab_pose, rigid_body_config,
+    from server import (APIError, control_descriptor, display_descriptor,
+                        grab_pose, rigid_body_config,
                         rigid_gravity)
     try:
         if tool == "matrix_spawn_builtin":
@@ -264,6 +265,20 @@ def _new_matrix_approval_summary(tool, arguments):
             if _xr_context(arguments, {"object_id"}) and _xr_entity_id(arguments["object_id"]):
                 return (f"Remove display from {arguments['object_id']} in "
                         f"{arguments['room_id']} rev {arguments['scene_revision']}.")
+        elif tool == "matrix_set_control":
+            if (_xr_context(arguments, {"object_id", "control"}) and
+                    _xr_entity_id(arguments["object_id"])):
+                control = control_descriptor(arguments["control"])
+                action = control["action"]
+                return (f"Set control {json.dumps(control['label'], ensure_ascii=True)} "
+                        f"on {arguments['object_id']} in {arguments['room_id']} "
+                        f"rev {arguments['scene_revision']}: cycle "
+                        f"{action['targetObjectId']} scale through "
+                        f"{json.dumps(action['values'], separators=(',', ':'))}.")
+        elif tool == "matrix_remove_control":
+            if _xr_context(arguments, {"object_id"}) and _xr_entity_id(arguments["object_id"]):
+                return (f"Remove control from {arguments['object_id']} in "
+                        f"{arguments['room_id']} rev {arguments['scene_revision']}.")
         elif tool == "matrix_set_rigid_body":
             if _xr_context(arguments, {"object_id", "rigid_body"}) and _xr_entity_id(arguments["object_id"]):
                 body = rigid_body_config(arguments["rigid_body"])
@@ -280,7 +295,8 @@ def _new_matrix_approval_summary(tool, arguments):
                 g = rigid_gravity(arguments["gravity"])
                 return (f"Set virtual gravity ({g['x']},{g['y']},{g['z']}) m/s2 in "
                         f"{arguments['room_id']} rev {arguments['scene_revision']}.")
-        elif tool in ("matrix_begin_grab", "matrix_move_grab", "matrix_release_grab"):
+        elif tool in ("matrix_begin_grab", "matrix_move_grab", "matrix_release_grab",
+                      "matrix_activate_control"):
             fields = {"object_id", "inspection_request_id"} | (
                 {"target_pose"} if tool == "matrix_move_grab" else set())
             if (_xr_context(arguments, fields, revision=False) and
@@ -295,7 +311,8 @@ def _new_matrix_approval_summary(tool, arguments):
                             f"({target['rotation']['x']},{target['rotation']['y']},"
                             f"{target['rotation']['z']}) degrees")
                 verb = {"matrix_begin_grab": "Begin grab of", "matrix_move_grab": "Move held",
-                        "matrix_release_grab": "Release"}[tool]
+                        "matrix_release_grab": "Release",
+                        "matrix_activate_control": "Activate control"}[tool]
                 return (f"{verb} {arguments['object_id']}{pose} in {arguments['room_id']} "
                         f"using live inspection {arguments['inspection_request_id']}.")
         elif tool in ("matrix_start_new_world", "matrix_restore_world_archive"):
@@ -365,7 +382,7 @@ def _mcp_approval_description(params: dict) -> tuple[str, bool]:
             isinstance(arguments, dict) and
             {"room_id", "scene_revision", "object_id", "expected_asset_id", "position"} <=
             set(arguments) <=
-            {"room_id", "scene_revision", "object_id", "expected_asset_id", "position", "rotation"} and
+            {"room_id", "scene_revision", "object_id", "expected_asset_id", "position", "rotation", "scale"} and
             type(arguments["scene_revision"]) is int and arguments["scene_revision"] >= 0 and
             all(isinstance(arguments[key], str) and
                 re.fullmatch(r"[A-Za-z0-9._:-]{1,128}", arguments[key])
@@ -378,13 +395,22 @@ def _mcp_approval_description(params: dict) -> tuple[str, bool]:
              isinstance(arguments["rotation"], dict) and set(arguments["rotation"]) == {"x", "y", "z"} and
              all(type(arguments["rotation"][axis]) in (int, float) and
                  math.isfinite(arguments["rotation"][axis]) and
-                 -36000 <= arguments["rotation"][axis] <= 36000 for axis in ("x", "y", "z")))):
+                 -36000 <= arguments["rotation"][axis] <= 36000 for axis in ("x", "y", "z"))) and
+            ("scale" not in arguments or
+             isinstance(arguments["scale"], dict) and set(arguments["scale"]) == {"x", "y", "z"} and
+             all(type(arguments["scale"][axis]) in (int, float) and
+                 math.isfinite(arguments["scale"][axis]) and
+                 .01 <= arguments["scale"][axis] <= 20 for axis in ("x", "y", "z")))):
         point = arguments["position"]
         rotation = arguments.get("rotation")
+        scale = arguments.get("scale")
         angle = (f" with rotation ({rotation['x']}, {rotation['y']}, {rotation['z']}) degrees"
                  if rotation is not None else "")
-        summary = (f"Move {arguments['expected_asset_id']} ({arguments['object_id']}) in "
-                   f"{arguments['room_id']} to ({point['x']}, {point['y']}, {point['z']}){angle} "
+        size = (f" with unitless scale ({scale['x']}, {scale['y']}, {scale['z']})"
+                if scale is not None else "")
+        summary = (f"Transform {arguments['expected_asset_id']} ({arguments['object_id']}) in "
+                   f"{arguments['room_id']} to position ({point['x']}, {point['y']}, {point['z']})"
+                   f"{angle}{size} "
                    f"at scene revision {arguments['scene_revision']}.")
         if len(summary) <= MAX_XR_APPROVAL_SUMMARY:
             return summary, True
@@ -637,6 +663,8 @@ class LocalCodexAgentBackend:
                                           "matrix_bind_game", "matrix_update_game", "matrix_game_status",
                                           "matrix_set_display", "matrix_remove_display",
                                           "matrix_display_status",
+                                          "matrix_set_control", "matrix_remove_control",
+                                          "matrix_control_status", "matrix_activate_control",
                                           "matrix_set_rigid_body", "matrix_remove_rigid_body",
                                           "matrix_set_gravity", "matrix_rigid_status",
                                           "matrix_list_entities", "matrix_inspect_entity",
@@ -662,6 +690,8 @@ class LocalCodexAgentBackend:
                              "matrix_create_procedural", "matrix_update_procedural",
                              "matrix_bind_game", "matrix_update_game",
                              "matrix_set_display", "matrix_remove_display",
+                             "matrix_set_control", "matrix_remove_control",
+                             "matrix_activate_control",
                              "matrix_set_rigid_body", "matrix_remove_rigid_body",
                              "matrix_set_gravity",
                              "matrix_begin_grab", "matrix_move_grab", "matrix_release_grab",
