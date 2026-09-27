@@ -50,6 +50,27 @@ test('late image result never changes an explicit selection',async()=>{
   assert.equal(client.selected.conceptId,one.conceptId);
 });
 
+test('status started before selection cannot restore an older concept',async()=>{
+  let finishOld,reads=0;
+  const client=new ConceptClient(async(path,body)=>{
+    if(path==='/api/agent/concepts/select')return {
+      selectedConceptId:body.conceptId,concept:two};
+    reads++;
+    if(reads===2)return new Promise(resolve=>{finishOld=resolve;});
+    return {jobs:[],concepts:[one,two],
+      selectedConceptId:reads===1?one.conceptId:two.conceptId};
+  });
+  await client.refresh(sessionId);
+  const oldRefresh=client.refresh(sessionId);
+  await client.select(sessionId,two.conceptId);
+  assert.equal(client.selected.conceptId,two.conceptId);
+  await client.refresh(sessionId);
+  assert.equal(reads,3,'a post-selection refresh must not join the old GET');
+  finishOld({jobs:[],concepts:[one,two],selectedConceptId:one.conceptId});
+  assert.equal(await oldRefresh,null);
+  assert.equal(client.selected.conceptId,two.conceptId);
+});
+
 test('unavailable service keeps last confirmed selection and reports failure',async()=>{
   let fail=false;
   const client=new ConceptClient(async()=>{

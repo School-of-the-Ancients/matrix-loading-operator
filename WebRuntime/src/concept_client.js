@@ -9,6 +9,7 @@ export class ConceptClient {
     this.selectedConceptId=null;this.builds=[];this.error='';this.refreshPromise=null;
     this.refreshSessionId=null;this.providers=[];this.defaultProviderId=null;
     this.selectedProviderId=null;this.providerStatusLoaded=false;
+    this.mutationVersion=0;
   }
   _session(sessionId){
     if(!SESSION_ID.test(sessionId||''))throw Error('Connect Codex before using image concepts.');
@@ -16,11 +17,16 @@ export class ConceptClient {
       this.sessionId=sessionId;this.jobs=[];this.concepts=[];this.builds=[];
       this.selectedConceptId=null;this.error='';this.providers=[];
       this.defaultProviderId=null;this.selectedProviderId=null;
-      this.providerStatusLoaded=false;this.onChange(this);
+      this.providerStatusLoaded=false;this._mutated();this.onChange(this);
     }
     return sessionId;
   }
   _fail(error){this.error=String(error?.message||error).slice(0,300);this.onChange(this);}
+  _mutated(){
+    this.mutationVersion++;
+    // A GET started before a confirmed write cannot replace the newer state.
+    this.refreshPromise=null;this.refreshSessionId=null;
+  }
   _update(data){
     if(!data||!Array.isArray(data.jobs)||!Array.isArray(data.concepts)||
       !(data.selectedConceptId===null||typeof data.selectedConceptId==='string'))
@@ -43,11 +49,15 @@ export class ConceptClient {
   async refresh(sessionId){
     this._session(sessionId);
     if(this.refreshPromise&&this.refreshSessionId===sessionId)return this.refreshPromise;
+    const version=this.mutationVersion;
     const pending=(async()=>{
       try{
         const data=await this.request(`/api/agent/concepts?sessionId=${encodeURIComponent(sessionId)}`);
-        return this.sessionId===sessionId?this._update(data):null;
-      }catch(error){if(this.sessionId===sessionId)this._fail(error);throw error;}
+        return this.sessionId===sessionId&&this.mutationVersion===version?this._update(data):null;
+      }catch(error){
+        if(this.sessionId===sessionId&&this.mutationVersion===version)this._fail(error);
+        throw error;
+      }
     })();
     this.refreshPromise=pending;this.refreshSessionId=sessionId;
     try{return await pending;}
@@ -72,6 +82,7 @@ export class ConceptClient {
         sessionId,prompt:prompt.trim(),...(providerId?{providerId}:{})});
       if(!result?.job?.id||!result.job.conceptId)throw Error('Invalid concept job response');
       if(this.sessionId===sessionId){
+        this._mutated();
         this.jobs=[...this.jobs.filter(job=>job.id!==result.job.id),result.job];
         this.error='';this.onChange(this);
       }
@@ -87,6 +98,7 @@ export class ConceptClient {
         ...(providerId?{providerId}:{})});
       if(!result?.job?.id||!result.job.conceptId)throw Error('Invalid variation job response');
       if(this.sessionId===sessionId){
+        this._mutated();
         this.jobs=[...this.jobs.filter(job=>job.id!==result.job.id),result.job];
         this.error='';this.onChange(this);
       }
@@ -102,6 +114,7 @@ export class ConceptClient {
       if(result?.selectedConceptId!==conceptId||!result.concept)
         throw Error('Concept selection was not confirmed');
       if(this.sessionId===sessionId){
+        this._mutated();
         this.selectedConceptId=conceptId;
         this.concepts=this.concepts.map(concept=>concept.conceptId===conceptId?result.concept:concept);
         if(!this.concepts.some(concept=>concept.conceptId===conceptId))this.concepts.push(result.concept);
@@ -118,6 +131,7 @@ export class ConceptClient {
       if(result?.job?.conceptId!==conceptId||result.job.status!=='cancelled')
         throw Error('Concept cancellation was not confirmed');
       if(this.sessionId===sessionId){
+        this._mutated();
         this.jobs=this.jobs.map(job=>job.conceptId===conceptId?result.job:job);
         this.error='';this.onChange(this);
       }
