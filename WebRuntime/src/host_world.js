@@ -4,9 +4,8 @@ import {resolve} from 'node:path';
 import {setTimeout as delay} from 'node:timers/promises';
 import {fileURLToPath} from 'node:url';
 import {MatrixWorld} from './protocol.js';
-import {CITIZEN_BENCH_INTERACTION,CITIZEN_BENCH_TRANSFORM,
-  CitizensSimulation,createCitizensDemo} from './citizens.js';
-import {normalizeProceduralRecipe} from './procedural.js';
+import {CITIZEN_BENCH_INTERACTION,CitizensSimulation,createCitizensDemo} from './citizens.js';
+import {createProceduralRecipe,normalizeProceduralRecipe} from './procedural.js';
 import {restoreStoredWorld,storedWorld} from './scene_store.js';
 
 const WORLD_NAME=/^[A-Za-z0-9][A-Za-z0-9 _-]{0,63}$/;
@@ -15,6 +14,7 @@ const keys=(value,expected)=>value&&typeof value==='object'&&!Array.isArray(valu
   Object.keys(value).sort().join(',')===expected.slice().sort().join(',');
 const sameTransform=(a,b)=>a&&b&&['position','rotation','scale'].every(part=>
   ['x','y','z'].every(axis=>a[part]?.[axis]===b[part]?.[axis]));
+const same=(a,b)=>JSON.stringify(a)===JSON.stringify(b);
 const fail=message=>{throw Error(message);};
 
 export function assertHostedFixture(value){
@@ -26,7 +26,7 @@ export function assertHostedFixture(value){
      ![4,5].includes(scene.objects.length))
     fail('Hosted world needs the built-in virtual scene and at most one construction');
   const citizens=value.citizens;
-  if(![12,13].includes(citizens?.schemaVersion)||citizens.clockSpeed!==1||
+  if(![12,13,14].includes(citizens?.schemaVersion)||citizens.clockSpeed!==1||
      !Array.isArray(citizens.residents)||
      !Array.isArray(citizens.stations)||
      citizens.residents.map(item=>item.id).sort().join(',')!=='ada,bo'||
@@ -34,8 +34,18 @@ export function assertHostedFixture(value){
        citizens.stations.map(item=>item.id).sort().join(',')))
     fail('Hosted world needs the built-in Ada and Bo Citizens state');
   const bench=citizens.stations.find(item=>item.id==='citizen-bench');
-  const construction=citizens.schemaVersion===13?citizens.construction:null;
-  if((bench&&citizens.schemaVersion!==13)||
+  const construction=citizens.schemaVersion>=13?citizens.construction:null;
+  const journal=citizens.schemaVersion===14?citizens.capabilityRequests:null;
+  const matches=Array.isArray(journal)?journal.filter(item=>
+    item.request?.intentId===construction?.intentId):[];
+  const capability=matches[0];
+  // A v13 checkpoint migrates to v14 with an empty journal. Historical
+  // construction receipts were not stored, so do not invent them on restore.
+  if(citizens.schemaVersion===14&&(!Array.isArray(journal)||journal.length>4||
+     matches.length>1||journal.filter(item=>
+       ['requested','queued'].includes(item.status)).length>1))
+    fail('Hosted Citizen capability journal and construction disagree');
+  if((bench&&citizens.schemaVersion<13)||
      (bench&&(!construction||!['created','used'].includes(construction.status)))||
      (!bench&&construction&&['created','used'].includes(construction.status)))
     fail('Hosted construction station and resident provenance disagree');
@@ -62,8 +72,14 @@ export function assertHostedFixture(value){
     if(!object||object.objectId!==bench.objectId||
        object.objectId!==construction.objectId||
        object.procedural.generatorId!=='curved-bench'||
-       JSON.stringify(object.interaction)!==JSON.stringify(CITIZEN_BENCH_INTERACTION))
-      fail('Hosted bench lacks its reviewed Matrix interaction');
+       (capability&&!same(object.procedural,createProceduralRecipe(
+         capability.request.parameters.generatorId,
+         capability.request.parameters.parameters)))||
+       !same(object.interaction,capability?.request?.parameters?.interaction??
+         CITIZEN_BENCH_INTERACTION)||
+       (capability&&!sameTransform(object.transform,
+         capability.request.parameters.transform)))
+      fail('Hosted bench differs from its reviewed capability request');
   }
   return value;
 }
@@ -94,6 +110,7 @@ export function serviceRequest(baseUrl,token){
 
 export class HostedWorld {
   constructor({name,seed=29,resumePaused=false,citizenConstruction=false,
+    citizenCapabilities=citizenConstruction,
     request,clientId=randomUUID()}={}){
     if(typeof name!=='string'||!WORLD_NAME.test(name)||
        /^(CON|PRN|AUX|NUL|COM[1-9]|LPT[1-9])$/i.test(name))
@@ -102,13 +119,14 @@ export class HostedWorld {
       fail('Hosted world seed must be a positive 32-bit integer');
     if(typeof request!=='function')fail('Hosted world needs a service request function');
     this.name=name;this.seed=seed;this.resumePaused=resumePaused;
-    this.citizenConstruction=citizenConstruction;
+    this.citizenCapabilities=citizenCapabilities;
     this.request=request;this.clientId=clientId;
     this.world=new MatrixWorld();
     this.world.runtimePresentation='host';
     this.simulation=null;
     this.results=new Map();
     this.started=false;this.busy=false;this.failed=false;
+    this.activeCapability=null;
   }
 
   async exchange(expectedRevision){
@@ -130,7 +148,16 @@ export class HostedWorld {
         const canCreate=this.started&&this.simulation&&
           command.op==='create_procedural'&&
           keys(command,['requestId','op','anchorId','transform','procedural'])&&
-          this.world.scene.objects.length===4;
+          this.world.scene.objects.length===4&&
+          (!this.activeCapability||
+            command.requestId===this.activeCapability.requestId&&
+            this.activeCapability.request.capability==='procedural'&&
+            this.activeCapability.request.action==='create'&&
+            same(command.procedural,createProceduralRecipe(
+              this.activeCapability.request.parameters.generatorId,
+              this.activeCapability.request.parameters.parameters))&&
+            sameTransform(command.transform,
+              this.activeCapability.request.parameters.transform));
         const result=canCreate?
           this.world.execute(command,{recordHistory:false}):
           {requestId:command.requestId,ok:false,error:UNSUPPORTED_COMMAND,objectId:''};
@@ -188,10 +215,14 @@ export class HostedWorld {
         this.world.citizens=this.simulation.snapshot();
         await this.exchange();
       }
-      const pendingConstruction=this.simulation.snapshot().construction;
-      if(pendingConstruction?.status==='queued')
+      const state=this.simulation.snapshot();
+      if(state.capabilityRequests?.some(item=>item.status==='queued'))
+        fail('Checkpoint has a queued Citizen capability; inspect its Matrix receipt');
+      if(state.capabilityRequests?.some(item=>item.status==='requested'))
+        fail('Checkpoint has an unresolved Citizen capability request; inspect policy and Matrix status');
+      if(state.construction?.status==='queued')
         fail('Checkpoint has a queued Citizen construction; inspect its Matrix receipt');
-      if(pendingConstruction?.status==='requested')
+      if(state.construction?.status==='requested')
         fail('Checkpoint has an unresolved Citizen construction request; inspect policy and Matrix status');
       await this.save();
       this.started=true;
@@ -209,12 +240,13 @@ export class HostedWorld {
       this.world.citizens=this.simulation.advance();
       if(this.world.citizens.clockTick!==before+1)
         fail('Citizens tick did not advance exactly once');
-      const intent=this.citizenConstruction?
-        this.simulation.proposeConstruction():null;
+      if(this.citizenCapabilities)this.simulation.proposeConstruction();
+      const pending=this.citizenCapabilities?
+        this.simulation.pendingCapabilityRequest():null;
       this.world.citizens=this.simulation.snapshot();
       await this.exchange();
       await this.save();
-      if(intent)await this.fulfillConstruction(intent);
+      if(pending)await this.fulfillCapability(pending);
       if(this.simulation.snapshot().paused)
         fail('Citizens paused after the tick; checkpoint saved for inspection');
       return this.simulation.snapshot();
@@ -222,51 +254,69 @@ export class HostedWorld {
     finally{this.busy=false;}
   }
 
-  async fulfillConstruction(intent){
-    const decision=await this.request('POST','/api/citizens/construction',
-      {intentId:intent.intentId,residentId:intent.residentId});
-    if(decision?.allowed===false&&typeof decision.reason==='string'){
-      this.world.citizens=this.simulation.constructionDenied(decision.reason);
+  async fulfillCapability(entry){
+    const request=entry.request;
+    if(!keys(request,['citizenRequestId','intentId','residentId','capability',
+      'action','parameters','checkpoint']))
+      fail('Citizen capability request has no exact saved envelope');
+    const decision=await this.request('POST','/api/citizens/capabilities',request);
+    if(!keys(decision,['allowed','requestId','reason','checkpointSequence'])||
+       !Number.isSafeInteger(decision.checkpointSequence)||
+       decision.checkpointSequence<0||typeof decision.reason!=='string'||
+       decision.allowed!==true&&decision.allowed!==false||
+       (decision.allowed&&(!/^[0-9a-f]{32}$/.test(decision.requestId)||
+         decision.reason!==''))||
+       (!decision.allowed&&(decision.requestId!==null||!decision.reason)))
+      fail('Citizen capability policy returned an invalid decision');
+    this.world.citizens=this.simulation.capabilityDecision(decision);
+    if(!decision.allowed){
       await this.exchange();
       await this.save();
       return;
     }
-    if(decision?.allowed!==true||!(/^[0-9a-f]{32}$/).test(decision.requestId))
-      fail('Citizens construction policy returned no exact queued request');
-    this.world.citizens=this.simulation.constructionQueued(decision.requestId);
-    const results=await this.exchange();
+    // Only a reviewed adapter can reach this dispatch. The resident never
+    // receives the owner token or a Matrix command surface.
+    if(request.capability!=='procedural'||request.action!=='create')
+      fail('Citizen capability adapter is unavailable');
+    this.activeCapability={request,requestId:decision.requestId};
+    let results;
+    try{results=await this.exchange();}
+    finally{this.activeCapability=null;}
     const matched=results.filter(item=>item.requestId===decision.requestId);
-    if(matched.length!==1)fail('Citizens construction has no exact Matrix receipt');
+    if(matched.length!==1)fail('Citizen capability has no exact Matrix receipt');
     const creation=matched[0];
     if(!creation.ok){
       if(this.world.scene.objects.length!==4)
-        fail('Failed Matrix creation changed the hosted scene');
-      this.world.citizens=this.simulation.constructionFailed(
-        String(creation.error||'Matrix rejected the construction').slice(0,160));
+        fail('Failed Matrix capability changed the hosted scene');
+      this.world.citizens=this.simulation.capabilityFailed([creation],
+        String(creation.error||'Matrix rejected the capability').slice(0,160));
       await this.exchange();
       await this.save();
       return;
     }
     const object=this.world.scene.objects.find(item=>item.objectId===creation.objectId);
+    const parameters=request.parameters;
     if(!object||object.assetId!=='matrix:procedural'||
-       object.procedural?.generatorId!=='curved-bench'||
-       !sameTransform(object.transform,CITIZEN_BENCH_TRANSFORM))
-      fail('Matrix creation receipt does not match the reviewed resident bench');
+       !same(object.procedural,createProceduralRecipe(
+         parameters.generatorId,parameters.parameters))||
+       !sameTransform(object.transform,parameters.transform))
+      fail('Matrix creation receipt does not match the saved capability request');
     const interaction=this.world.execute({requestId:`${decision.requestId}-interaction`,
       op:'set_interaction',objectId:creation.objectId,
-      interaction:structuredClone(CITIZEN_BENCH_INTERACTION),
+      interaction:structuredClone(parameters.interaction),
       expectedInteraction:null},{recordHistory:false});
     try{
       if(!interaction?.ok||interaction.requestId!==`${decision.requestId}-interaction`||
          interaction.objectId!==creation.objectId)
         throw Error(interaction?.error||'Matrix did not confirm the reviewed interaction');
-      this.world.citizens=this.simulation.constructionCreated(creation,interaction);
+      this.world.citizens=this.simulation.capabilityCompleted([creation,interaction]);
     }catch(error){
       const rollback=this.world.execute({requestId:`${decision.requestId}-rollback`,
         op:'delete',objectId:creation.objectId},{recordHistory:false});
       if(!rollback?.ok||this.world.scene.objects.some(item=>item.objectId===creation.objectId))
-        fail('Citizens construction failed and Matrix rollback was not confirmed');
-      this.world.citizens=this.simulation.constructionFailed(
+        fail('Citizen capability failed and Matrix rollback was not confirmed');
+      this.world.citizens=this.simulation.capabilityFailed(
+        [creation,interaction,rollback],
         String(error?.message||'Matrix interaction failed').slice(0,160));
     }
     await this.exchange();
@@ -295,13 +345,15 @@ function cliOptions(args){
   for(let i=0;i<args.length;i++){
     const arg=args[i];
     if(arg==='--resume-paused'){options.resumePaused=true;continue;}
-    if(arg==='--citizen-construction'){options.citizenConstruction=true;continue;}
+    if(arg==='--citizen-construction'||arg==='--citizen-capabilities'){
+      options.citizenCapabilities=true;continue;
+    }
     if(!['--url','--name','--seed','--ticks','--interval-ms'].includes(arg)||!args[i+1])
       fail(`Unknown or incomplete argument: ${arg}`);
     if(arg==='--interval-ms')options.intervalMs=Number(args[++i]);
     else options[arg.slice(2)]=args[++i];
   }
-  if(!options.url||!options.name)fail('Usage: node src/host_world.js --url http(s)://127.0.0.1:PORT --name NAME [--seed N] [--ticks N] [--interval-ms N] [--citizen-construction] [--resume-paused]');
+  if(!options.url||!options.name)fail('Usage: node src/host_world.js --url http(s)://127.0.0.1:PORT --name NAME [--seed N] [--ticks N] [--interval-ms N] [--citizen-capabilities] [--resume-paused]');
   options.seed=options.seed===undefined?29:Number(options.seed);
   options.ticks=options.ticks===Infinity?Infinity:Number(options.ticks);
   return options;

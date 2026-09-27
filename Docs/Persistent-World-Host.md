@@ -7,7 +7,7 @@ virtual tick with the PC `ControlService`, then saves the version 3 world
 checkpoint atomically. The scene starts with two orb resident markers, one
 chair, and one table. The owner can add one reviewed procedural construction
 through the existing Agent Portal and typed Matrix tool. With the optional
-Citizen construction flag, Bo can request one bench after encountering chair
+Citizen capability flag, Bo can request one bench after encountering chair
 contention. There is no renderer in this process.
 
 ## Run an isolated local world
@@ -53,7 +53,8 @@ restores the last atomic checkpoint and continues from that tick, without
 advancing through downtime. A paused checkpoint requires inspection and an
 explicit `--resume-paused` on restart.
 
-Pass `--citizen-construction` to enable the bounded autonomous case. Without
+Pass `--citizen-capabilities` to enable the bounded autonomous case. The
+earlier `--citizen-construction` flag remains an alias. Without
 that flag, the existing human Operator creation slot remains available.
 `--interval-ms` can set the tick interval for an isolated demonstration.
 
@@ -90,32 +91,51 @@ there is no second world-state owner. The ordinary browser-owned `/web/`
 Creator Mode remains available for its existing broader create/revise/save
 flow.
 
-## Optional Citizen construction
+## Optional Citizen capability requests
 
-With `--citizen-construction`, the existing seed-29 Ada/Bo schedule creates a
+With `--citizen-capabilities`, the existing seed-29 Ada/Bo schedule creates a
 chair reservation conflict: Ada holds the chair while Bo waits to rest. Bo
-records one construction intent with his resident ID and asks the owner-only
-`/api/citizens/construction` endpoint for a curved bench. The request contains
-only its durable intent ID and resident ID. Neither resident receives an owner
-token, Agent session, MCP bridge, or tool credentials.
+records one construction intent and a version 14 capability request in the
+hosted checkpoint. The owner host submits the exact saved request to the
+owner-only `POST /api/citizens/capabilities` endpoint. The request names the
+resident, intent, capability (`procedural`), action (`create`), bounded
+parameters, and the room, tick, and object IDs from the checkpoint where Bo
+made the request. Neither resident receives an owner token, Agent session,
+MCP bridge, or tool credentials.
 
-The service checks the saved need, chair contention, fixed bench recipe and
-placement, pending work, and a one-request budget before queuing the existing
-typed procedural action. A rejection records its reason and creates nothing.
-The Matrix host executes the typed create with `MatrixWorld.execute`, checks
-its exact receipt, then attaches the reviewed station interaction through the
-existing Matrix interaction command and receipt. Only after both receipts
-match the object does Bo observe the new station and resume his rest
-interaction there. His checked use receipt marks the construction used.
+The service matches the entire request to the durable checkpoint, then applies
+the policy for its capability and action. This slice allows only one reviewed
+`procedural.create` request: the fixed bench recipe, pose, and rest interaction
+must match; chair contention, pending work, and a one-request budget must still
+hold. The policy response has an explicit allow/deny decision, exact Matrix
+request ID on allow, reason, and checkpoint sequence. A rejection records its
+reason and creates nothing. The allowed action invokes the existing typed
+procedural service capability, whose command the host executes through
+`MatrixWorld.execute`. The host matches the exact creation receipt and attaches
+the reviewed interaction from the approved request through Matrix's existing
+interaction command. Only after both receipts match the object does Bo observe
+the new station and resume his rest interaction there. His checked use receipt
+marks the construction used.
 
-The version 13 Citizens checkpoint retains the original intent, decision,
-Matrix request IDs, created object ID, interaction request ID, and use result.
-Restart restores that provenance, the bench, Ada and Bo, and the
-same read-only visitor scene. The request remains one-shot across restart.
+The version 14 Citizens checkpoint retains the full request, policy decision,
+exact Matrix creation and interaction receipts, and the older construction/use
+record. Restart restores that provenance, the bench, Ada and Bo, and the same
+read-only visitor scene. The request remains one-shot across restart.
 If a process stops with a saved but unresolved request, startup stops for
 inspection instead of risking a duplicate policy submission.
-See `Validation/Citizen-Construction-2026-09-27.md` for an isolated live run
-with exact receipts and rejection tests.
+
+The shared endpoint dispatches by `capability` and `action` to an explicitly
+reviewed policy adapter. Adding a later action means validating its parameters
+against the saved world, granting a bounded budget, invoking an existing typed
+Matrix capability, and specifying the receipt/world checks. It does not require
+a new endpoint for each Citizen behavior. The hosted fixture currently permits
+only the procedural bench addition; other actions remain denied. A bounded
+Blender-generated asset request is a next step for issue #109: the current PC
+Blender/GLB authoring job is asynchronous, catalog registration precedes world
+spawn, the hosted fixture and visitor currently admit only a procedural
+addition, and the job needs durable restart provenance before a Citizen may
+rely on its result. See `Validation/Citizen-Capabilities-2026-09-27.md` for the
+generic path's isolated live proof.
 
 ## Read-only observation contract
 

@@ -80,6 +80,248 @@ class HostedWorldTests(unittest.TestCase):
         self.state.save_world_checkpoint("AdaBo", world)
         return snapshot, world
 
+    def requested_capability(self):
+        snapshot, world = self.requested_construction()
+        citizens = world["citizens"]
+        citizens["schemaVersion"] = 14
+        construction = citizens["construction"]
+        request = {
+            "citizenRequestId": construction["intentId"] + "/procedural.create/1",
+            "intentId": construction["intentId"], "residentId": "bo",
+            "capability": "procedural", "action": "create",
+            "parameters": {"generatorId": "curved-bench", "parameters": {},
+                           "transform": copy.deepcopy(CITIZEN_BENCH_TRANSFORM),
+                           "interaction": copy.deepcopy(CITIZEN_BENCH_INTERACTION)},
+            "checkpoint": {"roomId": world["scene"]["roomId"], "clockTick": 1,
+                           "objectIds": sorted(item["objectId"] for item in
+                                               world["scene"]["objects"])}}
+        citizens["capabilityRequests"] = [{"request": copy.deepcopy(request),
+                                           "status": "requested", "policy": None,
+                                           "receipts": [], "reason": ""}]
+        snapshot["citizensState"] = copy.deepcopy(citizens)
+        return snapshot, world, request
+
+    def requested_capability_service(self, *, budget=1):
+        self.state = State(Path(self.temp.name) / f"capability-budget-{budget}",
+                           clock=lambda: self.now,
+                           web_assets_directory=Path(self.temp.name) / "assets",
+                           citizen_capability_budget=budget)
+        snapshot, world, request = self.requested_capability()
+        self.exchange(snapshot)
+        self.state.save_world_checkpoint("AdaBo", world)
+        return snapshot, world, request
+
+    def test_citizen_capability_dispatches_saved_request_to_typed_procedural_action(self):
+        snapshot, world, request = self.requested_capability_service()
+        decision = self.state.citizen_capability_request(copy.deepcopy(request))
+        self.assertEqual(set(decision),
+                         {"allowed", "requestId", "reason", "checkpointSequence"})
+        self.assertTrue(decision["allowed"])
+        self.assertEqual(decision["reason"], "")
+        self.assertEqual(decision["checkpointSequence"], self.state.host_saved_sequence)
+        request_id = decision["requestId"]
+        self.assertRegex(request_id, r"^[0-9a-f]{32}$")
+        command = self.state.pending[request_id]
+        self.assertEqual(command["op"], "create_procedural")
+        self.assertEqual(command["anchorId"], "web-floor")
+        self.assertEqual(command["transform"], CITIZEN_BENCH_TRANSFORM)
+        self.assertEqual(command["procedural"], new_recipe(
+            snapshot["proceduralGenerators"], "curved-bench"))
+        issued = self.state.agent_procedural_ids[request_id]
+        self.assertEqual(issued["citizenRequest"], request)
+        self.assertEqual(issued["citizenRequestId"], request["citizenRequestId"])
+        self.assertEqual(issued["citizenIntentId"], request["intentId"])
+        self.assertEqual(issued["residentId"], "bo")
+        self.assertEqual(issued["citizenCapability"], "procedural")
+        self.assertEqual(issued["citizenAction"], "create")
+        self.assertEqual(issued["checkpointSequence"], decision["checkpointSequence"])
+        repeated = self.state.citizen_capability_request(copy.deepcopy(request))
+        self.assertFalse(repeated["allowed"])
+        self.assertEqual(repeated["reason"], "Citizen capability budget is exhausted")
+        self.assertEqual(list(self.state.pending), [request_id])
+
+    def test_citizen_capability_denies_unknown_tampered_and_zero_budget_safely(self):
+        _, _, request = self.requested_capability_service(budget=0)
+        before = copy.deepcopy(self.state.latest)
+        denied = self.state.citizen_capability_request(copy.deepcopy(request))
+        self.assertEqual(denied["allowed"], False)
+        self.assertEqual(denied["requestId"], None)
+        self.assertEqual(denied["reason"], "Citizen capability budget is exhausted")
+        self.assertEqual(denied["checkpointSequence"], self.state.host_saved_sequence)
+        self.assertFalse(self.state.pending)
+        self.assertEqual(self.state.latest, before)
+        self.state.citizen_capability_budget = 1
+        unknown = copy.deepcopy(request)
+        unknown["capability"] = "blender"
+        self.assertIn("differs from saved intent",
+                      self.state.citizen_capability_request(unknown)["reason"])
+        tampered = copy.deepcopy(request)
+        tampered["parameters"]["transform"]["position"]["x"] = -4
+        self.assertIn("differs from saved intent",
+                      self.state.citizen_capability_request(tampered)["reason"])
+        self.assertFalse(self.state.pending)
+        self.assertEqual(self.state.latest, before)
+
+    def test_citizen_capability_unknown_saved_action_denies_without_queue(self):
+        snapshot, world, request = self.requested_capability()
+        world["citizens"]["construction"] = None
+        request["intentId"] = "citizens-29-other-intent-1"
+        request["citizenRequestId"] = request["intentId"] + "/blender.generate/1"
+        request["capability"] = "blender"
+        request["action"] = "generate"
+        world["citizens"]["capabilityRequests"][0]["request"] = copy.deepcopy(request)
+        snapshot["citizensState"] = copy.deepcopy(world["citizens"])
+        # The generic journal accepts future action names; the policy allowlist
+        # makes the current slice fail closed.
+        validate_citizens_checkpoint(world["citizens"], world["scene"])
+        forged_success = copy.deepcopy(world)
+        forged_entry = forged_success["citizens"]["capabilityRequests"][0]
+        forged_entry.update(status="succeeded",
+                            policy={"allowed": True, "requestId": "a" * 32,
+                                    "reason": "", "checkpointSequence": 1},
+                            receipts=[{"requestId": "a" * 32, "ok": True,
+                                       "error": "", "objectId": "phantom"}])
+        with self.assertRaisesRegex(APIError, "no observed-world success validator"):
+            validate_citizens_checkpoint(forged_success["citizens"],
+                                         forged_success["scene"])
+        self.exchange(snapshot)
+        self.state.save_world_checkpoint("AdaBo", world)
+        decision = self.state.citizen_capability_request(request)
+        self.assertFalse(decision["allowed"])
+        self.assertEqual(decision["reason"], "Citizen capability is not allowed")
+        self.assertFalse(self.state.pending)
+
+    def test_citizen_capability_endpoint_requires_owner_token(self):
+        _, _, request = self.requested_capability_service()
+        service = Server(("127.0.0.1", 0), self.state, OWNER, VIEWER)
+        thread = threading.Thread(target=service.serve_forever, daemon=True)
+        thread.start()
+
+        def post(token):
+            call = urllib.request.Request(
+                f"http://127.0.0.1:{service.server_port}/api/citizens/capabilities",
+                data=json.dumps(request).encode("utf-8"),
+                headers={"Authorization": "Bearer " + token,
+                         "Content-Type": "application/json"})
+            try:
+                response = urllib.request.urlopen(call, timeout=3)
+            except urllib.error.HTTPError as error:
+                response = error
+            with response:
+                return response.status, json.loads(response.read())
+
+        try:
+            self.assertEqual(post(VIEWER)[0], 401)
+            self.assertFalse(self.state.pending)
+            status, decision = post(OWNER)
+            self.assertEqual(status, 200)
+            self.assertTrue(decision["allowed"])
+            self.assertEqual(list(self.state.pending), [decision["requestId"]])
+        finally:
+            service.shutdown()
+            service.server_close()
+            thread.join(timeout=3)
+
+    def test_citizen_capability_requires_a_saved_current_checkpoint(self):
+        snapshot, _, request = self.requested_capability_service()
+        self.exchange(snapshot)
+        before = copy.deepcopy(self.state.latest)
+        decision = self.state.citizen_capability_request(request)
+        self.assertFalse(decision["allowed"])
+        self.assertEqual(decision["reason"],
+                         "Hosted Citizens state needs a durable checkpoint")
+        self.assertFalse(self.state.pending)
+        self.assertEqual(self.state.latest, before)
+
+    def test_citizen_capability_receipts_persist_and_restore_with_world(self):
+        snapshot, world, request = self.requested_capability_service()
+        decision = self.state.citizen_capability_request(request)
+        request_id = decision["requestId"]
+        forged_checkpoint = copy.deepcopy(world)
+        forged_checkpoint["citizens"]["capabilityRequests"][0]["request"][
+            "checkpoint"]["objectIds"].pop()
+        with self.assertRaisesRegex(APIError, "provenance disagree"):
+            validate_citizens_checkpoint(forged_checkpoint["citizens"],
+                                         forged_checkpoint["scene"])
+        forged_number = copy.deepcopy(world)
+        forged_number["citizens"]["capabilityRequests"][0]["request"][
+            "parameters"]["transform"]["scale"]["x"] = True
+        with self.assertRaisesRegex(APIError, "provenance disagree"):
+            validate_citizens_checkpoint(forged_number["citizens"],
+                                         forged_number["scene"])
+        false_failure = copy.deepcopy(world)
+        false_failure["citizens"]["construction"].update(
+            status="failed", requestId=request_id, reason="Matrix failed")
+        false_entry = false_failure["citizens"]["capabilityRequests"][0]
+        false_entry.update(status="failed", policy=copy.deepcopy(decision),
+                           receipts=[{"requestId": request_id, "ok": True,
+                                      "error": "", "objectId": "phantom"}],
+                           reason="Matrix failed")
+        with self.assertRaisesRegex(APIError, "Invalid failed Citizens capability"):
+            validate_citizens_checkpoint(false_failure["citizens"],
+                                         false_failure["scene"])
+        created = copy.deepcopy(world)
+        addition = self.procedural_object(object_id="citizen-bench-created-1")
+        addition["transform"] = copy.deepcopy(CITIZEN_BENCH_TRANSFORM)
+        addition["interaction"] = copy.deepcopy(CITIZEN_BENCH_INTERACTION)
+        created["scene"]["objects"].append(addition)
+        construction = created["citizens"]["construction"]
+        construction.update(status="created", requestId=request_id,
+                            objectId=addition["objectId"],
+                            interactionRequestId=request_id + "-interaction")
+        created["citizens"]["stations"][0]["waiters"] = []
+        created["citizens"]["stations"].append({
+            "id": "citizen-bench", "kind": "rest", "objectId": addition["objectId"],
+            "capacity": 1, "claim": {"residentId": "bo", "executionId": 2,
+                                      "expiresTick": 73}, "waiters": [],
+            "interaction": copy.deepcopy(CITIZEN_BENCH_INTERACTION),
+            "approachMode": "selected"})
+        created["citizens"]["residents"][1]["activity"] = {
+            "kind": "rest", "stationId": "citizen-bench", "phase": "travel",
+            "remainingTicks": 4, "travelTicks": 0, "target": None,
+            "executionId": 2, "routeRetries": 0, "routeGeometryId": None}
+        creation_receipt = {"requestId": request_id, "ok": True,
+                            "error": "", "objectId": addition["objectId"]}
+        interaction_receipt = {"requestId": request_id + "-interaction",
+                               "ok": True, "error": "",
+                               "objectId": addition["objectId"]}
+        entry = created["citizens"]["capabilityRequests"][0]
+        entry.update(status="succeeded", policy=copy.deepcopy(decision),
+                     receipts=[creation_receipt, interaction_receipt])
+        validate_citizens_checkpoint(created["citizens"], created["scene"])
+        altered_recipe = copy.deepcopy(created)
+        altered_recipe["scene"]["objects"][-1]["procedural"]["parameters"][
+            "lengthMeters"] = 2.4  # Valid generator input, but not the approved request.
+        with self.assertRaisesRegex(APIError, "recipe differs from its saved request"):
+            validate_citizens_checkpoint(altered_recipe["citizens"],
+                                         altered_recipe["scene"])
+        forged = copy.deepcopy(created)
+        forged["citizens"]["capabilityRequests"][0]["receipts"][0][
+            "requestId"] = "different-request"
+        with self.assertRaisesRegex(APIError, "receipt IDs|provenance"):
+            validate_citizens_checkpoint(forged["citizens"], forged["scene"])
+        observed = copy.deepcopy(snapshot)
+        observed["scene"] = copy.deepcopy(created["scene"])
+        observed["citizensState"] = copy.deepcopy(created["citizens"])
+        self.exchange(observed, results=[creation_receipt])
+        self.assertEqual(self.state.agent_procedural_status(request_id)["status"],
+                         "unconfirmed")
+        self.state.save_world_checkpoint("AdaBo", created)
+        self.assertEqual(self.state.agent_procedural_status(request_id)["status"],
+                         "succeeded")
+        self.assertEqual(self.state.hosted_observation()["world"], created)
+        restarted = State(self.state.directory, clock=lambda: self.now,
+                          web_assets_directory=Path(self.temp.name) / "assets")
+        bootstrap = copy.deepcopy(self.snapshot)
+        bootstrap["scene"]["objects"] = []
+        bootstrap["citizensState"] = None
+        bootstrap.pop("citizensObservation", None)
+        restarted.exchange({"clientId": "host-after-restart", "hostWorldId": "AdaBo",
+                            "snapshot": bootstrap, "results": [],
+                            "captureSupported": False})
+        self.assertEqual(restarted.load_world_checkpoint("AdaBo")["world"], created)
+        self.assertEqual(restarted.citizen_capability_issued, 0)
+
     def test_citizen_construction_uses_typed_procedural_queue_with_identity(self):
         snapshot, world = self.requested_service()
         record = world["citizens"]["construction"]

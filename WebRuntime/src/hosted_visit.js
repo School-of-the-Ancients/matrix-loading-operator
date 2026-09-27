@@ -1,4 +1,5 @@
 import {MatrixWorld} from './protocol.js';
+import {createProceduralRecipe} from './procedural.js';
 import {restoreStoredWorld} from './scene_store.js';
 
 const WORLD_NAME=/^[A-Za-z0-9][A-Za-z0-9 _-]{0,63}$/;
@@ -17,6 +18,13 @@ const NEXT_CONSTRUCTION_STATUS={
   created:['created','used','failed'],
   used:['used'],denied:['denied'],failed:['failed']
 };
+const CAPABILITY_FIELDS=['request','status','policy','receipts','reason'];
+const CAPABILITY_STATUSES=new Set(['requested','queued','succeeded','denied','failed']);
+const NEXT_CAPABILITY_STATUS={
+  requested:['requested','queued','succeeded','denied','failed'],
+  queued:['queued','succeeded','failed'],
+  succeeded:['succeeded'],denied:['denied'],failed:['failed']
+};
 const originalBindings=stations=>stations.filter(item=>
   item?.id==='chair'||item?.id==='food');
 const constructionIdentity=record=>record&&[
@@ -27,8 +35,19 @@ function supportedAddition(saved,created){
   const citizens=saved.citizens;
   const stations=citizens.stations;
   const stationIds=stations.map(item=>item?.id).sort().join(',');
-  const construction=citizens.schemaVersion===13?citizens.construction:null;
-  if(citizens.schemaVersion===13&&construction!==null&&
+  const construction=citizens.schemaVersion>=13?citizens.construction:null;
+  const journal=citizens.schemaVersion===14?citizens.capabilityRequests:null;
+  const matches=Array.isArray(journal)?journal.filter(item=>
+    item.request?.intentId===construction?.intentId):[];
+  const capability=matches[0];
+  if(citizens.schemaVersion===14&&(!Array.isArray(journal)||journal.length>4||
+     matches.length>1||journal.filter(item=>
+       ['requested','queued'].includes(item.status)).length>1||
+     journal.some(item=>!exactKeys(item,CAPABILITY_FIELDS)||
+       !CAPABILITY_STATUSES.has(item.status))||
+     capability&&capability.request?.residentId!==construction.residentId))
+    return false;
+  if(citizens.schemaVersion>=13&&construction!==null&&
      (!exactKeys(construction,CONSTRUCTION_FIELDS)||
       !CONSTRUCTION_STATUSES.has(construction.status)||
       construction.residentId!=='bo'||construction.blockedStationId!=='chair'))
@@ -39,7 +58,10 @@ function supportedAddition(saved,created){
     // while a Citizen request is still pending or after policy denies it.
     if(stationIds!=='chair,food'||
        (construction?.status==='queued'&&
-        created.length!==0))return false;
+        created.length!==0)||
+       (capability&&construction&&
+         capability.request.intentId===construction.intentId&&
+         capability.status!==construction.status))return false;
     return created.every(item=>exactKeys(item,
       ['objectId','assetId','anchorId','transform','procedural']));
   }
@@ -51,6 +73,13 @@ function supportedAddition(saved,created){
     object.procedural?.generatorVersion==='1.0.0'&&
     object.procedural?.sourceRevision==='curved-bench-v1'&&
     object.interaction?.schemaVersion===2&&object.interaction.kind==='rest'&&
+    (!capability||capability.request.intentId!==construction.intentId||
+      capability.status==='succeeded'&&
+      same(object.procedural,createProceduralRecipe(
+        capability.request.parameters.generatorId,
+        capability.request.parameters.parameters))&&
+      same(capability.request.parameters.interaction,object.interaction)&&
+      same(capability.request.parameters.transform,object.transform))&&
     construction.objectId===object.objectId&&
     station?.kind==='rest'&&station.objectId===object.objectId&&
     station.capacity===1&&same(station.interaction,object.interaction);
@@ -82,7 +111,7 @@ export function stageHostedObservation(observation,previous=null){
         item.anchorId!=='web-floor')||
       created.some(item=>item?.anchorId!=='web-floor')||
       !saved.citizens||typeof saved.citizens!=='object'||Array.isArray(saved.citizens)||
-      ![12,13].includes(saved.citizens.schemaVersion)||
+      ![12,13,14].includes(saved.citizens.schemaVersion)||
       saved.citizens.clockSpeed!==1||
       saved.citizens.clockTick!==observation.clockTick||
       !Array.isArray(saved.citizens.residents)||
@@ -106,6 +135,7 @@ export function stageHostedObservation(observation,previous=null){
     .sort((a,b)=>a.objectId.localeCompare(b.objectId)));
   const createdObject=created.length?JSON.stringify(created[0]):null;
   const construction=staged.citizens.construction??null;
+  const capabilities=staged.citizens.capabilityRequests??[];
   const sceneStructure=JSON.stringify(staged.scene.objects.map(item=>({
     objectId:item.objectId,assetId:item.assetId,anchorId:item.anchorId,
     procedural:item.procedural??null})).sort((a,b)=>a.objectId.localeCompare(b.objectId)));
@@ -131,6 +161,17 @@ export function stageHostedObservation(observation,previous=null){
              previous.construction[field]!==construction[field]))
         throw Error('Hosted construction provenance moved backward');
     }
+    if(previous.capabilities?.length>capabilities.length)
+      throw Error('Hosted capability provenance moved backward');
+    for(const [index,prior] of (previous.capabilities||[]).entries()){
+      const current=capabilities[index];
+      if(!current||!same(current.request,prior.request)||
+         !NEXT_CAPABILITY_STATUS[prior.status]?.includes(current.status)||
+         (prior.policy&&!same(prior.policy,current.policy))||
+         !prior.receipts.every((receipt,position)=>
+           same(receipt,current.receipts[position])))
+        throw Error('Hosted capability provenance moved backward');
+    }
     if(observation.instanceId===previous.instanceId){
       if(observation.sequence<previous.sequence||
          observation.sequence===previous.sequence&&signature!==previous.signature)
@@ -142,7 +183,7 @@ export function stageHostedObservation(observation,previous=null){
   return {world:staged,changed,structureChanged,state:{worldId:observation.worldId,
     instanceId:observation.instanceId,sequence:observation.sequence,
     clockTick:observation.clockTick,sceneIds,coreIds,residentIds:citizenIds,
-    bindingIds,staticFurniture,createdObject,construction,
+    bindingIds,staticFurniture,createdObject,construction,capabilities,
     sceneStructure,signature}};
 }
 

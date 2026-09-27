@@ -46,6 +46,7 @@ from quest_connection import QuestConnection
 from client_api import ClientAPI, ClientError
 import scale_experiment
 from procedural_contract import (ProceduralError, GENERATOR_ID, VERSION,
+                                 CURVED_BENCH_PARAMETERS,
                                  checked_recipe, checked_generators, available_recipe,
                                  interaction_bounds, new_recipe, revised_recipe)
 
@@ -1141,6 +1142,12 @@ CITIZEN_BENCH_INTERACTION = {
     "rangeMeters": .7, "durationTicks": 4, "capacity": 1,
     "effect": {"need": "energy", "delta": 31},
 }
+CITIZEN_BENCH_GENERATORS = [{
+    **CITIZEN_BENCH_INTERACTION["proceduralSource"],
+    "description": "Reviewed Citizen rest bench",
+    "parameterSchema": CURVED_BENCH_PARAMETERS,
+    "dependencies": [],
+}]
 
 
 def hosted_fixture(current):
@@ -1159,7 +1166,7 @@ def hosted_fixture(current):
     if citizens is None:
         require(not objects, "Hosted bootstrap must have an empty scene")
         return False
-    require(type(citizens) is dict and citizens.get("schemaVersion") in (12, 13) and
+    require(type(citizens) is dict and citizens.get("schemaVersion") in (12, 13, 14) and
              citizens.get("clockSpeed") == 1 and
              type(citizens.get("residents")) is list and
              type(citizens.get("stations")) is list and
@@ -1167,7 +1174,7 @@ def hosted_fixture(current):
              {item["id"] for item in citizens["residents"]} == {"ada", "bo"} and
              [item["id"] for item in citizens["stations"][:2]] == ["chair", "food"] and
              (len(citizens["stations"]) == 2 or
-              citizens["schemaVersion"] == 13 and
+              citizens["schemaVersion"] in (13, 14) and
               citizens["stations"][2]["id"] == "citizen-bench") and
              len(objects) in (4, 5),
             "Hosted world supports Ada, Bo and at most one reviewed bench station")
@@ -1731,9 +1738,204 @@ def validate_citizens_checkpoint(value, checked_scene, *, _allow_citizen_bench=F
         return type(item) in (int, float) and minimum <= item <= maximum and math.isfinite(item)
 
     require(type(value) is dict and type(value.get("schemaVersion")) is int and
-            value["schemaVersion"] in (1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13),
+            value["schemaVersion"] in (1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14),
             "Unsupported Citizens schemaVersion")
     version = value["schemaVersion"]
+    if version == 14:
+        # Capability requests are a bounded, durable Citizen-to-Matrix journal.
+        # Validate the generic envelope before projecting to the established
+        # v13 resident/station/scene contract below.
+        entries = value.get("capabilityRequests")
+        require(type(entries) is list and len(entries) <= 4,
+                "Invalid Citizens capability request journal")
+        seen = set()
+        construction = value.get("construction")
+        for entry in entries:
+            shape(entry, ("request", "status", "policy", "receipts", "reason"),
+                  "capability request entry")
+            request = entry["request"]
+            shape(request, ("citizenRequestId", "intentId", "residentId",
+                            "capability", "action", "parameters", "checkpoint"),
+                  "capability request")
+            request_id = citizens_text(request["citizenRequestId"],
+                                       "Citizens capability request ID")
+            require(request_id not in seen, "Duplicate Citizens capability request ID")
+            seen.add(request_id)
+            citizens_text(request["intentId"], "Citizens capability intent ID")
+            resident_id = citizens_text(request["residentId"],
+                                        "Citizens capability resident ID", limit=32)
+            require(type(value.get("residents")) is list and any(
+                type(item) is dict and item.get("id") == resident_id
+                for item in value["residents"]),
+                "Citizens capability resident is unavailable")
+            citizens_text(request["capability"], "Citizens capability", limit=64)
+            citizens_text(request["action"], "Citizens capability action", limit=64)
+            require(re.fullmatch(r"[a-z][a-z0-9-]*", request["capability"]) and
+                    re.fullmatch(r"[a-z][a-z0-9-]*", request["action"]),
+                    "Invalid Citizens capability name or action")
+            parameters = request["parameters"]
+            require(type(parameters) is dict, "Invalid Citizens capability parameters")
+            try:
+                parameter_bytes = json.dumps(parameters, ensure_ascii=False,
+                                             sort_keys=True, allow_nan=False,
+                                             separators=(",", ":")).encode("utf-8")
+            except (TypeError, ValueError, UnicodeError, RecursionError):
+                raise APIError(400, "Invalid Citizens capability parameters") from None
+            require(len(parameter_bytes) <= 4096,
+                    "Citizens capability parameters exceed the limit")
+            checkpoint = request["checkpoint"]
+            shape(checkpoint, ("roomId", "clockTick", "objectIds"),
+                  "capability checkpoint")
+            citizens_text(checkpoint["roomId"], "Citizens capability room ID")
+            require(type(value.get("world")) is dict and
+                    checkpoint["roomId"] == value["world"].get("roomId") and
+                    type(value.get("clockTick")) is int and
+                    integer(checkpoint["clockTick"], 0, value["clockTick"]),
+                    "Citizens capability checkpoint changed")
+            object_ids = checkpoint["objectIds"]
+            require(type(object_ids) is list and 1 <= len(object_ids) <= 32 and
+                    all(type(item) is str and item and len(item) <= 128
+                        for item in object_ids) and
+                    object_ids == sorted(set(object_ids)),
+                    "Invalid Citizens capability checkpoint object IDs")
+            require(set(object_ids) <= {item["objectId"] for item in
+                    checked_scene["objects"]},
+                    "Citizens capability checkpoint objects are missing")
+            status = entry["status"]
+            require(status in ("requested", "queued", "succeeded", "denied", "failed"),
+                    "Invalid Citizens capability status")
+            policy = entry["policy"]
+            receipts = entry["receipts"]
+            reason = citizens_text(entry["reason"], "Citizens capability reason",
+                                   empty=True, limit=160)
+            require(type(receipts) is list and len(receipts) <= 3,
+                    "Invalid Citizens capability receipts")
+            for receipt in receipts:
+                require(type(receipt) is dict and
+                        set(receipt) in ({"requestId", "ok", "error", "objectId"},
+                                         {"requestId", "ok", "error", "objectId", "outcome"}) and
+                        type(receipt["ok"]) is bool and
+                        (not receipt["error"] if receipt["ok"] else bool(receipt["error"])),
+                        "Invalid Citizens Matrix receipt")
+                citizens_text(receipt["requestId"], "Citizens Matrix receipt ID")
+                citizens_text(receipt["error"], "Citizens Matrix receipt error",
+                              empty=True, limit=2048)
+                citizens_text(receipt["objectId"], "Citizens Matrix receipt object ID",
+                              empty=True, limit=128)
+                if "outcome" in receipt:
+                    require(type(receipt["outcome"]) is dict,
+                            "Invalid Citizens Matrix receipt outcome")
+                    try:
+                        outcome_bytes = json.dumps(receipt["outcome"],
+                                                   ensure_ascii=False, sort_keys=True,
+                                                   allow_nan=False,
+                                                   separators=(",", ":")).encode("utf-8")
+                    except (TypeError, ValueError, UnicodeError, RecursionError):
+                        raise APIError(400, "Invalid Citizens Matrix receipt outcome") from None
+                    require(len(outcome_bytes) <= 4096,
+                            "Citizens Matrix receipt outcome exceeds the limit")
+            if status == "requested":
+                require(policy is None and not receipts and reason == "",
+                        "Invalid requested Citizens capability")
+            else:
+                shape(policy, ("allowed", "requestId", "reason", "checkpointSequence"),
+                      "capability policy decision")
+                require(type(policy["allowed"]) is bool and
+                        integer(policy["checkpointSequence"], 0, 9007199254740991) and
+                        type(policy["reason"]) is str,
+                        "Invalid Citizens capability policy decision")
+                if policy["allowed"]:
+                    require(type(policy["requestId"]) is str and
+                            re.fullmatch(r"[0-9a-f]{32}", policy["requestId"]) and
+                            policy["reason"] == "" and
+                            status in ("queued", "succeeded", "failed"),
+                            "Invalid allowed Citizens capability decision")
+                else:
+                    require(policy["requestId"] is None and
+                            citizens_text(policy["reason"],
+                                          "Citizens capability denial", limit=160) and
+                            status == "denied",
+                            "Invalid denied Citizens capability decision")
+                if status == "denied":
+                    require(not receipts and reason == policy["reason"],
+                            "Invalid Citizens capability denial")
+                elif status == "queued":
+                    require(not receipts and reason == "",
+                            "Invalid queued Citizens capability")
+                elif status == "succeeded":
+                    require(reason == "" and receipts and all(
+                        receipt["ok"] and receipt["error"] == "" for receipt in receipts),
+                        "Invalid successful Citizens capability receipts")
+                elif status == "failed":
+                    require(bool(reason) and bool(receipts) and
+                            (len(receipts) > 1 or any(not item["ok"]
+                                                      for item in receipts)),
+                            "Invalid failed Citizens capability")
+                if receipts:
+                    require(receipts[0]["requestId"] == policy["requestId"] and
+                            len({item["requestId"] for item in receipts}) == len(receipts),
+                            "Citizens capability receipt IDs changed")
+            # The current bounded use case retains its domain-specific rest
+            # station state. The generic journal must not diverge from it.
+            if (type(construction) is dict and
+                    request["intentId"] == construction.get("intentId")):
+                core_ids = sorted(item["objectId"] for item in
+                                  value["residents"] + value["stations"][:2])
+                require(request["residentId"] == construction.get("residentId") and
+                        request["citizenRequestId"] ==
+                        f'{construction["intentId"]}/procedural.create/1' and
+                        request["capability"] == "procedural" and
+                        request["action"] == "create" and
+                        json.dumps(request["parameters"], sort_keys=True,
+                                   separators=(",", ":")) ==
+                        json.dumps({
+                            "generatorId": "curved-bench", "parameters": {},
+                            "transform": CITIZEN_BENCH_TRANSFORM,
+                            "interaction": CITIZEN_BENCH_INTERACTION},
+                            sort_keys=True, separators=(",", ":")) and
+                        checkpoint["clockTick"] == construction.get("requestedTick") and
+                        object_ids == core_ids and
+                        reason == construction.get("reason") and
+                        ((status == "requested" and construction.get("status") == "requested") or
+                         (status == "queued" and construction.get("status") == "queued" and
+                          construction.get("requestId") == policy["requestId"]) or
+                         (status == "succeeded" and construction.get("status") in ("created", "used") and
+                          construction.get("requestId") == policy["requestId"] and
+                          len(receipts) == 2 and
+                          receipts[0]["objectId"] == construction.get("objectId") and
+                          receipts[1]["requestId"] == construction.get("interactionRequestId") and
+                          receipts[1]["objectId"] == construction.get("objectId")) or
+                         (status == "denied" and construction.get("status") == "denied" and
+                          construction.get("requestId") is None) or
+                         (status == "failed" and construction.get("status") == "failed" and
+                          construction.get("requestId") == policy["requestId"])),
+                        "Citizens capability and construction provenance disagree")
+                if status == "failed" and len(receipts) > 1:
+                    require(receipts[0]["ok"] is True and receipts[-1]["ok"] is True and
+                            receipts[-1]["requestId"] ==
+                            f'{construction["requestId"]}-rollback',
+                            "Citizens capability rollback receipt is missing")
+                if status == "succeeded":
+                    object_value = next((item for item in checked_scene["objects"]
+                                         if item["objectId"] == construction["objectId"]), None)
+                    try:
+                        reviewed_recipe = new_recipe(
+                            CITIZEN_BENCH_GENERATORS,
+                            request["parameters"]["generatorId"],
+                            request["parameters"]["parameters"])
+                    except ProceduralError:
+                        raise APIError(400, "Invalid Citizens capability recipe") from None
+                    require(object_value is not None and
+                            object_value.get("procedural") == reviewed_recipe,
+                            "Citizens construction recipe differs from its saved request")
+            elif status == "succeeded":
+                require(False,
+                        "Citizens capability has no observed-world success validator")
+        projected = copy.deepcopy(value)
+        projected["schemaVersion"] = 13
+        del projected["capabilityRequests"]
+        validate_citizens_checkpoint(projected, checked_scene)
+        return
     if version == 13:
         require("construction" in value, "Invalid Citizens construction state")
         construction = value["construction"]
@@ -2872,10 +3074,16 @@ def require_physics_eligible(obj, assets, registered_assets, pose=None):
 
 class State:
     def __init__(self, directory, clock=time.monotonic, learning=None,
-                 web_assets_directory=None, citizen_construction_budget=1):
-        require(type(citizen_construction_budget) is int and
-                citizen_construction_budget in (0, 1),
-                "Citizen construction budget must be zero or one")
+                 web_assets_directory=None, citizen_capability_budget=1,
+                 citizen_construction_budget=None):
+        if citizen_construction_budget is not None:
+            require(citizen_capability_budget == 1 or
+                    citizen_capability_budget == citizen_construction_budget,
+                    "Conflicting Citizen capability budgets")
+            citizen_capability_budget = citizen_construction_budget
+        require(type(citizen_capability_budget) is int and
+                citizen_capability_budget in (0, 1),
+                "Citizen capability budget must be zero or one")
         self.directory = Path(directory)
         self.directory.mkdir(parents=True, exist_ok=True)
         self.web_assets = WebAssetCatalog(web_assets_directory or Path(__file__).with_name("web_assets"))
@@ -2900,8 +3108,8 @@ class State:
         self.agent_move_ids = collections.OrderedDict()
         self.agent_spawn_ids = collections.OrderedDict()
         self.agent_procedural_ids = collections.OrderedDict()
-        self.citizen_construction_budget = citizen_construction_budget
-        self.citizen_construction_issued = 0
+        self.citizen_capability_budget = citizen_capability_budget
+        self.citizen_capability_issued = 0
         self.agent_game_ids = collections.OrderedDict()
         self.agent_display_ids = collections.OrderedDict()
         self.agent_control_ids = collections.OrderedDict()
@@ -2927,6 +3135,25 @@ class State:
         self.voice_capture_id = None
         self.content = ContentBridge(self)
         self.clients = ClientAPI(self, plan, lambda: client_planner_modes(self))
+
+    @property
+    def citizen_construction_budget(self):
+        """Compatibility spelling for the #143 bounded construction fixture."""
+        return self.citizen_capability_budget
+
+    @citizen_construction_budget.setter
+    def citizen_construction_budget(self, value):
+        require(type(value) is int and value in (0, 1),
+                "Citizen capability budget must be zero or one")
+        self.citizen_capability_budget = value
+
+    @property
+    def citizen_construction_issued(self):
+        return self.citizen_capability_issued
+
+    @citizen_construction_issued.setter
+    def citizen_construction_issued(self, value):
+        self.citizen_capability_issued = value
 
     @staticmethod
     def _agent_scale_public(value):
@@ -3997,6 +4224,140 @@ class State:
             return {"roomId": self.latest["scene"]["roomId"],
                     "sceneRevision": self.revision,
                     "generators": copy.deepcopy(self.latest.get("proceduralGenerators", []))}
+
+    def citizen_capability_request(self, value):
+        """Authorize a saved resident request, then call a typed Matrix capability.
+
+        Residents only write their intent into the hosted checkpoint. The PC
+        host submits the exact request using its owner token; this method is
+        the policy and budget boundary, never a resident-held tool endpoint.
+        """
+        require(type(value) is dict and set(value) ==
+                {"citizenRequestId", "intentId", "residentId", "capability",
+                 "action", "parameters", "checkpoint"},
+                "Invalid Citizen capability request")
+        text(value["citizenRequestId"], "citizenRequestId")
+        text(value["intentId"], "intentId")
+        text(value["residentId"], "residentId", limit=32)
+        text(value["capability"], "capability", limit=64)
+        text(value["action"], "action", limit=64)
+        require(type(value["parameters"]) is dict and
+                type(value["checkpoint"]) is dict and
+                set(value["checkpoint"]) == {"roomId", "clockTick", "objectIds"},
+                "Invalid Citizen capability request checkpoint")
+
+        with self.lock:
+            self.expire()
+
+            def denied(reason):
+                return {"allowed": False, "requestId": None,
+                        "reason": (str(reason) or "Citizen capability denied")[:160],
+                        "checkpointSequence": self.host_sequence}
+
+            if self.citizen_capability_issued >= self.citizen_capability_budget:
+                return denied("Citizen capability budget is exhausted")
+            current = self.latest
+            if not self.online() or self.host_world_id is None or current is None:
+                return denied("Hosted Citizens world is unavailable")
+            if self.host_saved_sequence != self.host_sequence:
+                return denied("Hosted Citizens state needs a durable checkpoint")
+            if self.pending or self.content.busy():
+                return denied("Matrix world has a pending edit")
+            if (current.get("runtimeDescriptor") or {}).get("client") != "matrix-world-host":
+                return denied("Citizen capability requires the hosted Matrix owner")
+            citizens = current.get("citizensState")
+            if type(citizens) is not dict or citizens.get("schemaVersion") != 14:
+                return denied("Citizen capability journal is unavailable")
+            entries = citizens.get("capabilityRequests")
+            if type(entries) is not list:
+                return denied("Citizen capability journal is unavailable")
+            entry = next((item for item in entries if type(item) is dict and
+                          type(item.get("request")) is dict and
+                          item["request"].get("citizenRequestId") ==
+                          value["citizenRequestId"]), None)
+            if entry is None or entry.get("status") != "requested":
+                return denied("Citizen capability intent is unavailable or changed")
+            try:
+                actual = json.dumps(value, ensure_ascii=False, sort_keys=True,
+                                    allow_nan=False, separators=(",", ":"))
+                saved = json.dumps(entry["request"], ensure_ascii=False, sort_keys=True,
+                                   allow_nan=False, separators=(",", ":"))
+            except (TypeError, ValueError, UnicodeError, RecursionError):
+                return denied("Invalid Citizen capability request")
+            if actual != saved:
+                return denied("Citizen capability request differs from saved intent")
+            checkpoint = value["checkpoint"]
+            scene = current["scene"]
+            if (checkpoint.get("roomId") != scene["roomId"] or
+                    checkpoint.get("clockTick") != citizens["clockTick"] or
+                    checkpoint.get("objectIds") != sorted(item["objectId"] for item in
+                                                         scene["objects"])):
+                return denied("Citizen capability checkpoint is stale")
+            handler = {("procedural", "create"):
+                       self._citizen_procedural_create}.get(
+                           (value["capability"], value["action"]))
+            if handler is None:
+                return denied("Citizen capability is not allowed")
+            try:
+                queued = handler(current, value)
+            except APIError as error:
+                return denied(str(error))
+            request_id = queued["requestId"]
+            require(queued.get("status") == "queued" and
+                    type(request_id) is str and
+                    re.fullmatch(r"[0-9a-f]{32}", request_id),
+                    "Typed Matrix capability did not queue a request", 500)
+            issued = self.agent_procedural_ids[request_id]
+            issued.update(citizenRequestId=value["citizenRequestId"],
+                          citizenIntentId=value["intentId"],
+                          residentId=value["residentId"],
+                          citizenCapability=value["capability"],
+                          citizenAction=value["action"],
+                          citizenRequest=copy.deepcopy(value),
+                          checkpointSequence=self.host_sequence)
+            self.citizen_capability_issued += 1
+            return {"allowed": True, "requestId": request_id,
+                    "reason": "", "checkpointSequence": self.host_sequence}
+
+    def _citizen_procedural_create(self, current, value):
+        """The first reviewed policy profile uses the existing procedural tool."""
+        parameters = value["parameters"]
+        reviewed = {
+            "generatorId": "curved-bench", "parameters": {},
+            "transform": CITIZEN_BENCH_TRANSFORM,
+            "interaction": CITIZEN_BENCH_INTERACTION}
+        require(json.dumps(parameters, sort_keys=True, separators=(",", ":")) ==
+                json.dumps(reviewed, sort_keys=True, separators=(",", ":")),
+            "Citizen procedural parameters are outside the reviewed profile", 409)
+        require(len(current["scene"]["objects"]) == 4,
+                "Citizen procedural creation requires the four-object hosted world", 409)
+        citizens = current["citizensState"]
+        construction = citizens.get("construction")
+        require(type(construction) is dict and
+                construction.get("status") == "requested" and
+                construction.get("intentId") == value["intentId"] and
+                construction.get("residentId") == value["residentId"] and
+                value["residentId"] == "bo" and
+                construction.get("blockedStationId") == "chair" and
+                construction.get("requestedTick") == citizens["clockTick"],
+                "Resident rest-station intent is unavailable or changed", 409)
+        chair = next((item for item in citizens["stations"] if item["id"] == "chair"), None)
+        bo = next((item for item in citizens["residents"] if item["id"] == "bo"), None)
+        claim = chair.get("claim") if chair is not None else None
+        waiters = chair.get("waiters") if chair is not None else None
+        waiting = next((item for item in waiters or []
+                        if item.get("residentId") == "bo" and
+                        item.get("executionId") == construction.get("waitExecutionId")), None)
+        require(type(claim) is dict and claim.get("residentId") == "ada" and
+                bo is not None and bo.get("activity") is None and
+                bo.get("needs", {}).get("energy", 101) <= 40 and waiting is not None,
+                "Bo is no longer waiting for the occupied chair", 409)
+        return self.agent_procedural_action({
+            "action": "create", "room_id": current["scene"]["roomId"],
+            "scene_revision": self.revision,
+            "generator_id": parameters["generatorId"],
+            "parameters": parameters["parameters"],
+            "transform": parameters["transform"]})
 
     def citizen_construction_request(self, value):
         """Mediate one resident intent through the existing typed procedural path."""
@@ -6232,6 +6593,12 @@ class Handler(BaseHTTPRequestHandler):
                 require(loopback(self.client_address[0]),
                         "Citizen construction requires the local world host", 403)
                 data = state.citizen_construction_request(body)
+            elif path == "/api/citizens/capabilities":
+                require(bool(self.server.token),
+                        "Citizen capabilities require an owner token", 503)
+                require(loopback(self.client_address[0]),
+                        "Citizen capabilities require the local world host", 403)
+                data = state.citizen_capability_request(body)
             elif path == "/api/plan":
                 data = plan(state, body)
             elif path == "/api/capture":
