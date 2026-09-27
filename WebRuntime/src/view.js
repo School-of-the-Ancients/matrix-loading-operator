@@ -9,7 +9,7 @@ import {instantiateAnimatedAsset,stopAnimatedAsset} from './asset_animation.js';
 import {generateProcedural} from './procedural.js';
 import {canPlayWorld} from './creator_mode.js';
 import {gameStatus,isGameExitUnlocked} from './game.js';
-import {displayObservation,validDisplay} from './display.js';
+import {displayHeadline,displayObservation,validDisplay} from './display.js';
 
 const wood=()=>new THREE.MeshStandardMaterial({color:0xa56f45,roughness:.78});
 const metal=()=>new THREE.MeshStandardMaterial({color:0x738995,roughness:.45,metalness:.45});
@@ -95,13 +95,30 @@ function displayBoard(asset){
   mesh.userData.ownedTexture=true;mesh.userData.displayBoard=true;
   return {mesh,canvas,texture,lastSignature:'',lastUpdated:-Infinity};
 }
-function paintDisplay(board,display,observation){
+function paintDisplay(board,display,observation,headline){
   const ctx=board.canvas.getContext('2d');
   ctx.fillStyle='#081c2a';ctx.fillRect(0,0,1024,640);
   ctx.strokeStyle=observation.status==='unavailable'?'#e6a47e':'#66dfc5';
   ctx.lineWidth=12;ctx.strokeRect(7,7,1010,626);
-  ctx.fillStyle='#a9f4e5';ctx.font='bold 62px sans-serif';
-  ctx.fillText(display.title,52,91,920);
+  ctx.fillStyle='#a9f4e5';ctx.font='bold 56px sans-serif';
+  ctx.fillText(display.title,52,79,920);
+  // The board is only 1.75 m wide. From the default camera its old 35 px
+  // reading occupied about five screen pixels, so reserve a large line for
+  // the current value while retaining the complete reading below it.
+  let headlineText=headline.replace(/\s+/g,' ').trim(),headlineSize=120;
+  while(headlineSize>80){
+    ctx.font=`bold ${headlineSize}px sans-serif`;
+    if(ctx.measureText(headlineText).width<=920)break;
+    headlineSize-=4;
+  }
+  ctx.font=`bold ${headlineSize}px sans-serif`;
+  if(ctx.measureText(headlineText).width>920){
+    while(headlineText.length>1&&ctx.measureText(`${headlineText}…`).width>920)
+      headlineText=headlineText.slice(0,-1);
+    headlineText+='…';
+  }
+  ctx.fillStyle=observation.status==='unavailable'?'#ffd0b7':'#e8fff7';
+  ctx.fillText(headlineText,52,219,920);
   const wrap=(value,startY,font,color,maxLines,lineHeight)=>{
     ctx.font=font;ctx.fillStyle=color;
     const words=value.split(/\s+/),lines=[];let line='';
@@ -112,12 +129,12 @@ function paintDisplay(board,display,observation){
     if(line)lines.push(line);
     lines.slice(0,maxLines).forEach((text,index)=>ctx.fillText(text,52,startY+index*lineHeight,920));
   };
-  wrap(display.body,158,'32px sans-serif','#e5f3f7',5,45);
+  wrap(display.body,276,'27px sans-serif','#e5f3f7',5,34);
   const source=observation.status==='current'?'LIVE MATRIX STATE':
     observation.status==='unavailable'?'READING UNAVAILABLE':'AUTHORED TEXT';
-  ctx.fillStyle='#79adbc';ctx.font='bold 25px sans-serif';ctx.fillText(source,52,408,920);
-  wrap(observation.text,460,'bold 35px sans-serif',
-    observation.status==='unavailable'?'#ffd0b7':'#b8ffeb',4,47);
+  ctx.fillStyle='#79adbc';ctx.font='bold 24px sans-serif';ctx.fillText(source,52,451,920);
+  wrap(observation.text,486,'bold 26px sans-serif',
+    observation.status==='unavailable'?'#ffd0b7':'#b8ffeb',4,36);
   board.texture.needsUpdate=true;
 }
 export function operatorPanel(){
@@ -824,10 +841,11 @@ export class MatrixView {
       const object=this.world.scene.objects.find(item=>item.objectId===objectId);
       if(!object||!validDisplay(object.display))continue;
       const observed=displayObservation(this.world,object.display);
-      const signature=JSON.stringify([object.display,observed]);
+      const headline=displayHeadline(this.world,object.display,observed);
+      const signature=JSON.stringify([object.display,observed,headline]);
       board.lastUpdated=now;
       if(signature===board.lastSignature)continue;
-      paintDisplay(board,object.display,observed);
+      paintDisplay(board,object.display,observed,headline);
       board.lastSignature=signature;
     }
   }

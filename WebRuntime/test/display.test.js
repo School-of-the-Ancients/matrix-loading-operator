@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {displayObservation,validDisplay} from '../src/display.js';
+import {displayHeadline,displayObservation,validDisplay} from '../src/display.js';
 import {MatrixView} from '../src/view.js';
 import {MatrixWorld} from '../src/protocol.js';
 import {storedWorld,restoreStoredWorld} from '../src/scene_store.js';
@@ -41,6 +41,7 @@ test('object-transform board, entity inspection, and reopened world share curren
   assert.equal(reading.status,'current');
   assert.match(reading.text,/scale \(unitless\) \(2\.000, 0\.750, 1\.250\)/);
   assert.match(reading.text,/local size \(m\) \(2\.000, 0\.750, 1\.250\)/);
+  assert.equal(displayHeadline(world,display,reading),'SIZE 2 × 0.75 × 1.25 m');
   assert.doesNotMatch(reading.text,/ratio|baseline/i);
   const inspected=world.execute({requestId:'inspect-board',op:'inspect_entity',
     objectId:board});
@@ -53,13 +54,16 @@ test('object-transform board, entity inspection, and reopened world share curren
   assert.deepEqual(reopened.requireObject(specimen).transform,changed);
   assert.deepEqual(reopened.requireObject(board).display,display);
   assert.deepEqual(displayObservation(reopened,display),reading);
+  assert.equal(displayHeadline(reopened,display),'SIZE 2 × 0.75 × 1.25 m');
   assert.deepEqual(reopened.inspectEntity(board).displayObservation,reading);
 
   reopened.requireObject(specimen).transform.scale.x=1.5;
+  assert.equal(displayHeadline(reopened,display),'SIZE 1.5 × 0.75 × 1.25 m');
   assert.match(displayObservation(reopened,display).text,
     /local size \(m\) \(1\.500, 0\.750, 1\.250\)/);
   reopened.scene.objects=reopened.scene.objects.filter(item=>item.objectId!==specimen);
   assert.equal(displayObservation(reopened,display).status,'unavailable');
+  assert.equal(displayHeadline(reopened,display),'READING UNAVAILABLE');
 });
 
 test('procedural transform board refreshes live scale without rebuilding geometry',()=>{
@@ -85,6 +89,7 @@ test('procedural transform board refreshes live scale without rebuilding geometr
   assert.ok(drawn.some(text=>text.includes('1.500')));
   assert.equal(generated,0);
   assert.doesNotMatch(displayObservation(view.world,display).text,/local size/i);
+  assert.equal(displayHeadline(view.world,display),'SCALE 1.5 × 1 × 1');
 });
 
 test('challenge board observes shared progress and unlock rather than keeping a second score',()=>{
@@ -103,10 +108,12 @@ test('challenge board observes shared progress and unlock rather than keeping a 
     assetId:['orb','pedestal','wall'][index],anchorId:'web-floor'}));
   const display={...base,binding:{kind:'game-progress'}};
   assert.match(displayObservation(world,display).text,/0\/1 items/);
+  assert.equal(displayHeadline(world,display),'0/1 ITEMS');
   world.game.state={phase:'won',score:1,deliveries:['orb-1'],objectiveProgress:{items:1},
     creditedEvents:[{eventId:'sensor-1',event:'sensor-enter',objectId:'orb-1',
       targetObjectId:'zone-1',scorePoints:1}],unlockedObjectIds:['exit-1']};
   assert.match(displayObservation(world,display).text,/Exit unlocked/);
+  assert.equal(displayHeadline(world,display),'1/1 ITEMS COMPLETE');
 });
 
 test('same display mechanism reads gravity and current or unavailable body state',()=>{
@@ -115,15 +122,27 @@ test('same display mechanism reads gravity and current or unavailable body state
     creatorMode:{simulation:'paused'},rigidPhysics:{state:()=>({type:'dynamic',held:false,
       position:{x:0,y:1,z:0},linearVelocity:{x:0,y:-2,z:0}})}};
   assert.match(displayObservation(world,{...base,binding:{kind:'gravity'}}).text,/-4.90/);
+  assert.equal(displayHeadline(world,{...base,binding:{kind:'gravity'}}),'-4.9 m/s²');
   const display={...base,binding:{kind:'rigid-body',objectId:'orb-1'}};
   assert.match(displayObservation(world,display).text,/Paused snapshot.*2.00 m\/s/);
+  assert.equal(displayHeadline(world,display),'2.00 m/s');
   world.rigidPhysics=null;
   assert.equal(displayObservation(world,display).status,'unavailable');
+  assert.equal(displayHeadline(world,display),'READING UNAVAILABLE');
+});
+
+test('authored and unavailable displays keep a large truthful headline',()=>{
+  const staticDisplay={...base,body:'Try 2 × 3 × 4 and inspect the model.'};
+  assert.equal(displayHeadline({},staticDisplay),'Try 2 × 3 × 4 and inspect the model.');
+  const gravity={...base,binding:{kind:'gravity'}};
+  assert.equal(displayHeadline({},gravity),'READING UNAVAILABLE');
+  assert.equal(displayHeadline({rigidGravity:{x:1,y:-4,z:0}},gravity),
+    'g (1, -4, 0) m/s²');
 });
 
 test('in-world board texture refreshes from changed world state with bounded repaint rate',()=>{
   const drawn=[];
-  const context={fillRect(){},strokeRect(){},fillText(value){drawn.push(String(value));},
+  const context={fillRect(){},strokeRect(){},fillText(value){drawn.push({text:String(value),font:this.font});},
     measureText(value){return {width:String(value).length*15};}};
   const board={canvas:{getContext:()=>context},texture:{needsUpdate:false},
     lastSignature:'',lastUpdated:-Infinity};
@@ -134,10 +153,11 @@ test('in-world board texture refreshes from changed world state with bounded rep
   view.objectRoots=new Map([['board-1',{userData:{displayBoard:board}}]]);
   view.refreshDisplays(false,1000);
   assert.equal(board.texture.needsUpdate,true);
-  assert.ok(drawn.some(text=>text.includes('-9.81')));
+  assert.ok(drawn.some(item=>item.text==='-9.81 m/s²'&&item.font==='bold 120px sans-serif'));
+  assert.ok(drawn.some(item=>item.text.includes('Gravity: (0.00, -9.81, 0.00)')));
   view.world.rigidGravity.y=-4.9;drawn.length=0;
   view.refreshDisplays(false,1100);
   assert.equal(drawn.length,0);
   view.refreshDisplays(false,1300);
-  assert.ok(drawn.some(text=>text.includes('-4.90')));
+  assert.ok(drawn.some(item=>item.text==='-4.9 m/s²'&&item.font==='bold 120px sans-serif'));
 });

@@ -73,3 +73,46 @@ export function displayObservation(world,display){
   return {status:'current',source:'MatrixWorld.rigidPhysics',text:
     `${paused}${state.type} body at (${decimal(state.position.x)}, ${decimal(state.position.y)}, ${decimal(state.position.z)}) m; speed ${decimal(speed)} m/s${state.held?'; held':''}.`};
 }
+
+// The board's short, large reading is derived from the same live world as its
+// full observation. It is presentation only; neither the saved display schema
+// nor the three-field Agent observation changes.
+export function displayHeadline(world,display,observation=displayObservation(world,display)){
+  if(!validDisplay(display))throw Error('Invalid Matrix display');
+  if(observation.status==='unavailable')return 'READING UNAVAILABLE';
+  if(display.binding===null){
+    const authored=(display.body.trim()||display.title).replace(/\s+/g,' ');
+    return authored.length>64?`${authored.slice(0,61).trimEnd()}…`:authored;
+  }
+  const compact=value=>Number(value.toFixed(2)).toString();
+  if(display.binding.kind==='gravity'){
+    const g=world.rigidGravity;
+    return Math.abs(g.x)<.005&&Math.abs(g.z)<.005?
+      `${compact(g.y)} m/s²`:
+      `g (${compact(g.x)}, ${compact(g.y)}, ${compact(g.z)}) m/s²`;
+  }
+  if(display.binding.kind==='game-progress'){
+    const {spec,state}=world.game;
+    const objective=spec.objectives[0];
+    const progress=objective?.kind==='score-at-least'?
+      `${state.score}/${objective.targetPoints} POINTS`:
+      objective?.kind==='delivered-count'?
+        `${state.objectiveProgress[objective.roleId]}/${objective.targetCount} ${objective.roleId.toUpperCase()}`:
+        `SCORE ${state.score}`;
+    return state.phase==='won'?`${progress} COMPLETE`:progress;
+  }
+  if(display.binding.kind==='object-transform'){
+    const object=world.scene.objects.find(item=>item.objectId===display.binding.objectId);
+    const asset=world.asset?.(object.assetId);
+    const bounds=asset?.localBounds,spawnScale=asset?.spawnScale??1;
+    const size=bounds&&Number.isFinite(spawnScale)&&spawnScale>0&&
+      ['x','y','z'].every(axis=>Number.isFinite(bounds.size?.[axis])&&bounds.size[axis]>0);
+    return `${size?'SIZE':'SCALE'} ${['x','y','z'].map(axis=>compact(
+      (size?bounds.size[axis]*spawnScale:1)*object.transform.scale[axis])).join(' × ')}${size?' m':''}`;
+  }
+  // A full three-field observation remains available to the Agent and in the
+  // lower board text; the headline highlights the live body's current speed.
+  const match=observation.text.match(/speed (\d+(?:\.\d+)?) m\/s/);
+  return match?`${observation.text.includes('; held')?'HELD · ':''}${match[1]} m/s`:
+    'BODY STATE AVAILABLE';
+}
