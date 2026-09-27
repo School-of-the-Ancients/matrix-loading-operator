@@ -339,7 +339,7 @@ CONCEPT_SCENE_MUTATIONS = frozenset({
     "/move", "/spawn", "/spawn-builtin", "/procedural", "/bind-game",
     "/update-game", "/display", "/control", "/rigid", "/entity-action",
     "/world-archive", "/bind-animation", "/component-action", "/physics",
-    "/interaction"})
+    "/interaction", "/scale"})
 
 BRIDGE_POST_PATHS = frozenset({
     "/move", "/spawn", "/spawn-builtin", "/procedural", "/bind-game", "/update-game",

@@ -9,10 +9,11 @@ import tempfile
 import unittest
 import urllib.error
 import zlib
+from unittest.mock import patch
 
 from agent_portal import AgentPortal
 from content_catalog import ContentError
-from matrix_tool_bridge import MatrixToolBridge, record_concept_build, spawn_builtin
+from matrix_tool_bridge import MatrixToolBridge, record_concept_build, scale_block, spawn_builtin
 from procedural_contract import new_recipe
 from server import APIError, State, agent_portal_action, concept_build_request
 from test_matrix_procedural import GENERATOR
@@ -325,6 +326,24 @@ class ConceptHandoffTests(unittest.TestCase):
         self.assertIn("scene changed while the selected concept",
                       raised.exception.read().decode("utf-8"))
         self.assertEqual(len(self.room["scene"]["objects"]), 1)
+
+    def test_scene_change_blocks_scale_proposal_before_client_review(self):
+        self.build()
+        self.room["scene"]["objects"].append({"objectId": "unrelated", "assetId": "block",
+                                              "anchorId": "web-floor", "transform": copy.deepcopy(POSE)})
+        self.exchange()
+        bridge = MatrixToolBridge(self.state)
+        self.addCleanup(bridge.close)
+        with patch.object(self.state, "agent_scale") as propose:
+            with self.assertRaises(urllib.error.HTTPError) as raised:
+                scale_block(bridge.url, bridge.token, {
+                    "room_id": self.room["scene"]["roomId"],
+                    "scene_revision": self.state.revision,
+                    "object_id": "unrelated", "factors": [1, 1, 1]})
+        self.assertEqual(raised.exception.code, 409)
+        self.assertIn("scene changed while the selected concept",
+                      raised.exception.read().decode("utf-8"))
+        propose.assert_not_called()
 
     def test_catalog_refresh_then_verified_spawn_records_durable_result(self):
         result = self.build()
