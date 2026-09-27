@@ -145,7 +145,7 @@ class ConceptHandoffTests(unittest.TestCase):
 
     def test_image_only_and_selection_phrases_do_not_trigger_build(self):
         for request in ("Create an image of a forest temple", "Make another version",
-                        "Use version 2", "Show this image"):
+                        "Use version 2", "Show this image", "Place this there"):
             self.assertFalse(concept_build_request(request), request)
         for request in ("Build this spaceship", "Make this in Blender",
                         "Create this around what's already here", "Use this design"):
@@ -165,8 +165,13 @@ class ConceptHandoffTests(unittest.TestCase):
         self.state.concepts._change(clear)
         with self.assertRaisesRegex(APIError, "Select a ready concept version"):
             self.build("Build version 2 in the Matrix")
+        with self.assertRaisesRegex(APIError, "Select a ready concept version"):
+            self.build("Now build this in the Matrix")
         self.assertEqual(self.backend.sent, [])
         self.assertEqual(self.state.concepts.status(self.session_id, refresh=False)["builds"], [])
+        self.build("Create a spaceship in the Matrix")
+        self.assertEqual(len(self.backend.sent), 1)
+        self.assertIsNone(self.backend.sent[0][2])
 
     def test_tampered_image_cannot_start_agent_turn(self):
         self.image.write_bytes(self.image.read_bytes() + b"tampered")
