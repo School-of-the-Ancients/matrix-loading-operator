@@ -63,7 +63,7 @@ OPS = {"spawn", "set_transform", "select", "duplicate", "delete", "undo", "redo"
        "attach_component", "stop_component", "remove_component", "bind_animation",
        "set_physics", "remove_physics", "set_interaction", "remove_interaction",
        "create_procedural", "update_procedural", "bind_game", "update_game",
-       "set_display", "remove_display",
+       "set_display", "remove_display", "set_control", "remove_control", "activate_control",
        "set_rigid_body", "remove_rigid_body", "set_gravity",
        "inspect_entity", "begin_grab", "move_grab", "release_grab",
        "list_world_archives", "start_new_world", "restore_world_archive"}
@@ -111,9 +111,69 @@ def display_descriptor(value):
     require(binding is None or
             type(binding) is dict and
             (set(binding) == {"kind"} and binding["kind"] in ("game-progress", "gravity") or
-             set(binding) == {"kind", "objectId"} and binding["kind"] == "rigid-body" and
+             set(binding) == {"kind", "objectId"} and
+             binding["kind"] in ("rigid-body", "object-transform") and
              plain(binding["objectId"], 1, 128)),
             "Invalid Matrix display binding")
+    return copy.deepcopy(value)
+
+
+def control_descriptor(value):
+    """One reviewed, finite in-world action binding for a static control."""
+    require(type(value) is dict and set(value) ==
+            {"schemaVersion", "label", "action"} and
+            type(value["schemaVersion"]) is int and value["schemaVersion"] == 1,
+            "Invalid Matrix control")
+    label = value["label"]
+    require(type(label) is str and label == label.strip() and
+            1 <= len(label) <= 48 and
+            not any(ord(char) < 32 or 0xd800 <= ord(char) <= 0xdfff
+                    for char in label),
+            "Invalid Matrix control label")
+    action = value["action"]
+    require(type(action) is dict and set(action) ==
+            {"kind", "channel", "targetObjectId", "values"} and
+            action["kind"] == "cycle-values" and
+            action["channel"] == "transform.scale" and
+            type(action["targetObjectId"]) is str,
+            "Invalid Matrix control action")
+    text(action["targetObjectId"], "control targetObjectId")
+    require(not any(0xd800 <= ord(char) <= 0xdfff
+                    for char in action["targetObjectId"]),
+            "Invalid Matrix control targetObjectId")
+    values = action["values"]
+    require(type(values) is list and 2 <= len(values) <= 8, "Invalid Matrix control values")
+    for scale in values:
+        require(type(scale) is list and len(scale) == 3 and
+                all(type(axis) in (int, float) and math.isfinite(axis) and
+                    .01 <= axis <= 20 for axis in scale),
+                "Invalid Matrix control scale")
+    require(len({tuple(scale) for scale in values}) == len(values),
+            "Duplicate Matrix control scale")
+    return copy.deepcopy(value)
+
+
+def control_states(value, authored_scene):
+    """Validate separate Play progress against the currently authored controls."""
+    require(type(value) is dict and len(value) <= MAX_OBJECTS,
+            "Invalid Matrix control states")
+    controls = {obj["objectId"]: obj["control"] for obj in authored_scene["objects"]
+                if "control" in obj}
+    require(set(value) == set(controls), "Matrix control state keys changed")
+    for object_id, state in value.items():
+        require(type(state) is dict and set(state) == {"index", "revision"} and
+                type(state["index"]) is int and
+                0 <= state["index"] < len(controls[object_id]["action"]["values"]) and
+                type(state["revision"]) is int and
+                0 <= state["revision"] <= 9007199254740991,
+                "Invalid Matrix control state")
+        target_id = controls[object_id]["action"]["targetObjectId"]
+        target = next(obj for obj in authored_scene["objects"]
+                      if obj["objectId"] == target_id)
+        preset = controls[object_id]["action"]["values"][state["index"]]
+        require(all(target["transform"]["scale"][axis] == preset[index]
+                    for index, axis in enumerate(("x", "y", "z"))),
+                "Matrix control state disagrees with target scale")
     return copy.deepcopy(value)
 
 
@@ -306,10 +366,13 @@ def entity_outcome(value, op, item, current):
             value["schemaVersion"] == 1, "Invalid entity action outcome")
     object_id = item["objectId"]
     if op == "inspect_entity":
-        require(set(value) == {"schemaVersion", "kind", "roomId", "object",
-                               "rigidState", "colliderScope", "availableActions",
-                               "creatorMode", "gameStatus", "gameRoles", "agentGrab",
-                               "roomContext"} and
+        keys = {"schemaVersion", "kind", "roomId", "object",
+                "rigidState", "colliderScope", "availableActions",
+                "creatorMode", "gameStatus", "gameRoles", "agentGrab",
+                "roomContext"}
+        require(set(value) in (keys, keys | {"displayObservation"},
+                               keys | {"controlState"},
+                               keys | {"displayObservation", "controlState"}) and
                 value["kind"] == "entity-inspection" and
                 value["roomId"] == current["scene"]["roomId"] and
                 type(value["object"]) is dict and
@@ -319,13 +382,49 @@ def entity_outcome(value, op, item, current):
         candidate["objects"] = [value["object"] if obj["objectId"] == object_id else obj
                                 for obj in candidate["objects"]]
         inspected_scene = scene(candidate)
+        if "controlState" in value:
+            require(value["controlState"] ==
+                    current.get("controlStates", {}).get(object_id),
+                    "Inspected control state changed")
+        if "displayObservation" in value:
+            display = value["object"].get("display")
+            observation = value["displayObservation"]
+            if display is None:
+                require(observation is None, "Unexpected display observation")
+            else:
+                require(type(observation) is dict and set(observation) ==
+                        {"status", "source", "text"},
+                        "Invalid display observation")
+                binding = display["binding"]
+                source = {
+                    None: "authored-text",
+                    "game-progress": "MatrixWorld.game",
+                    "gravity": "MatrixWorld.rigidGravity",
+                    "rigid-body": "MatrixWorld.rigidPhysics",
+                    "object-transform": "MatrixWorld.scene.objects"
+                }[None if binding is None else binding["kind"]]
+                require(observation["source"] == source and
+                        observation["status"] in (
+                            ("static",) if binding is None else
+                            ("current", "unavailable")) and
+                        (observation["text"] == "" if binding is None else
+                         bool(text(observation["text"], "display observation", limit=2048))),
+                        "Invalid display observation")
         require(value["colliderScope"] == ("virtual-floor" if
                 "rigidBody" in value["object"] else None), "Invalid collider scope")
         actions = value["availableActions"]
-        require(type(actions) is list and len(actions) <= 2 and
+        require(type(actions) is list and len(actions) <= 3 and
                 len(set(actions)) == len(actions) and
-                all(action in ("begin_grab", "move_grab", "release_grab")
+                all(action in ("begin_grab", "move_grab", "release_grab",
+                               "activate_control")
                     for action in actions), "Invalid entity actions")
+        require("activate_control" not in actions or
+                value["object"].get("control") is not None and
+                current.get("controlSchemaVersion") == 1 and
+                (current.get("creatorMode") or {}).get("mode") == "play" and
+                (current.get("creatorMode") or {}).get("simulation") == "running" and
+                current.get("controlStates", {}).get(object_id) is not None,
+                "Unavailable control action")
         roles = value["gameRoles"]
         require(type(roles) is list and len(roles) <= 8, "Invalid entity game roles")
         game = current.get("game")
@@ -420,6 +519,40 @@ def entity_outcome(value, op, item, current):
                 "Entity outcome exceeds its limit")
     except (TypeError, ValueError, UnicodeError):
         raise APIError(400, "Invalid entity outcome JSON") from None
+    return copy.deepcopy(value)
+
+
+def control_outcome(value, item, current):
+    """Accept activation only after the exact transition is live in MatrixWorld."""
+    require(type(value) is dict and set(value) ==
+            {"schemaVersion", "kind", "objectId", "targetObjectId",
+             "controlState", "transform", "creatorMode", "creatorHistoryCleared"} and
+            type(value["schemaVersion"]) is int and value["schemaVersion"] == 1 and
+            value["kind"] == "control-activated" and
+            value["objectId"] == item["objectId"] and
+            type(value["creatorHistoryCleared"]) is bool,
+            "Invalid Matrix control outcome")
+    descriptor = item["expectedControl"]
+    target_id = descriptor["action"]["targetObjectId"]
+    control_object = next((obj for obj in current["scene"]["objects"]
+                           if obj["objectId"] == item["objectId"]), None)
+    require(value["targetObjectId"] == target_id and control_object is not None and
+            control_object.get("control") == descriptor,
+            "Control outcome target changed")
+    prior = item["expectedControlState"]
+    next_index = (prior["index"] + 1) % len(descriptor["action"]["values"])
+    next_state = {"index": next_index, "revision": prior["revision"] + 1}
+    target = next((obj for obj in current["scene"]["objects"]
+                   if obj["objectId"] == target_id), None)
+    expected_transform = copy.deepcopy(item["expectedTargetTransform"])
+    expected_transform["scale"] = dict(zip(("x", "y", "z"),
+                                           descriptor["action"]["values"][next_index]))
+    require(value["controlState"] == next_state and
+            value["controlState"] == current.get("controlStates", {}).get(item["objectId"]) and
+            target is not None and target["transform"] == expected_transform and
+            value["transform"] == expected_transform and
+            value["creatorMode"] == current.get("creatorMode"),
+            "Control activation was not observed in MatrixWorld")
     return copy.deepcopy(value)
 
 
@@ -734,6 +867,14 @@ def scene(value):
             normalized[-1]["animation"] = animation_binding(item["animation"])
         if "display" in item:
             normalized[-1]["display"] = display_descriptor(item["display"])
+        if "control" in item:
+            authored = normalized[-1]
+            require(authored["anchorId"] == "web-floor" and
+                    "component" not in authored and "animation" not in authored and
+                    not any(behavior["enabled"] and not behavior["paused"]
+                            for behavior in authored.get("behaviors", [])),
+                    "Controls require a static virtual-floor object")
+            authored["control"] = control_descriptor(item["control"])
         if "rigidBody" in item:
             authored = normalized[-1]
             authored["rigidBody"] = rigid_body_config(item["rigidBody"])
@@ -788,6 +929,33 @@ def scene(value):
                      target["objectId"] != item["objectId"] or
                      target is None and component["status"] == "failed"),
                     "Invalid component target")
+        control = item.get("control")
+        if control:
+            target_id = control["action"]["targetObjectId"]
+            target = next((other for other in normalized
+                           if other["objectId"] == target_id), None)
+            require(target is not None and target_id != item["objectId"] and
+                    target["anchorId"] == "web-floor" and
+                    "component" not in target and "animation" not in target and
+                    "physics" not in target and
+                    target.get("rigidBody", {}).get("type") != "dynamic" and
+                    "interaction" not in target and "control" not in target and
+                    not any(behavior["enabled"] and not behavior["paused"]
+                            for behavior in target.get("behaviors", [])),
+                    "Control target needs a static virtual-floor object")
+            require("physics" not in item and
+                    item.get("rigidBody", {}).get("type") != "dynamic" and
+                    "interaction" not in item,
+                    "Controls require a static virtual-floor object")
+            scale = target["transform"]["scale"]
+            require(any(all(scale[axis] == preset[index]
+                            for index, axis in enumerate(("x", "y", "z")))
+                        for preset in control["action"]["values"]),
+                    "Control target scale must match one preset")
+    targets = [obj["control"]["action"]["targetObjectId"] for obj in normalized
+               if "control" in obj]
+    require(len(targets) == len(set(targets)),
+            "Only one control may own a target")
     return {"schemaVersion": 1, "roomId": room, "objects": normalized}
 
 
@@ -962,6 +1130,11 @@ def snapshot(value):
                     value["interactionSchemaVersion"] in (1, 2),
                     "Unsupported interaction schema")
             result["interactionSchemaVersion"] = value["interactionSchemaVersion"]
+        if value.get("controlSchemaVersion") is not None:
+            require(type(value["controlSchemaVersion"]) is int and
+                    value["controlSchemaVersion"] == 1,
+                    "Unsupported control schema")
+            result["controlSchemaVersion"] = 1
         require(result.get("componentSchemaVersion") == 1 or
                 not any("component" in item for item in result["scene"]["objects"]),
                 "Scene components require the WebXR component runtime")
@@ -985,6 +1158,9 @@ def snapshot(value):
         for item in procedural_interactions:
             require_procedural_interaction(item, result["assets"],
                                            result.get("proceduralGenerators", []))
+        require(result.get("controlSchemaVersion") == 1 or
+                not any("control" in item for item in result["scene"]["objects"]),
+                "Scene controls require the Matrix Web runtime")
         for item in result["scene"]["objects"]:
             if "animation" not in item:
                 continue
@@ -1038,6 +1214,12 @@ def snapshot(value):
         result["rigidStates"] = rigid_states(value["rigidStates"], result["scene"])
     if "creatorMode" in value:
         result["creatorMode"] = creator_mode(value["creatorMode"])
+    if "controlStates" in value:
+        require(result.get("controlSchemaVersion") == 1,
+                "Control states require the Matrix Web control runtime")
+        result["controlStates"] = control_states(value["controlStates"], result["scene"])
+    elif any("control" in item for item in result["scene"]["objects"]):
+        raise APIError(400, "Scene controls require live control states")
     if "agentGrab" in value:
         require(result.get("entityActionSchemaVersion") == 1,
                 "Agent grab requires the Matrix entity action runtime")
@@ -1161,7 +1343,8 @@ RESIDENT_PRECONDITION_OPS = {"set_transform", "set_behavior", "remove_behavior",
                              "set_physics", "remove_physics", "set_interaction",
                              "remove_interaction", "update_procedural",
                              "set_display", "remove_display", "set_rigid_body", "remove_rigid_body",
-                             "begin_grab", "move_grab", "release_grab"}
+                             "begin_grab", "move_grab", "release_grab",
+                             "set_control", "remove_control", "activate_control"}
 
 
 def command(value, *, allow_precondition=False):
@@ -1177,6 +1360,14 @@ def command(value, *, allow_precondition=False):
                                       "expectedTransform"},
                 "set_display": {"objectId", "display", "expectedDisplay"},
                 "remove_display": {"objectId", "expectedDisplay"},
+                "set_control": {"objectId", "control", "expectedControl",
+                                "expectedTransform", "expectedTargetTransform",
+                                "expectedCreatorRevision"},
+                "remove_control": {"objectId", "expectedControl",
+                                   "expectedTransform", "expectedCreatorRevision"},
+                "activate_control": {"objectId", "expectedControl", "expectedControlState",
+                                     "expectedTransform", "expectedTargetTransform",
+                                     "expectedCreatorRevision"},
                 "set_rigid_body": {"objectId", "rigidBody", "expectedRigidBody",
                                    "expectedTransform"},
                 "remove_rigid_body": {"objectId", "expectedRigidBody",
@@ -1209,7 +1400,7 @@ def command(value, *, allow_precondition=False):
     if op == "spawn":
         allowed |= {"anchorId", "transform", "placement"}
     if op == "set_transform":
-        allowed |= {"anchorId", "placement"}
+        allowed |= {"anchorId", "placement", "expectedAssetId", "expectedCreatorRevision"}
     if allow_precondition and op in RESIDENT_PRECONDITION_OPS:
         allowed.add("expectedTransform")
     if allow_precondition and op == "attach_component":
@@ -1222,6 +1413,8 @@ def command(value, *, allow_precondition=False):
     for key in ("assetId", "objectId", "anchorId", "componentId", "targetObjectId"):
         if key in value:
             result[key] = text(value[key], key, empty=key == "anchorId")
+    if "expectedAssetId" in value:
+        result["expectedAssetId"] = text(value["expectedAssetId"], "expectedAssetId")
     if "transform" in value:
         result["transform"] = transform(value["transform"])
     if "expectedTransform" in value:
@@ -1238,6 +1431,19 @@ def command(value, *, allow_precondition=False):
     if "expectedDisplay" in value:
         result["expectedDisplay"] = (None if value["expectedDisplay"] is None else
                                      display_descriptor(value["expectedDisplay"]))
+    if "control" in value:
+        result["control"] = control_descriptor(value["control"])
+    if "expectedControl" in value:
+        result["expectedControl"] = (None if value["expectedControl"] is None else
+                                     control_descriptor(value["expectedControl"]))
+    if "expectedControlState" in value:
+        state = value["expectedControlState"]
+        require(type(state) is dict and set(state) == {"index", "revision"} and
+                type(state["index"]) is int and 0 <= state["index"] < 8 and
+                type(state["revision"]) is int and
+                0 <= state["revision"] <= 9007199254740991,
+                "Invalid expected control state")
+        result["expectedControlState"] = copy.deepcopy(state)
     if "rigidBody" in value:
         result["rigidBody"] = rigid_body_config(value["rigidBody"])
     if "expectedRigidBody" in value:
@@ -2164,7 +2370,8 @@ def agent_capability_context(current):
     versions = {key: current[key] for key in
                 ("componentSchemaVersion", "animationSchemaVersion",
                  "physicsSchemaVersion", "rigidSchemaVersion",
-                 "interactionSchemaVersion", "entityActionSchemaVersion",
+                 "interactionSchemaVersion", "controlSchemaVersion",
+                 "entityActionSchemaVersion",
                  "worldSlotSchemaVersion")
                 if key in current}
     return {"runtimeDescriptor": current.get("runtimeDescriptor"),
@@ -2337,6 +2544,7 @@ def virtual_floor_command(snapshot, item):
         return (other is not None and other["anchorId"] == "web-floor" and
                 other["objectId"] != target["objectId"])
     return item["op"] in {"duplicate", "update_procedural", "set_display", "remove_display",
+                          "set_control", "remove_control", "activate_control",
                           "set_rigid_body", "remove_rigid_body",
                           "begin_grab", "move_grab", "release_grab",
                           "set_behavior", "remove_behavior",
@@ -2394,6 +2602,7 @@ class State:
         self.agent_procedural_ids = collections.OrderedDict()
         self.agent_game_ids = collections.OrderedDict()
         self.agent_display_ids = collections.OrderedDict()
+        self.agent_control_ids = collections.OrderedDict()
         self.agent_rigid_ids = collections.OrderedDict()
         self.agent_entity_ids = collections.OrderedDict()
         self.agent_world_archive_ids = collections.OrderedDict()
@@ -2577,6 +2786,15 @@ class State:
                                 result["outcome"], issued["op"], issued, current)
                         else:
                             result.pop("outcome", None)
+                    elif issued["op"] == "activate_control":
+                        require(result["objectId"] == issued["objectId"] or not result["ok"],
+                                "Control receipt target mismatch")
+                        if result["ok"]:
+                            require(current is not None and "outcome" in result,
+                                    "Control receipt lacks observation")
+                            result["outcome"] = control_outcome(result["outcome"], issued, current)
+                        else:
+                            result.pop("outcome", None)
                     elif issued["op"] in {"list_world_archives", "start_new_world",
                                           "restore_world_archive"}:
                         require(result["objectId"] == "", "World archive receipt has an object target")
@@ -2753,6 +2971,9 @@ class State:
         if any(item["op"] in {"set_display", "remove_display"} for item in checked):
             require(len(checked) == 1,
                     "Review one display edit at a time", 409)
+        if any(item["op"] in {"set_control", "remove_control", "activate_control"}
+               for item in checked):
+            require(len(checked) == 1, "Operate one in-world control at a time", 409)
         if any(item["op"] in {"set_rigid_body", "remove_rigid_body", "set_gravity"}
                for item in checked):
             require(len(checked) == 1,
@@ -2885,6 +3106,53 @@ class State:
                                 require(math.hypot(*(target[axis] - source[axis]
                                                      for axis in ("x", "y", "z"))) <= 3,
                                         "Grab target is outside the bounded move range", 409)
+                elif item["op"] in {"set_control", "remove_control", "activate_control"}:
+                    current = self.latest
+                    mode = current.get("creatorMode") or {}
+                    require(current.get("controlSchemaVersion") == 1 and
+                            web_virtual_floor_ready(current) and not current.get("readOnly") and
+                            not self.pending,
+                            "Connected Matrix world has no ready control action contract", 409)
+                    obj = next((obj for obj in current["scene"]["objects"]
+                                if obj["objectId"] == item["objectId"]), None)
+                    require(obj is not None and obj["anchorId"] == "web-floor" and
+                            obj["transform"] == item["expectedTransform"] and
+                            obj.get("control") == item["expectedControl"] and
+                            mode.get("revision") == item["expectedCreatorRevision"],
+                            "Control changed; inspect the object again", 409)
+                    target_id = ((item.get("control") or item.get("expectedControl") or {})
+                                 .get("action", {}).get("targetObjectId"))
+                    target = next((other for other in current["scene"]["objects"]
+                                   if other["objectId"] == target_id), None)
+                    residents = (current.get("citizensState") or {}).get("residents", [])
+                    require(target is not None and
+                            not any(resident["objectId"] == target_id for resident in residents),
+                            "Control target is unavailable or resident-owned", 409)
+                    if item["op"] == "activate_control":
+                        require(mode.get("mode") == "play" and
+                                mode.get("simulation") == "running" and
+                                current.get("agentGrab") is None and
+                                not any(state["held"] for state in
+                                        current.get("rigidStates", [])) and
+                                item["expectedControl"] is not None and
+                                current.get("controlStates", {}).get(item["objectId"]) ==
+                                item["expectedControlState"] and
+                                target["transform"] == item["expectedTargetTransform"],
+                                "Control state changed; inspect it again in Play/Test Mode", 409)
+                    else:
+                        require(mode.get("mode") == "creator" and
+                                mode.get("simulation") == "paused",
+                                "Edit controls only in paused Creator Mode", 409)
+                        require(item["op"] != "remove_control" or "control" in obj,
+                                "Object has no control", 409)
+                        if item["op"] == "set_control":
+                            require(target["transform"] == item["expectedTargetTransform"],
+                                    "Control target changed; inspect it again", 409)
+                            proposed = copy.deepcopy(current["scene"])
+                            next_obj = next(other for other in proposed["objects"]
+                                            if other["objectId"] == item["objectId"])
+                            next_obj["control"] = item["control"]
+                            scene(proposed)
                 elif item["op"] in {"set_display", "remove_display"}:
                     mode = self.latest.get("creatorMode") or {}
                     require(web_virtual_floor_ready(self.latest) and
@@ -3065,6 +3333,18 @@ class State:
                 elif item["op"] == "set_transform":
                     obj = next((obj for obj in self.latest["scene"]["objects"]
                                 if obj["objectId"] == item["objectId"]), None)
+                    if "expectedAssetId" in item:
+                        mode = self.latest.get("creatorMode") or {}
+                        require(web_virtual_floor_ready(self.latest) and
+                                mode.get("mode") == "creator" and
+                                mode.get("simulation") == "paused" and
+                                not self.pending,
+                                "Edit transforms only in paused Creator Mode", 409)
+                        require(obj is not None and obj["anchorId"] == "web-floor" and
+                                obj["assetId"] == item["expectedAssetId"] and
+                                obj["transform"] == item.get("expectedTransform") and
+                                mode.get("revision") == item.get("expectedCreatorRevision"),
+                                "Transform target changed; inspect it again", 409)
                     if obj is not None and "physics" in obj:
                         require_physics_eligible(obj, self.latest["assets"], self.web_assets.list(),
                                                  item["transform"])
@@ -3112,6 +3392,9 @@ class State:
                             not any(obj["interaction"]["schemaVersion"] == 2
                                     for obj in interaction_objects),
                             "Saved procedural interactions need Matrix Web interaction schema 2", 409)
+                    require(self.latest.get("controlSchemaVersion") == 1 or
+                            not any("control" in obj for obj in item["scene"]["objects"]),
+                            "Saved controls need the Matrix Web runtime; scene has not been loaded", 409)
                     for obj in interaction_objects:
                         require_registered_interaction(obj, self.latest["assets"],
                                                        self.web_assets,
@@ -3169,9 +3452,9 @@ class State:
             return {"commands": copy.deepcopy(checked)}
 
     def agent_move(self, value):
-        """Queue one virtual-floor position or rotation edit through the normal command path."""
+        """Queue one virtual-floor transform edit through the normal command path."""
         required = {"room_id", "scene_revision", "object_id", "expected_asset_id", "position"}
-        require(isinstance(value, dict) and required <= set(value) <= required | {"rotation"},
+        require(isinstance(value, dict) and required <= set(value) <= required | {"rotation", "scale"},
                 "Invalid Matrix move request")
         room_id = text(value["room_id"], "room_id")
         object_id = text(value["object_id"], "object_id")
@@ -3186,6 +3469,11 @@ class State:
             require(isinstance(value["rotation"], dict) and set(value["rotation"]) == {"x", "y", "z"},
                     "Invalid Matrix move rotation")
             rotation = vector(value["rotation"], "rotation")
+        scale = None
+        if "scale" in value:
+            require(isinstance(value["scale"], dict) and set(value["scale"]) == {"x", "y", "z"},
+                    "Invalid Matrix move scale")
+            scale = vector(value["scale"], "scale", True)
         with self.lock:
             self.expire()
             require(self.online() and self.latest is not None, self.room_unavailable_message(), 409)
@@ -3194,6 +3482,9 @@ class State:
                     "Matrix scene changed; inspect the current room and retry", 409)
             require(web_virtual_floor_ready(current),
                     "This Matrix tool requires a ready WebXR virtual floor", 409)
+            mode = current.get("creatorMode") or {}
+            require(mode.get("mode") == "creator" and mode.get("simulation") == "paused",
+                    "Edit transforms only in paused Creator Mode", 409)
             require(not current.get("readOnly") and not self.pending,
                     "Matrix world is not ready for a new move", 409)
             item = next((item for item in current["scene"]["objects"] if item["objectId"] == object_id), None)
@@ -3203,8 +3494,18 @@ class State:
             transform["position"] = position
             if rotation is not None:
                 transform["rotation"] = rotation
+            if scale is not None:
+                transform["scale"] = scale
+            residents = (current.get("citizensState") or {}).get("residents", [])
+            if any(resident["objectId"] == object_id for resident in residents):
+                require(abs(transform["position"]["y"]) <= .05 and
+                        all(transform["scale"][axis] == .7 for axis in ("x", "y", "z")),
+                        "Citizens resident requires floor height and 0.7 scale", 409)
             queued = self.queue([{"op": "set_transform", "objectId": object_id,
-                                  "transform": transform}])["commands"][0]
+                                  "transform": transform,
+                                  "expectedTransform": copy.deepcopy(item["transform"]),
+                                  "expectedAssetId": asset_id,
+                                  "expectedCreatorRevision": mode["revision"]}])["commands"][0]
             request_id = queued["requestId"]
             self.agent_move_ids[request_id] = {"roomId": room_id, "objectId": object_id,
                                                "assetId": asset_id, "transform": transform}
@@ -3231,6 +3532,8 @@ class State:
                      item["assetId"] == issued["assetId"] and item["anchorId"] == "web-floor" and
                      item["transform"] == issued["transform"]), None)
                 result["status"] = "succeeded" if observed else "unconfirmed"
+                if observed:
+                    result["transform"] = copy.deepcopy(observed["transform"])
             elif "outcome unknown" in receipt["error"]:
                 result["status"] = "unconfirmed"
             else:
@@ -3637,6 +3940,91 @@ class State:
                     result["display"] = copy.deepcopy(obj.get("display"))
             return result
 
+    def agent_control_action(self, value):
+        """Author or remove one in-world control through the ordinary queue."""
+        require(type(value) is dict and value.get("action") in ("set", "remove"),
+                "Invalid Matrix control request")
+        action = value["action"]
+        fields = {"action", "room_id", "scene_revision", "object_id"}
+        if action == "set":
+            fields.add("control")
+        require(set(value) == fields, "Invalid Matrix control request")
+        room_id = text(value["room_id"], "room_id")
+        object_id = text(value["object_id"], "object_id")
+        revision = value["scene_revision"]
+        require(type(revision) is int and revision >= 0,
+                "Invalid Matrix scene revision")
+        control = control_descriptor(value["control"]) if action == "set" else None
+        with self.lock:
+            self.expire()
+            require(self.online() and self.latest is not None,
+                    self.room_unavailable_message(), 409)
+            current = self.latest
+            require(current["scene"]["roomId"] == room_id and
+                    self.revision == revision,
+                    "Matrix scene changed; inspect the current room and retry", 409)
+            require(not current.get("readOnly") and not self.pending,
+                    "Matrix world is not ready for a control edit", 409)
+            obj = next((item for item in current["scene"]["objects"]
+                        if item["objectId"] == object_id), None)
+            require(obj is not None, "Control entity is unavailable", 409)
+            raw = {"op": "set_control" if action == "set" else "remove_control",
+                   "objectId": object_id,
+                   "expectedControl": copy.deepcopy(obj.get("control")),
+                   "expectedTransform": copy.deepcopy(obj["transform"]),
+                   "expectedCreatorRevision": current["creatorMode"]["revision"]}
+            if action == "set":
+                raw["control"] = control
+                target_id = control["action"]["targetObjectId"]
+                target = next((item for item in current["scene"]["objects"]
+                               if item["objectId"] == target_id), None)
+                require(target is not None, "Control target is unavailable", 409)
+                raw["expectedTargetTransform"] = copy.deepcopy(target["transform"])
+            queued = self.queue([raw])["commands"][0]
+            request_id = queued["requestId"]
+            self.agent_control_ids[request_id] = {
+                "action": action, "roomId": room_id, "objectId": object_id,
+                "control": copy.deepcopy(control), "clientId": self.client_id,
+                "runtimeGeneration": self.runtime_generation}
+            while len(self.agent_control_ids) > 64:
+                self.agent_control_ids.popitem(last=False)
+            return self.agent_control_status(request_id)
+
+    def agent_control_status(self, request_id):
+        require(type(request_id) is str and re.fullmatch(r"[0-9a-f]{32}", request_id),
+                "Invalid Matrix control receipt ID")
+        with self.lock:
+            self.expire()
+            issued = self.agent_control_ids.get(request_id)
+            require(issued is not None, "Matrix control receipt is unavailable", 404)
+            receipt = next((item for item in reversed(self.results)
+                            if item["requestId"] == request_id), None)
+            result = {"requestId": request_id, "roomId": issued["roomId"],
+                      "objectId": issued["objectId"], "action": issued["action"],
+                      "sceneRevision": self.revision}
+            if receipt is None:
+                result["status"] = "queued" if request_id in self.pending else "unconfirmed"
+            elif not receipt["ok"]:
+                result["status"] = ("unconfirmed" if "outcome unknown" in receipt["error"]
+                                    else "failed")
+                if result["status"] == "failed":
+                    result["error"] = receipt["error"][:200]
+            else:
+                current = (self.latest if self.latest and
+                           self.latest["scene"]["roomId"] == issued["roomId"] else None)
+                obj = next((item for item in current["scene"]["objects"]
+                            if item["objectId"] == issued["objectId"]), None) if current else None
+                control = obj.get("control") if obj else None
+                state = current.get("controlStates", {}).get(issued["objectId"]) if current else None
+                observed = (obj is not None and
+                            control == issued["control"] and
+                            (state is not None if issued["action"] == "set" else state is None))
+                result["status"] = "succeeded" if observed else "unconfirmed"
+                if observed:
+                    result["control"] = copy.deepcopy(control)
+                    result["controlState"] = copy.deepcopy(state)
+            return result
+
     def agent_rigid_action(self, value):
         """Edit one authored rigid component or gravity via the runtime queue."""
         require(type(value) is dict and value.get("action") in
@@ -3745,15 +4133,16 @@ class State:
             self.agent_entity_ids[request_id] = {
                 "op": "inspect_entity", "roomId": room_id, "objectId": object_id,
                 "clientId": self.client_id, "runtimeGeneration": self.runtime_generation,
+                "sceneRevision": self.revision,
                 "consumed": False}
             while len(self.agent_entity_ids) > 64:
                 self.agent_entity_ids.popitem(last=False)
             return self.agent_entity_status(request_id)
 
     def agent_entity_action(self, value):
-        """Use exactly one unconsumed live inspection for a bounded grab action."""
+        """Use exactly one unconsumed inspection for a bounded Play action."""
         require(type(value) is dict and value.get("action") in
-                ("begin", "move", "release"), "Invalid Matrix entity action")
+                ("begin", "move", "release", "activate"), "Invalid Matrix entity action")
         action = value["action"]
         fields = {"action", "room_id", "object_id", "inspection_request_id"}
         if action == "move":
@@ -3766,7 +4155,7 @@ class State:
                 "Invalid inspection receipt ID")
         target = grab_pose(value["target_pose"]) if action == "move" else None
         op = {"begin": "begin_grab", "move": "move_grab",
-              "release": "release_grab"}[action]
+              "release": "release_grab", "activate": "activate_control"}[action]
         with self.lock:
             self.expire()
             require(self.online() and self.latest is not None,
@@ -3780,6 +4169,8 @@ class State:
                     inspection["objectId"] == object_id and
                     inspection["clientId"] == self.client_id and
                     inspection["runtimeGeneration"] == self.runtime_generation and
+                    (action != "activate" or
+                     inspection["sceneRevision"] == self.revision) and
                     self.latest["scene"]["roomId"] == room_id,
                     "Inspect the current entity before acting", 409)
             receipt = next((item for item in reversed(self.results)
@@ -3798,7 +4189,20 @@ class State:
             raw = {"op": op, "objectId": object_id,
                    "expectedTransform": copy.deepcopy(observed["object"]["transform"]),
                    "expectedCreatorRevision": observed["creatorMode"]["revision"]}
-            if action != "begin":
+            if action == "activate":
+                control = observed["object"].get("control")
+                control_state = observed.get("controlState")
+                target_id = (control or {}).get("action", {}).get("targetObjectId")
+                target_obj = next((item for item in self.latest["scene"]["objects"]
+                                   if item["objectId"] == target_id), None)
+                require(control is not None and control_state is not None and
+                        self.latest.get("controlStates", {}).get(object_id) == control_state and
+                        target_obj is not None,
+                        "Control changed since inspection; inspect it again", 409)
+                raw.update(expectedControl=copy.deepcopy(control),
+                           expectedControlState=copy.deepcopy(control_state),
+                           expectedTargetTransform=copy.deepcopy(target_obj["transform"]))
+            elif action != "begin":
                 grab = observed["agentGrab"]
                 require(grab is not None and
                         self.latest.get("agentGrab") == grab,
@@ -4380,7 +4784,8 @@ class State:
                 "Unsupported world checkpoint envelope")
         required = ({"version", "scene", "game"} if value["version"] == 2 else
                     {"version", "scene", "game", "citizens"})
-        require(required <= set(value) <= required | {"creatorMode", "rigidGravity"} and
+        require(required <= set(value) <= required |
+                {"creatorMode", "rigidGravity", "controlSchemaVersion", "controlStates"} and
                 (value["version"] != 3 or value["citizens"] is not None),
                 "Unsupported world checkpoint envelope")
         if "creatorMode" in value:
@@ -4388,16 +4793,25 @@ class State:
         if "rigidGravity" in value:
             rigid_gravity(value["rigidGravity"])
         checked_scene = scene(value["scene"])
+        has_controls = any("control" in item for item in checked_scene["objects"])
+        require(("controlSchemaVersion" not in value or
+                 type(value["controlSchemaVersion"]) is int and
+                 value["controlSchemaVersion"] == 1) and
+                (not has_controls or value.get("controlSchemaVersion") == 1) and
+                ("controlStates" not in value or value.get("controlSchemaVersion") == 1),
+                "Unsupported world checkpoint control contract")
         require(checked_scene == value["scene"] and checked_scene["roomId"] == "web-virtual-room-v1" and
                 all(item["anchorId"] == "web-floor" for item in checked_scene["objects"]),
                 "World checkpoint contains unsupported scene data or session-local anchors")
         capabilities = {key: current[key] for key in ("componentSchemaVersion", "animationSchemaVersion",
                                                      "physicsSchemaVersion", "rigidSchemaVersion",
-                                                     "interactionSchemaVersion",
+                                                     "interactionSchemaVersion", "controlSchemaVersion",
                                                      "behaviorKinds", "proceduralGenerators")
                         if key in current}
         snapshot({"scene": checked_scene, "assets": current["assets"], "anchors": current["anchors"],
                   **capabilities,
+                  **({"controlStates": value["controlStates"]}
+                     if "controlStates" in value else {}),
                   **({"rigidGravity": value["rigidGravity"]} if "rigidGravity" in value else {})})
         if value["version"] == 3:
             validate_citizens_checkpoint(value["citizens"], checked_scene)
@@ -4450,6 +4864,9 @@ class State:
             dependencies = self._checked_world_checkpoint(world, current)
             require(world["scene"] == current["scene"],
                     "Browser world changed since the last exchange; sync it and retry saving", 409)
+            if "controlStates" in world or any("control" in item for item in world["scene"]["objects"]):
+                require(world.get("controlStates") == current.get("controlStates"),
+                        "Browser control progress changed since the last exchange; sync it and retry saving", 409)
             saved_world = copy.deepcopy(world)
             for item in saved_world["scene"]["objects"]:
                 if "component" in item:

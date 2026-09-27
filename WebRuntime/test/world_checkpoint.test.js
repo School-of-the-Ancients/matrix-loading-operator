@@ -56,6 +56,26 @@ test('failed PC exchange leaves the prior scene, game, selection and undo state 
   assert.equal(world.originBinding,'ar');
 });
 
+test('failed PC exchange restores the prior control progress and target scale',async()=>{
+  const world=current();
+  world.idFactory=()=> 'checkpoint-control-panel';
+  const panel=world.execute({requestId:'checkpoint-control-panel',op:'spawn',
+    assetId:'wall',anchorId:'web-floor',transform:{...pose,
+      position:{x:2,y:0,z:-2}}}).objectId;
+  world.requireObject(panel).control={schemaVersion:1,label:'Cycle orb size',
+    action:{kind:'cycle-values',channel:'transform.scale',targetObjectId:'current-orb',
+      values:[[1,1,1],[2,2,2]]}};
+  world.requireObject('current-orb').transform.scale={x:2,y:2,z:2};
+  world.controlStates[panel]={index:1,revision:3};
+  const before=storedWorld(world);
+  await assert.rejects(applyPCWorld(world,saved(),async()=>{
+    assert.equal(Object.keys(world.controlStates).length,0);
+    throw Error('exchange rejected');
+  }),/exchange rejected/);
+  assert.deepEqual(storedWorld(world),before);
+  assert.deepEqual(world.controlStates[panel],{index:1,revision:3});
+});
+
 test('failed PC exchange restores Creator Mode, gravity, and the running rigid solver',async()=>{
   const world=current();
   world.attachRigidPhysics(await createRigidPhysics());
