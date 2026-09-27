@@ -5,6 +5,8 @@ import {MatrixBridge} from './bridge.js';
 import {VoiceRecorder} from './voice.js';
 import {CameraStream} from './camera_stream.js';
 import {AgentClient,agentActivityLabel} from './agent_client.js';
+import {ConceptUI} from './concept_ui.js';
+import {parseConceptIntent,isSelectedConceptBuildRequest} from './concept_intent.js';
 import {captureAgentContext} from './agent_context.js';
 import {bindBlenderRequestContext,captureBlenderPlacement,
   captureBlenderRequestContext,queueBlenderPlacement,
@@ -57,7 +59,7 @@ let persistenceWarning='',restoreWarning='';
 let cameraBusy=false;
 const recorder=new VoiceRecorder();let voiceStarting=false,voiceRecording=false,voiceStopRequested=false,voiceJob=null,voiceSnapshot=null,voiceDestination='planner',voiceAgentContext=null,voiceBlenderPlacement=null;
 let replyContext=null,replySource=null;
-let agentClient=null,agentActionBusy=false,agentVoiceStatus='';
+let agentClient=null,conceptUI=null,agentActionBusy=false,agentVoiceStatus='';
 const pendingBlenderReceiptIds=new Set();
 function unlockReplyAudio(){
   if(!$('speak-replies').checked)return;
@@ -438,16 +440,24 @@ function renderAgent(){
   const latest=turns.at(-1);
   const inWorld=latest?`You: ${latest.user.slice(0,180)}${latest.user.length>180?'…':''}\n\nCodex: ${(latest.assistant||'…').slice(-900)}`:
     status?'Ready. Hold the trigger or grip to speak to Codex.':'Connect to Codex on the PC.';
-  view.setOperatorAgentStatus({activity,content:[accessLabel,agentVoiceStatus,agentApprovalText(pending),
+  const conceptStatus=conceptUI?.statusForWorld()||'';
+  view.setOperatorAgentStatus({activity,content:[accessLabel,conceptStatus,agentVoiceStatus,agentApprovalText(pending),
     agentClient?.error?`Connection: ${agentClient.error}`:'',inWorld].filter(Boolean).join('\n\n'),
     pending:!!pending,approvalReviewable:pending?.reviewable===true,
     active:!!status?.activeTurnId,connected:!!status&&!agentClient.error,
     voiceStatus:agentVoiceStatus,latestTurnId:latest?.turnId||''});
 }
 agentClient=new AgentClient((path,body)=>bridge.request(path,body),localStorage,renderAgent);
+conceptUI=new ConceptUI({request:(path,body)=>bridge.request(path,body),
+  ensureSession:async()=>{
+    if(!agentClient.status||agentClient.error)await agentClient.connect();
+    return agentClient.sessionId;
+  },getSession:()=>agentClient.sessionId,getToken:()=>$('token').value.trim(),onChange:renderAgent});
+conceptUI.bind();
 renderAgent();
-if(agentClient.sessionId)agentClient.restore().catch(()=>{});
+if(agentClient.sessionId)agentClient.restore().then(()=>conceptUI.refresh()).catch(()=>{});
 setInterval(()=>{if(agentClient.sessionId&&!agentClient.error&&!agentActionBusy)agentClient.poll().catch(()=>{});},800);
+setInterval(()=>{if(agentClient.sessionId&&!conceptUI.busy)conceptUI.refresh().catch(()=>{});},2400);
 async function agentAction(action){
   if(agentActionBusy)return;
   agentActionBusy=true;renderAgent();
@@ -458,7 +468,13 @@ async function agentAction(action){
 function sendAgent(){
   const text=$('agent-input').value.trim();
   if(!text){feedback('Enter a message for Codex first.',true);return;}
-  const context=$('agent-include-context').checked?
+  if(parseConceptIntent(text)){
+    agentAction(async()=>{const message=await conceptUI.handleText(text);
+      $('agent-input').value='';feedback(message);view.setOperatorStatus(message);});
+    return;
+  }
+  const context=$('agent-include-context').checked||
+    !!conceptUI.selected&&isSelectedConceptBuildRequest(text)?
     captureAgentContext(world,view,bridge.clientId,'text'):null;
   agentAction(async()=>{await agentClient.send(text,context);$('agent-input').value='';
     feedback(context?'Sent to Codex with Matrix spatial context.':'Sent to Codex.');});
@@ -469,7 +485,8 @@ function decideAgent(approve){
   if(approve&&pending.reviewable!==true){feedback('This action cannot be approved in XR. Deny or Stop it.',true);return;}
   agentAction(()=>agentClient.decide(pending.approvalId,pending.turnId,approve));
 }
-$('agent-connect').addEventListener('click',()=>agentAction(()=>agentClient.connect()));
+$('agent-connect').addEventListener('click',()=>agentAction(async()=>{
+  await agentClient.connect();await conceptUI.refresh();}));
 $('agent-send').addEventListener('click',sendAgent);
 $('agent-stop').addEventListener('click',()=>agentAction(()=>agentClient.cancel()));
 $('agent-approve').addEventListener('click',()=>decideAgent(true));
@@ -544,7 +561,7 @@ setInterval(()=>persistCurrentWorld({periodic:true,
 addEventListener('beforeunload',()=>{
   if(canPlayWorld(world.creatorMode)&&world.scene.objects.some(object=>
     object.rigidBody?.type==='dynamic'))persistCurrentWorld({quiet:true});
-  cameraStream.stop();bridge.stop();
+  conceptUI?.destroy();cameraStream.stop();bridge.stop();
 });
 
 async function call(path,body,success){
@@ -564,13 +581,15 @@ async function refreshPCWorlds(){
   select.value=current;
 }
 function operatorRoute(text){
+  if(parseConceptIntent(text))return {destination:'concept',reason:'image-concept'};
+  if(conceptUI?.selected&&isSelectedConceptBuildRequest(text))
+    return {destination:'agent',reason:'selected-concept-build'};
   return routeOperatorRequest(text,{assets:world.snapshot().assets,
     savedScenes:[...$('saved-scenes').options].map(option=>option.value).filter(Boolean)});
 }
 async function sendToAgentFromChat(text,context){
   view.showOperatorAgentMode();
-  if(!agentClient.status||agentClient.error)
-    throw Error('Connect CODEX in the Operator panel, then send this creative request again.');
+  if(!agentClient.status||agentClient.error)await agentClient.connect();
   if(agentClient.status?.activeTurnId)throw Error('Wait for the current CODEX turn or stop it first.');
   if(/\b(?:in front of me|ahead of me|where i am pointing)\b/i.test(text)&&!context?.viewerFrame)
     throw Error('Current viewer tracking is unavailable. Restore tracking, then send this spatial request again.');
@@ -579,9 +598,18 @@ async function sendToAgentFromChat(text,context){
   feedback(message);view.setOperatorStatus(message);
 }
 async function propose(){
-  if(pendingWorld){feedback('Finish saved-world recovery before planning scene changes.',true);return;}
   const text=$('prompt').value.trim();if(!text){feedback('Enter a request first.',true);return;}
   const route=operatorRoute(text);
+  if(route.destination==='concept'){
+    $('propose').disabled=true;
+    try{const message=await conceptUI.handleText(text);
+      feedback(message);view.setOperatorStatus(message);}
+    catch(error){feedback(`Image concept: ${error.message}`,true);
+      view.setOperatorStatus(`Image concept: ${error.message}`,'error');}
+    finally{$('propose').disabled=false;}
+    return;
+  }
+  if(pendingWorld){feedback('Finish saved-world recovery before planning scene changes.',true);return;}
   if(route.destination==='agent'){
     const context=captureAgentContext(world,view,bridge.clientId,'text');
     $('propose').disabled=true;
@@ -1085,9 +1113,6 @@ async function beginVoice(){
   if(voiceStarting||voiceRecording)return;
   if(voiceJob){voiceStatus('Finish the current voice request before speaking again.',true,false);return;}
   voiceDestination=view.isOperatorAgentMode()?'agent':'planner';
-  if(voiceDestination==='planner'&&pendingWorld){
-    voiceStatus('Finish saved-world recovery before planning scene changes.',true,false);return;
-  }
   if(voiceDestination==='agent'&&(!agentClient?.status||agentClient.error)){
     voiceStatus('Reconnect to Codex first.',true);return;
   }
@@ -1111,16 +1136,30 @@ async function endVoice(){
       voiceJob='agent-transcribe';voiceButtons();
       const transcript=await agentClient.transcribe(audioBase64);
       voiceStatus(`Heard: ${transcript}`);
+      if(parseConceptIntent(transcript)){
+        const message=await conceptUI.handleText(transcript);
+        voiceStatus(message);return;
+      }
       if(/\b(?:in front of me|ahead of me|where i am pointing)\b/i.test(transcript)&&
           !voiceAgentContext.viewerFrame)
         throw Error('Current viewer tracking is unavailable. Restore tracking, then say the spatial request again.');
       await agentClient.send(transcript,voiceAgentContext);
       voiceStatus('Sent to Codex with Matrix spatial context.');
     }else{
+      if(!agentClient.status||agentClient.error){
+        try{await agentClient.connect();await conceptUI.refresh();}
+        catch{/* The existing planner voice path remains available. */}
+      }
       if(agentClient.status&&!agentClient.error){
         voiceJob='agent-transcribe';voiceButtons();
         const transcript=await agentClient.transcribe(audioBase64);
         voiceStatus(`Heard: ${transcript}`);
+        if(parseConceptIntent(transcript)){
+          $('prompt').value=transcript;
+          const message=await conceptUI.handleText(transcript);
+          voiceStatus(message);return;
+        }
+        if(pendingWorld)throw Error('Finish saved-world recovery before planning scene changes.');
         if(operatorRoute(transcript).destination==='agent'){
           $('prompt').value=transcript;
           await sendToAgentFromChat(transcript,voiceAgentContext);
@@ -1128,6 +1167,7 @@ async function endVoice(){
           return;
         }
       }
+      if(pendingWorld)throw Error('Finish saved-world recovery before planning scene changes.');
       voiceBlenderPlacement=await bindBlenderRequestContext(world,view,bridge,voiceBlenderPlacement);
       voiceJob='planner-submit';voiceButtons();
       const job=await bridge.request('/api/voice',{clientId:bridge.clientId,snapshot:voiceSnapshot,audioBase64,conversation,webRuntime:true});

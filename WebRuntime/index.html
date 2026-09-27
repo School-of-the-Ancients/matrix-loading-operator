@@ -36,6 +36,21 @@
         <textarea id="agent-input" rows="3" placeholder="Create a physics playground with a ramp, grabbable objects, and a challenge."></textarea>
         <label class="check-label"><input id="agent-include-context" type="checkbox" /> Attach selected object and current pointing hit</label>
         <div class="row"><button id="agent-send" class="primary">Send to Codex</button><button id="agent-stop" disabled>Stop turn</button></div>
+        <section id="concept-panel" class="concept-panel" aria-labelledby="concept-heading">
+          <div class="panel-title"><span id="concept-heading">VISUAL CONCEPTS</span><span id="concept-summary">No concept selected</span></div>
+          <p class="hint">Generate an image first, choose a version, then ask Codex to build from that design. New versions keep earlier images.</p>
+          <label for="concept-prompt">Image description</label>
+          <textarea id="concept-prompt" rows="2" placeholder="A futuristic forest temple at dusk"></textarea>
+          <div class="row"><button id="concept-generate" type="button">Generate image</button><button id="concept-vary" type="button">Another version</button></div>
+          <p class="hint">Another version is a new text-to-image sample. It does not edit the pixels of an earlier image.</p>
+          <p id="concept-status" role="status" aria-live="polite">Connect to Codex to view saved concepts.</p>
+          <p id="concept-build-status" class="concept-build-status" role="status" aria-live="polite"></p>
+          <div id="concept-jobs" class="concept-jobs" aria-label="Image generation jobs"></div>
+          <div id="concept-list" class="concept-list" aria-label="Generated concept versions"></div>
+          <label for="concept-notes">Notes for the selected design</label>
+          <textarea id="concept-notes" rows="2" placeholder="Keep the layered roof; use a smaller entrance"></textarea>
+          <button id="concept-save-notes" type="button">Save design notes</button>
+        </section>
         <div id="agent-approval" class="proposal hidden" role="alert">
           <div class="proposal-label">APPROVAL REQUIRED</div>
           <p id="agent-approval-summary"></p>
