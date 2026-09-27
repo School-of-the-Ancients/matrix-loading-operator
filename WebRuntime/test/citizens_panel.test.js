@@ -23,6 +23,35 @@ function stubDocument(){
   }};
 }
 
+test('panel advances a bounded visible batch and persists clock speed',()=>{
+  const dom=stubDocument();
+  let panel;
+  try{
+    let sequence=0;
+    const world=new MatrixWorld(()=>`clock-panel-${++sequence}`);
+    panel=new CitizensPanel(world,{onChange(){},canStart:()=>'',onFeedback(){}});
+    panel.start();
+    const speed=dom.elements.get('citizens-speed');
+    assert.equal(speed.value,'1');
+    speed.value='4';panel.setSpeed();
+    assert.equal(world.citizens.clockSpeed,4);
+    panel.toggle();
+    const before=world.citizens.clockTick;
+    panel.tick();
+    assert.equal(world.citizens.clockTick,before+4);
+    globalThis.document.hidden=true;
+    panel.tick();
+    assert.equal(world.citizens.clockTick,before+4);
+    globalThis.document.hidden=false;
+    panel.toggle();
+    panel.step();
+    assert.equal(world.citizens.clockTick,before+5);
+  }finally{
+    if(panel)clearInterval(panel.timer);
+    dom.restore();
+  }
+});
+
 test('panel enables selected authored furniture and preserves other world objects',()=>{
   const dom=stubDocument();
   let panel;

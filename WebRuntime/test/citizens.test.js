@@ -54,6 +54,165 @@ test('demo creates two resident markers and shared stations from Matrix receipts
   assert.equal(matrix.scene.objects.length,4);
 });
 
+const simulationAtMinute=(seed,minute,needs={hunger:50,energy:50,fun:50})=>{
+  const matrix=world();
+  const created=createCitizensDemo(matrix,{seed});
+  const state=created.exportState();
+  state.clockTick=minute-1;
+  state.nextSocialTick=minute+1000;
+  for(const resident of state.residents)resident.needs={...needs};
+  return {matrix,simulation:CitizensSimulation.restore(matrix,state)};
+};
+
+test('virtual clock speed is bounded, persisted, and independent of paused stepping',()=>{
+  const matrix=world(),simulation=createCitizensDemo(matrix,{seed:29});
+  assert.equal(simulation.snapshot().clockSpeed,1);
+  assert.throws(()=>simulation.setClockSpeed(2),/speed must be 1, 4, or 16/);
+  assert.throws(()=>simulation.setClockSpeed(true),/speed must be 1, 4, or 16/);
+  simulation.setClockSpeed(16);
+  assert.equal(simulation.advance().clockTick,0,'the timer skips a paused world');
+  assert.equal(simulation.step().clockTick,1,'manual step advances one minute');
+  const saved=simulation.exportState();
+  assert.equal(saved.clockSpeed,16);
+  assert.deepEqual(CitizensSimulation.restore(matrix,saved).exportState(),saved);
+});
+
+test('v6 worlds gain bounded daily routines without changing saved claims or scene',()=>{
+  const matrix=world(),simulation=createCitizensDemo(matrix,{seed:17});
+  simulation.step();
+  const old=simulation.exportState(),scene=structuredClone(matrix.scene);
+  old.schemaVersion=6;
+  delete old.clockSpeed;
+  for(const resident of old.residents){
+    delete resident.routines;
+    delete resident.lastDecision;
+  }
+  const restored=CitizensSimulation.restore(matrix,old).exportState();
+  assert.equal(restored.schemaVersion,7);
+  assert.equal(restored.clockSpeed,1);
+  assert.deepEqual(restored.residents[0].routines.map(item=>item.id),
+    ['morning-meal','morning-walk','daytime-walk','evening-rest']);
+  assert.equal(restored.residents[0].lastDecision,null);
+  assert.deepEqual(restored.stations,old.stations);
+  assert.deepEqual(matrix.scene,scene);
+});
+
+test('09:00 offers overlapping meal and walk routines with seed-stable scores',()=>{
+  const seed=0x9e3779b9;
+  const left=simulationAtMinute(seed,540),right=simulationAtMinute(seed,540);
+  assert.deepEqual(left.simulation.step(),right.simulation.step());
+  assert.deepEqual(left.matrix.scene,right.matrix.scene);
+  const decision=left.simulation.snapshot().residents[0].lastDecision;
+  assert.equal(decision.tick,540);
+  assert.equal(decision.mode,'routine');
+  assert.deepEqual(decision.candidates.map(item=>item.routineId),
+    ['morning-meal','morning-walk']);
+  assert.ok(decision.roll>=0&&decision.roll<1);
+  assert.ok(decision.candidates.every(item=>item.score>0&&
+    item.deficit>=0&&item.travelMeters>=0));
+  assert.ok(['eat','explore'].includes(decision.selectedKind));
+  assert.equal(decision.selectedRoutineId,
+    decision.candidates.find(item=>item.kind===decision.selectedKind).routineId);
+});
+
+test('critical hunger overrides optional morning windows without awarding food early',()=>{
+  const {simulation}=simulationAtMinute(0x9e3779b9,540,
+    {hunger:14,energy:50,fun:95});
+  const after=simulation.step();
+  const ada=after.residents.find(item=>item.id==='ada');
+  assert.equal(ada.lastDecision.mode,'needs');
+  assert.equal(ada.lastDecision.selectedKind,'eat');
+  assert.equal(ada.needs.hunger,13.55);
+  assert.equal(ada.activity?.kind,'eat');
+});
+
+test('overnight routine wraps into the next day and ends at 06:00',()=>{
+  const night=simulationAtMinute(29,1440,{hunger:90,energy:20,fun:90});
+  const midnight=night.simulation.step();
+  assert.equal(midnight.clockTick,1440);
+  assert.equal(midnight.residents[0].lastDecision.mode,'routine');
+  assert.equal(midnight.residents[0].lastDecision.selectedRoutineId,'evening-rest');
+  const morning=simulationAtMinute(29,1800,{hunger:90,energy:20,fun:90});
+  const afterWindow=morning.simulation.step();
+  assert.equal(afterWindow.residents[0].lastDecision.mode,'needs');
+});
+
+test('seeded routine sampling changes with needs and activity preferences',()=>{
+  const countEat=(needs,preferences=null)=>{
+    let eat=0;
+    for(let index=1;index<=64;index++){
+      const seed=Math.imul(index,0x9e3779b1)>>>0;
+      const {simulation,matrix}=simulationAtMinute(seed,540,needs);
+      if(preferences){
+        const state=simulation.exportState();
+        state.residents[0].preferences={...preferences};
+        const changed=CitizensSimulation.restore(matrix,state);
+        eat+=changed.step().residents[0].lastDecision.selectedKind==='eat'?1:0;
+      }else eat+=simulation.step().residents[0].lastDecision.selectedKind==='eat'?1:0;
+    }
+    return eat;
+  };
+  const balanced=countEat({hunger:50,energy:50,fun:50});
+  assert.ok(balanced>10&&balanced<54,
+    `both overlapping windows should win across seeded trials; eat=${balanced}`);
+  const hungry=countEat({hunger:35,energy:50,fun:90});
+  const playful=countEat({hunger:90,energy:50,fun:30});
+  assert.ok(hungry>playful+30,`need change did not shift choices: ${hungry}/${playful}`);
+  const likesMeals=countEat({hunger:50,energy:50,fun:50},
+    {rest:1,eat:2,explore:.2});
+  const likesWalks=countEat({hunger:50,energy:50,fun:50},
+    {rest:1,eat:.2,explore:2});
+  assert.ok(likesMeals>likesWalks+20,
+    `preferences did not shift choices: ${likesMeals}/${likesWalks}`);
+});
+
+test('one accelerated virtual day has observed activities and no unbounded state',()=>{
+  const matrix=world(),simulation=createCitizensDemo(matrix,{seed:0x9e3779b9});
+  simulation.setClockSpeed(16);
+  const scheduled=new Set(),completed=new Set();
+  for(let minute=1;minute<=1440;minute++){
+    const state=simulation.step();
+    assert.equal(state.clockTick,minute);
+    for(const resident of state.residents){
+      const decision=resident.lastDecision;
+      if(decision?.tick===minute&&decision.mode==='routine')
+        scheduled.add(decision.selectedRoutineId);
+      assert.ok(Object.values(resident.needs).every(value=>value>=0&&value<=100));
+    }
+    for(const entry of state.log)if(entry.tick===minute&&entry.event==='completed'){
+      for(const kind of ['rest','eat','explore'])if(entry.message.includes(`completed ${kind}`))
+        completed.add(kind);
+    }
+  }
+  const saved=simulation.exportState();
+  assert.equal(saved.clockTick,1440);
+  assert.equal(saved.clockSpeed,16);
+  assert.ok(scheduled.has('morning-meal'));
+  assert.ok(scheduled.has('morning-walk'));
+  assert.ok(scheduled.has('evening-rest'));
+  assert.deepEqual([...completed].sort(),['eat','explore','rest']);
+  assert.ok(saved.log.length<=80);
+  assert.equal(matrix.scene.objects.length,4);
+});
+
+test('v7 rejects malformed clock, routine, and score trace without touching world',()=>{
+  const matrix=world(),simulation=createCitizensDemo(matrix,{seed:29});
+  simulation.step();
+  const good=simulation.exportState(),scene=structuredClone(matrix.scene);
+  for(const mutate of [
+    state=>{state.clockSpeed=2;},
+    state=>{state.residents[0].routines[0].endMinute=420;},
+    state=>{state.residents[0].routines[0].priority='urgent';},
+    state=>{state.residents[0].routines[0].stationId='missing';},
+    state=>{state.residents[0].lastDecision.candidates[0].score=Infinity;},
+    state=>{state.residents[0].lastDecision.selectedRoutineId='forged';}
+  ]){
+    const invalid=structuredClone(good);mutate(invalid);
+    assert.throws(()=>CitizensSimulation.restore(matrix,invalid));
+    assert.deepEqual(matrix.scene,scene);
+  }
+});
+
 test('a failed setup receipt rolls back earlier demo objects',()=>{
   const matrix=new MatrixWorld(()=> 'same-object-id');
   assert.throws(()=>createCitizensDemo(matrix,{seed:7}),/spawn failed/);
@@ -582,6 +741,7 @@ test('v1 mid-action state migrates atomically and replays deletion and FIFO hand
   sim.step();
   const legacy=sim.exportState();
   legacy.schemaVersion=1;
+  delete legacy.clockSpeed;
   delete legacy.actionSequence;
   delete legacy.retiredResidentIds;
   delete legacy.socialSession;
@@ -589,6 +749,8 @@ test('v1 mid-action state migrates atomically and replays deletion and FIFO hand
   delete legacy.relationships;
   delete legacy.nextSocialTick;
   for(const resident of legacy.residents){
+    delete resident.routines;
+    delete resident.lastDecision;
     delete resident.socialSessionId;
     if(resident.activity){
       delete resident.activity.executionId;
@@ -611,7 +773,7 @@ test('v1 mid-action state migrates atomically and replays deletion and FIFO hand
   const a=restore(),b=restore();
   for(const copy of [a,b]){
     const migrated=copy.sim.exportState();
-    assert.equal(migrated.schemaVersion,6);
+    assert.equal(migrated.schemaVersion,7);
     assert.equal(migrated.actionSequence,1);
     assert.equal(migrated.stations.find(station=>station.kind==='rest').claim.executionId,
       migrated.residents.find(resident=>resident.id==='ada').activity.executionId);
@@ -899,14 +1061,17 @@ test('deleting the last resident yields a valid paused zero-resident state',()=>
   assert.deepEqual(sim.resume(),after,'empty simulation cannot run');
 });
 
-test('v2 checkpoints migrate to v6 without changing active claims or Matrix objects',()=>{
+test('v2 checkpoints migrate to v7 without changing active claims or Matrix objects',()=>{
   const matrix=world(),sim=createCitizensDemo(matrix,{seed:31});
   sim.step();
   const saved=sim.exportState();
   saved.schemaVersion=2;
+  delete saved.clockSpeed;
   delete saved.socialSession;delete saved.socialEvents;
   delete saved.relationships;delete saved.nextSocialTick;
   for(const resident of saved.residents){
+    delete resident.routines;
+    delete resident.lastDecision;
     delete resident.socialSessionId;
     if(resident.activity){
       delete resident.activity.routeRetries;
@@ -916,7 +1081,7 @@ test('v2 checkpoints migrate to v6 without changing active claims or Matrix obje
   for(const station of saved.stations)delete station.interaction;
   const scene=structuredClone(matrix.scene);
   const migrated=CitizensSimulation.restore(matrix,saved).exportState();
-  assert.equal(migrated.schemaVersion,6);
+  assert.equal(migrated.schemaVersion,7);
   assert.deepEqual(migrated.stations,saved.stations.map(station=>
     ({...station,interaction:null})));
   assert.deepEqual(migrated.relationships,[{a:'ada',b:'bo',score:50,completed:[]}]);
@@ -932,17 +1097,25 @@ test('v3 social checkpoints migrate only when visible ended receipts explain the
   assert.equal(current.relationships[0].score,55);
   const old=structuredClone(current);
   old.schemaVersion=3;
+  delete old.clockSpeed;
   for(const station of old.stations)delete station.interaction;
   for(const relation of old.relationships)delete relation.completed;
-  for(const resident of old.residents)if(resident.activity){
-    delete resident.activity.routeRetries;
-    delete resident.activity.routeGeometryId;
+  for(const resident of old.residents){
+    delete resident.routines;
+    delete resident.lastDecision;
+    if(resident.activity){
+      delete resident.activity.routeRetries;
+      delete resident.activity.routeGeometryId;
+    }
   }
   const scene=structuredClone(matrix.scene);
   const expected=structuredClone(current);
-  for(const resident of expected.residents)if(resident.activity){
-    resident.activity.routeRetries=0;
-    resident.activity.routeGeometryId=null;
+  for(const resident of expected.residents){
+    resident.lastDecision=null;
+    if(resident.activity){
+      resident.activity.routeRetries=0;
+      resident.activity.routeGeometryId=null;
+    }
   }
   assert.deepEqual(CitizensSimulation.restore(matrix,old).exportState(),expected);
   assert.deepEqual(matrix.scene,scene);

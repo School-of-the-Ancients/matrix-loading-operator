@@ -4,7 +4,8 @@ import {ANCHOR_ID,INTERACTION_USE_MARGIN_METRES,MAX_OBJECTS,ROOM_ID,
   interactionWorldPoint,validInteractionDescriptor} from './protocol.js';
 import {checkedMove,planPath,segmentClear} from './citizens_navigation.js';
 
-const VERSION=6;
+const VERSION=7;
+const INTERACTION_VERSION=6;
 const ROUTE_VERSION=5;
 const COMPLETION_VERSION=4;
 const SOCIAL_VERSION=3;
@@ -29,6 +30,9 @@ const SOCIAL_COOLDOWN_TICKS=24;
 const SOCIAL_WINDOW_TICKS=12;
 const NEEDS=['hunger','energy','fun'];
 const ACTIVITIES=['rest','eat','explore'];
+const PRIORITIES=['high','default','low'];
+const CLOCK_SPEEDS=[1,4,16];
+const MAX_ROUTINES=6;
 const finite=value=>typeof value==='number'&&Number.isFinite(value);
 const plain=value=>value!==null&&typeof value==='object'&&!Array.isArray(value);
 const keys=(value,expected)=>plain(value)&&Object.keys(value).sort().join('|')===expected.slice().sort().join('|');
@@ -59,6 +63,23 @@ const round=value=>Math.round(value*100)/100;
 const round6=value=>Math.round(value*1000000)/1000000;
 const clamp=value=>Math.max(0,Math.min(100,round(value)));
 const distance=(a,b)=>Math.hypot(a.x-b.x,a.z-b.z);
+const minuteOfDay=tick=>tick%1440;
+const routineActive=(routine,tick)=>{
+  const minute=minuteOfDay(tick);
+  return routine.startMinute<routine.endMinute?
+    minute>=routine.startMinute&&minute<routine.endMinute:
+    minute>=routine.startMinute||minute<routine.endMinute;
+};
+const defaultRoutines=id=>[
+  {id:'morning-meal',kind:'eat',priority:'default',startMinute:420,
+    endMinute:600,baseWeight:id==='ada'?22:18,stationId:null},
+  {id:'morning-walk',kind:'explore',priority:'default',startMinute:480,
+    endMinute:660,baseWeight:id==='ada'?16:22,stationId:null},
+  {id:'daytime-walk',kind:'explore',priority:'low',startMinute:660,
+    endMinute:1080,baseWeight:12,stationId:null},
+  {id:'evening-rest',kind:'rest',priority:'high',startMinute:1260,
+    endMinute:360,baseWeight:id==='ada'?24:20,stationId:null}
+];
 const sameTransform=(a,b)=>a&&b&&['position','rotation','scale'].every(part=>
   ['x','y','z'].every(axis=>a[part]?.[axis]===b[part]?.[axis]));
 const objectById=(world,id)=>world.scene.objects.find(object=>object.objectId===id);
@@ -332,9 +353,9 @@ function validStateV2(world,state,activityVersion=RESERVATION_VERSION,
   }
   const waitingIds=new Set();
   for(const station of state.stations){
-    const selectedApproach=stationVersion>=VERSION&&station.approachMode!==undefined;
+    const selectedApproach=stationVersion>=INTERACTION_VERSION&&station.approachMode!==undefined;
     if(!keys(station,['id','kind','objectId','capacity','claim','waiters',
-      ...(stationVersion>=VERSION?['interaction']:[]),
+      ...(stationVersion>=INTERACTION_VERSION?['interaction']:[]),
       ...(selectedApproach?['approachMode']:[])])||
       (selectedApproach&&station.approachMode!=='selected')||
       !boundedText(station.id,32)||!station.id||stationIds.has(station.id)||
@@ -344,14 +365,14 @@ function validStateV2(world,state,activityVersion=RESERVATION_VERSION,
       station.waiters.length>4)throw Error('Invalid Citizens station');
     const object=objectById(world,station.objectId);
     const builtIn=object?.assetId===(station.kind==='rest'?'chair':'table');
-    const authored=stationVersion>=VERSION&&station.interaction!==null&&
+    const authored=stationVersion>=INTERACTION_VERSION&&station.interaction!==null&&
       object?.assetId?.startsWith('web:')&&
       validInteractionDescriptor(station.interaction)&&
       sameJson(station.interaction,object?.interaction)&&
       station.interaction.kind===station.kind&&
       (!world.asset||world.asset(object.assetId)?.sha256===
         station.interaction.assetSha256);
-    if((stationVersion>=VERSION&&builtIn&&station.interaction!==null)||
+    if((stationVersion>=INTERACTION_VERSION&&builtIn&&station.interaction!==null)||
       (!builtIn&&!authored)||
       object.anchorId!==ANCHOR_ID||hasActiveTransformOwner(object))
       throw Error('Citizens station object is missing or incompatible');
@@ -623,18 +644,125 @@ function validStateV5(world,state,stationVersion=ROUTE_VERSION){
 function migrateV5(world,saved){
   validStateV5(world,saved);
   const state=clone(saved);
-  state.schemaVersion=VERSION;
+  state.schemaVersion=INTERACTION_VERSION;
   for(const station of state.stations)station.interaction=null;
   validStateV6(world,state);
   return state;
 }
 
 function validStateV6(world,state){
-  if(!state||state.schemaVersion!==VERSION)
+  if(!state||state.schemaVersion!==INTERACTION_VERSION)
     throw Error('Invalid Citizens interaction state');
   const v5=clone(state);
   v5.schemaVersion=ROUTE_VERSION;
-  validStateV5(world,v5,VERSION);
+  validStateV5(world,v5,INTERACTION_VERSION);
+}
+
+function migrateV6(world,saved){
+  validStateV6(world,saved);
+  const state=clone(saved);
+  state.schemaVersion=VERSION;
+  state.clockSpeed=1;
+  for(const resident of state.residents){
+    resident.routines=defaultRoutines(resident.id);
+    resident.lastDecision=null;
+  }
+  validStateV7(world,state);
+  return state;
+}
+
+function validStateV7(world,state){
+  if(!keys(state,['schemaVersion','world','seed','rngState','requestSequence',
+    'actionSequence','clockTick','paused','clockSpeed','residents',
+    'retiredResidentIds','stations','log','socialSession','socialEvents',
+    'relationships','nextSocialTick'])||state.schemaVersion!==VERSION||
+    !CLOCK_SPEEDS.includes(state.clockSpeed))
+    throw Error('Invalid Citizens virtual-day state');
+  const v6=clone(state);
+  v6.schemaVersion=INTERACTION_VERSION;
+  delete v6.clockSpeed;
+  for(const resident of v6.residents){
+    if(!keys(resident,['id','name','objectId','needs','preferences','activity',
+      'cooldowns','lastOutcome','socialSessionId','routines','lastDecision']))
+      throw Error('Invalid Citizens routine resident');
+    delete resident.routines;delete resident.lastDecision;
+  }
+  validStateV6(world,v6);
+  for(const resident of state.residents){
+    if(!Array.isArray(resident.routines)||resident.routines.length>MAX_ROUTINES)
+      throw Error('Invalid Citizens routines');
+    const routineIds=new Set();
+    for(const routine of resident.routines){
+      if(!keys(routine,['id','kind','priority','startMinute','endMinute',
+        'baseWeight','stationId'])||!boundedText(routine.id,32)||!routine.id||
+        routineIds.has(routine.id)||!ACTIVITIES.includes(routine.kind)||
+        !PRIORITIES.includes(routine.priority)||
+        !integer(routine.startMinute,0,1439)||
+        !integer(routine.endMinute,0,1440)||
+        routine.startMinute===routine.endMinute||
+        !finite(routine.baseWeight)||routine.baseWeight<0||routine.baseWeight>100||
+        (routine.stationId!==null&&
+          (!boundedText(routine.stationId,32)||!routine.stationId||
+            !state.stations.some(station=>station.id===routine.stationId&&
+              station.kind===routine.kind)))||
+        (routine.kind==='explore'&&routine.stationId!==null))
+        throw Error('Invalid Citizens routine');
+      routineIds.add(routine.id);
+    }
+    const decision=resident.lastDecision;
+    if(decision===null)continue;
+    if(!keys(decision,['tick','mode','roll','selectedKind',
+      'selectedRoutineId','candidates'])||
+      !integer(decision.tick,0,state.clockTick)||
+      !['routine','needs','idle'].includes(decision.mode)||
+      (decision.roll!==null&&
+        (!finite(decision.roll)||decision.roll<0||decision.roll>=1))||
+      (decision.selectedKind!==null&&
+        !ACTIVITIES.includes(decision.selectedKind))||
+      (decision.selectedRoutineId!==null&&
+        (!boundedText(decision.selectedRoutineId,32)||
+          !routineIds.has(decision.selectedRoutineId)))||
+      !Array.isArray(decision.candidates)||
+      decision.candidates.length>MAX_ROUTINES)
+      throw Error('Invalid Citizens decision trace');
+    for(const candidate of decision.candidates){
+      const routine=candidate?.routineId===null?null:
+        resident.routines.find(item=>item.id===candidate?.routineId);
+      if(!keys(candidate,['kind','routineId','priority','deficit',
+        'preference','travelMeters','baseWeight','availabilityFactor','score'])||
+        !ACTIVITIES.includes(candidate.kind)||
+        !['high','default','low','none'].includes(candidate.priority)||
+        (candidate.routineId!==null&&
+          (!routine||routine.kind!==candidate.kind||
+            routine.priority!==candidate.priority))||
+        !finite(candidate.deficit)||candidate.deficit<0||candidate.deficit>100||
+        !finite(candidate.preference)||candidate.preference<.2||
+          candidate.preference>2||
+        !finite(candidate.travelMeters)||candidate.travelMeters<0||
+          candidate.travelMeters>1000||
+        !finite(candidate.baseWeight)||candidate.baseWeight<0||
+          candidate.baseWeight>100||
+        !finite(candidate.availabilityFactor)||
+          candidate.availabilityFactor<0||candidate.availabilityFactor>1||
+        !finite(candidate.score)||candidate.score<0||candidate.score>300)
+        throw Error('Invalid Citizens decision candidate');
+    }
+    if(decision.mode==='routine'){
+      if(decision.selectedKind===null||decision.selectedRoutineId===null||
+        decision.candidates.some(candidate=>candidate.routineId===null)||
+        !decision.candidates.some(candidate=>
+          candidate.kind===decision.selectedKind&&
+          candidate.routineId===decision.selectedRoutineId&&candidate.score>0))
+        throw Error('Invalid Citizens routine decision');
+    }else if(decision.selectedRoutineId!==null||decision.roll!==null||
+      decision.candidates.some(candidate=>
+        candidate.routineId!==null||candidate.priority!=='none')||
+      (decision.mode==='idle'&&decision.selectedKind!==null)||
+      (decision.mode==='needs'&&
+        (decision.selectedKind===null||!decision.candidates.some(candidate=>
+          candidate.kind===decision.selectedKind&&candidate.score>0))))
+      throw Error('Invalid Citizens needs decision');
+  }
 }
 
 function pose(x,z,scale=1){
@@ -644,15 +772,18 @@ function pose(x,z,scale=1){
 function initialState(world,seed,adaId,boId,stations){
   return {schemaVersion:VERSION,world:{schemaVersion:1,roomId:world.scene.roomId},
     seed,rngState:seed,requestSequence:0,actionSequence:0,clockTick:0,paused:true,
+    clockSpeed:1,
     retiredResidentIds:[],socialSession:null,socialEvents:[],
     relationships:[{a:'ada',b:'bo',score:50,completed:[]}],nextSocialTick:35,
     residents:[
       {id:'ada',name:'Ada',objectId:adaId,needs:{hunger:72,energy:20,fun:62},
         preferences:{rest:1.2,eat:.85,explore:.75},activity:null,
-        cooldowns:{rest:0,eat:0,explore:0},lastOutcome:'',socialSessionId:null},
+        cooldowns:{rest:0,eat:0,explore:0},lastOutcome:'',socialSessionId:null,
+        routines:defaultRoutines('ada'),lastDecision:null},
       {id:'bo',name:'Bo',objectId:boId,needs:{hunger:42,energy:29,fun:54},
         preferences:{rest:1.1,eat:1,explore:.75},activity:null,
-        cooldowns:{rest:0,eat:0,explore:0},lastOutcome:'',socialSessionId:null}
+        cooldowns:{rest:0,eat:0,explore:0},lastOutcome:'',socialSessionId:null,
+        routines:defaultRoutines('bo'),lastDecision:null}
     ],stations,log:[]};
 }
 
@@ -823,7 +954,8 @@ export class CitizensSimulation {
     if(current?.schemaVersion===SOCIAL_VERSION)current=migrateV3(world,current);
     if(current?.schemaVersion===COMPLETION_VERSION)current=migrateV4(world,current);
     if(current?.schemaVersion===ROUTE_VERSION)current=migrateV5(world,current);
-    validStateV6(world,current);
+    if(current?.schemaVersion===INTERACTION_VERSION)current=migrateV6(world,current);
+    validStateV7(world,current);
     this.world=world;
     this.state=clone(current);
     // Runtime-only baseline: the serialized scene supplies it again on restore.
@@ -835,6 +967,11 @@ export class CitizensSimulation {
   }
   static restore(world,saved){return new CitizensSimulation(world,saved);}
   snapshot(){return clone(this.state);}
+  setClockSpeed(value){
+    if(!CLOCK_SPEEDS.includes(value))throw Error('Citizens speed must be 1, 4, or 16');
+    this.state.clockSpeed=value;
+    return this.snapshot();
+  }
   additionalStation(objectId,{checkRoutes=false}={}){
     assertWorld(this.world);
     if(!this.state.paused)throw Error('Pause Citizens before adding a station');
@@ -850,7 +987,7 @@ export class CitizensSimulation {
     if(checkRoutes){
       if(this.world.scene!==this.observedScene)
         throw Error('The scene changed; review Citizens bindings before adding a station');
-      validStateV6(this.world,this.state);
+      validStateV7(this.world,this.state);
       for(const bound of [...this.state.residents,...this.state.stations]){
         const object=objectById(this.world,bound.objectId);
         if(!object||!sameTransform(object.transform,
@@ -881,7 +1018,7 @@ export class CitizensSimulation {
       this.observedTransforms.set(station.objectId,
         clone(objectById(this.world,station.objectId).transform));
       this.log('','selected',`Reviewed ${station.id} station added to the shared world.`);
-      validStateV6(this.world,this.state);
+      validStateV7(this.world,this.state);
       return this.snapshot();
     }catch(error){
       this.state=previous;
@@ -892,7 +1029,7 @@ export class CitizensSimulation {
   exportState(){
     this.reconcileWorld();
     if(this.invalidBindings.size)throw Error('Citizens binding is missing or incompatible');
-    validStateV6(this.world,this.state);
+    validStateV7(this.world,this.state);
     return this.snapshot();
   }
   reconcileWorld(){this.reconcileBindings();return this.snapshot();}
@@ -978,6 +1115,11 @@ export class CitizensSimulation {
     for(const id of affected){
       const resident=this.state.residents.find(item=>item.id===id);
       if(resident)this.fail(resident,`${station.id} was deleted`);
+    }
+    for(const resident of this.state.residents){
+      resident.routines=resident.routines.filter(routine=>
+        routine.stationId!==station.id);
+      resident.lastDecision=null;
     }
     this.state.stations=this.state.stations.filter(item=>item.id!==station.id);
     this.log('','retired',`${station.id} was removed after object deletion; surviving residents continue.`);
@@ -1394,57 +1536,137 @@ export class CitizensSimulation {
       this.log(claim.residentId,'expired',`${station.id} lease for execution ${claim.executionId} expired.`);
     }
   }
-  choose(resident){
-    const actor=positionOf(this.world,resident.objectId);
-    if(!actor){this.fail(resident,'resident object is missing');this.state.paused=true;return;}
-    const scores=ACTIVITIES.map(kind=>{
-      const station=this.state.stations.find(item=>item.kind===kind);
-      const target=station?positionOf(this.world,station.objectId):null;
-      const deficit=kind==='rest'?100-resident.needs.energy:
-        kind==='eat'?100-resident.needs.hunger:100-resident.needs.fun;
-      const travel=target?distance(actor,target):2;
-      const score=deficit*resident.preferences[kind]-travel*2+this.nextRandom()*2;
-      return {kind,station,score,deficit,travel};
-    }).filter(candidate=>(candidate.kind==='explore'||candidate.station)&&
-      candidate.score>8&&resident.cooldowns[candidate.kind]<=this.state.clockTick)
-      .sort((a,b)=>b.score-a.score||ACTIVITIES.indexOf(a.kind)-ACTIVITIES.indexOf(b.kind));
-    for(const candidate of scores){
-      const {kind,station}=candidate;
-      if(station){
-        if(!positionOf(this.world,station.objectId)){
-          this.log(resident.id,'blocked',`${resident.name}: ${kind} unavailable; station is missing.`);
-          resident.cooldowns[kind]=this.state.clockTick+4;continue;
-        }
+  decisionCandidate(resident,actor,kind,routine=null,{legacyJitter=false}={}){
+    const station=routine?.stationId?
+      this.state.stations.find(item=>item.id===routine.stationId):
+      this.state.stations.find(item=>item.kind===kind);
+    const need=kind==='rest'?'energy':kind==='eat'?'hunger':'fun';
+    const deficit=100-resident.needs[need];
+    const preference=resident.preferences[kind];
+    const target=station?positionOf(this.world,station.objectId):null;
+    let travel=target?distance(actor,target):2;
+    let unavailable='';
+    if(kind!=='explore'){
+      if(!station||!target)unavailable='station is missing';
+      else{
         const approach=stationApproach(this.world,resident.objectId,station,null,[],
           !station.interaction&&!station.approachMode&&this.state.stations.length===2?
             fixtureApproach(this.world,station):null);
-        if(!approach.ok){
-          this.log(resident.id,'blocked',`${resident.name}: ${kind} unavailable; ${approach.reason}.`);
-          resident.cooldowns[kind]=this.state.clockTick+4;continue;
+        if(!approach.ok)unavailable=approach.reason;
+        else travel=approach.route.lengthMeters;
+      }
+    }
+    const availabilityFactor=unavailable?0:
+      routine&&station&&(station.claim||station.waiters.length)? .6:1;
+    const baseWeight=routine?.baseWeight??0;
+    const jitter=legacyJitter?this.nextRandom()*2:0;
+    const score=unavailable||routine&&deficit<5?0:
+      Math.max(0,round((deficit*preference+baseWeight-travel*2+jitter)*
+        availabilityFactor));
+    return {kind,station,routine,score,deficit,travel,unavailable,
+      trace:{kind,routineId:routine?.id??null,priority:routine?.priority??'none',
+        deficit:round(deficit),preference,travelMeters:round(Math.min(1000,travel)),
+        baseWeight,availabilityFactor,score}};
+  }
+  recordDecision(resident,mode,candidates,selected=null,roll=null){
+    resident.lastDecision={tick:this.state.clockTick,mode,roll,
+      selectedKind:selected?.kind??null,selectedRoutineId:selected?.routine?.id??null,
+      candidates:candidates.map(candidate=>candidate.trace)};
+  }
+  attemptChoice(resident,candidate){
+    const {kind,station}=candidate;
+    if(candidate.unavailable){
+      this.log(resident.id,'blocked',
+        `${resident.name}: ${kind} unavailable; ${candidate.unavailable}.`);
+      resident.cooldowns[kind]=this.state.clockTick+4;
+      return false;
+    }
+    if(station&&(station.claim||station.waiters.length)){
+      const executionId=this.nextExecutionId();
+      if(executionId===null)return false;
+      station.waiters.push({residentId:resident.id,executionId,
+        enqueuedTick:this.state.clockTick});
+      this.log(resident.id,'blocked',
+        `${resident.name}: ${station.id} occupied by ${station.claim?.residentId||'an earlier waiter'}; ${kind} score ${candidate.score}.`);
+      this.log(resident.id,'waiting',
+        `${resident.name} queued for ${station.id} as execution ${executionId}.`);
+      return true;
+    }
+    const executionId=this.nextExecutionId();
+    if(executionId===null)return false;
+    if(station)station.claim={residentId:resident.id,executionId,
+      expiresTick:this.state.clockTick+LEASE_TICKS};
+    const need=kind==='rest'?'energy':kind==='eat'?'hunger':'fun';
+    if(!this.beginActivity(resident,kind,station,executionId,
+      `${need} ${round(resident.needs[need])}, score ${candidate.score} `+
+      `(gap ${round(candidate.deficit)}, travel ${round(candidate.travel)}m`+
+      `${candidate.routine?`, routine ${candidate.routine.id}`:''}); execution ${executionId}.`)){
+      if(station)station.claim=null;
+      return false;
+    }
+    return true;
+  }
+  choose(resident){
+    const actor=positionOf(this.world,resident.objectId);
+    if(!actor){this.fail(resident,'resident object is missing');this.state.paused=true;return;}
+    // Critical hunger can override an optional time block at the next idle
+    // decision. Finite in-flight actions and social sessions still complete.
+    if(resident.needs.hunger<=15){
+      const urgent=this.decisionCandidate(resident,actor,'eat');
+      if(urgent.station&&!urgent.unavailable){
+        urgent.score=Math.max(1,urgent.score);
+        urgent.trace.score=urgent.score;
+      }
+      if(urgent.station&&!urgent.unavailable&&
+        this.attemptChoice(resident,urgent)){
+        this.recordDecision(resident,'needs',[urgent],urgent);
+        return;
+      }
+    }
+    const active=resident.routines.filter(routine=>
+      routineActive(routine,this.state.clockTick));
+    const scheduled=active.map(routine=>this.decisionCandidate(resident,actor,
+      routine.kind,routine));
+    for(const priority of PRIORITIES){
+      const candidates=scheduled.filter(candidate=>
+        candidate.routine.priority===priority&&candidate.score>0&&
+        resident.cooldowns[candidate.kind]<=this.state.clockTick);
+      if(!candidates.length)continue;
+      const total=candidates.reduce((sum,item)=>sum+item.score,0);
+      const roll=candidates.length>1?this.nextRandom():null;
+      let selected=candidates[0];
+      if(roll!==null){
+        let threshold=roll*total;
+        for(const candidate of candidates){
+          threshold-=candidate.score;
+          if(threshold<0){selected=candidate;break;}
         }
-        if(station.claim||station.waiters.length){
-          const executionId=this.nextExecutionId();
-          if(executionId===null)return;
-          station.waiters.push({residentId:resident.id,executionId,
-            enqueuedTick:this.state.clockTick});
-          this.log(resident.id,'blocked',`${resident.name}: ${station.id} occupied by ${station.claim?.residentId||'an earlier waiter'}; ${kind} score ${round(candidate.score)}.`);
-          this.log(resident.id,'waiting',
-            `${resident.name} queued for ${station.id} as execution ${executionId}.`);
+      }
+      const remaining=candidates.filter(item=>item!==selected)
+        .sort((a,b)=>b.score-a.score||
+          a.routine.id.localeCompare(b.routine.id));
+      for(const candidate of [selected,...remaining]){
+        if(this.attemptChoice(resident,candidate)){
+          this.recordDecision(resident,'routine',scheduled,candidate,roll);
           return;
         }
       }
-      const executionId=this.nextExecutionId();
-      if(executionId===null)return;
-      if(station)station.claim={residentId:resident.id,executionId,
-        expiresTick:this.state.clockTick+LEASE_TICKS};
-      const need=kind==='rest'?'energy':kind==='eat'?'hunger':'fun';
-      if(!this.beginActivity(resident,kind,station,executionId,
-        `${need} ${round(resident.needs[need])}, score ${round(candidate.score)} (gap ${round(candidate.deficit)}, travel ${round(candidate.travel)}m); execution ${executionId}.`)){
-        if(station)station.claim=null;
-        continue;
-      }
-      return;
     }
+    // Outside a usable routine window, retain the earlier need-driven fixture
+    // behavior and its seed-stable jitter.
+    const needs=ACTIVITIES.map(kind=>this.decisionCandidate(resident,actor,
+      kind,null,{legacyJitter:true}));
+    const ranked=needs.filter(candidate=>candidate.score>8&&
+      resident.cooldowns[candidate.kind]<=this.state.clockTick)
+      .sort((a,b)=>b.score-a.score||
+        ACTIVITIES.indexOf(a.kind)-ACTIVITIES.indexOf(b.kind));
+    for(const candidate of ranked){
+      if(this.attemptChoice(resident,candidate)){
+        this.recordDecision(resident,'needs',needs,candidate);
+        return;
+      }
+    }
+    this.recordDecision(resident,'idle',needs);
   }
   progress(resident){
     const action=resident.activity;

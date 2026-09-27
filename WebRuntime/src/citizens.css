@@ -1,12 +1,12 @@
 :root{font-family:Inter,ui-sans-serif,system-ui,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;color:#e8f4f4;background:#09141c;font-synthesis:none}
 *{box-sizing:border-box}
 body{margin:0;min-width:320px}
-button,input{font:inherit}
+button,input,select{font:inherit}
 button{border:1px solid #355467;border-radius:9px;background:#183344;color:#eaf8f8;padding:.62rem .8rem;cursor:pointer;transition:background .15s,border-color .15s,transform .15s}
 button:hover{background:#244b5d;border-color:#63aebd}
 button:active{transform:translateY(1px)}
 button:disabled{cursor:not-allowed;opacity:.5}
-button:focus-visible,input:focus-visible,a:focus-visible{outline:2px solid #70edd2;outline-offset:2px}
+button:focus-visible,input:focus-visible,select:focus-visible,a:focus-visible{outline:2px solid #70edd2;outline-offset:2px}
 button.primary{background:#2cbfa3;border-color:#2cbfa3;color:#08241f;font-weight:700}
 button.primary:hover{background:#61dec4}
 a{color:#81decf;text-decoration:none}a:hover{text-decoration:underline}
@@ -27,10 +27,12 @@ a{color:#81decf;text-decoration:none}a:hover{text-decoration:underline}
 .eyebrow{color:#78c9b9;font-size:.66rem;letter-spacing:.16em;font-weight:800}.subtle,.tick-count{color:#92aeb8;font-size:.71rem;white-space:nowrap}.tick-count{font-variant-numeric:tabular-nums}
 .intro{color:#a8c0c8;font-size:.82rem;line-height:1.5;margin:.6rem 0 1rem}
 .seed-row{display:grid;grid-template-columns:auto minmax(0,1fr) auto;align-items:center;gap:.55rem;margin:.5rem 0}.seed-row label{font-size:.78rem;color:#9bbbc4}.seed-row input{min-width:0;border:1px solid #3c5a68;background:#0b1b25;border-radius:8px;color:#e7f4f5;padding:.55rem .6rem;font-variant-numeric:tabular-nums}
+.seed-row select{grid-column:2 / -1;min-width:0;border:1px solid #3c5a68;background:#0b1b25;border-radius:8px;color:#e7f4f5;padding:.55rem .6rem}
 .controls{display:grid;grid-template-columns:1.2fr 1.1fr .7fr .9fr;gap:.42rem;margin-top:.7rem}.controls button{padding:.62rem .35rem;font-size:.76rem}
 #feedback{min-height:1.2rem;color:#9dc6c6;font-size:.76rem;margin:.72rem 0 0;line-height:1.4}#feedback.error{color:#f4b5a4}
 .latest-event{margin:.55rem 0 0;padding:.52rem .65rem;border-left:2px solid #62d2bc;background:#102b35;border-radius:0 6px 6px 0;color:#c2e1df;font-size:.73rem;line-height:1.4}
 .resident-list,.station-list{display:grid;gap:.65rem}.resident-card{border:1px solid #30505c;background:#102936;border-radius:11px;padding:.78rem .85rem}.resident-top,.resident-meta,.station{display:flex;justify-content:space-between;align-items:center;gap:.7rem}.resident-name{display:flex;align-items:center;gap:.55rem;font-size:.94rem;font-weight:750}.resident-dot{display:inline-block;width:11px;height:11px;border-radius:50%;background:var(--resident-color);box-shadow:0 0 10px var(--resident-color)}.resident-meta{margin:.45rem 0 .6rem;color:#bad3d9;font-size:.76rem}.resident-activity{color:#8be0c7}.resident-outcome{margin:.6rem 0 0;color:#9dbbc3;font-size:.72rem;line-height:1.35}
+.resident-routine,.resident-decision{margin:.55rem 0 0;color:#a8c8ce;font-size:.72rem;line-height:1.4}.resident-decision summary{cursor:pointer;color:#8be0c7}.resident-decision p{margin:.35rem 0 0;overflow-wrap:anywhere}
 .needs{display:grid;grid-template-columns:repeat(3,1fr);gap:.5rem}.need-label{display:flex;justify-content:space-between;color:#acc8cf;font-size:.68rem;margin-bottom:.25rem}.need-meter{height:5px;border-radius:99px;background:#284854;overflow:hidden}.need-meter span{display:block;height:100%;width:var(--level);background:var(--bar-color);border-radius:99px}
 .station{padding:.68rem .78rem;border:1px solid #294b56;border-radius:9px;background:#102733;font-size:.79rem}.station strong{display:block;font-size:.83rem}.station small{display:block;color:#90aeb7;margin-top:.14rem}.station-status{color:#8bdabc;text-align:right}.station-status.busy{color:#efbd81}
 .event-log{list-style:none;margin:0;padding:0;display:grid;gap:.46rem;max-height:320px;overflow:auto}.event-log li{display:grid;grid-template-columns:3.6rem 1fr;gap:.55rem;border-left:2px solid #376a71;padding:.45rem .55rem;background:#102632;border-radius:0 6px 6px 0;color:#d3e6e9;font-size:.75rem;line-height:1.38}.event-log time{font-variant-numeric:tabular-nums;color:#8eb3bc}.event-log .event-kind{color:#89d8c1;font-weight:700}.empty{color:#85a3ae;font-size:.78rem}

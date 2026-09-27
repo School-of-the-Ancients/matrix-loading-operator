@@ -716,12 +716,13 @@ def validate_citizens_checkpoint(value, checked_scene):
         return type(item) in (int, float) and minimum <= item <= maximum and math.isfinite(item)
 
     require(type(value) is dict and type(value.get("schemaVersion")) is int and
-            value["schemaVersion"] in (1, 2, 3, 4, 5, 6), "Unsupported Citizens schemaVersion")
+            value["schemaVersion"] in (1, 2, 3, 4, 5, 6, 7), "Unsupported Citizens schemaVersion")
     version = value["schemaVersion"]
     state_fields = ("schemaVersion", "world", "seed", "rngState", "requestSequence",
                     "clockTick", "paused", "residents", "stations", "log")
     shape(value, state_fields + (("actionSequence", "retiredResidentIds") if version >= 2 else ()) +
-          (("socialSession", "socialEvents", "relationships", "nextSocialTick") if version >= 3 else ()),
+          (("socialSession", "socialEvents", "relationships", "nextSocialTick") if version >= 3 else ()) +
+          (("clockSpeed",) if version >= 7 else ()),
           "state")
     shape(value["world"], ("schemaVersion", "roomId"), "world binding")
     require(type(value["world"]["schemaVersion"]) is int and
@@ -733,6 +734,9 @@ def validate_citizens_checkpoint(value, checked_scene):
             integer(value["requestSequence"], 0, 1000000000) and
             integer(value["clockTick"], 0, 1000000000) and
             type(value["paused"]) is bool, "Invalid Citizens clock or random state")
+    if version >= 7:
+        require(type(value["clockSpeed"]) is int and value["clockSpeed"] in (1, 4, 16),
+                "Invalid Citizens clock speed")
     action_sequence = value["actionSequence"] if version >= 2 else 0
     retired_ids = set()
     if version >= 2:
@@ -762,7 +766,8 @@ def validate_citizens_checkpoint(value, checked_scene):
     for resident in residents:
         shape(resident, ("id", "name", "objectId", "needs", "preferences", "activity",
                          "cooldowns", "lastOutcome") +
-              (("socialSessionId",) if version >= 3 else ()), "resident")
+              (("socialSessionId",) if version >= 3 else ()) +
+              (("routines", "lastDecision") if version >= 7 else ()), "resident")
         resident_id = citizens_text(resident["id"], "Citizens resident ID", limit=32)
         citizens_text(resident["name"], "Citizens resident name", limit=40)
         object_id = citizens_text(resident["objectId"], "Citizens resident object ID")
@@ -830,9 +835,14 @@ def validate_citizens_checkpoint(value, checked_scene):
     waiting_residents, waiting_execution_ids = set(), set()
     for station in stations:
         station_fields = ("id", "kind", "objectId", "capacity")
+        selected_approach = version >= 6 and "approachMode" in station
         shape(station, station_fields + (("holder",) if version == 1 else
                                          ("claim", "waiters")) +
-              (("interaction",) if version >= 6 else ()), "station")
+              (("interaction",) if version >= 6 else ()) +
+              (("approachMode",) if selected_approach else ()), "station")
+        if selected_approach:
+            require(station["approachMode"] == "selected",
+                    "Invalid Citizens station approach mode")
         station_id = citizens_text(station["id"], "Citizens station ID", limit=32)
         object_id = citizens_text(station["objectId"], "Citizens station object ID")
         kind = station["kind"]
@@ -921,6 +931,100 @@ def validate_citizens_checkpoint(value, checked_scene):
                     activity["kind"] == station["kind"] and
                     activity["executionId"] == claim["executionId"],
                     "Invalid Citizens reservation")
+
+    if version >= 7:
+        for resident in residents:
+            routines = resident["routines"]
+            require(type(routines) is list and len(routines) <= 6,
+                    "Invalid Citizens routines")
+            routine_ids = set()
+            routines_by_id = {}
+            for routine in routines:
+                shape(routine, ("id", "kind", "priority", "startMinute", "endMinute",
+                                "baseWeight", "stationId"), "routine")
+                routine_id = citizens_text(routine["id"], "Citizens routine ID", limit=32)
+                kind = routine["kind"]
+                require(routine_id not in routine_ids and
+                        type(kind) is str and kind in ("rest", "eat", "explore") and
+                        type(routine["priority"]) is str and
+                        routine["priority"] in ("high", "default", "low") and
+                        integer(routine["startMinute"], 0, 1439) and
+                        integer(routine["endMinute"], 0, 1440) and
+                        routine["startMinute"] != routine["endMinute"] and
+                        number(routine["baseWeight"], 0, 100),
+                        "Invalid Citizens routine")
+                station_id = routine["stationId"]
+                if station_id is not None:
+                    citizens_text(station_id, "Citizens routine station ID", limit=32)
+                require((station_id is None if kind == "explore" else
+                         station_id is None or
+                         station_id in stations_by_id and stations_by_id[station_id]["kind"] == kind),
+                        "Invalid Citizens routine station binding")
+                routine_ids.add(routine_id)
+                routines_by_id[routine_id] = routine
+
+            decision = resident["lastDecision"]
+            if decision is None:
+                continue
+            shape(decision, ("tick", "mode", "roll", "selectedKind",
+                             "selectedRoutineId", "candidates"), "decision")
+            require(integer(decision["tick"], 0, value["clockTick"]) and
+                    type(decision["mode"]) is str and
+                    decision["mode"] in ("routine", "needs", "idle") and
+                    (decision["roll"] is None or number(decision["roll"], 0, 1) and
+                     decision["roll"] < 1) and
+                    (decision["selectedKind"] is None or
+                     type(decision["selectedKind"]) is str and
+                     decision["selectedKind"] in ("rest", "eat", "explore")),
+                    "Invalid Citizens decision")
+            selected_routine = decision["selectedRoutineId"]
+            if selected_routine is not None:
+                citizens_text(selected_routine, "Citizens selected routine ID", limit=32)
+            require(selected_routine is None or selected_routine in routine_ids,
+                    "Invalid Citizens selected routine")
+            mode = decision["mode"]
+            selected_kind = decision["selectedKind"]
+            require((mode == "routine" and selected_routine is not None and
+                     selected_kind is not None or
+                     mode == "needs" and selected_routine is None and
+                     selected_kind is not None and decision["roll"] is None or
+                     mode == "idle" and selected_routine is None and
+                     selected_kind is None and decision["roll"] is None),
+                    "Invalid Citizens selected decision")
+            candidates = decision["candidates"]
+            require(type(candidates) is list and len(candidates) <= 6,
+                    "Invalid Citizens decision candidates")
+            selected_candidate = False
+            for candidate in candidates:
+                shape(candidate, ("kind", "routineId", "priority", "deficit",
+                                  "preference", "travelMeters", "baseWeight",
+                                  "availabilityFactor", "score"), "decision candidate")
+                require(type(candidate["kind"]) is str and
+                        candidate["kind"] in ("rest", "eat", "explore") and
+                        type(candidate["priority"]) is str and
+                        candidate["priority"] in ("high", "default", "low", "none") and
+                        number(candidate["deficit"], 0, 100) and
+                        number(candidate["preference"], .2, 2) and
+                        number(candidate["travelMeters"], 0, 1000) and
+                        number(candidate["baseWeight"], 0, 100) and
+                        number(candidate["availabilityFactor"], 0, 1) and
+                        number(candidate["score"], 0, 300),
+                        "Invalid Citizens decision candidate")
+                candidate_routine = candidate["routineId"]
+                if candidate_routine is not None:
+                    citizens_text(candidate_routine, "Citizens candidate routine ID", limit=32)
+                require((mode == "routine" and candidate_routine in routine_ids and
+                         candidate["kind"] == routines_by_id[candidate_routine]["kind"] and
+                         candidate["priority"] == routines_by_id[candidate_routine]["priority"] or
+                         mode != "routine" and candidate_routine is None and
+                         candidate["priority"] == "none"),
+                        "Invalid Citizens candidate routine")
+                if (candidate["kind"] == selected_kind and
+                    candidate_routine == selected_routine and candidate["score"] > 0):
+                    selected_candidate = True
+            if mode != "idle":
+                require(selected_candidate,
+                        "Citizens selection has no positive candidate")
 
     if version >= 3:
         require(integer(value["nextSocialTick"], 0, 1000000100),

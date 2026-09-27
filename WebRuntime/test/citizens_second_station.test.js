@@ -138,7 +138,7 @@ test('both reviewed stations restore and grant only their distinct observed effe
   const scene=structuredClone(world.scene);
   const saved=simulation.exportState();
   assert.deepEqual(added.stations.map(station=>station.kind),['rest','eat']);
-  assert.equal(saved.schemaVersion,6);
+  assert.equal(saved.schemaVersion,7);
 
   let sequence=0;
   const recovered=new MatrixWorld(()=>`dual-restored-${++sequence}`);
