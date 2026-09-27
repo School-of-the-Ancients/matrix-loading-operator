@@ -71,10 +71,12 @@ export class ConceptClient {
       const result=await this.request('/api/agent/concepts',{
         sessionId,prompt:prompt.trim(),...(providerId?{providerId}:{})});
       if(!result?.job?.id||!result.job.conceptId)throw Error('Invalid concept job response');
-      this.jobs=[...this.jobs.filter(job=>job.id!==result.job.id),result.job];
-      this.error='';this.onChange(this);
+      if(this.sessionId===sessionId){
+        this.jobs=[...this.jobs.filter(job=>job.id!==result.job.id),result.job];
+        this.error='';this.onChange(this);
+      }
       return result.job;
-    }catch(error){this._fail(error);throw error;}
+    }catch(error){if(this.sessionId===sessionId)this._fail(error);throw error;}
   }
   async vary(sessionId,sourceConceptId,prompt,providerId){
     this._session(sessionId);
@@ -84,10 +86,12 @@ export class ConceptClient {
         sessionId,sourceConceptId,...(prompt?.trim()?{prompt:prompt.trim()}:{}),
         ...(providerId?{providerId}:{})});
       if(!result?.job?.id||!result.job.conceptId)throw Error('Invalid variation job response');
-      this.jobs=[...this.jobs.filter(job=>job.id!==result.job.id),result.job];
-      this.error='';this.onChange(this);
+      if(this.sessionId===sessionId){
+        this.jobs=[...this.jobs.filter(job=>job.id!==result.job.id),result.job];
+        this.error='';this.onChange(this);
+      }
       return result.job;
-    }catch(error){this._fail(error);throw error;}
+    }catch(error){if(this.sessionId===sessionId)this._fail(error);throw error;}
   }
   async select(sessionId,conceptId,designNotes){
     this._session(sessionId);
@@ -97,12 +101,14 @@ export class ConceptClient {
         sessionId,conceptId,...(designNotes!==undefined?{designNotes}:{})});
       if(result?.selectedConceptId!==conceptId||!result.concept)
         throw Error('Concept selection was not confirmed');
-      this.selectedConceptId=conceptId;
-      this.concepts=this.concepts.map(concept=>concept.conceptId===conceptId?result.concept:concept);
-      if(!this.concepts.some(concept=>concept.conceptId===conceptId))this.concepts.push(result.concept);
-      this.error='';this.onChange(this);
+      if(this.sessionId===sessionId){
+        this.selectedConceptId=conceptId;
+        this.concepts=this.concepts.map(concept=>concept.conceptId===conceptId?result.concept:concept);
+        if(!this.concepts.some(concept=>concept.conceptId===conceptId))this.concepts.push(result.concept);
+        this.error='';this.onChange(this);
+      }
       return result.concept;
-    }catch(error){this._fail(error);throw error;}
+    }catch(error){if(this.sessionId===sessionId)this._fail(error);throw error;}
   }
   async cancel(sessionId,conceptId){
     this._session(sessionId);
@@ -111,10 +117,12 @@ export class ConceptClient {
       const result=await this.request('/api/agent/concepts/cancel',{sessionId,conceptId});
       if(result?.job?.conceptId!==conceptId||result.job.status!=='cancelled')
         throw Error('Concept cancellation was not confirmed');
-      this.jobs=this.jobs.map(job=>job.conceptId===conceptId?result.job:job);
-      this.error='';this.onChange(this);
+      if(this.sessionId===sessionId){
+        this.jobs=this.jobs.map(job=>job.conceptId===conceptId?result.job:job);
+        this.error='';this.onChange(this);
+      }
       return result.job;
-    }catch(error){this._fail(error);throw error;}
+    }catch(error){if(this.sessionId===sessionId)this._fail(error);throw error;}
   }
   get selected(){return this.concepts.find(concept=>concept.conceptId===this.selectedConceptId)||null;}
   get availableProviders(){return this.providers.filter(provider=>provider.available);}

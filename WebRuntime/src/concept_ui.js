@@ -55,6 +55,20 @@ export class ConceptUI {
       await this.client.refresh(sessionId);
     return this.client.providerForRequest();
   }
+  async _currentResult(sessionId,pending){
+    try{
+      const result=await pending;
+      if(this.getSession()===sessionId)return result;
+    }catch(error){
+      if(this.getSession()===sessionId)throw error;
+    }
+    this.notice='';this.noticeError=false;
+    const currentSession=this.getSession();
+    if(currentSession&&this.client&&this.client.sessionId!==currentSession)
+      this.client._session(currentSession);
+    this.render();
+    return null;
+  }
   _providerLabel(providerId){
     return providerId?(this.client.providers.find(provider=>provider.id===providerId)?.label||providerId):'';
   }
@@ -72,8 +86,11 @@ export class ConceptUI {
     this.notice='Submitting image request on the PC…';this.noticeError=false;
     this.render();this.onChange();
     const sessionId=await this._session();
-    const providerId=await this._providerForRequest(sessionId);
-    const job=await this.client.generate(sessionId,prompt,providerId);
+    const providerId=await this._currentResult(sessionId,this._providerForRequest(sessionId));
+    if(this.getSession()!==sessionId)return null;
+    const job=await this._currentResult(sessionId,
+      this.client.generate(sessionId,prompt,providerId));
+    if(!job)return null;
     this.els.prompt.value=prompt.trim();
     if(job.status==='failed')throw Error(`${label(job)} failed: ${job.message||'Image submission failed.'}`);
     this.notice=`${label(job)} ${job.status}. Earlier versions and the current selection remain available.`;
@@ -86,14 +103,17 @@ export class ConceptUI {
     this.render();this.onChange();
     const sessionId=await this._session();
     if(!this.client.concepts.length||this.client.sessionId!==sessionId||
-        !this.client.providerStatusLoaded)await this.client.refresh(sessionId);
+        !this.client.providerStatusLoaded)
+      await this._currentResult(sessionId,this.client.refresh(sessionId));
+    if(this.getSession()!==sessionId){this.notice='';this.render();return null;}
     const source=this.client.selected||latest(this.client.concepts);
     if(!source)throw Error('Wait for a ready concept before making another version.');
     const typed=this.els.prompt.value.trim();
     const prompt=notes?revisedPrompt(source,notes):
       typed&&typed!==source.prompt?typed:undefined;
-    const job=await this.client.vary(sessionId,source.conceptId,prompt,
-      this.client.providerForRequest());
+    const job=await this._currentResult(sessionId,
+      this.client.vary(sessionId,source.conceptId,prompt,this.client.providerForRequest()));
+    if(!job)return null;
     if(prompt)this.els.prompt.value=prompt;
     if(job.status==='failed')throw Error(`${label(job)} failed: ${job.message||'Image submission failed.'}`);
     this.notice=`${label(job)} ${job.status}. This is a new text-to-image sample from ${label(source)}; the selected design does not change.`;
@@ -103,14 +123,17 @@ export class ConceptUI {
   }
   async select(conceptId,notes){
     const sessionId=await this._session();
-    const concept=await this.client.select(sessionId,conceptId,notes);
+    const concept=await this._currentResult(sessionId,
+      this.client.select(sessionId,conceptId,notes));
+    if(!concept)return null;
     this.notice=`${label(concept)} selected${notes?' with design notes':''}. The image was not edited. Ask Codex to build from this design when ready.`;
     this.noticeError=false;
     return concept;
   }
   async selectVersion(version,notes){
     const sessionId=await this._session();
-    await this.client.refresh(sessionId);
+    await this._currentResult(sessionId,this.client.refresh(sessionId));
+    if(this.getSession()!==sessionId)return null;
     const concept=this.client.byVersion(version);
     if(!concept){
       const pending=this.client.jobs.find(job=>job.version===version);
@@ -126,7 +149,9 @@ export class ConceptUI {
   }
   async cancel(conceptId){
     const sessionId=await this._session();
-    const job=await this.client.cancel(sessionId,conceptId);
+    const job=await this._currentResult(sessionId,
+      this.client.cancel(sessionId,conceptId));
+    if(!job)return null;
     this.notice=`${label(job)} cancelled.`;this.noticeError=false;
     return job;
   }
@@ -216,7 +241,9 @@ export class ConceptUI {
       const status=document.createElement('span');
       status.textContent=`${label(job)}${job.providerId?` · ${this._providerLabel(job.providerId)}`:''} · ${job.status}${job.message?` · ${short(job.message)}`:''}`;
       row.append(status);
-      if(job.status==='queued'){
+      const cancellable=job.cancellable===true||
+        job.cancellable===undefined&&(!job.providerId||job.providerId==='comfyui');
+      if(job.status==='queued'&&cancellable){
         const button=document.createElement('button');button.type='button';button.textContent='Cancel';
         button.disabled=this.busy;
         button.addEventListener('click',()=>void this._run(()=>this.cancel(job.conceptId)).catch(()=>{}));

@@ -110,3 +110,54 @@ test('no server-advertised image source disables submissions',async()=>{
   await client.refresh(sessionId);
   assert.throws(()=>client.providerForRequest(),/No image source/);
 });
+
+test('late concept POST responses cannot write into a different Agent session',async()=>{
+  const nextSessionId='b'.repeat(32);
+  const cases=[
+    {path:'/api/agent/concepts',action:client=>client.generate(sessionId,'forest temple'),
+      response:{job:{id:'old-generate',conceptId:one.conceptId,version:1,status:'queued'}}},
+    {path:'/api/agent/concepts/variation',action:client=>client.vary(sessionId,one.conceptId),
+      response:{job:{id:'old-variation',conceptId:two.conceptId,version:2,status:'queued'}}},
+    {path:'/api/agent/concepts/select',action:client=>client.select(sessionId,one.conceptId),
+      response:{selectedConceptId:one.conceptId,concept:one}},
+    {path:'/api/agent/concepts/cancel',action:client=>client.cancel(sessionId,one.conceptId),
+      response:{job:{id:'old-cancel',conceptId:one.conceptId,version:1,status:'cancelled'}}},
+  ];
+  for(const item of cases){
+    let finish;
+    const client=new ConceptClient(async(path)=>{
+      if(path===item.path)return new Promise(resolve=>{finish=resolve;});
+      if(path.includes(`sessionId=${sessionId}`))return {
+        jobs:[{id:'old-job',conceptId:one.conceptId,version:1,status:'queued'}],
+        concepts:[one],selectedConceptId:one.conceptId};
+      if(path.includes(`sessionId=${nextSessionId}`))return {
+        jobs:[],concepts:[],selectedConceptId:null};
+      throw Error(`Unexpected path: ${path}`);
+    });
+    await client.refresh(sessionId);
+    const oldRequest=item.action(client);
+    await client.refresh(nextSessionId);
+    finish(item.response);
+    await oldRequest;
+    assert.equal(client.sessionId,nextSessionId,item.path);
+    assert.deepEqual(client.jobs,[],item.path);
+    assert.deepEqual(client.concepts,[],item.path);
+    assert.equal(client.selectedConceptId,null,item.path);
+    assert.equal(client.error,'',item.path);
+  }
+});
+
+test('late concept POST errors do not appear in a different Agent session',async()=>{
+  const nextSessionId='b'.repeat(32);
+  let fail;
+  const client=new ConceptClient(async(path)=>{
+    if(path==='/api/agent/concepts')return new Promise((resolve,reject)=>{fail=reject;});
+    return {jobs:[],concepts:[],selectedConceptId:null};
+  });
+  const oldRequest=client.generate(sessionId,'forest temple');
+  await client.refresh(nextSessionId);
+  fail(Error('Old session failed'));
+  await assert.rejects(oldRequest,/Old session failed/);
+  assert.equal(client.sessionId,nextSessionId);
+  assert.equal(client.error,'');
+});
