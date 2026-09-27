@@ -22,14 +22,20 @@ export class ConceptUI {
     this.client=new ConceptClient(request,()=>{this.render();this.onChange();});
     this.els={prompt:$('concept-prompt'),generate:$('concept-generate'),
       vary:$('concept-vary'),summary:$('concept-summary'),status:$('concept-status'),
+      provider:$('concept-provider'),providerLabel:$('concept-provider-label'),
       buildStatus:$('concept-build-status'),
       jobs:$('concept-jobs'),list:$('concept-list'),notes:$('concept-notes'),
       saveNotes:$('concept-save-notes')};
+    this.providerOptionsKey='';
   }
   bind(){
     this.els.generate.addEventListener('click',()=>void this._run(()=>this.generate(this.els.prompt.value)).catch(()=>{}));
     this.els.vary.addEventListener('click',()=>void this._run(()=>this.vary()).catch(()=>{}));
     this.els.saveNotes.addEventListener('click',()=>void this._run(()=>this.saveNotes()).catch(()=>{}));
+    this.els.provider.addEventListener('change',()=>{
+      try{this.client.selectProvider(this.els.provider.value);}
+      catch(error){this.notice=String(error?.message||error);this.noticeError=true;this.render();}
+    });
     this.render();
   }
   async _run(action){
@@ -43,6 +49,14 @@ export class ConceptUI {
     const sessionId=await this.ensureSession();
     if(this.client.sessionId&&this.client.sessionId!==sessionId)this._clearPreviews();
     return sessionId;
+  }
+  async _providerForRequest(sessionId){
+    if(this.client.sessionId!==sessionId||!this.client.providerStatusLoaded)
+      await this.client.refresh(sessionId);
+    return this.client.providerForRequest();
+  }
+  _providerLabel(providerId){
+    return providerId?(this.client.providers.find(provider=>provider.id===providerId)?.label||providerId):'';
   }
   async refresh(){
     const sessionId=this.getSession();
@@ -58,7 +72,8 @@ export class ConceptUI {
     this.notice='Submitting image request on the PC…';this.noticeError=false;
     this.render();this.onChange();
     const sessionId=await this._session();
-    const job=await this.client.generate(sessionId,prompt);
+    const providerId=await this._providerForRequest(sessionId);
+    const job=await this.client.generate(sessionId,prompt,providerId);
     this.els.prompt.value=prompt.trim();
     if(job.status==='failed')throw Error(`${label(job)} failed: ${job.message||'Image submission failed.'}`);
     this.notice=`${label(job)} ${job.status}. Earlier versions and the current selection remain available.`;
@@ -70,13 +85,15 @@ export class ConceptUI {
     this.notice='Starting another image version on the PC…';this.noticeError=false;
     this.render();this.onChange();
     const sessionId=await this._session();
-    if(!this.client.concepts.length)await this.client.refresh(sessionId);
+    if(!this.client.concepts.length||this.client.sessionId!==sessionId||
+        !this.client.providerStatusLoaded)await this.client.refresh(sessionId);
     const source=this.client.selected||latest(this.client.concepts);
     if(!source)throw Error('Wait for a ready concept before making another version.');
     const typed=this.els.prompt.value.trim();
     const prompt=notes?revisedPrompt(source,notes):
       typed&&typed!==source.prompt?typed:undefined;
-    const job=await this.client.vary(sessionId,source.conceptId,prompt);
+    const job=await this.client.vary(sessionId,source.conceptId,prompt,
+      this.client.providerForRequest());
     if(prompt)this.els.prompt.value=prompt;
     if(job.status==='failed')throw Error(`${label(job)} failed: ${job.message||'Image submission failed.'}`);
     this.notice=`${label(job)} ${job.status}. This is a new text-to-image sample from ${label(source)}; the selected design does not change.`;
@@ -139,7 +156,7 @@ export class ConceptUI {
     const selected=this.selected,active=this.client.activeJobs.at(-1);
     const newest=latest(this.client.concepts);
     return [this.busy&&this.notice?this.notice:'',
-      active?`Image ${label(active)}: ${active.status}.`:'',
+      active?`Image ${label(active)}${active.providerId?` (${this._providerLabel(active.providerId)})`:''}: ${active.status}.`:'',
       newest?`Image ${label(newest)} ready.`:'',
       selected?`Selected design: ${label(selected)}. ${short(selected.designNotes||selected.prompt)}`:
         this.client.concepts.length?'No image selected. Choose a version before asking Codex to build from it.':'',
@@ -148,14 +165,16 @@ export class ConceptUI {
   }
   render(){
     const {selected,activeJobs,concepts,jobs,error}=this.client;
+    this._renderProviders();
     this.els.summary.textContent=selected?`${label(selected)} selected`:'No concept selected';
     if(selected?.conceptId!==this.lastSelectedId){
       this.lastSelectedId=selected?.conceptId||null;
       this.els.notes.value=selected?.designNotes||'';
       if(selected?.prompt)this.els.prompt.value=selected.prompt;
     }
-    this.els.generate.disabled=this.busy;
-    this.els.vary.disabled=this.busy||!concepts.length;
+    const unavailable=this.client.providerStatusLoaded&&!this.client.availableProviders.length;
+    this.els.generate.disabled=this.busy||unavailable;
+    this.els.vary.disabled=this.busy||!concepts.length||unavailable;
     this.els.saveNotes.disabled=this.busy||!selected;
     const status=error||this.notice||(activeJobs.length?
       `${activeJobs.map(job=>`${label(job)} ${job.status}`).join(' · ')}. Selected version will not change when a job finishes.`:
@@ -168,12 +187,34 @@ export class ConceptUI {
     this._renderJobs(jobs);
     this._renderConcepts(concepts,selected?.conceptId);
   }
+  _renderProviders(){
+    const available=this.client.availableProviders;
+    const key=available.map(provider=>`${provider.id}:${provider.label}`).join('|');
+    if(key!==this.providerOptionsKey){
+      this.providerOptionsKey=key;this.els.provider.replaceChildren();
+      for(const provider of available){
+        const option=document.createElement('option');
+        option.value=provider.id;option.textContent=provider.label;
+        this.els.provider.append(option);
+      }
+    }
+    this.els.provider.hidden=available.length<=1;
+    this.els.provider.disabled=this.busy;
+    this.els.providerLabel.hidden=available.length>1;
+    if(available.length>1)this.els.provider.value=this.client.selectedProviderId||'';
+    else if(available.length===1)this.els.providerLabel.textContent=available[0].label;
+    else if(this.client.providerStatusLoaded){
+      const reasons=this.client.providers.map(provider=>provider.reason).filter(Boolean);
+      this.els.providerLabel.textContent=reasons.length?short(reasons.join(' · ')):
+        'No image source is currently available on the PC.';
+    }else this.els.providerLabel.textContent='Connect to Codex to check image sources.';
+  }
   _renderJobs(jobs){
     this.els.jobs.replaceChildren();
     for(const job of [...jobs].filter(job=>job.status!=='ready').sort((a,b)=>b.version-a.version).slice(0,6)){
       const row=document.createElement('div');row.className='concept-job';
       const status=document.createElement('span');
-      status.textContent=`${label(job)} · ${job.status}${job.message?` · ${short(job.message)}`:''}`;
+      status.textContent=`${label(job)}${job.providerId?` · ${this._providerLabel(job.providerId)}`:''} · ${job.status}${job.message?` · ${short(job.message)}`:''}`;
       row.append(status);
       if(job.status==='queued'){
         const button=document.createElement('button');button.type='button';button.textContent='Cancel';
@@ -192,6 +233,11 @@ export class ConceptUI {
       const title=document.createElement('strong');
       title.textContent=`${label(concept)}${concept.conceptId===selectedId?' · SELECTED':''}`;
       card.append(title);
+      if(concept.providerId){
+        const source=document.createElement('p');source.className='concept-source';
+        source.textContent=`Image source: ${this._providerLabel(concept.providerId)}`;
+        card.append(source);
+      }
       const preview=this.previews.get(concept.conceptId);
       if(preview?.serverUrl===concept.previewUrl){
         const image=document.createElement('img');image.src=preview.objectUrl;

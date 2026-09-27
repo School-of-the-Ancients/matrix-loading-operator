@@ -1,5 +1,5 @@
-// Browser contract for PC-owned concept jobs. The browser retains no ComfyUI
-// endpoint, workflow, model, seed, artifact path or provider credential.
+// Browser contract for PC-owned concept jobs. The browser retains no provider
+// endpoint, workflow, model, seed, artifact path or credential.
 const SESSION_ID=/^[0-9a-f]{32}$/;
 
 export class ConceptClient {
@@ -7,13 +7,16 @@ export class ConceptClient {
     this.request=request;this.onChange=onChange;
     this.sessionId=null;this.jobs=[];this.concepts=[];
     this.selectedConceptId=null;this.builds=[];this.error='';this.refreshPromise=null;
-    this.refreshSessionId=null;
+    this.refreshSessionId=null;this.providers=[];this.defaultProviderId=null;
+    this.selectedProviderId=null;this.providerStatusLoaded=false;
   }
   _session(sessionId){
     if(!SESSION_ID.test(sessionId||''))throw Error('Connect Codex before using image concepts.');
     if(this.sessionId!==sessionId){
       this.sessionId=sessionId;this.jobs=[];this.concepts=[];this.builds=[];
-      this.selectedConceptId=null;this.error='';this.onChange(this);
+      this.selectedConceptId=null;this.error='';this.providers=[];
+      this.defaultProviderId=null;this.selectedProviderId=null;
+      this.providerStatusLoaded=false;this.onChange(this);
     }
     return sessionId;
   }
@@ -23,6 +26,17 @@ export class ConceptClient {
       !(data.selectedConceptId===null||typeof data.selectedConceptId==='string'))
       throw Error('Invalid concept status response');
     this.jobs=data.jobs;this.concepts=data.concepts;this.builds=Array.isArray(data.builds)?data.builds:[];
+    if(Array.isArray(data.providers)){
+      this.providers=data.providers.filter(provider=>provider&&typeof provider.id==='string'&&
+        typeof provider.label==='string'&&typeof provider.available==='boolean');
+      this.defaultProviderId=typeof data.defaultProviderId==='string'?data.defaultProviderId:null;
+      this.providerStatusLoaded=true;
+      const available=this.availableProviders;
+      if(!available.some(provider=>provider.id===this.selectedProviderId)){
+        this.selectedProviderId=available.some(provider=>provider.id===this.defaultProviderId)?
+          this.defaultProviderId:available[0]?.id||null;
+      }
+    }
     this.selectedConceptId=data.selectedConceptId;this.error='';this.onChange(this);
     return data;
   }
@@ -40,23 +54,35 @@ export class ConceptClient {
     finally{if(this.refreshPromise===pending){
       this.refreshPromise=null;this.refreshSessionId=null;}}
   }
-  async generate(sessionId,prompt){
+  selectProvider(providerId){
+    if(!this.availableProviders.some(provider=>provider.id===providerId))
+      throw Error('Image source is unavailable.');
+    this.selectedProviderId=providerId;this.onChange(this);
+  }
+  providerForRequest(){
+    if(this.providerStatusLoaded&&!this.selectedProviderId)
+      throw Error('No image source is currently available on the PC.');
+    return this.selectedProviderId||undefined;
+  }
+  async generate(sessionId,prompt,providerId){
     this._session(sessionId);
     if(typeof prompt!=='string'||!prompt.trim())throw Error('Describe the image first.');
     try{
-      const result=await this.request('/api/agent/concepts',{sessionId,prompt:prompt.trim()});
+      const result=await this.request('/api/agent/concepts',{
+        sessionId,prompt:prompt.trim(),...(providerId?{providerId}:{})});
       if(!result?.job?.id||!result.job.conceptId)throw Error('Invalid concept job response');
       this.jobs=[...this.jobs.filter(job=>job.id!==result.job.id),result.job];
       this.error='';this.onChange(this);
       return result.job;
     }catch(error){this._fail(error);throw error;}
   }
-  async vary(sessionId,sourceConceptId,prompt){
+  async vary(sessionId,sourceConceptId,prompt,providerId){
     this._session(sessionId);
     if(typeof sourceConceptId!=='string'||!sourceConceptId)throw Error('Choose a ready concept first.');
     try{
       const result=await this.request('/api/agent/concepts/variation',{
-        sessionId,sourceConceptId,...(prompt?.trim()?{prompt:prompt.trim()}:{})});
+        sessionId,sourceConceptId,...(prompt?.trim()?{prompt:prompt.trim()}:{}),
+        ...(providerId?{providerId}:{})});
       if(!result?.job?.id||!result.job.conceptId)throw Error('Invalid variation job response');
       this.jobs=[...this.jobs.filter(job=>job.id!==result.job.id),result.job];
       this.error='';this.onChange(this);
@@ -91,6 +117,7 @@ export class ConceptClient {
     }catch(error){this._fail(error);throw error;}
   }
   get selected(){return this.concepts.find(concept=>concept.conceptId===this.selectedConceptId)||null;}
+  get availableProviders(){return this.providers.filter(provider=>provider.available);}
   byVersion(version){return this.concepts.find(concept=>concept.version===version)||null;}
   get activeJobs(){return this.jobs.filter(job=>['queued','generating'].includes(job.status));}
 }

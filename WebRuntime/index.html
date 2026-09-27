@@ -41,6 +41,11 @@
           <p class="hint">Generate an image first, choose a version, then ask Codex to build from that design. New versions keep earlier images.</p>
           <label for="concept-prompt">Image description</label>
           <textarea id="concept-prompt" rows="2" placeholder="A futuristic forest temple at dusk"></textarea>
+          <div class="concept-provider-row">
+            <label for="concept-provider">Image source</label>
+            <select id="concept-provider" aria-label="Image source" hidden></select>
+            <span id="concept-provider-label">Connect to Codex to check image sources.</span>
+          </div>
           <div class="row"><button id="concept-generate" type="button">Generate image</button><button id="concept-vary" type="button">Another version</button></div>
           <p class="hint">Another version is a new text-to-image sample. It does not edit the pixels of an earlier image.</p>
           <p id="concept-status" role="status" aria-live="polite">Connect to Codex to view saved concepts.</p>

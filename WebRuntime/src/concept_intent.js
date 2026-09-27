@@ -1,4 +1,4 @@
-// Only explicit image/version requests enter the ComfyUI concept path.
+// Only explicit image/version requests enter the PC concept provider path.
 // Other creative requests keep their existing Operator routing.
 const clean=text=>String(text||'').trim()
   .replace(/^(?:please\s+)?(?:hey\s+)?operator[,;:\s]+/i,'')

@@ -73,3 +73,40 @@ test('an explicit version lookup can join an in-flight status refresh',async()=>
   await Promise.all([first,second]);
   assert.equal(client.byVersion(2)?.conceptId,two.conceptId);
 });
+
+test('server-advertised image sources choose native by default and preserve an explicit fallback',async()=>{
+  const calls=[];
+  let providers=[{id:'codex-native',label:'Codex GPT Image',available:true},
+    {id:'comfyui',label:'ComfyUI',available:true}];
+  const client=new ConceptClient(async(path,body)=>{
+    calls.push([path,body]);
+    if(path.startsWith('/api/agent/concepts?'))return {
+      jobs:[],concepts:[one],selectedConceptId:null,providers,defaultProviderId:'codex-native'};
+    if(path==='/api/agent/concepts')return {job:{id:'job-one',conceptId:one.conceptId,
+      version:1,status:'queued',providerId:body.providerId}};
+    if(path==='/api/agent/concepts/variation')return {job:{id:'job-two',conceptId:two.conceptId,
+      version:2,status:'queued',providerId:body.providerId}};
+    throw Error('unexpected path');
+  });
+  await client.refresh(sessionId);
+  assert.equal(client.providerForRequest(),'codex-native');
+  await client.generate(sessionId,'forest temple',client.providerForRequest());
+  assert.equal(calls.at(-1)[1].providerId,'codex-native');
+  client.selectProvider('comfyui');
+  await client.refresh(sessionId);
+  assert.equal(client.providerForRequest(),'comfyui');
+  await client.vary(sessionId,one.conceptId,undefined,client.providerForRequest());
+  assert.equal(calls.at(-1)[1].providerId,'comfyui');
+  providers=[{id:'codex-native',label:'Codex GPT Image',available:true},
+    {id:'comfyui',label:'ComfyUI',available:false,reason:'Workflow is unavailable'}];
+  await client.refresh(sessionId);
+  assert.equal(client.providerForRequest(),'codex-native');
+  assert.throws(()=>client.selectProvider('comfyui'),/unavailable/);
+});
+
+test('no server-advertised image source disables submissions',async()=>{
+  const client=new ConceptClient(async()=>({jobs:[],concepts:[],selectedConceptId:null,
+    providers:[{id:'codex-native',label:'Codex GPT Image',available:false}],defaultProviderId:null}));
+  await client.refresh(sessionId);
+  assert.throws(()=>client.providerForRequest(),/No image source/);
+});
