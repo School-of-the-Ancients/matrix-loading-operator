@@ -9,6 +9,7 @@
     "test": "node --test test/*.test.js"
   },
   "dependencies": {
+    "@dimforge/rapier3d-compat": "0.20.0",
     "three": "^0.180.0"
   },
   "devDependencies": {

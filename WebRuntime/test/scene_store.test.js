@@ -17,6 +17,50 @@ function storage(){
 }
 const pose={position:{x:1,y:0,z:-2},rotation:{x:0,y:0,z:0},scale:{x:1,y:1,z:1}};
 
+function controlWorld(){
+  let next=0;
+  const world=new MatrixWorld(()=>`control-store-${++next}`);
+  const target=world.execute({requestId:'control-target',op:'spawn',assetId:'block',
+    anchorId:'web-floor',transform:pose}).objectId;
+  const panel=world.execute({requestId:'control-panel',op:'spawn',assetId:'wall',
+    anchorId:'web-floor',transform:{...pose,position:{x:3,y:0,z:-2}}}).objectId;
+  world.requireObject(panel).control={schemaVersion:1,label:'Cycle dimensions',
+    action:{kind:'cycle-values',channel:'transform.scale',targetObjectId:target,
+      values:[[1,1,1],[2,3,4]]}};
+  world.requireObject(target).transform.scale={x:2,y:3,z:4};
+  world.controlStates[panel]={index:1,revision:2};
+  world.validateScene(world.scene);
+  return {world,target,panel};
+}
+
+test('control progress survives browser and manual whole-world checkpoints',()=>{
+  const {world,target,panel}=controlWorld(),tab=storage(),durable=storage();
+  const saved=storedWorld(world);
+  assert.equal(saved.controlSchemaVersion,1);
+  assert.deepEqual(saved.controlStates[panel],{index:1,revision:2});
+  assert.equal(saveStoredWorld(saved,tab,durable),'');
+  const reopened=new MatrixWorld();
+  restoreStoredWorld(reopened,loadStoredWorld(storage(),durable).value);
+  assert.deepEqual(reopened.controlStates[panel],{index:1,revision:2});
+  assert.deepEqual(reopened.requireObject(target).transform.scale,{x:2,y:3,z:4});
+  assert.deepEqual(storedWorld(reopened),saved);
+  const manual=storage();
+  assert.equal(saveCheckpoint(saved.scene,saved.game,manual,'virtual',null,null,
+    saved.creatorMode,saved.rigidGravity,saved.controlStates),'');
+  const fromCheckpoint=new MatrixWorld();
+  restoreStoredWorld(fromCheckpoint,loadCheckpoint(manual));
+  assert.deepEqual(fromCheckpoint.controlStates[panel],{index:1,revision:2});
+});
+
+test('forged control progress is rejected before replacing the active world',()=>{
+  const {world,target,panel}=controlWorld(),before=storedWorld(world);
+  const forged=structuredClone(before);
+  forged.controlStates[panel].index=0;
+  assert.throws(()=>restoreStoredWorld(world,forged),/control/i);
+  assert.deepEqual(storedWorld(world),before);
+  assert.deepEqual(world.requireObject(target).transform.scale,{x:2,y:3,z:4});
+});
+
 test('closing the tab restores the same virtual objects from durable browser storage',()=>{
   const tab=storage(),durable=storage();
   const original=new MatrixWorld(()=> 'chair-one');

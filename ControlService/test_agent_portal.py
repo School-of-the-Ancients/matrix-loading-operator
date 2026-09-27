@@ -10,6 +10,7 @@ from pathlib import Path
 from unittest.mock import patch
 
 from agent_portal import AgentPortal, AgentPortalError, MAX_STORE
+from agent_session import MatrixMCPUnavailableError
 
 
 class FakeBackend:
@@ -154,7 +155,17 @@ class AgentPortalTests(unittest.TestCase):
         self.assertEqual(resumed["sessionId"], session_id)
         self.assertEqual(resumed["transcript"][0]["assistant"], "Done.")
         self.assertEqual(self.backends[-1].resume_calls, ["native-thread-id"])
-        second = restarted.send_text(session_id, "Make it taller")
+        fresh_context = {"kind": "matrix_spatial_context",
+                         "runtimeDescriptor": {"schemaVersion": 1, "client": "matrix-web",
+                                               "renderer": "threejs-webxr", "presentation": "vr"},
+                         "capabilityVersions": {"rigidSchemaVersion": 1},
+                         "assetCatalogCount": 30, "proceduralGeneratorCount": 0}
+        second = restarted.send_text(session_id, "Operator, load the saved exhibit", fresh_context)
+        sent = self.backends[-1].sent_texts[-1]
+        self.assertIn("vr presentation", sent)
+        self.assertIn("matrix_spatial_context", sent)
+        self.assertNotIn("White Room", sent)
+        self.assertNotIn("matrix_move_object sets", sent)
         restarted.cancel(session_id, second["turnId"])
         status = self.wait_for(restarted, session_id, lambda value: value["activity"] == "cancelled")
         self.assertEqual(status["transcript"][-1]["status"], "cancelled")
@@ -240,6 +251,18 @@ class AgentPortalTests(unittest.TestCase):
         with self.assertRaisesRegex(AgentPortalError, "requires PC repair"):
             portal.open()
         self.assertEqual(path.read_text(encoding="utf-8"), "{broken")
+
+    def test_missing_matrix_mcp_dependency_has_safe_actionable_error(self):
+        portal = AgentPortal(self.temp.name, self.factory)
+        self.addCleanup(portal.close)
+        with patch.object(FakeBackend, "start", side_effect=MatrixMCPUnavailableError("private detail")):
+            with self.assertRaises(AgentPortalError) as raised:
+                portal.open()
+        self.assertEqual(raised.exception.status, 503)
+        self.assertIn("requirements-agent-mcp.txt", str(raised.exception))
+        self.assertNotIn("private detail", str(raised.exception))
+        self.assertEqual(portal.last_error, "private detail")
+        self.assertTrue(self.backends[-1].closed)
 
     def test_bounded_transcript_marks_omitted_prefix(self):
         portal = self.portal()

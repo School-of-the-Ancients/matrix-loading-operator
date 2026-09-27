@@ -5,6 +5,7 @@ with Codex's MCP subprocess, including when that API uses TLS.
 """
 from __future__ import annotations
 
+import copy
 import hmac
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 import json
@@ -60,10 +61,124 @@ def spawn_asset(url: str, token: str, value: dict) -> dict:
     return _request_json(url[:-6] + "/spawn", token, value)
 
 
+def spawn_builtin(url: str, token: str, value: dict) -> dict:
+    if not url.endswith("/scene"):
+        raise ValueError("Invalid Matrix tool bridge URL")
+    return _request_json(url[:-6] + "/spawn-builtin", token, value)
+
+
 def spawn_status(url: str, token: str, request_id: str) -> dict:
     if not url.endswith("/scene") or not re.fullmatch(r"[0-9a-f]{32}", request_id):
         raise ValueError("Invalid Matrix spawn receipt request")
     return _request_json(url[:-6] + "/spawns/" + request_id, token)
+
+
+def list_procedural_generators(url: str, token: str) -> dict:
+    if not url.endswith("/scene"):
+        raise ValueError("Invalid Matrix tool bridge URL")
+    return _request_json(url[:-6] + "/procedural-generators", token)
+
+
+def procedural_action(url: str, token: str, value: dict) -> dict:
+    if not url.endswith("/scene"):
+        raise ValueError("Invalid Matrix tool bridge URL")
+    return _request_json(url[:-6] + "/procedural", token, value)
+
+
+def procedural_status(url: str, token: str, request_id: str) -> dict:
+    if not url.endswith("/scene") or not re.fullmatch(r"[0-9a-f]{32}", request_id):
+        raise ValueError("Invalid Matrix procedural receipt request")
+    return _request_json(url[:-6] + "/procedural/" + request_id, token)
+
+
+def bind_game(url: str, token: str, value: dict) -> dict:
+    if not url.endswith("/scene"):
+        raise ValueError("Invalid Matrix tool bridge URL")
+    return _request_json(url[:-6] + "/bind-game", token, value)
+
+
+def update_game(url: str, token: str, value: dict) -> dict:
+    if not url.endswith("/scene"):
+        raise ValueError("Invalid Matrix tool bridge URL")
+    return _request_json(url[:-6] + "/update-game", token, value)
+
+
+def game_status(url: str, token: str, request_id: str) -> dict:
+    if not url.endswith("/scene") or not re.fullmatch(r"[0-9a-f]{32}", request_id):
+        raise ValueError("Invalid Matrix game receipt request")
+    return _request_json(url[:-6] + "/games/" + request_id, token)
+
+
+def display_action(url: str, token: str, value: dict) -> dict:
+    if not url.endswith("/scene"):
+        raise ValueError("Invalid Matrix tool bridge URL")
+    return _request_json(url[:-6] + "/display", token, value)
+
+
+def display_status(url: str, token: str, request_id: str) -> dict:
+    if not url.endswith("/scene") or not re.fullmatch(r"[0-9a-f]{32}", request_id):
+        raise ValueError("Invalid Matrix display receipt request")
+    return _request_json(url[:-6] + "/displays/" + request_id, token)
+
+
+def control_action(url: str, token: str, value: dict) -> dict:
+    if not url.endswith("/scene"):
+        raise ValueError("Invalid Matrix tool bridge URL")
+    return _request_json(url[:-6] + "/control", token, value)
+
+
+def control_status(url: str, token: str, request_id: str) -> dict:
+    if not url.endswith("/scene") or not re.fullmatch(r"[0-9a-f]{32}", request_id):
+        raise ValueError("Invalid Matrix control receipt request")
+    return _request_json(url[:-6] + "/controls/" + request_id, token)
+
+
+def rigid_action(url: str, token: str, value: dict) -> dict:
+    if not url.endswith("/scene"):
+        raise ValueError("Invalid Matrix tool bridge URL")
+    return _request_json(url[:-6] + "/rigid", token, value)
+
+
+def rigid_status(url: str, token: str, request_id: str) -> dict:
+    if not url.endswith("/scene") or not re.fullmatch(r"[0-9a-f]{32}", request_id):
+        raise ValueError("Invalid Matrix rigid receipt request")
+    return _request_json(url[:-6] + "/rigid/" + request_id, token)
+
+
+def list_entities(url: str, token: str, offset: int = 0, limit: int = 24) -> dict:
+    if not url.endswith("/scene") or type(offset) is not int or type(limit) is not int:
+        raise ValueError("Invalid Matrix entity page request")
+    return _request_json(url[:-6] + f"/entities?offset={offset}&limit={limit}", token)
+
+
+def inspect_entity(url: str, token: str, value: dict) -> dict:
+    if not url.endswith("/scene"):
+        raise ValueError("Invalid Matrix tool bridge URL")
+    return _request_json(url[:-6] + "/inspect-entity", token, value)
+
+
+def entity_action(url: str, token: str, value: dict) -> dict:
+    if not url.endswith("/scene"):
+        raise ValueError("Invalid Matrix tool bridge URL")
+    return _request_json(url[:-6] + "/entity-action", token, value)
+
+
+def entity_status(url: str, token: str, request_id: str) -> dict:
+    if not url.endswith("/scene") or not re.fullmatch(r"[0-9a-f]{32}", request_id):
+        raise ValueError("Invalid Matrix entity receipt request")
+    return _request_json(url[:-6] + "/entities/actions/" + request_id, token)
+
+
+def world_archive_action(url: str, token: str, value: dict) -> dict:
+    if not url.endswith("/scene"):
+        raise ValueError("Invalid Matrix tool bridge URL")
+    return _request_json(url[:-6] + "/world-archive", token, value)
+
+
+def world_archive_status(url: str, token: str, request_id: str) -> dict:
+    if not url.endswith("/scene") or not re.fullmatch(r"[0-9a-f]{32}", request_id):
+        raise ValueError("Invalid Matrix world archive receipt request")
+    return _request_json(url[:-6] + "/world-archives/" + request_id, token)
 
 
 def bind_animation(url: str, token: str, value: dict) -> dict:
@@ -159,20 +274,44 @@ def scene_summary(state) -> dict:
         objects = scene.get("objects", []) if isinstance(scene, dict) else []
         if not isinstance(objects, list):
             objects = []
+        assets = snapshot.get("assets", []) if online else []
         return {"schemaVersion": 1, "online": bool(online),
                 "sceneRevision": state.revision,
                 "roomId": scene.get("roomId") if online else None,
                 "roomMode": (snapshot.get("roomContext") or {}).get("mode") if online else None,
+                "runtimeDescriptor": snapshot.get("runtimeDescriptor") if online else None,
                 "objectCount": len(objects) if online else 0,
+                "assetCount": len(assets),
+                "assets": [{key: item[key] for key in
+                            ("assetId", "displayName", "description", "spawnScale",
+                             "localBounds", "sha256") if key in item}
+                           for item in assets[:MAX_SUMMARY_OBJECTS]],
+                "assetsTruncated": len(assets) > MAX_SUMMARY_OBJECTS,
                 "componentSchemaVersion": snapshot.get("componentSchemaVersion") if online else None,
                 "animationSchemaVersion": snapshot.get("animationSchemaVersion") if online else None,
                 "physicsSchemaVersion": snapshot.get("physicsSchemaVersion") if online else None,
+                "rigidSchemaVersion": snapshot.get("rigidSchemaVersion") if online else None,
+                "controlSchemaVersion": snapshot.get("controlSchemaVersion") if online else None,
+                "controlStates": snapshot.get("controlStates", {}) if online else {},
+                "rigidGravity": snapshot.get("rigidGravity") if online else None,
+                "rigidStates": snapshot.get("rigidStates", [])[:32] if online else [],
+                "entityActionSchemaVersion": snapshot.get("entityActionSchemaVersion") if online else None,
+                "worldSlotSchemaVersion": snapshot.get("worldSlotSchemaVersion") if online else None,
+                "agentGrab": snapshot.get("agentGrab") if online else None,
+                "creatorMode": snapshot.get("creatorMode") if online else None,
+                "gameStatus": snapshot.get("gameStatus") if online else None,
+                "game": snapshot.get("game") if online else None,
+                "proceduralGenerators": snapshot.get("proceduralGenerators", []) if online else [],
                 "interactionSchemaVersion": snapshot.get("interactionSchemaVersion") if online else None,
                 "physicsStates": snapshot.get("physicsStates", [])[:16] if online else [],
                 "objects": [{"objectId": item["objectId"], "assetId": item["assetId"],
                              "anchorId": item["anchorId"], "transform": item["transform"],
                              **({"animation": item["animation"]} if "animation" in item else {}),
                              **({"physics": item["physics"]} if "physics" in item else {}),
+                             **({"rigidBody": item["rigidBody"]} if "rigidBody" in item else {}),
+                             **({"display": item["display"]} if "display" in item else {}),
+                             **({"control": item["control"]} if "control" in item else {}),
+                             **({"procedural": item["procedural"]} if "procedural" in item else {}),
                              **({"interaction": item["interaction"]} if "interaction" in item else {}),
                              **({"component": {"componentId": item["component"]["componentId"],
                                                 "targetObjectId": item["component"]["targetObjectId"],
@@ -182,6 +321,21 @@ def scene_summary(state) -> dict:
                                 if "component" in item else {})}
                             for item in objects[:MAX_SUMMARY_OBJECTS]] if online else [],
                 "truncated": len(objects) > MAX_SUMMARY_OBJECTS if online else False}
+
+
+def entity_page(state, offset: int, limit: int) -> dict:
+    if type(offset) is not int or type(limit) is not int or not 0 <= offset <= 100 or not 1 <= limit <= 24:
+        raise ValueError("Invalid Matrix entity page")
+    with state.lock:
+        state.expire()
+        online = state.online() and state.latest is not None
+        scene = state.latest["scene"] if online else None
+        objects = scene["objects"] if scene else []
+        end = min(len(objects), offset + limit)
+        return {"online": bool(online), "roomId": scene["roomId"] if scene else None,
+                "sceneRevision": state.revision, "total": len(objects),
+                "offset": offset, "nextOffset": end if end < len(objects) else None,
+                "objects": copy.deepcopy(objects[offset:end])}
 
 
 class _PrivateServer(ThreadingHTTPServer):
@@ -233,6 +387,71 @@ class _Handler(BaseHTTPRequestHandler):
             except Exception as error:
                 self._send_json(getattr(error, "status", 500),
                                 {"error": str(error) if hasattr(error, "status") else "Matrix tool failed"})
+        elif self.path == "/procedural-generators":
+            try:
+                self._send_json(200, self.server.state.agent_list_procedural_generators())
+            except Exception as error:
+                self._send_json(getattr(error, "status", 500),
+                                {"error": str(error) if hasattr(error, "status") else "Matrix tool failed"})
+        elif re.fullmatch(r"/procedural/[0-9a-f]{32}", self.path):
+            try:
+                self._send_json(200, self.server.state.agent_procedural_status(
+                    self.path.rsplit("/", 1)[1]))
+            except Exception as error:
+                self._send_json(getattr(error, "status", 500),
+                                {"error": str(error) if hasattr(error, "status") else "Matrix tool failed"})
+        elif re.fullmatch(r"/games/[0-9a-f]{32}", self.path):
+            try:
+                self._send_json(200, self.server.state.agent_game_status(
+                    self.path.rsplit("/", 1)[1]))
+            except Exception as error:
+                self._send_json(getattr(error, "status", 500),
+                                {"error": str(error) if hasattr(error, "status") else "Matrix tool failed"})
+        elif re.fullmatch(r"/displays/[0-9a-f]{32}", self.path):
+            try:
+                self._send_json(200, self.server.state.agent_display_status(
+                    self.path.rsplit("/", 1)[1]))
+            except Exception as error:
+                self._send_json(getattr(error, "status", 500),
+                                {"error": str(error) if hasattr(error, "status") else "Matrix tool failed"})
+        elif re.fullmatch(r"/controls/[0-9a-f]{32}", self.path):
+            try:
+                self._send_json(200, self.server.state.agent_control_status(
+                    self.path.rsplit("/", 1)[1]))
+            except Exception as error:
+                self._send_json(getattr(error, "status", 500),
+                                {"error": str(error) if hasattr(error, "status") else "Matrix tool failed"})
+        elif re.fullmatch(r"/rigid/[0-9a-f]{32}", self.path):
+            try:
+                self._send_json(200, self.server.state.agent_rigid_status(
+                    self.path.rsplit("/", 1)[1]))
+            except Exception as error:
+                self._send_json(getattr(error, "status", 500),
+                                {"error": str(error) if hasattr(error, "status") else "Matrix tool failed"})
+        elif re.fullmatch(r"/entities/actions/[0-9a-f]{32}", self.path):
+            try:
+                self._send_json(200, self.server.state.agent_entity_status(
+                    self.path.rsplit("/", 1)[1]))
+            except Exception as error:
+                self._send_json(getattr(error, "status", 500),
+                                {"error": str(error) if hasattr(error, "status") else "Matrix tool failed"})
+        elif re.fullmatch(r"/world-archives/[0-9a-f]{32}", self.path):
+            try:
+                self._send_json(200, self.server.state.agent_world_archive_status(
+                    self.path.rsplit("/", 1)[1]))
+            except Exception as error:
+                self._send_json(getattr(error, "status", 500),
+                                {"error": str(error) if hasattr(error, "status") else "Matrix tool failed"})
+        elif self.path.startswith("/entities?"):
+            try:
+                query = urllib.parse.parse_qs(self.path[10:], strict_parsing=True)
+                if set(query) != {"offset", "limit"} or any(len(values) != 1 for values in query.values()):
+                    raise ValueError()
+                self._send_json(200, entity_page(self.server.state,
+                                                 int(query["offset"][0]), int(query["limit"][0])))
+            except Exception as error:
+                self._send_json(getattr(error, "status", 400 if isinstance(error, ValueError) else 500),
+                                {"error": str(error) if isinstance(error, ValueError) else "Invalid entity page"})
         elif re.fullmatch(r"/animations/[0-9a-f]{32}", self.path):
             try:
                 self._send_json(200, self.server.state.agent_animation_status(self.path.rsplit("/", 1)[1]))
@@ -290,7 +509,7 @@ class _Handler(BaseHTTPRequestHandler):
     def do_POST(self):
         if not self._authorized():
             return
-        if self.path not in ("/move", "/spawn", "/bind-animation", "/register-glb", "/publish-component", "/component-action", "/scale", "/physics", "/interaction"):
+        if self.path not in ("/move", "/spawn", "/spawn-builtin", "/procedural", "/bind-game", "/update-game", "/display", "/control", "/rigid", "/inspect-entity", "/entity-action", "/world-archive", "/bind-animation", "/register-glb", "/publish-component", "/component-action", "/scale", "/physics", "/interaction"):
             self.send_error(404)
             return
         try:
@@ -303,6 +522,66 @@ class _Handler(BaseHTTPRequestHandler):
             value = json.loads(self.rfile.read(length))
             if self.path == "/register-glb":
                 result = self.server.state.agent_register_glb(value)
+            elif self.path == "/spawn-builtin":
+                result = self.server.state.agent_spawn_builtin(value)
+                deadline = time.monotonic() + MOVE_WAIT
+                while result["status"] == "queued" and time.monotonic() < deadline:
+                    time.sleep(.1)
+                    result = self.server.state.agent_spawn_status(result["requestId"])
+            elif self.path == "/procedural":
+                result = self.server.state.agent_procedural_action(value)
+                deadline = time.monotonic() + MOVE_WAIT
+                while result["status"] == "queued" and time.monotonic() < deadline:
+                    time.sleep(.1)
+                    result = self.server.state.agent_procedural_status(result["requestId"])
+            elif self.path == "/bind-game":
+                result = self.server.state.agent_bind_game(value)
+                deadline = time.monotonic() + MOVE_WAIT
+                while result["status"] == "queued" and time.monotonic() < deadline:
+                    time.sleep(.1)
+                    result = self.server.state.agent_game_status(result["requestId"])
+            elif self.path == "/update-game":
+                result = self.server.state.agent_update_game(value)
+                deadline = time.monotonic() + MOVE_WAIT
+                while result["status"] == "queued" and time.monotonic() < deadline:
+                    time.sleep(.1)
+                    result = self.server.state.agent_game_status(result["requestId"])
+            elif self.path == "/display":
+                result = self.server.state.agent_display_action(value)
+                deadline = time.monotonic() + MOVE_WAIT
+                while result["status"] == "queued" and time.monotonic() < deadline:
+                    time.sleep(.1)
+                    result = self.server.state.agent_display_status(result["requestId"])
+            elif self.path == "/control":
+                result = self.server.state.agent_control_action(value)
+                deadline = time.monotonic() + MOVE_WAIT
+                while result["status"] == "queued" and time.monotonic() < deadline:
+                    time.sleep(.1)
+                    result = self.server.state.agent_control_status(result["requestId"])
+            elif self.path == "/rigid":
+                result = self.server.state.agent_rigid_action(value)
+                deadline = time.monotonic() + MOVE_WAIT
+                while result["status"] == "queued" and time.monotonic() < deadline:
+                    time.sleep(.1)
+                    result = self.server.state.agent_rigid_status(result["requestId"])
+            elif self.path == "/inspect-entity":
+                result = self.server.state.agent_inspect_entity(value)
+                deadline = time.monotonic() + MOVE_WAIT
+                while result["status"] == "queued" and time.monotonic() < deadline:
+                    time.sleep(.1)
+                    result = self.server.state.agent_entity_status(result["requestId"])
+            elif self.path == "/entity-action":
+                result = self.server.state.agent_entity_action(value)
+                deadline = time.monotonic() + MOVE_WAIT
+                while result["status"] == "queued" and time.monotonic() < deadline:
+                    time.sleep(.1)
+                    result = self.server.state.agent_entity_status(result["requestId"])
+            elif self.path == "/world-archive":
+                result = self.server.state.agent_world_archive_action(value)
+                deadline = time.monotonic() + MOVE_WAIT
+                while result["status"] == "queued" and time.monotonic() < deadline:
+                    time.sleep(.1)
+                    result = self.server.state.agent_world_archive_status(result["requestId"])
             elif self.path == "/scale":
                 result = self.server.state.agent_scale(value)
             elif self.path == "/publish-component":

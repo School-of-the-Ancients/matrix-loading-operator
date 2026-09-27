@@ -8,6 +8,7 @@ from __future__ import annotations
 
 from pathlib import Path
 import hashlib
+import importlib
 import json
 import math
 import re
@@ -23,6 +24,10 @@ from web_components import ComponentError, validate_package
 
 
 MAX_XR_APPROVAL_SUMMARY = 240
+
+
+class MatrixMCPUnavailableError(RuntimeError):
+    """The service Python cannot launch its optional Matrix MCP tool server."""
 
 
 class AgentSessionBackend(Protocol):
@@ -100,6 +105,238 @@ def _approval_description(method: str, params: dict, cwd: Path) -> tuple[str, bo
 
 MAX_PC_COMMAND_REVIEW = 64 * 1024
 
+_XR_ENTITY_ID = re.compile(r"[A-Za-z0-9._:-]{1,128}\Z")
+_XR_RECEIPT_ID = re.compile(r"[0-9a-f]{32}\Z")
+
+
+def _xr_entity_id(value):
+    return type(value) is str and _XR_ENTITY_ID.fullmatch(value) is not None
+
+
+def _xr_context(arguments, fields, *, revision=True):
+    required = set(fields) | {"room_id"} | ({"scene_revision"} if revision else set())
+    return (type(arguments) is dict and set(arguments) == required and
+            _xr_entity_id(arguments["room_id"]) and
+            (not revision or type(arguments["scene_revision"]) is int and
+             0 <= arguments["scene_revision"] <= 9007199254740991))
+
+
+def _xr_pose(value):
+    from server import transform, APIError
+    try:
+        return type(value) is dict and transform(value) == value
+    except (APIError, TypeError, ValueError):
+        return False
+
+
+def _xr_pose_summary(value):
+    return ", ".join(f"{name[0]}=({value[name]['x']},{value[name]['y']},{value[name]['z']})"
+                     for name in ("position", "rotation", "scale"))
+
+
+def _xr_parameters(value, *, patch=False):
+    from procedural_contract import PARAMETER_NAME
+    return (type(value) is dict and (0 < len(value) <= 24 if patch else len(value) <= 24) and
+            all(type(name) is str and PARAMETER_NAME.fullmatch(name) and
+                (type(item) is bool or type(item) in (int, float) and
+                 math.isfinite(item)) for name, item in value.items()))
+
+
+def _xr_game_summary(tool, arguments):
+    """Describe every rule in a compact, fully validated v2 challenge."""
+    from web_game import validate_game_plan
+    spec, bindings = arguments["spec"], arguments["bindings"]
+    if (type(spec) is not dict or type(spec.get("schemaVersion")) is not int or
+            spec["schemaVersion"] != 2 or spec.get("kind") != "game" or
+            type(spec.get("roles")) is not list):
+        return None
+    try:
+        assets = [{"assetId": role["assetId"]} for role in spec["roles"]]
+        validate_game_plan(spec, {"assets": assets})
+        roles = spec["roles"]
+        if (len(roles) > 4 or len(spec["rules"]) > 2 or
+                len(spec["objectives"]) > 2 or len(spec["consequences"]) > 1 or
+                type(bindings) is not dict or
+                set(bindings) != {role["roleId"] for role in roles}):
+            return None
+        if not all(_xr_entity_id(role["assetId"]) for role in roles):
+            return None
+        bound = []
+        for role in roles:
+            ids = bindings[role["roleId"]]
+            if type(ids) is not list or len(ids) != role["count"] or not all(
+                    _xr_entity_id(item) for item in ids):
+                return None
+            bound.extend(ids)
+        if len(bound) > 8 or len(set(bound)) != len(bound):
+            return None
+        prefix_length = next((length for length in range(8, 17)
+                              if len({identifier[:length] for identifier in bound}) == len(bound)), None)
+        if prefix_length is None:
+            return None
+        digest = hashlib.sha256(json.dumps({"spec": spec, "bindings": bindings},
+            sort_keys=True, ensure_ascii=True, separators=(",", ":")).encode("utf-8")).hexdigest()[:12]
+        common_goal = (len(spec["objectives"]) == 2 and
+                       all(item["kind"] == "delivered-count" for item in spec["objectives"]))
+        goals = ",".join(f"{'' if common_goal else 'deliver '}{item['roleId']}>={item['targetCount']}" if
+                         item["kind"] == "delivered-count" else
+                         f"score>={item['targetPoints']}" for item in spec["objectives"])
+        if common_goal:
+            goals = "deliver " + goals
+        unlock = (f", unlock {spec['consequences'][0]['roleId']}" if
+                  spec["consequences"] else "")
+        verb = "Bind" if tool == "matrix_bind_game" else "Revise"
+        common_rule = (len(spec["rules"]) == 2 and all(
+            spec["rules"][0][key] == spec["rules"][1][key]
+            for key in ("event", "targetRoleId", "distanceMeters", "scorePoints")))
+        if common_rule:
+            first, second = spec["rules"]
+            rules = (f"{first['event']} {first['actorRoleId']}|{second['actorRoleId']}"
+                     f"->{first['targetRoleId']}<={first['distanceMeters']}m+{first['scorePoints']}")
+        else:
+            common_event = (spec["rules"][0]["event"] if len(spec["rules"]) == 2 and
+                            spec["rules"][0]["event"] == spec["rules"][1]["event"] else None)
+            rules = ";".join(f"{rule['actorRoleId']}->{rule['targetRoleId']}"
+                              f"{' ' + rule['event'] if common_event is None else ''}"
+                              f"<={rule['distanceMeters']}m+{rule['scorePoints']}"
+                              for rule in spec["rules"])
+            if common_event is not None:
+                rules = f"{common_event}: {rules}"
+        role_targets = ",".join(
+            f"{role['roleId']}/{role['assetId']}@" +
+            "+".join(identifier[:prefix_length] for identifier in bindings[role["roleId"]])
+            for role in roles)
+        return (f"{verb} {json.dumps(spec['title'], ensure_ascii=True)} "
+                f"{arguments['room_id']} r{arguments['scene_revision']}: "
+                f"{rules}; {goals}{unlock}; {role_targets}; "
+                f"{len(bound)} IDs SHA {digest}")
+    except (KeyError, TypeError, ValueError, OverflowError):
+        return None
+
+
+def _new_matrix_approval_summary(tool, arguments):
+    """Return an exact bounded intent, or decline XR review of unfamiliar input."""
+    from procedural_contract import GENERATOR_ID
+    from server import (APIError, control_descriptor, display_descriptor,
+                        grab_pose, rigid_body_config,
+                        rigid_gravity)
+    try:
+        if tool == "matrix_spawn_builtin":
+            if (_xr_context(arguments, {"asset_id", "transform"}) and
+                    type(arguments["asset_id"]) is str and
+                    re.fullmatch(r"[A-Za-z][A-Za-z0-9._-]{0,127}", arguments["asset_id"]) and
+                    _xr_pose(arguments["transform"])):
+                return (f"Spawn built-in {arguments['asset_id']} in {arguments['room_id']} "
+                        f"rev {arguments['scene_revision']}: {_xr_pose_summary(arguments['transform'])}.")
+        elif tool == "matrix_create_procedural":
+            if (_xr_context(arguments, {"generator_id", "parameters", "transform"}) and
+                    type(arguments["generator_id"]) is str and
+                    GENERATOR_ID.fullmatch(arguments["generator_id"]) and
+                    _xr_parameters(arguments["parameters"]) and
+                    _xr_pose(arguments["transform"])):
+                params = json.dumps(arguments["parameters"], sort_keys=True, separators=(",", ":"))
+                return (f"Create procedural {arguments['generator_id']} in {arguments['room_id']} "
+                        f"rev {arguments['scene_revision']}, params {params}, "
+                        f"{_xr_pose_summary(arguments['transform'])}.")
+        elif tool == "matrix_update_procedural":
+            if (_xr_context(arguments, {"object_id", "expected_source_revision", "parameters_patch"}) and
+                    _xr_entity_id(arguments["object_id"]) and
+                    type(arguments["expected_source_revision"]) is str and
+                    GENERATOR_ID.fullmatch(arguments["expected_source_revision"]) and
+                    _xr_parameters(arguments["parameters_patch"], patch=True)):
+                patch = json.dumps(arguments["parameters_patch"], sort_keys=True, separators=(",", ":"))
+                return (f"Regenerate {arguments['object_id']} in {arguments['room_id']} "
+                        f"rev {arguments['scene_revision']} from {arguments['expected_source_revision']}: "
+                        f"params {patch}.")
+        elif tool in ("matrix_bind_game", "matrix_update_game"):
+            if _xr_context(arguments, {"spec", "bindings"}):
+                return _xr_game_summary(tool, arguments)
+        elif tool == "matrix_set_display":
+            if _xr_context(arguments, {"object_id", "display"}) and _xr_entity_id(arguments["object_id"]):
+                display = display_descriptor(arguments["display"])
+                binding = display["binding"]
+                label = "none" if binding is None else binding["kind"] + (
+                    ":" + binding["objectId"] if "objectId" in binding else "")
+                return (f"Set display on {arguments['object_id']} in {arguments['room_id']} "
+                        f"rev {arguments['scene_revision']}: title "
+                        f"{json.dumps(display['title'], ensure_ascii=True)}, body "
+                        f"{json.dumps(display['body'], ensure_ascii=True)}, binding {label}.")
+        elif tool == "matrix_remove_display":
+            if _xr_context(arguments, {"object_id"}) and _xr_entity_id(arguments["object_id"]):
+                return (f"Remove display from {arguments['object_id']} in "
+                        f"{arguments['room_id']} rev {arguments['scene_revision']}.")
+        elif tool == "matrix_set_control":
+            if (_xr_context(arguments, {"object_id", "control"}) and
+                    _xr_entity_id(arguments["object_id"])):
+                control = control_descriptor(arguments["control"])
+                action = control["action"]
+                return (f"Set control {json.dumps(control['label'], ensure_ascii=True)} "
+                        f"on {arguments['object_id']} in {arguments['room_id']} "
+                        f"rev {arguments['scene_revision']}: cycle "
+                        f"{action['targetObjectId']} scale through "
+                        f"{json.dumps(action['values'], separators=(',', ':'))}.")
+        elif tool == "matrix_remove_control":
+            if _xr_context(arguments, {"object_id"}) and _xr_entity_id(arguments["object_id"]):
+                return (f"Remove control from {arguments['object_id']} in "
+                        f"{arguments['room_id']} rev {arguments['scene_revision']}.")
+        elif tool == "matrix_set_rigid_body":
+            if _xr_context(arguments, {"object_id", "rigid_body"}) and _xr_entity_id(arguments["object_id"]):
+                body = rigid_body_config(arguments["rigid_body"])
+                return (f"Set {body['type']} {body['collider']} rigid body on "
+                        f"{arguments['object_id']} in {arguments['room_id']} "
+                        f"rev {arguments['scene_revision']}: restitution {body['restitution']}, "
+                        f"friction {body['friction']}, sensor {body['sensor']}.")
+        elif tool == "matrix_remove_rigid_body":
+            if _xr_context(arguments, {"object_id"}) and _xr_entity_id(arguments["object_id"]):
+                return (f"Remove rigid body from {arguments['object_id']} in "
+                        f"{arguments['room_id']} rev {arguments['scene_revision']}.")
+        elif tool == "matrix_set_gravity":
+            if _xr_context(arguments, {"gravity"}):
+                g = rigid_gravity(arguments["gravity"])
+                return (f"Set virtual gravity ({g['x']},{g['y']},{g['z']}) m/s2 in "
+                        f"{arguments['room_id']} rev {arguments['scene_revision']}.")
+        elif tool in ("matrix_begin_grab", "matrix_move_grab", "matrix_release_grab",
+                      "matrix_activate_control"):
+            fields = {"object_id", "inspection_request_id"} | (
+                {"target_pose"} if tool == "matrix_move_grab" else set())
+            if (_xr_context(arguments, fields, revision=False) and
+                    _xr_entity_id(arguments["object_id"]) and
+                    type(arguments["inspection_request_id"]) is str and
+                    _XR_RECEIPT_ID.fullmatch(arguments["inspection_request_id"])):
+                pose = ""
+                if tool == "matrix_move_grab":
+                    target = grab_pose(arguments["target_pose"])
+                    pose = (f" to ({target['position']['x']},{target['position']['y']},"
+                            f"{target['position']['z']}) m, rotation "
+                            f"({target['rotation']['x']},{target['rotation']['y']},"
+                            f"{target['rotation']['z']}) degrees")
+                verb = {"matrix_begin_grab": "Begin grab of", "matrix_move_grab": "Move held",
+                        "matrix_release_grab": "Release",
+                        "matrix_activate_control": "Activate control"}[tool]
+                return (f"{verb} {arguments['object_id']}{pose} in {arguments['room_id']} "
+                        f"using live inspection {arguments['inspection_request_id']}.")
+        elif tool in ("matrix_start_new_world", "matrix_restore_world_archive"):
+            fields = {"archive_name"} | ({"archive_id"} if tool == "matrix_restore_world_archive" else set())
+            if _xr_context(arguments, fields):
+                name = arguments["archive_name"]
+                if (type(name) is str and name == name.strip() and
+                        1 <= sum(2 if ord(char) > 0xffff else 1 for char in name) <= 80 and
+                        name.isprintable() and
+                        (tool != "matrix_restore_world_archive" or
+                         type(arguments["archive_id"]) is str and
+                         re.fullmatch(r"[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}",
+                                      arguments["archive_id"]))):
+                    if tool == "matrix_start_new_world":
+                        return (f"Archive the complete current world as {json.dumps(name, ensure_ascii=False)} "
+                                f"and start a blank world in {arguments['room_id']} "
+                                f"at revision {arguments['scene_revision']}.")
+                    return (f"Archive the complete current world as {json.dumps(name, ensure_ascii=False)} "
+                            f"and restore browser archive {arguments['archive_id']} "
+                            f"in {arguments['room_id']} at revision {arguments['scene_revision']}.")
+    except (APIError, KeyError, TypeError, ValueError, OverflowError):
+        return None
+    return None
+
 
 def _mcp_approval_description(params: dict) -> tuple[str, bool]:
     """Only typed, bounded Matrix tools have XR-reviewable descriptions."""
@@ -145,7 +382,7 @@ def _mcp_approval_description(params: dict) -> tuple[str, bool]:
             isinstance(arguments, dict) and
             {"room_id", "scene_revision", "object_id", "expected_asset_id", "position"} <=
             set(arguments) <=
-            {"room_id", "scene_revision", "object_id", "expected_asset_id", "position", "rotation"} and
+            {"room_id", "scene_revision", "object_id", "expected_asset_id", "position", "rotation", "scale"} and
             type(arguments["scene_revision"]) is int and arguments["scene_revision"] >= 0 and
             all(isinstance(arguments[key], str) and
                 re.fullmatch(r"[A-Za-z0-9._:-]{1,128}", arguments[key])
@@ -158,13 +395,22 @@ def _mcp_approval_description(params: dict) -> tuple[str, bool]:
              isinstance(arguments["rotation"], dict) and set(arguments["rotation"]) == {"x", "y", "z"} and
              all(type(arguments["rotation"][axis]) in (int, float) and
                  math.isfinite(arguments["rotation"][axis]) and
-                 -36000 <= arguments["rotation"][axis] <= 36000 for axis in ("x", "y", "z")))):
+                 -36000 <= arguments["rotation"][axis] <= 36000 for axis in ("x", "y", "z"))) and
+            ("scale" not in arguments or
+             isinstance(arguments["scale"], dict) and set(arguments["scale"]) == {"x", "y", "z"} and
+             all(type(arguments["scale"][axis]) in (int, float) and
+                 math.isfinite(arguments["scale"][axis]) and
+                 .01 <= arguments["scale"][axis] <= 20 for axis in ("x", "y", "z")))):
         point = arguments["position"]
         rotation = arguments.get("rotation")
+        scale = arguments.get("scale")
         angle = (f" with rotation ({rotation['x']}, {rotation['y']}, {rotation['z']}) degrees"
                  if rotation is not None else "")
-        summary = (f"Move {arguments['expected_asset_id']} ({arguments['object_id']}) in "
-                   f"{arguments['room_id']} to ({point['x']}, {point['y']}, {point['z']}){angle} "
+        size = (f" with unitless scale ({scale['x']}, {scale['y']}, {scale['z']})"
+                if scale is not None else "")
+        summary = (f"Transform {arguments['expected_asset_id']} ({arguments['object_id']}) in "
+                   f"{arguments['room_id']} to position ({point['x']}, {point['y']}, {point['z']})"
+                   f"{angle}{size} "
                    f"at scene revision {arguments['scene_revision']}.")
         if len(summary) <= MAX_XR_APPROVAL_SUMMARY:
             return summary, True
@@ -331,6 +577,14 @@ def _mcp_approval_description(params: dict) -> tuple[str, bool]:
         summary += f" at scene revision {arguments['scene_revision']}."
         if len(summary) <= 200:
             return summary, True
+    new_tool = params.get("message")
+    if type(new_tool) is str:
+        match = re.fullmatch(r'Allow the matrix_webxr MCP server to run tool "(matrix_[a-z_]+)"\?',
+                             new_tool)
+        if match:
+            summary = _new_matrix_approval_summary(match[1], arguments)
+            if summary is not None and len(summary) <= MAX_XR_APPROVAL_SUMMARY:
+                return summary, True
     return "Codex requests an MCP tool. Review it on PC before approval.", False
 
 
@@ -390,6 +644,7 @@ class LocalCodexAgentBackend:
     def __init__(self, config: CodexConfig, cwd: str | Path, matrix_bridge=None):
         config.validate()
         self.config = config
+        self.enabled_matrix_tools: tuple[str, ...] = ()
         command = [config.executable]
         if config.windows_sandbox:
             command += ["-c", f'windows.sandbox="{config.windows_sandbox}"']
@@ -401,7 +656,22 @@ class LocalCodexAgentBackend:
                         "enabled_tools": ["matrix_scene_summary", "matrix_move_object", "matrix_move_status",
                                           "matrix_scale_block", "matrix_reset_block_scale", "matrix_scale_status",
                                           "matrix_list_assets", "matrix_register_glb",
-                                          "matrix_spawn_asset", "matrix_spawn_status",
+                                          "matrix_spawn_asset", "matrix_spawn_builtin", "matrix_spawn_status",
+                                          "matrix_list_procedural_generators",
+                                          "matrix_create_procedural", "matrix_update_procedural",
+                                          "matrix_procedural_status",
+                                          "matrix_bind_game", "matrix_update_game", "matrix_game_status",
+                                          "matrix_set_display", "matrix_remove_display",
+                                          "matrix_display_status",
+                                          "matrix_set_control", "matrix_remove_control",
+                                          "matrix_control_status", "matrix_activate_control",
+                                          "matrix_set_rigid_body", "matrix_remove_rigid_body",
+                                          "matrix_set_gravity", "matrix_rigid_status",
+                                          "matrix_list_entities", "matrix_inspect_entity",
+                                          "matrix_begin_grab", "matrix_move_grab",
+                                          "matrix_release_grab", "matrix_entity_status",
+                                          "matrix_list_world_archives", "matrix_start_new_world",
+                                          "matrix_restore_world_archive", "matrix_world_archive_status",
                                           "matrix_bind_animation", "matrix_animation_status",
                                           "matrix_set_physics", "matrix_remove_physics", "matrix_physics_status",
                                           "matrix_set_interaction", "matrix_remove_interaction",
@@ -411,11 +681,21 @@ class LocalCodexAgentBackend:
                                           "matrix_remove_component", "matrix_component_status"],
                         "default_tools_approval_mode": "auto",
                         "startup_timeout_sec": 10}
+            self.enabled_matrix_tools = tuple(settings["enabled_tools"])
             for key, value in settings.items():
                 command += ["-c", f"mcp_servers.matrix_webxr.{key}={json.dumps(value)}"]
             if config.agent_approval_policy == "on-request":
                 for name in ("matrix_move_object", "matrix_scale_block", "matrix_reset_block_scale",
-                             "matrix_register_glb", "matrix_spawn_asset",
+                             "matrix_register_glb", "matrix_spawn_asset", "matrix_spawn_builtin",
+                             "matrix_create_procedural", "matrix_update_procedural",
+                             "matrix_bind_game", "matrix_update_game",
+                             "matrix_set_display", "matrix_remove_display",
+                             "matrix_set_control", "matrix_remove_control",
+                             "matrix_activate_control",
+                             "matrix_set_rigid_body", "matrix_remove_rigid_body",
+                             "matrix_set_gravity",
+                             "matrix_begin_grab", "matrix_move_grab", "matrix_release_grab",
+                             "matrix_start_new_world", "matrix_restore_world_archive",
                              "matrix_bind_animation", "matrix_publish_component", "matrix_attach_component",
                              "matrix_stop_component", "matrix_remove_component",
                              "matrix_set_physics", "matrix_remove_physics",
@@ -427,6 +707,15 @@ class LocalCodexAgentBackend:
         self.transport = AppServerTransport(command, cwd, environment=environment)
 
     def start(self) -> None:
+        if self.enabled_matrix_tools:
+            try:
+                importlib.import_module("mcp.server.fastmcp")
+                importlib.import_module("mcp.types")
+            except (ImportError, OSError) as error:
+                raise MatrixMCPUnavailableError(
+                    "Matrix MCP tools are unavailable in the service Python environment. "
+                    "Install ControlService/requirements-agent-mcp.txt and restart the service."
+                ) from error
         self.transport.start()
 
     @property

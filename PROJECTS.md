@@ -75,6 +75,8 @@ The merged foundation through #98/#99 includes Agent Portal/session/tool boundar
 
 The product description does not convert bounded virtual-floor drop into general rigid-body physics or declare #122 complete. Review actual source, open work and the running build before making support claims. A docs branch does not reveal another session's local or unpushed implementation.
 
+The open [Immersive Creator Mode candidate](Docs/Procedural-Creation.md) continues that same `/web/` world with versioned procedural editing, Creator/Play controls, Rapier rigid bodies and virtual colliders, objective state, world displays and explicit browser/PC world saves. Its [isolated desktop evidence](Validation/Immersive-Creator-Desktop-2026-09-26.md) includes a connected PC-local Codex Agent creating and revising a separate Gravity Lab. Source tests and desktop observations remain distinct from the user's deployed service and VR/AR wearer evidence.
+
 # 2. Matrix Unity / Original
 
 **Status: supported legacy/native implementation and validated historical work.**

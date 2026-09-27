@@ -5,6 +5,8 @@ import {applyPCWorld} from '../src/world_checkpoint.js';
 import {storedWorld} from '../src/scene_store.js';
 import {startGame} from '../src/game.js';
 import {createCitizensDemo} from '../src/citizens.js';
+import {createRigidPhysics} from '../src/physics_rigid.js';
+import {transitionCreatorMode} from '../src/creator_mode.js';
 
 const pose={position:{x:0,y:0,z:-2},rotation:{x:0,y:0,z:0},scale:{x:1,y:1,z:1}};
 const spec={kind:'game',title:'Orb delivery',summary:'Deliver an orb.',
@@ -52,6 +54,58 @@ test('failed PC exchange leaves the prior scene, game, selection and undo state 
   assert.deepEqual(world.undo,undo);
   assert.deepEqual(world.redo,redo);
   assert.equal(world.originBinding,'ar');
+});
+
+test('failed PC exchange restores the prior control progress and target scale',async()=>{
+  const world=current();
+  world.idFactory=()=> 'checkpoint-control-panel';
+  const panel=world.execute({requestId:'checkpoint-control-panel',op:'spawn',
+    assetId:'wall',anchorId:'web-floor',transform:{...pose,
+      position:{x:2,y:0,z:-2}}}).objectId;
+  world.requireObject(panel).control={schemaVersion:1,label:'Cycle orb size',
+    action:{kind:'cycle-values',channel:'transform.scale',targetObjectId:'current-orb',
+      values:[[1,1,1],[2,2,2]]}};
+  world.requireObject('current-orb').transform.scale={x:2,y:2,z:2};
+  world.controlStates[panel]={index:1,revision:3};
+  const before=storedWorld(world);
+  await assert.rejects(applyPCWorld(world,saved(),async()=>{
+    assert.equal(Object.keys(world.controlStates).length,0);
+    throw Error('exchange rejected');
+  }),/exchange rejected/);
+  assert.deepEqual(storedWorld(world),before);
+  assert.deepEqual(world.controlStates[panel],{index:1,revision:3});
+});
+
+test('failed PC exchange restores Creator Mode, gravity, and the running rigid solver',async()=>{
+  const world=current();
+  world.attachRigidPhysics(await createRigidPhysics());
+  const body=world.execute({requestId:'rigid-current',op:'set_rigid_body',
+    objectId:'current-orb',rigidBody:{schemaVersion:1,type:'dynamic',
+      collider:'bounds-box',restitution:0,friction:.8,sensor:false}});
+  assert.equal(body.ok,true,body.error);
+  const gravity=world.execute({requestId:'gravity-current',op:'set_gravity',
+    gravity:{x:0,y:-3,z:0}});
+  assert.equal(gravity.ok,true,gravity.error);
+  world.creatorMode=transitionCreatorMode(world.creatorMode,'enter-play',0);
+  world.creatorMode=transitionCreatorMode(world.creatorMode,'enter-creator',1);
+  world.rigidPhysics.setPose('current-orb',{position:{x:1,y:1,z:-2},
+    rotation:{x:0,y:0,z:0,w:1}});
+  world.syncRigidTransform('current-orb',world.rigidPhysics.state('current-orb'));
+  const before=storedWorld(world),solver=world.rigidPhysics.snapshot(),
+    generation=world.authoredGeneration;
+  const checkpoint=saved();
+  checkpoint.creatorMode={schemaVersion:1,mode:'play',simulation:'paused',revision:7};
+  checkpoint.rigidGravity={x:0,y:-1,z:0};
+  await assert.rejects(applyPCWorld(world,checkpoint,async()=>{
+    assert.deepEqual(world.creatorMode,checkpoint.creatorMode);
+    assert.deepEqual(world.rigidGravity,checkpoint.rigidGravity);
+    throw Error('exchange rejected');
+  }),/exchange rejected/);
+  assert.deepEqual(storedWorld(world),before);
+  assert.deepEqual(world.rigidPhysics.snapshot(),solver);
+  assert.deepEqual(world.rigidPhysics.state('current-orb').position,{x:1,y:1,z:-2});
+  assert.equal(world.authoredGeneration,generation);
+  world.rigidPhysics.dispose();
 });
 
 test('PC restore clears Citizens on success and rolls them back on failed exchange',async()=>{

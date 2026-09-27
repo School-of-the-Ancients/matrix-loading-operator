@@ -58,6 +58,24 @@ class WebRuntimeContractTests(unittest.TestCase):
         with urllib.request.urlopen(self.base + path, timeout=3) as response:
             return response.status, response.read()
 
+    def test_web_runtime_csp_allows_wasm_only_for_web_documents(self):
+        with urllib.request.urlopen(self.base + "/", timeout=3) as response:
+            self.assertEqual(response.status, 200)
+            policy = response.headers["Content-Security-Policy"]
+            self.assertIn("script-src 'self' 'unsafe-inline'", policy)
+            self.assertNotIn("'wasm-unsafe-eval'", policy)
+            self.assertNotIn(" 'unsafe-eval'", policy)
+        # Test the served policies even when CI has not built WebRuntime/dist.
+        with patch.object(Path, "is_file", return_value=True), \
+             patch.object(Path, "read_bytes", return_value=b"<html></html>"):
+            for path in ("/web/", "/web/citizens.html"):
+                with self.subTest(path=path), urllib.request.urlopen(self.base + path, timeout=3) as response:
+                    policy = response.headers["Content-Security-Policy"]
+                    self.assertIn("script-src 'self' 'unsafe-inline' 'wasm-unsafe-eval'", policy)
+                    self.assertNotIn(" 'unsafe-eval'", policy)
+            with urllib.request.urlopen(self.base + "/web/assets/a.js", timeout=3) as response:
+                self.assertNotIn("'wasm-unsafe-eval'", response.headers["Content-Security-Policy"])
+
     def test_web_snapshot_uses_existing_review_and_receipt_flow(self):
         code, _ = self.post("/api/exchange", {"clientId": "web-client", "snapshot": SNAPSHOT,
                                               "results": [], "captureSupported": False})

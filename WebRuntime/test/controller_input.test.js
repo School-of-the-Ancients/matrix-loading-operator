@@ -118,6 +118,74 @@ test('XR select animates a Firefly and starts a grab on the same press',()=>{
   assert.equal(committed?.transform.position.x,.5);
 });
 
+test('Play/Test XR grab uses a dynamic body and never authors set_transform',()=>{
+  const {view,controller}=selectableFirefly();
+  const object=view.world.requireObject();object.rigidBody={type:'dynamic'};
+  view.world.creatorMode={schemaVersion:1,mode:'play',simulation:'running',revision:1};
+  const calls=[];
+  view.world.beginRigidGrab=id=>{calls.push(['begin',id]);return true;};
+  view.world.moveRigidGrab=(id,transform)=>{calls.push(['move',id,transform]);return true;};
+  view.world.releaseRigidGrab=id=>{calls.push(['release',id]);return {position:{x:.5,y:1,z:-2}};};
+  view.world.execute=()=>{throw Error('Play cannot author a scene transform');};
+  view.onPlayInteraction=event=>calls.push(['interaction',event]);
+  view.commitMove=()=>{throw Error('Play release must not call authored move');};
+  view.selectFromController(controller);
+  assert.equal(view.grab?.rigid,true);
+  controller.position.x=.5;
+  view.releaseGrab(controller);
+  assert.deepEqual(calls.map(item=>item[0]),['begin','move','release','interaction']);
+  assert.equal(calls.at(-1)[1].objectId,'firefly-1');
+});
+
+test('Play/Test refuses a non-physical or paused XR grab',()=>{
+  const {view,controller}=selectableFirefly();
+  let error='';view.onAssetError=message=>{error=message;};
+  view.world.creatorMode={schemaVersion:1,mode:'play',simulation:'running',revision:1};
+  view.selectFromController(controller);
+  assert.equal(view.grab,null);
+  assert.match(error,/dynamic body/);
+  view.world.requireObject().rigidBody={type:'dynamic'};
+  view.world.creatorMode={schemaVersion:1,mode:'play',simulation:'paused',revision:2};
+  view.selectFromController(controller);
+  assert.equal(view.grab,null);
+  assert.match(error,/running dynamic body/);
+});
+
+test('desktop click and XR trigger activate the same inspected world control',()=>{
+  const {view,controller}=selectableFirefly();
+  const control=view.world.requireObject();
+  delete control.animation;
+  control.control={schemaVersion:1,label:'Cycle size',action:{kind:'cycle-values',
+    channel:'transform.scale',targetObjectId:'target-1',values:[[1,1,1],[2,3,4]]}};
+  const target={objectId:'target-1',transform:{position:{x:0,y:0,z:-3},
+    rotation:{x:0,y:0,z:0},scale:{x:1,y:1,z:1}}};
+  view.world.requireObject=id=>id==='firefly-1'?control:target;
+  view.world.creatorMode={schemaVersion:1,mode:'play',simulation:'running',revision:3};
+  view.world.inspectEntity=()=>({object:structuredClone(control),
+    controlState:{index:0,revision:4},availableActions:['activate_control'],
+    creatorMode:structuredClone(view.world.creatorMode)});
+  const commands=[],interactions=[];
+  view.world.execute=command=>{commands.push(command);return {ok:true,
+    outcome:{controlState:{index:1,revision:5}}};};
+  view.sync=()=>{};
+  view.onPlayInteraction=event=>interactions.push(event);
+  view.selectFromController(controller);
+  assert.equal(view.grab,null);
+  view.renderer={xr:{isPresenting:false},domElement:{setPointerCapture(){}}};
+  view.rayFromPointer=()=>view.raycaster.set(new THREE.Vector3(0,1.5,0),
+    new THREE.Vector3(0,-.25,-1).normalize());
+  view.pointerDown({button:0,pointerId:1,clientY:200});
+  assert.equal(view.pointerGrab,null);
+  assert.equal(commands.length,2);
+  assert.deepEqual(commands.map(command=>command.op),['activate_control','activate_control']);
+  assert.deepEqual(commands[0].expectedControl,control.control);
+  assert.deepEqual(commands[0].expectedControlState,{index:0,revision:4});
+  assert.deepEqual(commands[0].expectedTransform,control.transform);
+  assert.deepEqual(commands[0].expectedTargetTransform,target.transform);
+  assert.equal(interactions.length,2);
+  assert.ok(interactions.every(event=>event.kind==='control'));
+});
+
 test('desktop click animates a Firefly and starts a pointer drag',()=>{
   const {view,root,glowCount}=selectableFirefly();
   view.renderer={xr:{isPresenting:false},domElement:{setPointerCapture(){}}};

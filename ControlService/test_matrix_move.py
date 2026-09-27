@@ -18,6 +18,8 @@ ROOM = {"scene": {"schemaVersion": 1, "roomId": "web-virtual-room-v1",
                                "transform": POSE}]},
         "assets": [{"assetId": "chair", "displayName": "Chair"}],
         "anchors": [{"anchorId": "web-floor", "displayName": "Virtual floor"}],
+        "creatorMode": {"schemaVersion": 1, "mode": "creator",
+                        "simulation": "paused", "revision": 0},
         "roomContext": {"mode": "white-room", "state": "ready", "alignmentVerified": False,
                         "message": "Browser virtual floor"}}
 
@@ -50,8 +52,38 @@ class MatrixMoveTests(unittest.TestCase):
         self.assertEqual(command["transform"]["position"], {"x": 2, "y": 0, "z": -3})
         self.assertEqual(command["transform"]["rotation"], POSE["rotation"])
         self.assertEqual(command["transform"]["scale"], POSE["scale"])
+        self.assertEqual(command["expectedTransform"], POSE)
+        self.assertEqual(command["expectedAssetId"], "chair")
+        self.assertEqual(command["expectedCreatorRevision"], 0)
         self.ack(queued["requestId"])
-        self.assertEqual(self.state.agent_move_status(queued["requestId"])["status"], "succeeded")
+        observed = self.state.agent_move_status(queued["requestId"])
+        self.assertEqual(observed["status"], "succeeded")
+        self.assertEqual(observed["transform"], {**POSE,
+            "position": {"x": 2, "y": 0, "z": -3}})
+
+    def test_scale_edits_complete_transform_and_requires_exact_observation(self):
+        target = {"x": 2, "y": .75, "z": 1.25}
+        queued = self.state.agent_move(self.request(
+            position=deepcopy(POSE["position"]), scale=target))
+        command = self.state.pending[queued["requestId"]]
+        self.assertEqual(command["transform"], {**POSE, "scale": target})
+        room = deepcopy(ROOM)
+        room["scene"]["objects"][0]["transform"]["scale"] = target
+        self.state.exchange({"clientId": "web-client", "snapshot": room,
+                             "results": [{"requestId": queued["requestId"], "ok": True,
+                                          "error": "", "objectId": "chair-1"}]})
+        receipt = self.state.agent_move_status(queued["requestId"])
+        self.assertEqual(receipt["status"], "succeeded")
+        self.assertEqual(receipt["transform"], {**POSE, "scale": target})
+        self.assertEqual(receipt["objectId"], "chair-1")
+
+        second = self.state.agent_move(self.request(
+            position=deepcopy(POSE["position"]), scale={"x": 1.2, "y": 1, "z": 1}))
+        self.state.exchange({"clientId": "web-client", "snapshot": room,
+                             "results": [{"requestId": second["requestId"], "ok": True,
+                                          "error": "", "objectId": "chair-1"}]})
+        self.assertEqual(self.state.agent_move_status(second["requestId"])["status"],
+                         "unconfirmed")
 
     def test_rotation_only_preserves_position_scale_identity_and_flight_binding(self):
         room = deepcopy(ROOM)
@@ -134,6 +166,34 @@ class MatrixMoveTests(unittest.TestCase):
                 self.state.agent_move(self.request(rotation=rotation))
         self.assertFalse(self.state.pending)
 
+    def test_scale_requires_exact_finite_bounded_vector_and_paused_creator(self):
+        for scale in (None, [], {}, {"x": 1, "y": 1},
+                      {"x": 1, "y": 1, "z": 1, "w": 1},
+                      {"x": True, "y": 1, "z": 1},
+                      {"x": 0, "y": 1, "z": 1},
+                      {"x": 1, "y": math.nan, "z": 1},
+                      {"x": 1, "y": math.inf, "z": 1},
+                      {"x": 1, "y": 1, "z": 20.01}):
+            with self.subTest(scale=scale), self.assertRaises(APIError):
+                self.state.agent_move(self.request(scale=scale))
+        self.assertFalse(self.state.pending)
+        for mode, simulation in (("play", "running"), ("creator", "running")):
+            self.state.latest["creatorMode"].update(mode=mode, simulation=simulation)
+            with self.subTest(mode=mode, simulation=simulation), \
+                 self.assertRaisesRegex(APIError, "paused Creator Mode"):
+                self.state.agent_move(self.request(scale={"x": 2, "y": 1, "z": 1}))
+        self.assertFalse(self.state.pending)
+
+    def test_resident_attached_object_rejects_incompatible_size_or_height(self):
+        self.state.latest["citizensState"] = {
+            "residents": [{"objectId": "chair-1"}]}
+        for change in ({"scale": {"x": 2, "y": 1, "z": 1}},
+                       {"position": {"x": 1, "y": .2, "z": -2}}):
+            with self.subTest(change=change), \
+                 self.assertRaisesRegex(APIError, "Citizens resident"):
+                self.state.agent_move(self.request(**change))
+        self.assertFalse(self.state.pending)
+
     def test_physical_room_is_out_of_scope_and_lease_loss_is_unconfirmed(self):
         self.state.latest["roomContext"]["mode"] = "ar"
         with self.assertRaisesRegex(APIError, "ready WebXR virtual floor"):
@@ -191,6 +251,17 @@ class MatrixMoveTests(unittest.TestCase):
             **approval["_meta"], "tool_params": rotated}})
         self.assertTrue(reviewable)
         self.assertIn("rotation (0.17, 180.26, -6.64) degrees", summary)
+        resized = {**args, "scale": {"x": 2, "y": .75, "z": 1.25}}
+        summary, reviewable = _mcp_approval_description({**approval, "_meta": {
+            **approval["_meta"], "tool_params": resized}})
+        self.assertTrue(reviewable)
+        self.assertIn("chair-1", summary)
+        self.assertIn("position (2, 0, -3)", summary)
+        self.assertIn("unitless scale (2, 0.75, 1.25)", summary)
+        self.assertFalse(_mcp_approval_description({**approval, "_meta": {
+            **approval["_meta"], "tool_params": {
+                **resized, "object_id": "a" * 128,
+                "expected_asset_id": "b" * 128}}})[1])
         for bad in (None, {"x": 0, "y": 180},
                     {"x": 0, "y": 180, "z": 0, "w": 0},
                     {"x": 0, "y": math.nan, "z": 0},
@@ -198,6 +269,14 @@ class MatrixMoveTests(unittest.TestCase):
             with self.subTest(rotation=bad):
                 self.assertFalse(_mcp_approval_description({**approval, "_meta": {
                     **approval["_meta"], "tool_params": {**args, "rotation": bad}}})[1])
+        for bad in (None, {"x": 1, "y": 1},
+                    {"x": 1, "y": 1, "z": 1, "extra": 1},
+                    {"x": True, "y": 1, "z": 1},
+                    {"x": .009, "y": 1, "z": 1},
+                    {"x": 1, "y": math.nan, "z": 1}):
+            with self.subTest(scale=bad):
+                self.assertFalse(_mcp_approval_description({**approval, "_meta": {
+                    **approval["_meta"], "tool_params": {**args, "scale": bad}}})[1])
 
 
 if __name__ == "__main__":
