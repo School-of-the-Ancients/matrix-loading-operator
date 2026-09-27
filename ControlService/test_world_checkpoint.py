@@ -425,6 +425,110 @@ class WorldCheckpointTests(unittest.TestCase):
             "resolvedTick": 15, "requestId": None, "reason": "cancelled by operator"})
         return world
 
+    def citizens_v12_social_retry_world(self):
+        world = self.citizens_v11_revisions_world()
+        state = world["citizens"]
+        state.update(schemaVersion=12, clockTick=17, actionSequence=6)
+        state["residents"][0]["activity"] = None
+        state["stations"][0].update(claim=None, waiters=[])
+        state["residents"][1]["appointments"][0].update(
+            status="pending", executionId=None)
+        session_id = "social-73-6"
+        state["socialSession"] = {
+            "id": session_id, "executionId": 6, "initiatorId": "ada",
+            "inviteeId": "bo", "phase": "active", "startedTick": 15,
+            "expiresTick": 88, "acceptedTick": 16, "travelTicks": 0,
+            "remainingTicks": 3, "routeRetries": 1}
+        state["socialEvents"].extend([
+            {"id": "social-73-6-initiated-15", "event": "initiated",
+             "tick": 15, "initiatorId": "ada", "inviteeId": "bo", "requestId": ""},
+            {"id": "social-73-6-accepted-16", "event": "accepted",
+             "tick": 16, "initiatorId": "ada", "inviteeId": "bo", "requestId": ""}])
+        for resident in state["residents"]:
+            resident["socialSessionId"] = session_id
+            resident["lastDecision"] = None
+        return world
+
+    def test_citizens_v12_mid_social_retry_roundtrip_and_v11_compatibility(self):
+        world = self.citizens_v12_social_retry_world()
+        live_before = copy.deepcopy(self.state.latest)
+        self.assertTrue(self.state.save_world_checkpoint("SocialRouteRetry", world)["saved"])
+        restored = self.state.load_world_checkpoint("SocialRouteRetry")["world"]
+        self.assertEqual(restored["citizens"], world["citizens"])
+        self.assertEqual(restored["version"], 3)
+        self.assertEqual([item["objectId"] for item in restored["scene"]["objects"]],
+                         [item["objectId"] for item in world["scene"]["objects"]])
+        self.assertEqual(restored["citizens"]["socialSession"]["routeRetries"], 1)
+        self.assertEqual(self.state.latest, live_before,
+                         "loading a mid-retry checkpoint must leave the live world intact")
+
+        old = copy.deepcopy(world)
+        old["citizens"]["schemaVersion"] = 11
+        del old["citizens"]["socialSession"]["routeRetries"]
+        self.assertTrue(self.state.save_world_checkpoint("BeforeSocialRouteRetry", old)["saved"])
+        self.assertEqual(self.state.load_world_checkpoint("BeforeSocialRouteRetry")
+                         ["world"]["citizens"], old["citizens"],
+                         "v11 mid-session checkpoints remain exact for browser migration")
+
+        idle = self.citizens_v11_revisions_world()
+        idle["citizens"]["schemaVersion"] = 12
+        self.assertTrue(self.state.save_world_checkpoint("NoSocialRoute", idle)["saved"])
+        self.assertEqual(self.state.load_world_checkpoint("NoSocialRoute")
+                         ["world"]["citizens"], idle["citizens"])
+        self.assertEqual(self.state.latest, live_before)
+
+    def test_citizens_v12_rejects_malformed_social_retries_atomically(self):
+        world = self.citizens_v12_social_retry_world()
+        self.assertTrue(self.state.save_world_checkpoint("SocialRouteRetry", world)["saved"])
+        path = self.scenes / "world_checkpoints" / "SocialRouteRetry.json"
+        original = path.read_bytes()
+        live_before = copy.deepcopy(self.state.latest)
+
+        def session(item):
+            return item["citizens"]["socialSession"]
+
+        def offered_with_retry(item):
+            social = session(item)
+            social.update(phase="offered", acceptedTick=None, expiresTick=19,
+                          travelTicks=0)
+            item["citizens"]["socialEvents"].pop()
+
+        cases = (
+            ("missing retry field", lambda item: session(item).pop("routeRetries")),
+            ("boolean retry", lambda item: session(item).update(routeRetries=True)),
+            ("fractional retry", lambda item: session(item).update(routeRetries=1.5)),
+            ("negative retry", lambda item: session(item).update(routeRetries=-1)),
+            ("retry above limit", lambda item: session(item).update(routeRetries=4)),
+            ("retry before elapsed tick", lambda item: item["citizens"].update(clockTick=16)),
+            ("move and retry in one elapsed tick",
+             lambda item: session(item).update(travelTicks=1)),
+            ("offered retry", offered_with_retry),
+            ("unexpected social field", lambda item: session(item).update(routeGeometryId=None)),
+            ("v11 rejects v12 session", lambda item: item["citizens"].update(schemaVersion=11)),
+        )
+        for label, mutate in cases:
+            with self.subTest(save=label):
+                invalid = copy.deepcopy(world)
+                mutate(invalid)
+                with self.assertRaises(APIError) as rejected:
+                    self.state.save_world_checkpoint("SocialRouteRetry", invalid)
+                self.assertEqual(rejected.exception.status, 400)
+                self.assertEqual(path.read_bytes(), original)
+                self.assertEqual(self.state.latest, live_before)
+
+        for label, mutate in cases:
+            with self.subTest(load=label):
+                document = json.loads(original)
+                mutate(document["world"])
+                document["payloadSha256"] = world_checkpoint_digest(
+                    document["world"], document["dependencies"])
+                path.write_text(json.dumps(document), encoding="utf-8")
+                with self.assertRaises(APIError) as rejected:
+                    self.state.load_world_checkpoint("SocialRouteRetry")
+                self.assertEqual(rejected.exception.status, 400)
+                self.assertEqual(self.state.latest, live_before)
+                path.write_bytes(original)
+
     def test_citizens_v11_revisions_roundtrip_and_v10_compatibility(self):
         world = self.citizens_v11_revisions_world()
         live_before = copy.deepcopy(self.state.latest)
