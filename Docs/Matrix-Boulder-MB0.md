@@ -1,5 +1,7 @@
 # Matrix Boulder MB-0 desktop spike
 
+**Unity archive note:** This page was written for the native Unity era. The project and build scripts are preserved in the [read-only Unity archive](../Archive/Unity/README.md). Build commands and forward-looking Unity instructions below reflect the pre-archive checkpoint; current runtime work targets [WebRuntime](../WebRuntime/README.md).
+
 MB-0 is an isolated Windows desktop scene for [roadmap #38](https://github.com/School-of-the-Ancients/matrix-loading-operator/issues/38). It streams Google Photorealistic 3D Tiles through Cesium ion as a **visual backdrop**. It does not save, extract, or interpret map geometry as Matrix world data. White Room and Room AR have their own scene generators and build fixtures. The later [citizen prototype](Matrix-Boulder-Citizens.md) runs in this scene without using visual tiles as world data.
 
 ## Requirements

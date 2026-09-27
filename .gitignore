@@ -1,7 +1,5 @@
-# This .gitignore file should be placed at the root of your Unity project directory
-#
-# Get latest from https://github.com/github/gitignore/blob/main/Unity.gitignore
-#
+# Matrix root ignores. Historical root-level Unity output remains excluded;
+# the archived project has its own Archive/Unity/.gitignore.
 .utmp/
 /[Ll]ibrary/
 /[Tt]emp/

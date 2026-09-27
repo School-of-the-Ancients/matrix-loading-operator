@@ -1,5 +1,7 @@
 # Rendered scene feedback
 
+**Unity archive note:** This page was written for the native Unity era. The project and build scripts are preserved in the [read-only Unity archive](../Archive/Unity/README.md). Build commands and forward-looking Unity instructions below reflect the pre-archive checkpoint; current runtime work targets [WebRuntime](../WebRuntime/README.md).
+
 Issue [#8](https://github.com/School-of-the-Ancients/matrix-loading-operator/issues/8) adds an explicit image attachment to the existing scene planner. The operator captures a view, previews it, and chooses whether to send it with one typed request or the next headset voice request. Capturing alone does not invoke AI. Virtual rendering is the default. An optional physical-camera composite is implemented for standalone Quest 3/3S AR, with device validation still pending. Continuous video and automatic scene edits are outside this increment.
 
 ## Using the Operator

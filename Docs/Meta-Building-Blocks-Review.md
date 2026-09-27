@@ -10,7 +10,7 @@ Follow the user's order: validate the actual headset first, then establish live 
 
 The current PC planner already produces reviewed proposals, checks identifiers and transform bounds, and queues commands through `PcBridge` to `SandboxWorld`. Keep that path for the typed demo. A new Unity AI transport is unnecessary for this step and would add a dependency on the Meta AIBlocks assembly involved in the [historical quarantine](Security-Block.md).
 
-For the later room stage, reuse MRUK's existing loader and geometric queries to calculate placement, then submit `spawn` or `set_transform` through the same executor. The existing [QuestRoomAdapter](../Assets/Sandbox/Runtime/QuestRoomAdapter.cs) already calls `LoadSceneFromDevice(..., MRUK.SceneModel.V1)` at line 110 and `MRUKRoom.Raycast` at line 207. Its registered placement frames convert world positions to anchor-local coordinates at line 217. Preserve that conversion, stable IDs, history, and save/load ownership.
+For the later room stage, reuse MRUK's existing loader and geometric queries to calculate placement, then submit `spawn` or `set_transform` through the same executor. The existing [QuestRoomAdapter](../Archive/Unity/Assets/Sandbox/Runtime/QuestRoomAdapter.cs) already calls `LoadSceneFromDevice(..., MRUK.SceneModel.V1)` at line 110 and `MRUKRoom.Raycast` at line 207. Its registered placement frames convert world positions to anchor-local coordinates at line 217. Preserve that conversion, stable IDs, history, and save/load ownership.
 
 ## AI Building Blocks: reusable, but optional here
 

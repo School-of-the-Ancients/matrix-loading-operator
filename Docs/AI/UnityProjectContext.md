@@ -1,5 +1,7 @@
 # AR Sandbox project context
 
+**Unity archive note:** This page was written for the native Unity era. The project and build scripts are preserved in the [read-only Unity archive](../../Archive/Unity/README.md). Build commands and forward-looking Unity instructions below reflect the pre-archive checkpoint; current runtime work targets [WebRuntime](../../WebRuntime/README.md).
+
 ## 4616 miniature content and interactions (2026-09-24)
 
 `codex/4616-miniature-world` extends the shared white-room and room-AR prefab generator with 16 original miniature props, for 23 bundled assets total. `MiniatureCatalog.cs` owns this content. `SandboxWorld` remains the sole executor, history owner and save authority; `SandboxBehaviorVisual` now presents bounded two-waypoint motion and the lamp/chest selection toggle without moving the saved root. `AssetInfo.interactionMode` tells the PC Operator which of the bundled props may use `select_toggle`. The PC service validates advertised behavior kinds and per-asset interaction support before queueing edits. Existing schema-1 scenes and the original seven asset IDs remain supported. See `../4616-Miniature-World.md` for the demo inventory and procedure.

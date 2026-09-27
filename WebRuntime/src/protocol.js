@@ -1,6 +1,7 @@
 // This is the browser adapter for Matrix scene schema 1 and the existing
 // /api/exchange command set. Keep changes to this contract coordinated with
-// ControlService/server.py and Assets/Sandbox/Runtime/SandboxWorld.cs.
+// ControlService/server.py and the archived native contract at
+// Archive/Unity/Assets/Sandbox/Runtime/SandboxWorld.cs.
 import {footprintInsideBoundary} from './spatial.js';
 import {validateAttachment,validatePackage} from './components.js';
 import {advanceFloorBody,createFloorBody,publicPhysicsState,validPhysicsConfig,validRenderedPhysicsSize} from './physics_floor.js';

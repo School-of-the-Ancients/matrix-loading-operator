@@ -1,5 +1,7 @@
 # Content catalogs and the Editor import queue
 
+**Unity archive note:** This page was written for the native Unity era. The project and build scripts are preserved in the [read-only Unity archive](../Archive/Unity/README.md). Build commands and forward-looking Unity instructions below reflect the pre-archive checkpoint; current runtime work targets [WebRuntime](../WebRuntime/README.md).
+
 The PC service can search independently configured local-file and HTTP catalogs,
 retrieve versioned artifacts, verify their SHA-256 hashes, and hand compatible
 Unity content packs to the player. Each result includes its provider, license,

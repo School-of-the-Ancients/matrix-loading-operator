@@ -6,7 +6,7 @@ Owner's agreed description, September 26, 2026:
 
 Ready Player One and The Matrix are the inspiration. **“White Room” means the blank-canvas, request-to-creation idea—not a particular Unity prefab, scene, application, or required room.** Starting fresh does not require loading the original Unity White Room. Creating in an existing world does not require entering a separate holodeck.
 
-This clarifies the existing project. **Continue the current implementation; do not rebuild the engine, restart the project, create a replacement repository, or discard ongoing work.**
+This clarifies the existing project. **Continue the current Three.js/WebXR implementation; do not rebuild the engine, restart the project, create a replacement repository, or discard ongoing work.** The Unity source and native releases are now read-only history.
 
 [Project and issue map](PROJECTS.md) · [Requirements](PRD.md) · [Active implementation plan](IMPLEMENTATION_PLAN.md) · [Creation references](RESOURCES.md) · [Agent instructions](AGENTS.md)
 
@@ -53,7 +53,7 @@ Creator Mode describes authorized editing; Play/Test describes using the experie
 | What makes it work? | Tested runtime capabilities: rendering, input, physics, interactions, state, observations and persistence. |
 | Who can use it? | Humans and appropriately scoped agents; world access is not unrestricted PC/tool access. |
 
-The original prefab-loading motivation remains useful: compatible content should load without rebuilding the application every time. Existing generators can accept new parameters live. Genuinely new executable capabilities may require reviewed code, tests, a build and a controlled reload. That ordinary development path is not a project restart, and this documentation change requests no build or service restart.
+The original prefab-loading motivation remains useful: compatible content should load without rebuilding the application every time. Existing generators can accept new parameters live. Genuinely new executable capabilities may require reviewed code, tests, a build and a controlled reload. That ordinary WebRuntime development path is not a project restart; archiving Unity does not require a live service restart.
 
 The proposed **mockup → selected image → scene plan → procedural/reused/Blender world** path belongs alongside these methods. [#91](https://github.com/School-of-the-Ancients/matrix-loading-operator/issues/91) already owns image iteration/selection; [#122](https://github.com/School-of-the-Ancients/matrix-loading-operator/issues/122) owns the current interactive creation feature. [Sakuragaoka and other references](RESOURCES.md) inform implementation without becoming mandatory integrations or release gates.
 
@@ -65,7 +65,7 @@ These are dates of the owner's concept notes, not implementation dates or priori
 - **May 15, 2024 — prompt-created games, environments and characters:** an AI connects reusable environments, objects, games, characters, voices, animations and sounds, retrieving or generating content for the user's virtual experience.
 - **October 16, 2024 — digital and real worlds / simulated societies:** AI researchers, workers, organizations and worlds form the broader inhabited-world and simulation vision.
 
-Unity prefab loading, Three.js/WebXR, Blender authoring, Citizens and procedural generation support different parts of that idea. Historical native Unity builds keep their actual names and evidence; those names do not define the current product or require porting a prefab.
+Unity prefab loading was an early implementation of that idea. Three.js/WebXR, Blender authoring, Citizens and procedural generation support the forward product. The [Unity archive](Archive/Unity/README.md) and native releases retain their names and evidence; those names do not define the current product or require porting a prefab.
 
 ## Now: one small complete experience
 
@@ -81,7 +81,7 @@ Use `WebRuntime/`, the existing `ControlService/`, persistent PC-local Codex Ope
 
 Matrix executes world actions. Citizens chooses resident intentions. Real coding/research workers perform external jobs only when separately authorized; an office avatar does not turn simulated activity into real work. School owns pedagogy, curriculum, assessment and learner records. Manfred and other human-interface integrations keep personal capture/context separately owned. These are responsibilities, not new services or repositories.
 
-Preserve native Unity workflows, open PR history, user worlds and existing evidence. All views of one experiment share its state; distinct worlds retain explicit ownership and reset boundaries.
+Preserve archived Unity source and release provenance, open PR history, user worlds and existing evidence. New runtime work and coursework demonstrations use Three.js/WebXR. All views of one experiment share its state; distinct worlds retain explicit ownership and reset boundaries.
 
 ## Later: dynamic world improvement
 

@@ -1,13 +1,24 @@
 # PC control and scene service
 
-ControlService is shared by the [current Three.js/WebXR Matrix](../WebRuntime/README.md)
-at `/web/` and the [original Unity Operator](../README.md#original-unity-client)
-at `/`. This guide retains the original Unity/client API details below. For
-PC-local Codex sessions, approvals and headset Agent behavior, start with the
-[Agent Portal guide](AGENT_PORTAL.md). For Web world persistence, use
-[whole-world checkpoints](WORLD_CHECKPOINTS.md) and the [Web runtime
-guide](../WebRuntime/README.md#save-and-restore). The [project map](../PROJECTS.md)
-defines which track owns new work.
+ControlService is the PC-side service for the current
+[Three.js/WebXR Matrix](../WebRuntime/README.md) at `/web/`. It retains the
+original Unity Operator at `/` and its native API for historical compatibility;
+Unity source and build scripts are now [read-only history](../Archive/Unity/README.md).
+Do not treat `/` as the current Matrix entry point. The shared service and
+`/api/exchange` remain in place while the Web runtime uses them.
+
+For a new Web checkout, use the [Matrix Web setup](../README.md#start-matrix-web),
+then open `http://127.0.0.1:8765/web/`. For PC-local Codex sessions, approvals
+and headset Agent behavior, use the [Agent Portal guide](AGENT_PORTAL.md). For
+Web persistence, use [whole-world checkpoints](WORLD_CHECKPOINTS.md) and the
+[Web save guide](../WebRuntime/README.md#save-and-restore). The
+[project map](../PROJECTS.md) defines ownership.
+
+## Historical Unity Operator and client API
+
+The remainder of this guide records the native Operator and compatible API
+behavior. Its native build and headset instructions assume the pre-archive
+root layout at [`21cc500`](https://github.com/School-of-the-Ancients/matrix-loading-operator/tree/21cc500).
 
 Rendered image feedback is documented in [Visual Feedback](../Docs/Visual-Feedback.md). The Operator's explicit capture/preview controls attach one bounded JPEG to a typed request or the next voice request. `POST /api/capture` requests it, `GET /api/capture` retrieves the authenticated preview, and `/api/plan` accepts its `captureId`. `POST /api/capture/voice` selects or clears a one-shot voice attachment. Images stay outside saved scenes and normal state polling. Codex requires an explicitly known image-capable model; compatible HTTP providers require the explicit `SANDBOX_AI_SUPPORTS_IMAGES=true` capability setting. Unsupported images produce an error, never a text-only fallback.
 

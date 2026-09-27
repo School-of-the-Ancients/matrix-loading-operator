@@ -1,5 +1,7 @@
 # GOAP and character execution: inspected next step
 
+**Unity archive note:** This page was written for the native Unity era. The project and build scripts are preserved in the [read-only Unity archive](../Archive/Unity/README.md). Build commands and forward-looking Unity instructions below reflect the pre-archive checkpoint; current runtime work targets [WebRuntime](../WebRuntime/README.md).
+
 Review date: 2026-09-20. This is an integration note, not a GOAP implementation or a hardware validation result.
 
 Inspected the private [thetopham/goap-playground repository](https://github.com/thetopham/goap-playground/tree/2c94c2e38ce6110c141867cbe26c4e400f7c4474) through authenticated GitHub access at commit **2c94c2e38ce6110c141867cbe26c4e400f7c4474**. Links require access to that repository. No source, assets, packages, or scene objects were copied into Matrix.

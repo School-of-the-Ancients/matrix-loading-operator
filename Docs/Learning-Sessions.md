@@ -1,5 +1,7 @@
 # Observation and Scale: connected learning session
 
+**Unity archive note:** This page was written for the native Unity era. The project and build scripts are preserved in the [read-only Unity archive](../Archive/Unity/README.md). Build commands and forward-looking Unity instructions below reflect the pre-archive checkpoint; current runtime work targets [WebRuntime](../WebRuntime/README.md).
+
 This layer connects a real Unity room/object to the canonical `sota-v2` lesson runtime. It adds one authored activity: Explain → Example → Guided practice → Socratic check → Recap → Ended. The existing natural-language proposal flow changes the object; the canonical service records the prediction, acknowledged scale evidence, explanation and reflection. Completion records participation, not mastery.
 
 The [organization review](Organization-Review.md) explains the choice and cites the attached research framework. It does not treat older research plans as instructions to replace the current Quest Pro architecture.

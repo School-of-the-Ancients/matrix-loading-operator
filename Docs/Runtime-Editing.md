@@ -1,5 +1,7 @@
 # Runtime prefab editing progress
 
+**Unity archive note:** This page was written for the native Unity era. The project and build scripts are preserved in the [read-only Unity archive](../Archive/Unity/README.md). Build commands and forward-looking Unity instructions below reflect the pre-archive checkpoint; current runtime work targets [WebRuntime](../WebRuntime/README.md).
+
 Updated 2026-09-20. This lane implements the handover's bundled-prefab editing contract; Quest Pro device validation is coordinated separately.
 
 ## Existing runtime retained
