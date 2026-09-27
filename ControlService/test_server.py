@@ -149,6 +149,55 @@ class ServiceTests(unittest.TestCase):
         self.assertEqual(self.request("/api/load", {"name": "room"})[1]["commands"][0]["scene"], snap["scene"])
         self.assertFalse(list(Path(self.temp.name).glob(".saving-*")))
 
+    def test_guarded_spawn_checks_client_revision_room_and_generation_atomically(self):
+        self.assertEqual(self.exchange()[0], 200)
+        status = self.request("/api/state")[1]
+        guard = {"expectedClientId": status["clientId"],
+                 "expectedRevision": status["revision"],
+                 "expectedRoomId": status["snapshot"]["scene"]["roomId"],
+                 "expectedRuntimeGeneration": status["runtimeGeneration"]}
+        spawn = {"op": "spawn", "assetId": "cube", "anchorId": "floor",
+                 "transform": TRANSFORM}
+        for field, wrong in (("expectedClientId", "other-client"),
+                             ("expectedRevision", status["revision"] + 1),
+                             ("expectedRoomId", "other-room"),
+                             ("expectedRuntimeGeneration",
+                              status["runtimeGeneration"] + 1)):
+            with self.subTest(field=field):
+                attempted = {**guard, field: wrong, "commands": [spawn]}
+                self.assertEqual(self.request("/api/command", attempted)[0], 409)
+                after = self.request("/api/state")[1]
+                self.assertEqual(after["pendingCount"], 0)
+                self.assertEqual(after["revision"], status["revision"])
+        self.assertEqual(self.request("/api/command", {"commands": [spawn],
+            "expectedClientId": guard["expectedClientId"]})[0], 400)
+        self.assertEqual(self.request("/api/command", {"commands": [spawn, spawn],
+            **guard})[0], 400)
+        self.assertEqual(self.request("/api/command", {"commands": [{"op": "clear"}],
+            **guard})[0], 400)
+        code, queued = self.request("/api/command", {"commands": [spawn], **guard})
+        self.assertEqual(code, 200, queued)
+        self.assertEqual(queued["commands"][0]["op"], "spawn")
+        self.assertEqual(self.request("/api/state")[1]["pendingCount"], 1)
+        self.assertEqual(self.request("/api/command", {"commands": [spawn], **guard})[0], 409)
+
+    def test_guarded_spawn_rejects_reacquired_client_lease(self):
+        self.assertEqual(self.exchange(client="client-a")[0], 200)
+        old_generation = self.request("/api/state")[1]["runtimeGeneration"]
+        self.now[0] += LEASE_SECONDS + 1
+        self.assertEqual(self.exchange(client="client-b")[0], 200)
+        self.now[0] += LEASE_SECONDS + 1
+        self.assertEqual(self.exchange(client="client-a")[0], 200)
+        current = self.request("/api/state")[1]
+        self.assertNotEqual(current["runtimeGeneration"], old_generation)
+        body = {"commands": [{"op": "spawn", "assetId": "cube",
+                              "anchorId": "floor", "transform": TRANSFORM}],
+                "expectedClientId": "client-a", "expectedRevision": current["revision"],
+                "expectedRoomId": current["snapshot"]["scene"]["roomId"],
+                "expectedRuntimeGeneration": old_generation}
+        self.assertEqual(self.request("/api/command", body)[0], 409)
+        self.assertEqual(self.request("/api/state")[1]["pendingCount"], 0)
+
     def test_lease_conflict_and_no_cross_session_commands(self):
         self.exchange()
         queued = self.request("/api/command", {"op": "clear"})[1]

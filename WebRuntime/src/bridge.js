@@ -9,7 +9,9 @@ export class MatrixBridge {
     this.world=world; this.getToken=getToken; this.onUpdate=onUpdate;
     this.clientId=sessionStorage.getItem('matrix-web-client-id')||crypto.randomUUID().replaceAll('-','');
     sessionStorage.setItem('matrix-web-client-id',this.clientId);
-    this.receipts=new Map(); this.running=false; this.timer=null;this.inFlight=false;this.exchangePaused=false;this.rejectPendingOnNextExchange=false;this.lastExchange=0;this.getViewer=()=>null;
+    this.receipts=new Map();this.recentReceipts=new Map();this.receiptWaiters=new Map();
+    this.commandGuards=new Map();
+    this.running=false; this.timer=null;this.inFlight=false;this.exchangePaused=false;this.rejectPendingOnNextExchange=false;this.lastExchange=0;this.getViewer=()=>null;
     this.getCapture=null;this.captureInFlight=false;this.captureReceipt=null;
     this.onWorldSlotCommand=null;
     this.getCaptureCapabilities=()=>({modes:['virtual'],device:'Matrix WebXR',
@@ -46,6 +48,9 @@ export class MatrixBridge {
     let worldSwitched=false;
     const completed=new Map(sent.map(result=>[result.requestId,result]));
     const apply=async operation=>{
+      try{this.commandGuards.get(operation.requestId)?.(operation);}
+      catch(error){return {requestId:operation.requestId,ok:false,
+        error:String(error?.message||error).slice(0,1000),objectId:''};}
       if(!WORLD_SLOT_OPS.has(operation.op))return this.world.execute(operation);
       try{
         if(!this.onWorldSlotCommand)throw Error('Browser world archive controls are unavailable');
@@ -76,6 +81,12 @@ export class MatrixBridge {
         }
       }else result=await apply(command);
       this.receipts.set(command.requestId,result);
+      this.commandGuards.delete(command.requestId);
+      this.recentReceipts.set(command.requestId,result);
+      while(this.recentReceipts.size>64)this.recentReceipts.delete(this.recentReceipts.keys().next().value);
+      const waiters=this.receiptWaiters.get(command.requestId)||[];
+      this.receiptWaiters.delete(command.requestId);
+      for(const waiter of waiters)waiter(result);
       if(result.ok&&(command.op==='start_new_world'||command.op==='restore_world_archive'))
         worldSwitched=true;
       changed=changed||(result.ok&&!READ_ONLY_OPS.has(command.op));
@@ -104,22 +115,45 @@ export class MatrixBridge {
     finally{this.inFlight=false;}
   }
   async sync(worldRestoreExpectedRevision){
+    return this._sync(false,arguments.length>0,worldRestoreExpectedRevision);
+  }
+  async _sync(exclusive,restoringWorld,worldRestoreExpectedRevision){
     if(!this.running)throw Error('Operator connection is not started');
-    const restoringWorld=arguments.length>0;
     if(restoringWorld&&(!Number.isSafeInteger(worldRestoreExpectedRevision)||worldRestoreExpectedRevision<0))
       throw Error('PC world restore has no valid scene revision');
-    while(this.inFlight)await new Promise(resolve=>setTimeout(resolve,25));
+    while(this.inFlight||(this.exchangePaused&&!exclusive))
+      await new Promise(resolve=>setTimeout(resolve,25));
     this.inFlight=true;this.lastExchange=performance.now();
     try{await this.exchange(this.getViewer(),restoringWorld?worldRestoreExpectedRevision:null);}
     catch(error){this.onUpdate({type:'connection',online:false,error:error.message});throw error;}
     finally{this.inFlight=false;}
+  }
+  waitForReceipt(requestId,{timeoutMs=15000}={}){
+    if(!validRequestId(requestId))return Promise.reject(Error('Invalid Matrix request ID'));
+    const existing=this.recentReceipts.get(requestId);
+    if(existing)return Promise.resolve(existing);
+    return new Promise((resolve,reject)=>{
+      const waiter=result=>{clearTimeout(timer);resolve(result);};
+      const timer=setTimeout(()=>{
+        const list=this.receiptWaiters.get(requestId)||[];
+        const remaining=list.filter(item=>item!==waiter);
+        if(remaining.length)this.receiptWaiters.set(requestId,remaining);
+        else this.receiptWaiters.delete(requestId);
+        reject(Error(`Matrix request ${requestId} has no browser receipt yet; inspect its status before retrying`));
+      },timeoutMs);
+      this.receiptWaiters.set(requestId,[...(this.receiptWaiters.get(requestId)||[]),waiter]);
+    });
+  }
+  guardCommand(requestId,guard){
+    if(!validRequestId(requestId)||typeof guard!=='function')throw Error('Invalid Matrix command guard');
+    this.commandGuards.set(requestId,guard);
   }
   async withExclusiveExchange(action){
     if(!this.running||this.exchangePaused)throw Error('Operator exchange is unavailable for PC world restore');
     this.exchangePaused=true;
     try{
       while(this.inFlight)await new Promise(resolve=>setTimeout(resolve,25));
-      return await action();
+      return await action(revision=>this._sync(true,true,revision));
     }finally{this.exchangePaused=false;}
   }
   start(getViewer,getCapture=null) {

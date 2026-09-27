@@ -94,6 +94,32 @@ class WebRuntimeContractTests(unittest.TestCase):
         self.assertEqual(command["anchorId"], "web-floor")
         self.assertTrue(command["requestId"])
 
+    def test_offline_chat_refusal_points_to_current_glb_and_animation_capabilities(self):
+        from server import offline_web_capability_guidance
+        self.assertIsNone(offline_web_capability_guidance("Create a chair here", SNAPSHOT))
+        code, _ = self.post("/api/exchange", {"clientId": "web-client", "snapshot": SNAPSHOT,
+                                           "results": [], "captureSupported": False})
+        self.assertEqual(code, 200)
+        for text in ("Animate the Ice Dragon with Flight",
+                     "Spawn a GLB dragon here", "Load a dragon here"):
+            with self.subTest(text=text):
+                code, response = self.post("/api/plan", {"text": text,
+                    "mode": "offline-rules", "webRuntime": True})
+                self.assertEqual(code, 200, response)
+                self.assertEqual(response["status"], "needs_clarification")
+                self.assertEqual(response["commands"], [])
+                self.assertFalse(response["requiresApply"])
+                self.assertEqual(response["mode"], "offline-rules")
+                self.assertEqual(response["provider"], "Offline command parser (not an AI model)")
+                self.assertIn("CODEX", response["summary"])
+                self.assertIn("Matrix", response["summary"])
+                self.assertNotIn("unsupported", response["summary"].lower())
+        code, ordinary = self.post("/api/plan", {"text": "Load a chair here",
+            "mode": "offline-rules", "webRuntime": True})
+        self.assertEqual(code, 200, ordinary)
+        self.assertEqual(ordinary["status"], "ready")
+        self.assertEqual(ordinary["commands"][0]["assetId"], "chair")
+
     def test_webxr_room_requires_alignment_and_keeps_proposal_revision_when_plane_pose_refines(self):
         room = copy.deepcopy(SNAPSHOT)
         room["scene"]["roomId"] = "webxr-session-test"

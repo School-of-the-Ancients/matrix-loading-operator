@@ -214,6 +214,34 @@ class VoiceJobTests(unittest.TestCase):
         self.assertEqual(result["gamePlan"], game)
         self.planner.assert_not_called()
 
+    def test_web_chat_voice_creative_request_gives_truthful_capability_guidance(self):
+        self.body["webRuntime"] = True
+        for transcript in ("Animate the Ice Dragon with Flight",
+                           "Spawn a GLB dragon here", "Load a dragon here"):
+            with self.subTest(transcript=transcript):
+                self.transcribe.return_value = transcript
+                job_id = self.begin()
+                self.wait_idle()
+                result = server.voice_status(self.state, job_id)
+                self.assertEqual(result["phase"], "needs_clarification")
+                self.assertEqual(result["commands"], [])
+                self.assertFalse(result["requiresApply"])
+                self.assertEqual(result["mode"], "capability-guidance")
+                self.assertEqual(result["provider"], "Matrix CHAT capability guidance")
+                self.assertIn("CODEX", result["summary"])
+                self.assertIn("Matrix", result["summary"])
+        self.planner.assert_not_called()
+        self.assertFalse(self.state.proposals)
+        self.assertFalse(self.state.pending)
+
+    def test_web_chat_voice_named_catalog_command_still_reaches_planner(self):
+        self.body["webRuntime"] = True
+        self.transcribe.return_value = "Load a cube here"
+        job_id = self.begin()
+        self.wait_idle()
+        self.assertEqual(server.voice_status(self.state, job_id)["phase"], "ready")
+        self.planner.assert_called_once()
+
     def test_voice_rejects_oversized_or_malformed_history_before_transcription(self):
         for history in ([{"user": "request", "assistant": "reply"}] * 7,
                         [{"user": "request", "assistant": "reply", "role": "system"}],

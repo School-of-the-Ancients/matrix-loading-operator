@@ -6,6 +6,10 @@ import {VoiceRecorder} from './voice.js';
 import {CameraStream} from './camera_stream.js';
 import {AgentClient,agentActivityLabel} from './agent_client.js';
 import {captureAgentContext} from './agent_context.js';
+import {bindBlenderRequestContext,captureBlenderPlacement,
+  captureBlenderRequestContext,queueBlenderPlacement,
+  registeredBlenderAsset} from './blender_placement.js';
+import {routeOperatorRequest} from './operator_route.js';
 import {loadStoredWorld,restoreStoredWorld,restoreBestStoredWorld,storedWorld,storedBrowserWorld,
   saveCheckpoint,loadCheckpoint,loadCitizensDeletionRecovery,clearCitizensDeletionRecovery,
   WORLD_KEY} from './scene_store.js';
@@ -51,9 +55,10 @@ let roomRecoveryChoice='';
 let clearArchivesArmedUntil=0;
 let persistenceWarning='',restoreWarning='';
 let cameraBusy=false;
-const recorder=new VoiceRecorder();let voiceStarting=false,voiceRecording=false,voiceStopRequested=false,voiceJob=null,voiceSnapshot=null,voiceDestination='planner',voiceAgentContext=null;
+const recorder=new VoiceRecorder();let voiceStarting=false,voiceRecording=false,voiceStopRequested=false,voiceJob=null,voiceSnapshot=null,voiceDestination='planner',voiceAgentContext=null,voiceBlenderPlacement=null;
 let replyContext=null,replySource=null;
 let agentClient=null,agentActionBusy=false,agentVoiceStatus='';
+const pendingBlenderReceiptIds=new Set();
 function unlockReplyAudio(){
   if(!$('speak-replies').checked)return;
   const AudioContextClass=window.AudioContext||window.webkitAudioContext;
@@ -317,6 +322,11 @@ const bridge=new MatrixBridge(world,()=>$('token').value.trim(),event=>{
     lastConnectionOnline=event.online;
   }
   if(event.type==='receipt'){
+    if(pendingBlenderReceiptIds.has(event.result.requestId)){
+      feedback(`Blender spawn ${event.result.requestId} has a browser receipt; checking the PC acknowledgement.`,
+        !event.result.ok);
+      return;
+    }
     const outcome=event.result.outcome;
     const message=event.result.ok?
       outcome?.gameEvent?.message||
@@ -466,7 +476,7 @@ $('agent-approve').addEventListener('click',()=>decideAgent(true));
 $('agent-deny').addEventListener('click',()=>decideAgent(false));
 $('agent-input').addEventListener('keydown',event=>{if(event.key==='Enter'&&(event.ctrlKey||event.metaKey))sendAgent();});
 $('token').addEventListener('change',()=>{if(agentClient.sessionId)agentClient.restore().catch(()=>{});});
-async function refreshAssets(silent=false){
+async function refreshAssets(silent=false,{strict=false}={}){
   try{
     const data=await bridge.request('/api/web/assets');
     const changed=world.registerAssets(data.assets||[]);
@@ -508,6 +518,7 @@ async function refreshAssets(silent=false){
     }
     initXRIfReady();
     if(!silent)feedback(`Catalog updated: ${world.externalAssets.length} web assets.`);
+    return data;
   }catch(error){
     if(pendingWorld){
       restoreWarning=`Saved world is waiting for the Web asset catalog: ${error.message}. Browser copies remain untouched; Refresh assets will retry.`;
@@ -515,6 +526,8 @@ async function refreshAssets(silent=false){
       updateWorldControls();
       feedback('World recovery is waiting for the asset catalog.',true);
     }else if(!silent)feedback(error.message,true);
+    if(strict)throw error;
+    return null;
   }
 }
 bridge.start(()=>view.viewer(),(request,clientId)=>request.mode==='mixed'?
@@ -550,14 +563,42 @@ async function refreshPCWorlds(){
   for(const name of data.worlds||[])select.add(new Option(name,name));
   select.value=current;
 }
+function operatorRoute(text){
+  return routeOperatorRequest(text,{assets:world.snapshot().assets,
+    savedScenes:[...$('saved-scenes').options].map(option=>option.value).filter(Boolean)});
+}
+async function sendToAgentFromChat(text,context){
+  view.showOperatorAgentMode();
+  if(!agentClient.status||agentClient.error)
+    throw Error('Connect CODEX in the Operator panel, then send this creative request again.');
+  if(agentClient.status?.activeTurnId)throw Error('Wait for the current CODEX turn or stop it first.');
+  if(/\b(?:in front of me|ahead of me|where i am pointing)\b/i.test(text)&&!context?.viewerFrame)
+    throw Error('Current viewer tracking is unavailable. Restore tracking, then send this spatial request again.');
+  await agentClient.send(text,context);
+  const message='Sent this request to CODEX with the current Matrix context. Review its tools and Matrix receipts in the CODEX panel.';
+  feedback(message);view.setOperatorStatus(message);
+}
 async function propose(){
   if(pendingWorld){feedback('Finish saved-world recovery before planning scene changes.',true);return;}
   const text=$('prompt').value.trim();if(!text){feedback('Enter a request first.',true);return;}
+  const route=operatorRoute(text);
+  if(route.destination==='agent'){
+    const context=captureAgentContext(world,view,bridge.clientId,'text');
+    $('propose').disabled=true;
+    try{await sendToAgentFromChat(text,context);}
+    catch(error){feedback(`CODEX route: ${error.message}`,true);
+      view.setOperatorStatus(`CODEX route: ${error.message}`,'error');}
+    finally{$('propose').disabled=false;}
+    return;
+  }
+  let blenderPlacement;
+  try{blenderPlacement=await captureBlenderRequestContext(world,view,bridge);}
+  catch(error){feedback(error.message,true);view.setOperatorStatus(error.message,'error');return;}
   unlockReplyAudio();
   $('propose').disabled=true;feedback('Planning…');
   const data=await call('/api/plan',{text,mode:$('mode').value,conversation,webRuntime:true});$('propose').disabled=false;
   if(!data)return;
-  await showProposal(data,text);
+  await showProposal(data,text,blenderPlacement);
 }
 let reviewBusy=false;
 async function captureAndWait(mode){
@@ -596,8 +637,9 @@ async function reviewView(){
     const request=mode==='mixed'?
       'Review the two labeled views: a separate Quest environment-camera frame and a Three.js virtual render. They are side by side and NOT spatially calibrated or pixel aligned. Identify visible room and virtual objects qualitatively; use room-plane measurements for geometry. Propose only supported corrections.':
       'Review the current rendered virtual scene for visible scale, floor alignment, and placement problems. The image excludes physical camera pixels; use room-plane measurements for physical context. If the scene looks good, say so. Propose only supported corrections.';
+    const blenderPlacement=await captureBlenderRequestContext(world,view,bridge);
     const result=await bridge.request('/api/plan',{text:request,mode:'codex-cli',captureId:ready.captureId,conversation});
-    await showProposal(result,request);
+    await showProposal(result,request,blenderPlacement);
   }catch(error){feedback(error.message,true);view.setOperatorStatus(`Visual review failed: ${error.message}`,'error');}
   finally{reviewBusy=false;}
 }
@@ -625,34 +667,28 @@ async function speakReply(message){
     source.connect(replyContext.destination);source.start();
   }catch(error){console.warn('Operator voice output:',error);fallback();}
 }
-async function pollBlender(jobId,request){
+async function pollBlender(jobId,request,blenderPlacement){
   for(let attempt=0;attempt<600;attempt++){
     const job=await bridge.request(`/api/web/blender/${jobId}`);
     if(job.phase==='error')throw Error(job.error||'Blender asset creation failed');
     if(job.phase==='ready'){
-      await refreshAssets(true);
-      if(pendingWorld)throw Error('Finish saved-world recovery before placing a Blender asset');
-      const asset=world.asset(job.asset.assetId);
-      if(!asset)throw Error('Blender asset is ready but the browser catalog has not refreshed');
-      let anchorId=world.selection.anchorId,position=structuredClone(world.selection.position);
-      const measured=world.spatial&&anchorId!=='web-floor'&&world.spatial.alignmentVerified;
-      if(!measured){anchorId='web-floor';position={x:0,y:0,z:-2};}
-      const base={requestId:crypto.randomUUID(),op:'spawn',assetId:asset.assetId,anchorId,
-        ...(measured?{placement:'surface'}:{}),
-        transform:{position,rotation:{x:0,y:0,z:0},scale:{x:1,y:1,z:1}}};
-      let result=world.execute(base);
-      let placementFallback='';
-      if(!result.ok&&measured){
-        placementFallback=result.error;
-        result=world.execute({...base,requestId:crypto.randomUUID(),anchorId:'web-floor',
-          placement:undefined,transform:{...base.transform,position:{x:0,y:0,z:-2}}});
+      let asset,result;
+      try{
+        const catalog=await refreshAssets(true,{strict:true});
+        asset=registeredBlenderAsset(world,job,catalog);
+        if(!blenderPlacement||pendingWorld||pcWorldBusy||worldSwitchBusy)
+          throw Error('Request-time world context is unavailable; choose a fresh placement target');
+        result=await queueBlenderPlacement(world,view,bridge,blenderPlacement,asset,
+          {onQueued:id=>pendingBlenderReceiptIds.add(id)});
+      }catch(error){
+        throw Error(`Blender job ${jobId} registered ${job.asset?.assetId||'an asset'}, but placement was not confirmed: ${error.message}`);
       }
-      if(!result.ok)throw Error(`Blender asset was created but placement failed: ${result.error}`);
-      world.setSelection(result.objectId,world.requireObject(result.objectId).transform.position,world.requireObject(result.objectId).anchorId);
+      pendingBlenderReceiptIds.delete(result.requestId);
+      world.setSelection(result.objectId,world.requireObject(result.objectId).transform.position,
+        world.requireObject(result.objectId).anchorId);
       renderScene();
-      const message=placementFallback?
-        `Created ${asset.displayName} in Blender. Measured placement failed (${placementFallback}); the object is an unanchored virtual preview.`:
-        `Created ${asset.displayName} in Blender and imported it into ${world.spatial?'AR':'the scene'}. ${measured?'Grab it to adjust the position.':'It is an unanchored preview; grab it to move it.'}`;
+      void bridge.tick(true);
+      const message=`Created ${asset.displayName} in Blender and loaded it at the requested ${world.spatial?'AR':'virtual'} target. PC-confirmed Matrix spawn receipt ${result.requestId}${result.objectId?` · object ${result.objectId}`:''}.`;
       remember(request,message);
       lastOperatorReply=`You: ${request}\n\nOperator: ${message}`;operatorMessageUntil=Infinity;
       view.setOperatorStatus(lastOperatorReply);feedback(message);speakReply(message);return;
@@ -663,10 +699,10 @@ async function pollBlender(jobId,request){
   }
   throw Error('Blender job is taking longer than expected; check the job list on the PC.');
 }
-async function showProposal(data,requestText=''){
+async function showProposal(data,requestText='',blenderPlacement=null){
   if(data.authoringJobId){
     proposal=null;$('proposal').classList.add('hidden');
-    try{await pollBlender(data.authoringJobId,data.transcript||requestText||$('prompt').value.trim());}
+    try{await pollBlender(data.authoringJobId,data.transcript||requestText||$('prompt').value.trim(),blenderPlacement);}
     catch(error){feedback(error.message,true);view.setOperatorStatus(error.message,'error');}
     return;
   }
@@ -812,7 +848,8 @@ async function restorePCWorld(){
     await bridge.sync();
     const data=await bridge.request('/api/web/world/load',{name});
     if(world.spatial||pendingWorld)throw Error('The browser left the ready desktop virtual room');
-    await bridge.withExclusiveExchange(()=>applyPCWorld(world,data.world,()=>bridge.sync(data.expectedRevision)));
+    await bridge.withExclusiveExchange(syncExclusive=>
+      applyPCWorld(world,data.world,()=>syncExclusive(data.expectedRevision)));
     discardProposal();restored=true;
   }catch(error){restoreError=error;}
   finally{
@@ -1015,7 +1052,9 @@ $('blender-request').addEventListener('click',async()=>{
   const prompt=$('prompt').value.trim();if(!prompt){feedback('Describe the object to create first.',true);return;}
   unlockReplyAudio();
   const button=$('blender-request');button.disabled=true;
-  try{const job=await bridge.request('/api/web/blender',{prompt});await pollBlender(job.jobId,prompt);}
+  try{const blenderPlacement=await captureBlenderRequestContext(world,view,bridge);
+    const job=await bridge.request('/api/web/blender',{prompt});
+    await pollBlender(job.jobId,prompt,blenderPlacement);}
   catch(error){feedback(error.message,true);view.setOperatorStatus(error.message,'error');}
   finally{button.disabled=false;}
 });
@@ -1053,7 +1092,7 @@ async function beginVoice(){
     voiceStatus('Reconnect to Codex first.',true);return;
   }
   if(voiceDestination==='agent'&&agentClient.status.activeTurnId){voiceStatus('Wait for Codex or stop the current turn.',true);return;}
-  try{voiceAgentContext=voiceDestination==='agent'?captureAgentContext(world,view,bridge.clientId,'voice_transcript'):null;}
+  try{voiceBlenderPlacement=voiceDestination==='planner'?captureBlenderPlacement(world,view):null;}
   catch(error){voiceStatus(`Could not capture Matrix context: ${error.message}`,true);return;}
   unlockReplyAudio();
   voiceStarting=true;voiceStopRequested=false;voiceButtons();voiceStatus('Requesting microphone…');
@@ -1066,28 +1105,44 @@ async function endVoice(){
   if(!voiceRecording)return;
   voiceRecording=false;voiceJob='finalizing';voiceButtons();voiceStatus('Finishing recording…');
   try{const audioBase64=await recorder.stop();
+    voiceAgentContext=captureAgentContext(world,view,bridge.clientId,'voice_transcript');
     voiceStatus('Transcribing on PC…');
     if(voiceDestination==='agent'){
       voiceJob='agent-transcribe';voiceButtons();
       const transcript=await agentClient.transcribe(audioBase64);
       voiceStatus(`Heard: ${transcript}`);
+      if(/\b(?:in front of me|ahead of me|where i am pointing)\b/i.test(transcript)&&
+          !voiceAgentContext.viewerFrame)
+        throw Error('Current viewer tracking is unavailable. Restore tracking, then say the spatial request again.');
       await agentClient.send(transcript,voiceAgentContext);
       voiceStatus('Sent to Codex with Matrix spatial context.');
     }else{
+      if(agentClient.status&&!agentClient.error){
+        voiceJob='agent-transcribe';voiceButtons();
+        const transcript=await agentClient.transcribe(audioBase64);
+        voiceStatus(`Heard: ${transcript}`);
+        if(operatorRoute(transcript).destination==='agent'){
+          $('prompt').value=transcript;
+          await sendToAgentFromChat(transcript,voiceAgentContext);
+          voiceStatus('Creative request routed to CODEX with Matrix spatial context.');
+          return;
+        }
+      }
+      voiceBlenderPlacement=await bindBlenderRequestContext(world,view,bridge,voiceBlenderPlacement);
       voiceJob='planner-submit';voiceButtons();
       const job=await bridge.request('/api/voice',{clientId:bridge.clientId,snapshot:voiceSnapshot,audioBase64,conversation,webRuntime:true});
       voiceJob=job.jobId;voiceButtons();await pollVoice(voiceJob);
     }
   }
   catch(error){voiceStatus(error.message,true);}
-  finally{voiceJob=null;voiceSnapshot=null;voiceAgentContext=null;voiceButtons();}
+  finally{voiceJob=null;voiceSnapshot=null;voiceAgentContext=null;voiceBlenderPlacement=null;voiceButtons();}
 }
 async function pollVoice(jobId){
   for(let attempt=0;attempt<120;attempt++){
     const job=await bridge.request(`/api/voice/${jobId}`);
     if(job.phase==='error'){voiceStatus(job.error||'Voice request failed',true);return;}
     if(!['transcribing','planning'].includes(job.phase)){if(job.transcript)$('prompt').value=job.transcript;
-      voiceStatus(job.transcript?`Heard: ${job.transcript}`:'Voice request finished');await showProposal(job,job.transcript);return;}
+      voiceStatus(job.transcript?`Heard: ${job.transcript}`:'Voice request finished');await showProposal(job,job.transcript,voiceBlenderPlacement);return;}
     voiceStatus(job.phase==='transcribing'?'Transcribing on PC…':job.progress||'Planning scene…');
     await new Promise(resolve=>setTimeout(resolve,750));
   }

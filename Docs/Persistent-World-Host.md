@@ -47,6 +47,15 @@ process. The owner still connects only to an explicit loopback port; Node's
 normal certificate and hostname verification remain enabled. Keep the
 `SANDBOX_TOKEN` and `SANDBOX_WORLD_VIEW_TOKEN` values distinct.
 
+Keep both tokens out of source, release ZIPs, screenshots, and browser storage.
+The owner token belongs only in the PC service and Node host environments. Enter
+only the view token in `/web/hosted.html`; it is cleared from the form after
+connection and retained only in that tab's memory. The view token can read the
+saved hosted observation and its referenced GLB bytes. It cannot open an Agent
+Portal session, call owner routes, or queue a Matrix command. The ordinary
+`/web/` page is a separate interactive browser-owned world, with its own save
+and writer lease; opening it does not join this PC-owned hosted fixture.
+
 `--ticks 3` performs exactly three virtual ticks and exits for a bounded run.
 The default continues at one tick after each 500 ms interval. Slow service
 requests do not trigger catch-up ticks. If exchange or checkpoint save fails,
@@ -68,6 +77,17 @@ prompt-to-Blender access. Without either Citizen flag, the existing human
 Operator creation slot remains available.
 `--interval-ms` can set the tick interval for an isolated demonstration.
 
+Node and the locked WebRuntime production dependencies are required for the
+headless host even when the browser pages were prebuilt. A new generated-asset
+job additionally needs a supported PC Blender executable and the existing
+reviewed blueprint worker. A completed registered GLB can be viewed after
+restart without running Blender again. Preserve the matching PC
+`world_checkpoints` file, `web_assets/manifest.json` and SHA-matched GLB, and
+the Citizen Blender job/spawn ledgers when resuming unfinished generation.
+The owner stops on an ambiguous queued or unconfirmed outcome; inspect its
+saved state before deciding whether to resume. It never regenerates or spawns
+automatically to cover an uncertain prior result.
+
 Each world has one named PC checkpoint under the chosen scene directory. A
 hosted exchange publishes a headless runtime descriptor
 `matrix-world-host/none/host`. The service accepts the four built-in Citizens
@@ -78,6 +98,13 @@ world on restore. The host executes one approved `create_procedural` or
 `spawn` command after its first checkpoint; unsupported Operator commands
 receive explicit failure receipts. A second creation, revision, or deletion
 is outside this prototype's hosted edit contract.
+
+This one-addition limit is shared by the PC human and Citizen cases. If Bo's
+seat is already present, the human Operator cannot add a second object to that
+hosted world. Conversely, an existing human addition leaves no construction
+slot for Bo. The Agent Portal is on the PC; this release does not put an
+interactive Operator panel, controller ray, grab, or authoring controls in the
+hosted Quest visitor.
 
 ## PC Operator creation
 

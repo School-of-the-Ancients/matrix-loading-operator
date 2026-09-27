@@ -40,6 +40,10 @@ Choose a tested WebXR release for the submission and include its exact release U
 
 For a new milestone:
 
+Use the [WebXR release builder](../Tools/README-WebXR-Release.md) for the
+committed-source ZIP, external manifest, SHA256SUMS, and isolated extracted
+service/host smoke check. It does not perform Quest validation or publication.
+
 1. Commit the intended WebRuntime and ControlService source. Build and validate that exact WebXR/PC-service package, recording source commit, dependency versions, package hash, tested browser/headset mode, and remaining limitations.
 2. Preserve the built package, manifest, checksums, matching PC service, and any portable demo world or required catalog assets under a new versioned checkpoint. Test the package after extraction in an isolated profile/service before release.
 3. Create a new annotated version tag pointing at that checkpoint. Create a draft GitHub prerelease and attach the WebXR/PC package, manifest and checksums. Verify uploaded asset sizes and SHA-256 digests before publishing.
