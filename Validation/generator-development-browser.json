@@ -1,0 +1,191 @@
+{
+  "origin": "http://127.0.0.1:19864/web/",
+  "capturedAtUtc": "2026-09-27T00:31:18.0149681Z",
+  "online": true,
+  "revision": 19,
+  "pendingCount": 1,
+  "runtime": {
+    "schemaVersion": 1,
+    "client": "matrix-web",
+    "renderer": "threejs-webxr",
+    "presentation": "desktop"
+  },
+  "generators": [
+    {
+      "generatorId": "bridge",
+      "generatorVersion": "1.0.0",
+      "sourceRevision": "bridge-v1",
+      "description": "A parameterized deck with optional railings and supports; rise makes a ramp.",
+      "parameterSchema": {
+        "lengthMeters": {
+          "type": "number",
+          "default": 6,
+          "min": 2,
+          "max": 12
+        },
+        "widthMeters": {
+          "type": "number",
+          "default": 1.5,
+          "min": 0.8,
+          "max": 4
+        },
+        "deckHeightMeters": {
+          "type": "number",
+          "default": 1.2,
+          "min": 0.2,
+          "max": 3
+        },
+        "riseMeters": {
+          "type": "number",
+          "default": 0,
+          "min": -2,
+          "max": 2
+        },
+        "railings": {
+          "type": "boolean",
+          "default": true
+        },
+        "supports": {
+          "type": "boolean",
+          "default": true
+        }
+      },
+      "dependencies": []
+    },
+    {
+      "generatorId": "staircase",
+      "generatorVersion": "1.0.0",
+      "sourceRevision": "staircase-v1",
+      "description": "A bounded straight staircase with flat treads rising along local +X.",
+      "parameterSchema": {
+        "stepCount": {
+          "type": "number",
+          "default": 6,
+          "min": 2,
+          "max": 12
+        },
+        "widthMeters": {
+          "type": "number",
+          "default": 1.2,
+          "min": 0.8,
+          "max": 3
+        },
+        "treadDepthMeters": {
+          "type": "number",
+          "default": 0.32,
+          "min": 0.25,
+          "max": 0.5
+        },
+        "stepRiseMeters": {
+          "type": "number",
+          "default": 0.18,
+          "min": 0.12,
+          "max": 0.25
+        }
+      },
+      "dependencies": []
+    }
+  ],
+  "objects": [
+    {
+      "objectId": "5544d62e0c40491aba5ae99b57aaff2e",
+      "assetId": "matrix:procedural",
+      "anchorId": "web-floor",
+      "transform": {
+        "position": {
+          "x": 0,
+          "y": 0,
+          "z": 0
+        },
+        "rotation": {
+          "x": 0,
+          "y": 0,
+          "z": 0
+        },
+        "scale": {
+          "x": 1,
+          "y": 1,
+          "z": 1
+        }
+      },
+      "procedural": {
+        "schemaVersion": 1,
+        "generatorId": "staircase",
+        "generatorVersion": "1.0.0",
+        "sourceRevision": "staircase-v1",
+        "parameters": {
+          "stepCount": 8,
+          "widthMeters": 1.5,
+          "treadDepthMeters": 0.32,
+          "stepRiseMeters": 0.18
+        },
+        "seed": 0,
+        "dependencies": []
+      }
+    },
+    {
+      "objectId": "bf8eea9204394ada9171b5ef915ab025",
+      "assetId": "matrix:procedural",
+      "anchorId": "web-floor",
+      "transform": {
+        "position": {
+          "x": 4,
+          "y": 0,
+          "z": 0
+        },
+        "rotation": {
+          "x": 0,
+          "y": 0,
+          "z": 0
+        },
+        "scale": {
+          "x": 1,
+          "y": 1,
+          "z": 1
+        }
+      },
+      "procedural": {
+        "schemaVersion": 1,
+        "generatorId": "bridge",
+        "generatorVersion": "1.0.0",
+        "sourceRevision": "bridge-v1",
+        "parameters": {
+          "lengthMeters": 9,
+          "widthMeters": 2,
+          "deckHeightMeters": 1.2,
+          "riseMeters": 0,
+          "railings": true,
+          "supports": true
+        },
+        "seed": 0,
+        "dependencies": []
+      }
+    }
+  ],
+  "receipts": [
+    {
+      "requestId": "58f24dba62b1425a928405ba2c9b56cb",
+      "ok": true,
+      "error": "",
+      "objectId": "5544d62e0c40491aba5ae99b57aaff2e"
+    },
+    {
+      "requestId": "a659e40610794b208185ee0b3d989cfa",
+      "ok": true,
+      "error": "",
+      "objectId": "5544d62e0c40491aba5ae99b57aaff2e"
+    },
+    {
+      "requestId": "e237b1c5e5884b37b4c0358355f00cef",
+      "ok": true,
+      "error": "",
+      "objectId": "bf8eea9204394ada9171b5ef915ab025"
+    },
+    {
+      "requestId": "97690a529e2d4434afe9881e1dc51d76",
+      "ok": true,
+      "error": "",
+      "objectId": "bf8eea9204394ada9171b5ef915ab025"
+    }
+  ]
+}

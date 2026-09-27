@@ -8,7 +8,9 @@ import {
 
 test('discovery exposes bounded versioned recipes without executable code', () => {
   const listed = listProceduralGenerators();
-  assert.deepEqual(listed.map(item => item.generatorId), ['bridge', 'curved-bench']);
+  assert.deepEqual(listed.map(item => item.generatorId),
+    ['bridge', 'curved-bench', 'staircase']);
+  assert.equal(listed[2].parameterSchema.stepCount.type, 'integer');
   assert.equal(listed[0].parameterSchema.lengthMeters.default, 6);
   listed[0].parameterSchema.lengthMeters.default = 100;
   assert.equal(listProceduralGenerators()[0].parameterSchema.lengthMeters.default, 6);
@@ -69,6 +71,67 @@ test('curved bench has a true swept mesh and independently editable instances', 
   assert.equal(validateProceduralOutput(first), true);
 });
 
+test('staircase recipes generate bounded closed steps with stable part identities', () => {
+  const original = createProceduralRecipe('staircase');
+  assert.equal(original.generatorVersion, '1.0.0');
+  assert.equal(original.sourceRevision, 'staircase-v1');
+  const first = generateProcedural(original);
+  assert.deepEqual(first.parts.map(item => item.partId),
+    ['step-01', 'step-02', 'step-03', 'step-04', 'step-05', 'step-06']);
+  assert.deepEqual(first.budget,
+    {parts: 6, vertices: 144, triangles: 72, bufferBytes: 2592});
+  assert.ok(Math.abs(first.localBounds.size.x - 1.92) < 1e-9);
+  assert.ok(Math.abs(first.localBounds.size.y - 1.08) < 1e-9);
+  assert.ok(Math.abs(first.localBounds.size.z - 1.2) < 1e-9);
+  assert.ok(Math.abs(first.localBounds.center.y - .54) < 1e-9);
+  for (const [index, step] of first.parts.entries()) {
+    assert.equal(step.collision.kind, 'static-trimesh');
+    assert.equal(step.geometry.positions.length / 3, 24);
+    assert.equal(step.geometry.indices.length / 3, 12);
+    const height = Math.max(...step.geometry.positions.filter((_, offset) =>
+      offset % 3 === 1));
+    assert.ok(Math.abs(height - (index + 1) * .18) < 1e-9);
+  }
+  const revised = reviseProceduralRecipe(original,
+    {stepCount: 8, widthMeters: 2, treadDepthMeters: .4});
+  const second = generateProcedural(revised);
+  assert.deepEqual(second.parts.slice(0, 6).map(item => item.partId),
+    first.parts.map(item => item.partId));
+  assert.equal(second.parts.at(-1).partId, 'step-08');
+  assert.ok(Math.abs(second.localBounds.size.x - 3.2) < 1e-9);
+  assert.ok(Math.abs(second.localBounds.size.z - 2) < 1e-9);
+  assert.deepEqual(generateProcedural(original), first,
+    'revising one recipe does not alter another instance');
+  assert.equal(validateProceduralOutput(second), true);
+  const maximum = generateProcedural(createProceduralRecipe('staircase',
+    {stepCount: 12, widthMeters: 3, treadDepthMeters: .5, stepRiseMeters: .25}));
+  assert.deepEqual(maximum.budget,
+    {parts: 12, vertices: 288, triangles: 144, bufferBytes: 5184});
+  assert.ok(Math.abs(maximum.localBounds.size.x - 6) < 1e-9);
+  assert.ok(Math.abs(maximum.localBounds.size.y - 3) < 1e-9);
+});
+
+test('staircase rejects fractional, out-of-range and stale recipes before geometry', () => {
+  const original = createProceduralRecipe('staircase');
+  assert.equal(createProceduralRecipe('staircase', {stepCount: 5.0})
+    .parameters.stepCount, 5);
+  assert.throws(() => createProceduralRecipe('staircase', {stepCount: 5.5}),
+    /Invalid procedural parameter/);
+  assert.throws(() => reviseProceduralRecipe(original, {stepCount: 5.5}),
+    /Invalid procedural parameter/);
+  assert.throws(() => normalizeProceduralRecipe({...original,
+    parameters: {...original.parameters, stepCount: 5.5}}),
+    /Invalid procedural parameter/);
+  assert.throws(() => createProceduralRecipe('staircase', {stepCount: 13}),
+    /Invalid procedural parameter/);
+  assert.throws(() => normalizeProceduralRecipe({...original,
+    sourceRevision: 'staircase-v2'}), /version or dependency unavailable/);
+  assert.deepEqual(generateProcedural(original).parts.map(part => part.partId),
+    ['step-01', 'step-02', 'step-03', 'step-04', 'step-05', 'step-06']);
+  assert.equal(createProceduralRecipe('bridge', {riseMeters: .5})
+    .parameters.riseMeters, .5, 'existing numeric parameters remain fractional');
+});
+
 test('invalid edits, stale versions and tampered output fail without altering the prior result', () => {
   const recipe = createProceduralRecipe('bridge');
   const old = generateProcedural(recipe);
@@ -115,5 +178,14 @@ test('reviewed new generator uses the generic registry and budget is checked bef
   const oversizedRegistry = createProceduralRegistry([oversized]);
   assert.throws(() => oversizedRegistry.generate(oversizedRegistry.createRecipe('oversized')),
     /parts budget exceeded/);
+  assert.equal(built, false);
+  const oversizedBuffer = {...good, generatorId: 'oversized-buffer',
+    sourceRevision: 'oversized-buffer-v1',
+    estimate: () => ({parts: 1, vertices: 3, triangles: 1,
+      bufferBytes: PROCEDURAL_BUDGET.bufferBytes + 1}),
+    build: () => {built = true; return good.build({sizeMeters: 1});}};
+  const bufferRegistry = createProceduralRegistry([oversizedBuffer]);
+  assert.throws(() => bufferRegistry.generate(bufferRegistry.createRecipe('oversized-buffer')),
+    /bufferBytes budget exceeded/);
   assert.equal(built, false);
 });

@@ -30,11 +30,13 @@ function parameterSchema(definition) {
     throw Error('Invalid procedural parameter schema');
   for (const [name, field] of Object.entries(definition)) {
     if (!parameterNamePattern.test(name) || !record(field) ||
-        !['number', 'boolean'].includes(field.type))
+        !['number', 'integer', 'boolean'].includes(field.type))
       throw Error('Invalid procedural parameter field');
-    if (field.type === 'number') {
+    if (field.type !== 'boolean') {
+      const validNumber = field.type === 'integer' ? Number.isSafeInteger : finite;
       if (!exactKeys(field, ['type', 'default', 'min', 'max']) ||
-          !finite(field.min) || !finite(field.max) || !finite(field.default) ||
+          !validNumber(field.min) || !validNumber(field.max) ||
+          !validNumber(field.default) ||
           field.min >= field.max || field.default < field.min || field.default > field.max)
         throw Error('Invalid procedural numeric parameter');
     } else if (!exactKeys(field, ['type', 'default']) || typeof field.default !== 'boolean') {
@@ -53,9 +55,11 @@ function normalizedParameters(schema, input, partial) {
     if (!partial && !Object.hasOwn(input, name))
       throw Error(`Missing procedural parameter: ${name}`);
     const value = Object.hasOwn(input, name) ? input[name] : field.default;
-    if (field.type === 'number' ?
-        !finite(value) || value < field.min || value > field.max :
-        typeof value !== 'boolean')
+    const validValue = field.type === 'number' ? finite(value) :
+      field.type === 'integer' ? Number.isSafeInteger(value) :
+        typeof value === 'boolean';
+    if (!validValue || (field.type !== 'boolean' &&
+        (value < field.min || value > field.max)))
       throw Error(`Invalid procedural parameter: ${name}`);
     parameters[name] = value;
   }
@@ -224,6 +228,38 @@ const curvedBenchGenerator = {
       const legHeight = seatTop - .09;
       parts.push(part(`leg-${side}`,
         box(x, legHeight / 2, z, .11, legHeight, .13), materials.steel));
+    }
+    return {parts};
+  }
+};
+
+const staircaseGenerator = {
+  generatorId: 'staircase', generatorVersion: '1.0.0',
+  sourceRevision: 'staircase-v1',
+  description: 'A bounded straight staircase with flat treads rising along local +X.',
+  dependencies: [],
+  parameterSchema: {
+    stepCount: {type: 'integer', default: 6, min: 2, max: 12},
+    widthMeters: {type: 'number', default: 1.2, min: .8, max: 3},
+    treadDepthMeters: {type: 'number', default: .32, min: .25, max: .5},
+    stepRiseMeters: {type: 'number', default: .18, min: .12, max: .25}
+  },
+  estimate(p) {
+    if (!Number.isSafeInteger(p.stepCount))
+      throw Error('Staircase stepCount must be a whole number');
+    // Each closed prism has six quads, with independent face vertices.
+    return {parts: p.stepCount, vertices: p.stepCount * 24,
+      triangles: p.stepCount * 12, bufferBytes: p.stepCount * 432};
+  },
+  build(p) {
+    const run = p.stepCount * p.treadDepthMeters;
+    const parts = [];
+    for (let index = 0; index < p.stepCount; index++) {
+      const height = (index + 1) * p.stepRiseMeters;
+      const x = -run / 2 + (index + .5) * p.treadDepthMeters;
+      parts.push(part(`step-${String(index + 1).padStart(2, '0')}`,
+        box(x, height / 2, 0, p.treadDepthMeters, height, p.widthMeters),
+        materials.deck));
     }
     return {parts};
   }
@@ -411,7 +447,8 @@ export function createProceduralRegistry(definitions) {
   });
 }
 
-const registry = createProceduralRegistry([bridgeGenerator, curvedBenchGenerator]);
+const registry = createProceduralRegistry([
+  bridgeGenerator, curvedBenchGenerator, staircaseGenerator]);
 export const listProceduralGenerators = () => registry.list();
 export const createProceduralRecipe = (...args) => registry.createRecipe(...args);
 export const normalizeProceduralRecipe = recipe => registry.normalizeRecipe(recipe);

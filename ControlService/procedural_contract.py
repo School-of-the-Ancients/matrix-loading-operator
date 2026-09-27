@@ -40,7 +40,17 @@ def _identifier(value, pattern):
 
 
 def _number(value):
-    return type(value) in (int, float) and math.isfinite(value)
+    if type(value) not in (int, float):
+        return False
+    try:
+        return math.isfinite(value)
+    except OverflowError:
+        return False
+
+
+def _integer(value):
+    return (type(value) in (int, float) and abs(value) <= 2**53 - 1 and
+            (type(value) is int or value.is_integer()))
 
 
 def checked_recipe(value):
@@ -90,9 +100,10 @@ def checked_generators(value):
             if not _identifier(name, PARAMETER_NAME) or type(field) is not dict:
                 _fail("Invalid procedural parameter field")
             kind = field.get("type")
-            if kind == "number":
+            if kind in ("number", "integer"):
+                valid = _integer if kind == "integer" else _number
                 if set(field) != {"type", "default", "min", "max"} or not all(
-                        _number(field.get(key)) for key in ("default", "min", "max")) or not (
+                        valid(field.get(key)) for key in ("default", "min", "max")) or not (
                         field["min"] < field["max"] and
                         field["min"] <= field["default"] <= field["max"]):
                     _fail("Invalid procedural numeric parameter")
@@ -121,6 +132,9 @@ def available_recipe(value, catalog):
         item = value["parameters"][key]
         if field["type"] == "number":
             if not _number(item) or not field["min"] <= item <= field["max"]:
+                _fail(f"Invalid procedural parameter: {key}")
+        elif field["type"] == "integer":
+            if not _integer(item) or not field["min"] <= item <= field["max"]:
                 _fail(f"Invalid procedural parameter: {key}")
         elif type(item) is not bool:
             _fail(f"Invalid procedural parameter: {key}")

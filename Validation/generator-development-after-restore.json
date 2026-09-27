@@ -1,0 +1,55 @@
+{
+  "origin": "http://127.0.0.1:19864/web/",
+  "phase": "after isolated PC restart, browser reload, named checkpoint restore, and further edit",
+  "capturedAtUtc": "2026-09-27T00:34:55.8088034Z",
+  "online": true,
+  "revision": 7,
+  "pendingCount": 0,
+  "stepCountType": "integer",
+  "objects": [
+    {
+      "objectId": "5544d62e0c40491aba5ae99b57aaff2e",
+      "assetId": "matrix:procedural",
+      "anchorId": "web-floor",
+      "transform": {
+        "position": {
+          "x": 0,
+          "y": 0,
+          "z": 0
+        },
+        "rotation": {
+          "x": 0,
+          "y": 0,
+          "z": 0
+        },
+        "scale": {
+          "x": 1,
+          "y": 1,
+          "z": 1
+        }
+      },
+      "procedural": {
+        "schemaVersion": 1,
+        "generatorId": "staircase",
+        "generatorVersion": "1.0.0",
+        "sourceRevision": "staircase-v1",
+        "parameters": {
+          "stepCount": 7,
+          "widthMeters": 1.5,
+          "treadDepthMeters": 0.32,
+          "stepRiseMeters": 0.18
+        },
+        "seed": 0,
+        "dependencies": []
+      }
+    }
+  ],
+  "editReceipt": [
+    {
+      "requestId": "5c5bfd9a05d447de8423ad5b6ddfcc3f",
+      "ok": true,
+      "error": "",
+      "objectId": "5544d62e0c40491aba5ae99b57aaff2e"
+    }
+  ]
+}
