@@ -275,10 +275,16 @@ def scene_summary(state) -> dict:
         if not isinstance(objects, list):
             objects = []
         assets = snapshot.get("assets", []) if online else []
+        room_context = (snapshot.get("roomContext") or {}) if online else {}
         return {"schemaVersion": 1, "online": bool(online),
                 "sceneRevision": state.revision,
                 "roomId": scene.get("roomId") if online else None,
-                "roomMode": (snapshot.get("roomContext") or {}).get("mode") if online else None,
+                "roomMode": room_context.get("mode") if online else None,
+                "room": ({"mode": room_context.get("mode", "unknown"),
+                          "state": room_context.get("state", "unknown"),
+                          "alignmentVerified": room_context.get("alignmentVerified", False),
+                          "readOnly": snapshot.get("readOnly", False)} if online else None),
+                "digitalWorldVisit": snapshot.get("digitalWorldVisit", False) if online else None,
                 "runtimeDescriptor": snapshot.get("runtimeDescriptor") if online else None,
                 "objectCount": len(objects) if online else 0,
                 "assetCount": len(assets),

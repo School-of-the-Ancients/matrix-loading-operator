@@ -1,4 +1,5 @@
 """PC-only MCP bridge reads the live Matrix scene with bounded output."""
+import copy
 import json
 import os
 from pathlib import Path
@@ -31,6 +32,8 @@ class MatrixToolBridgeTests(unittest.TestCase):
 
     def test_offline_and_authenticated_live_scene_are_bounded(self):
         self.assertEqual(self.get()["online"], False)
+        self.assertIsNone(self.get()["room"])
+        self.assertIsNone(self.get()["digitalWorldVisit"])
         self.assertIsNone(self.get()["runtimeDescriptor"])
         with self.assertRaises(urllib.error.HTTPError) as error:
             self.get("wrong-token")
@@ -39,6 +42,9 @@ class MatrixToolBridgeTests(unittest.TestCase):
         data = self.get()
         self.assertTrue(data["online"])
         self.assertEqual(data["roomId"], SNAPSHOT["scene"]["roomId"])
+        self.assertEqual(data["room"], {"mode": "unknown", "state": "unknown",
+                                        "alignmentVerified": False, "readOnly": False})
+        self.assertFalse(data["digitalWorldVisit"])
         self.assertEqual(data["objectCount"], len(SNAPSHOT["scene"]["objects"]))
         self.assertNotIn("capture", data)
         self.assertNotIn("results", data)
@@ -50,7 +56,45 @@ class MatrixToolBridgeTests(unittest.TestCase):
         self.state.last_seen = -float("inf")
         self.assertEqual(self.get()["objects"], [])
         self.assertIsNone(self.get()["roomId"])
+        self.assertIsNone(self.get()["room"])
+        self.assertIsNone(self.get()["digitalWorldVisit"])
         self.assertIsNone(self.get()["runtimeDescriptor"])
+
+    def test_live_room_readiness_tracks_ar_origin_loss_without_exposing_room_message(self):
+        desktop = copy.deepcopy(SNAPSHOT)
+        desktop["roomContext"] = {"mode": "white-room", "state": "ready",
+                                  "alignmentVerified": False, "message": "Browser floor"}
+        desktop["runtimeDescriptor"] = {"schemaVersion": 1, "client": "matrix-web",
+                                        "renderer": "threejs-webxr", "presentation": "desktop"}
+        self.state.exchange({"clientId": "web-client", "snapshot": desktop, "results": []})
+        self.assertEqual(self.get()["room"], {"mode": "white-room", "state": "ready",
+                                               "alignmentVerified": False, "readOnly": False})
+
+        ar = copy.deepcopy(desktop)
+        ar["scene"]["roomId"] = "webxr-session-1"
+        ar["roomContext"] = {"mode": "ar", "state": "ready",
+                             "alignmentVerified": False, "message": "Tracking but not aligned"}
+        ar["runtimeDescriptor"]["presentation"] = "ar"
+        self.state.exchange({"clientId": "web-client", "snapshot": ar, "results": []})
+        summary = self.get()
+        self.assertEqual(summary["roomMode"], "ar")
+        self.assertEqual(summary["room"], {"mode": "ar", "state": "ready",
+                                           "alignmentVerified": False, "readOnly": False})
+        self.assertNotIn("Tracking but not aligned", json.dumps(summary))
+
+        ar["roomContext"]["alignmentVerified"] = True
+        self.state.exchange({"clientId": "web-client", "snapshot": ar, "results": []})
+        self.assertTrue(self.get()["room"]["alignmentVerified"])
+
+        ar["roomContext"] = {"mode": "ar", "state": "missing",
+                             "alignmentVerified": False, "message": "Origin tracking lost"}
+        ar["readOnly"] = True
+        self.state.exchange({"clientId": "web-client", "snapshot": ar, "results": []})
+        summary = self.get()
+        self.assertTrue(summary["online"])
+        self.assertEqual(summary["room"], {"mode": "ar", "state": "missing",
+                                           "alignmentVerified": False, "readOnly": True})
+        self.assertNotIn("Origin tracking lost", json.dumps(summary))
 
     def test_catalog_is_limited_and_transport_keeps_token_out_of_arguments(self):
         self.state.exchange({"clientId": "web-client", "snapshot": SNAPSHOT, "results": []})
