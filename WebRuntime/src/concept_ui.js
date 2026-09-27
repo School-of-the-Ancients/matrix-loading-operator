@@ -1,5 +1,5 @@
 import {ConceptClient} from './concept_client.js';
-import {parseConceptIntent} from './concept_intent.js';
+import {parseConceptIntent,isSelectedConceptBuildRequest} from './concept_intent.js';
 
 const $=id=>document.getElementById(id);
 const label=concept=>`Version ${concept.version}`;
@@ -166,6 +166,19 @@ export class ConceptUI {
     });
   }
   get selected(){return this.client.selected;}
+  async expectedBuild(text){
+    if(!isSelectedConceptBuildRequest(text))return null;
+    const sessionId=await this._session();
+    await this.client.refresh(sessionId);
+    if(this.getSession()!==sessionId)
+      throw Error('Codex session changed. Review the selected concept and try again.');
+    const selected=this.client.selected;
+    if(!selected)throw Error('Select a ready concept version before building it.');
+    if(!/^[0-9a-f]{32}$/.test(selected.conceptId)||
+        !Number.isSafeInteger(selected.version)||selected.version<1)
+      throw Error('Selected concept status is invalid. Refresh and choose the version again.');
+    return {conceptId:selected.conceptId,version:selected.version};
+  }
   buildStatus(){
     const build=this.client.builds.at(-1);
     if(!build)return '';

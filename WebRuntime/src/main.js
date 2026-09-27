@@ -6,7 +6,8 @@ import {VoiceRecorder} from './voice.js';
 import {CameraStream} from './camera_stream.js';
 import {AgentClient,agentActivityLabel} from './agent_client.js';
 import {ConceptUI} from './concept_ui.js';
-import {parseConceptIntent,isSelectedConceptBuildRequest} from './concept_intent.js';
+import {parseConceptIntent,isSelectedConceptBuildRequest,
+  stopPlannerConceptFallback,plannerVoiceFallbackAllowed} from './concept_intent.js';
 import {captureAgentContext} from './agent_context.js';
 import {bindBlenderRequestContext,captureBlenderPlacement,
   captureBlenderRequestContext,queueBlenderPlacement,
@@ -473,9 +474,11 @@ function sendAgent(){
       $('agent-input').value='';feedback(message);view.setOperatorStatus(message);});
     return;
   }
-  const context=$('agent-include-context').checked||isSelectedConceptBuildRequest(text)?
-    captureAgentContext(world,view,bridge.clientId,'text'):null;
-  agentAction(async()=>{await agentClient.send(text,context);$('agent-input').value='';
+  agentAction(async()=>{
+    const expectedConcept=await conceptUI.expectedBuild(text);
+    const context=$('agent-include-context').checked||expectedConcept?
+      captureAgentContext(world,view,bridge.clientId,'text'):null;
+    await agentClient.send(text,context,expectedConcept);$('agent-input').value='';
     feedback(context?'Sent to Codex with Matrix spatial context.':'Sent to Codex.');});
 }
 function decideAgent(approve){
@@ -590,9 +593,10 @@ async function sendToAgentFromChat(text,context){
   view.showOperatorAgentMode();
   if(!agentClient.status||agentClient.error)await agentClient.connect();
   if(agentClient.status?.activeTurnId)throw Error('Wait for the current CODEX turn or stop it first.');
+  const expectedConcept=await conceptUI.expectedBuild(text);
   if(/\b(?:in front of me|ahead of me|where i am pointing)\b/i.test(text)&&!context?.viewerFrame)
     throw Error('Current viewer tracking is unavailable. Restore tracking, then send this spatial request again.');
-  await agentClient.send(text,context);
+  await agentClient.send(text,context,expectedConcept);
   const message='Sent this request to CODEX with the current Matrix context. Review its tools and Matrix receipts in the CODEX panel.';
   feedback(message);view.setOperatorStatus(message);
 }
@@ -1142,12 +1146,16 @@ async function endVoice(){
       if(/\b(?:in front of me|ahead of me|where i am pointing)\b/i.test(transcript)&&
           !voiceAgentContext.viewerFrame)
         throw Error('Current viewer tracking is unavailable. Restore tracking, then say the spatial request again.');
-      await agentClient.send(transcript,voiceAgentContext);
+      const expectedConcept=await conceptUI.expectedBuild(transcript);
+      await agentClient.send(transcript,voiceAgentContext,expectedConcept);
       voiceStatus('Sent to Codex with Matrix spatial context.');
     }else{
       if(!agentClient.status||agentClient.error){
         try{await agentClient.connect();await conceptUI.refresh();}
-        catch{/* The existing planner voice path remains available. */}
+        catch(error){
+          if(!plannerVoiceFallbackAllowed($('mode').value))
+            throw Error(`Codex connection failed. Reconnect Codex before speaking: ${error.message}`);
+        }
       }
       if(agentClient.status&&!agentClient.error){
         voiceJob='agent-transcribe';voiceButtons();
@@ -1179,6 +1187,12 @@ async function endVoice(){
 async function pollVoice(jobId){
   for(let attempt=0;attempt<120;attempt++){
     const job=await bridge.request(`/api/voice/${jobId}`);
+    if(job.transcript&&await stopPlannerConceptFallback(job.transcript,()=>
+      bridge.request('/api/voice/cancel',{clientId:bridge.clientId,jobId}))){
+      $('prompt').value=job.transcript;
+      voiceStatus('Image or selected design request needs Codex. Reconnect Codex and speak again; no concept or build was started.',true);
+      return;
+    }
     if(job.phase==='error'){voiceStatus(job.error||'Voice request failed',true);return;}
     if(!['transcribing','planning'].includes(job.phase)){if(job.transcript)$('prompt').value=job.transcript;
       voiceStatus(job.transcript?`Heard: ${job.transcript}`:'Voice request finished');await showProposal(job,job.transcript,voiceBlenderPlacement);return;}

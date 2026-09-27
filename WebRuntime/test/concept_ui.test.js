@@ -22,3 +22,20 @@ test('a concept UI action ignores a late result or error from another session',a
     {...ui,getSession:()=>oldSession},oldSession,Promise.reject(Error('Current job failed'))),
   /Current job failed/);
 });
+
+test('selected-design build uses the refreshed concept identity and requires a ready selection',async()=>{
+  const sessionId='a'.repeat(32),oldId='b'.repeat(32),selectedId='c'.repeat(32);
+  let refreshes=0;
+  const ui={_session:async()=>sessionId,getSession:()=>sessionId,
+    client:{selected:{conceptId:oldId,version:1},async refresh(){
+      refreshes++;this.selected={conceptId:selectedId,version:2};
+    }}};
+  const expected=await ConceptUI.prototype.expectedBuild.call(ui,'Build this in the Matrix');
+  assert.deepEqual(expected,{conceptId:selectedId,version:2});
+  assert.equal(refreshes,1);
+  assert.equal(await ConceptUI.prototype.expectedBuild.call(ui,'Build this bridge'),null);
+  assert.equal(refreshes,1);
+  ui.client.refresh=async()=>{ui.client.selected=null;};
+  await assert.rejects(ConceptUI.prototype.expectedBuild.call(ui,'Build the selected design'),
+    /Select a ready concept version/);
+});

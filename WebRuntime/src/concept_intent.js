@@ -18,6 +18,26 @@ export function parseConceptIntent(text){
 
 export function isSelectedConceptBuildRequest(text){
   const request=clean(text);
-  return /^(?:(?:now|okay|ok)\s+)?(?:build|make|create)\s+(?:this|that|the selected (?:concept|design|image))\b/i.test(request)||
-    /^use\s+(?:this|that|the selected)\s+design\b/i.test(request);
+  const explicit=/\b(?:selected|concept|design|reference|version)\b/i.test(request)||
+    /\b(?:this|that|the)\s+image\b|\bimage\s+[0-9a-f]{32}\b/i.test(request);
+  const deictic=/\b(?:this|that|it)\b(?=\s*(?:[.!?,;]|$)|\s+(?:in|into|around|here|there|at|on|for)\b)/i.test(request);
+  if(!explicit&&!deictic)return false;
+  if(/\b(?:build|construct|model|spawn|import)\b/i.test(request))return true;
+  if(/\bplace\b/i.test(request))return explicit||
+    deictic&&/\b(?:matrix|world|scene)\b/i.test(request);
+  if(/\b(?:make|create|turn)\b/i.test(request))return deictic||
+    explicit&&/\b(?:matrix|world|scene|blender|asset|object|geometry|around|into)\b/i.test(request);
+  return /\buse\b.{0,40}\b(?:design|concept|reference|image)\b/i.test(request);
+}
+
+export async function stopPlannerConceptFallback(transcript,cancel){
+  if(!parseConceptIntent(transcript)&&!isSelectedConceptBuildRequest(transcript))return false;
+  // Planner voice exposes its transcript while planning. Cancel its proposal,
+  // including when planning finished before the browser observed the transcript.
+  try{await cancel();}catch{/* The browser still withholds the planner proposal. */}
+  return true;
+}
+
+export function plannerVoiceFallbackAllowed(mode){
+  return mode==='offline-rules';
 }
