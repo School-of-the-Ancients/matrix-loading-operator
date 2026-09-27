@@ -91,6 +91,12 @@ def procedural_status(url: str, token: str, request_id: str) -> dict:
     return _request_json(url[:-6] + "/procedural/" + request_id, token)
 
 
+def record_concept_build(url: str, token: str, value: dict) -> dict:
+    if not url.endswith("/scene"):
+        raise ValueError("Invalid Matrix tool bridge URL")
+    return _request_json(url[:-6] + "/concept-build", token, value)
+
+
 def bind_game(url: str, token: str, value: dict) -> dict:
     if not url.endswith("/scene"):
         raise ValueError("Invalid Matrix tool bridge URL")
@@ -329,6 +335,13 @@ def scene_summary(state) -> dict:
                 "truncated": len(objects) > MAX_SUMMARY_OBJECTS if online else False}
 
 
+CONCEPT_SCENE_MUTATIONS = frozenset({
+    "/move", "/spawn", "/spawn-builtin", "/procedural", "/bind-game",
+    "/update-game", "/display", "/control", "/rigid", "/entity-action",
+    "/world-archive", "/bind-animation", "/component-action", "/physics",
+    "/interaction"})
+
+
 def entity_page(state, offset: int, limit: int) -> dict:
     if type(offset) is not int or type(limit) is not int or not 0 <= offset <= 100 or not 1 <= limit <= 24:
         raise ValueError("Invalid Matrix entity page")
@@ -515,7 +528,7 @@ class _Handler(BaseHTTPRequestHandler):
     def do_POST(self):
         if not self._authorized():
             return
-        if self.path not in ("/move", "/spawn", "/spawn-builtin", "/procedural", "/bind-game", "/update-game", "/display", "/control", "/rigid", "/inspect-entity", "/entity-action", "/world-archive", "/bind-animation", "/register-glb", "/publish-component", "/component-action", "/scale", "/physics", "/interaction"):
+        if self.path not in ("/move", "/spawn", "/spawn-builtin", "/procedural", "/bind-game", "/update-game", "/display", "/control", "/rigid", "/inspect-entity", "/entity-action", "/world-archive", "/bind-animation", "/register-glb", "/publish-component", "/component-action", "/scale", "/physics", "/interaction", "/concept-build"):
             self.send_error(404)
             return
         try:
@@ -526,7 +539,11 @@ class _Handler(BaseHTTPRequestHandler):
             if not 0 < length <= limit:
                 raise ValueError("Invalid Matrix tool request size")
             value = json.loads(self.rfile.read(length))
-            if self.path == "/register-glb":
+            if self.path in CONCEPT_SCENE_MUTATIONS:
+                self.server.state.concept_build_preflight()
+            if self.path == "/concept-build":
+                result = self.server.state.agent_record_concept_build(value)
+            elif self.path == "/register-glb":
                 result = self.server.state.agent_register_glb(value)
             elif self.path == "/spawn-builtin":
                 result = self.server.state.agent_spawn_builtin(value)
@@ -628,6 +645,10 @@ class _Handler(BaseHTTPRequestHandler):
                 while result["status"] == "queued" and time.monotonic() < deadline:
                     time.sleep(.1)
                     result = self.server.state.agent_move_status(result["requestId"])
+            if (self.path in CONCEPT_SCENE_MUTATIONS and type(result) is dict and
+                    type(result.get("requestId")) is str and
+                    result.get("status") in ("queued", "succeeded", "unconfirmed")):
+                self.server.state.concept_build_first_action()
             self._send_json(200, result)
         except Exception as error:
             known = hasattr(error, "status") or isinstance(error, (WebAssetError, ComponentError))

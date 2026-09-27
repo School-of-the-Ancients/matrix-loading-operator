@@ -14,7 +14,8 @@ from matrix_tool_bridge import (animation_status, bind_animation, bind_game,
                                 interaction_action, interaction_status,
                                 list_assets, list_components,
                                 list_procedural_generators, procedural_action, procedural_status,
-                                move_object, move_status, publish_component, read_scene, register_glb,
+                                move_object, move_status, publish_component, read_scene, record_concept_build,
+                                register_glb,
                                 physics_action, physics_status, scale_block, scale_status,
                                 rigid_action, rigid_status,
                                 spawn_asset, spawn_builtin, spawn_status,
@@ -208,6 +209,33 @@ def matrix_procedural_status(request_id: str) -> dict:
     """Read the matching runtime receipt and observed recipe for a procedural edit."""
     return procedural_status(os.environ["MATRIX_CONTROL_URL"],
                              os.environ["MATRIX_CONTROL_TOKEN"], request_id)
+
+
+@server.tool(annotations=ToolAnnotations(readOnlyHint=False, destructiveHint=False,
+                                         idempotentHint=False, openWorldHint=False))
+def matrix_record_concept_build(build_request_id: str, concept_id: str, strategy: str,
+                                receipt_ids: list[str], object_ids: list[str], asset_ids: list[str],
+                                source_paths: list[str] | None = None,
+                                recipe: dict | None = None) -> dict:
+    """Record a selected-concept build after matching Matrix receipts succeed.
+
+    The selected image is art direction. Choose any authorized creation strategy,
+    including agent-authored code; this record does not create or move objects.
+    Every receipt must identify a newly observed object in the current Matrix
+    world. Pass the concise strategy actually used, source script/.blend paths
+    when applicable, and the exact resulting asset/object/receipt IDs. The PC
+    refuses unconfirmed, old, stale-world or mismatched receipts. This tool
+    writes durable provenance for the Operator status panel.
+    """
+    value = {"build_request_id": build_request_id, "concept_id": concept_id,
+             "strategy": strategy, "receipt_ids": receipt_ids,
+             "object_ids": object_ids, "asset_ids": asset_ids}
+    if source_paths is not None:
+        value["source_paths"] = source_paths
+    if recipe is not None:
+        value["recipe"] = recipe
+    return record_concept_build(os.environ["MATRIX_CONTROL_URL"],
+                                os.environ["MATRIX_CONTROL_TOKEN"], value)
 
 
 @server.tool(annotations=ToolAnnotations(readOnlyHint=False, destructiveHint=False,

@@ -274,10 +274,18 @@ class AppServerTransport:
             raise AppServerError("Codex app-server returned an invalid thread")
         return result["thread"]
 
-    def turn_start(self, thread_id: str, text: str, *, effort: str | None = None) -> str:
+    def turn_start(self, thread_id: str, text: str, *, effort: str | None = None,
+                   image_path: str | Path | None = None) -> str:
         if not isinstance(text, str) or not text.strip() or len(text) > 16000:
             raise ValueError("Turn text must be 1–16000 characters")
-        params = {"threadId": thread_id, "input": [{"type": "text", "text": text}]}
+        inputs = [{"type": "text", "text": text}]
+        if image_path is not None:
+            path = Path(image_path)
+            if (not path.is_absolute() or not path.is_file() or
+                    path.suffix.lower() not in (".png", ".jpg", ".jpeg", ".webp")):
+                raise ValueError("Turn image must be an existing local image")
+            inputs.append({"type": "localImage", "path": str(path.resolve())})
+        params = {"threadId": thread_id, "input": inputs}
         if effort:
             params["effort"] = effort
         result = self.request("turn/start", params)

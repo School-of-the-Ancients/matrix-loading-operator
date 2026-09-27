@@ -7,6 +7,7 @@ import textwrap
 import time
 import unittest
 from pathlib import Path
+from unittest.mock import patch
 
 from codex_app_server import AppServerError, AppServerTransport, MAX_EVENT
 
@@ -143,6 +144,21 @@ class AppServerTransportTests(unittest.TestCase):
                 self.transport.thread_start(approval_policy=policy)
             with self.subTest(policy=policy), self.assertRaises(ValueError):
                 self.transport.thread_resume("thread-test", approval_policy=policy)
+
+    def test_turn_start_attaches_pc_image_as_multimodal_input(self):
+        image = Path(self.directory.name) / "selected.png"
+        image.write_bytes(b"\x89PNG\r\n\x1a\nconcept")
+        with patch.object(self.transport, "request", return_value={"turn": {"id": "turn-image"}}) as request:
+            self.assertEqual(self.transport.turn_start("thread-test", "Build this",
+                                                       image_path=image), "turn-image")
+        method, params = request.call_args.args
+        self.assertEqual(method, "turn/start")
+        self.assertEqual(params["input"], [
+            {"type": "text", "text": "Build this"},
+            {"type": "localImage", "path": str(image.resolve())}])
+        self.assertEqual(Path(params["input"][1]["path"]).read_bytes(), image.read_bytes())
+        with self.assertRaisesRegex(ValueError, "existing local image"):
+            self.transport.turn_start("thread-test", "Build this", image_path=image.with_name("missing.png"))
 
     def test_automatic_policy_is_sent_on_new_and_resumed_thread(self):
         thread_id = self.transport.thread_start(sandbox="danger-full-access", approval_policy="never")

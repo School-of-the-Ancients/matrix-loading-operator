@@ -36,7 +36,7 @@ class AgentSessionBackend(Protocol):
     def start(self) -> None: ...
     def start_conversation(self) -> str: ...
     def resume_conversation(self, conversation_id: str) -> str: ...
-    def send_text(self, conversation_id: str, text: str) -> str: ...
+    def send_text(self, conversation_id: str, text: str, *, image_path: str | Path | None = None) -> str: ...
     def poll(self, cursor: int) -> tuple[int, list[dict]]: ...
     def events_since(self, cursor: int) -> list[dict]: ...
     def pending_approvals(self) -> list[dict]: ...
@@ -679,7 +679,7 @@ class LocalCodexAgentBackend:
                                           "matrix_spawn_asset", "matrix_spawn_builtin", "matrix_spawn_status",
                                           "matrix_list_procedural_generators",
                                           "matrix_create_procedural", "matrix_update_procedural",
-                                          "matrix_procedural_status",
+                                          "matrix_procedural_status", "matrix_record_concept_build",
                                           "matrix_bind_game", "matrix_update_game", "matrix_game_status",
                                           "matrix_set_display", "matrix_remove_display",
                                           "matrix_display_status",
@@ -754,8 +754,10 @@ class LocalCodexAgentBackend:
         return self.transport.thread_resume(conversation_id, sandbox=self.config.agent_sandbox,
                                             approval_policy=self.config.agent_approval_policy)
 
-    def send_text(self, conversation_id: str, text: str) -> str:
-        return self.transport.turn_start(conversation_id, text, effort=self.config.reasoning_effort)
+    def send_text(self, conversation_id: str, text: str, *, image_path: str | Path | None = None) -> str:
+        return self.transport.turn_start(conversation_id, text,
+                                         effort=self.config.reasoning_effort,
+                                         **({"image_path": image_path} if image_path is not None else {}))
 
     def events_since(self, cursor: int) -> list[dict]:
         return self.poll(cursor)[1]
