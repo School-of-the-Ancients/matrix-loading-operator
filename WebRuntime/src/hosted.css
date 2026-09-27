@@ -1,0 +1,12 @@
+#visitor-panel{width:min(340px,calc(100vw - 36px))}
+#visitor-panel h2{font-size:13px;color:#b8e9e3;margin:17px 0 8px}
+#visitor-panel a{color:#74e8d3}
+#visitor-panel .primary{width:100%;margin-top:9px}
+#residents{padding-left:18px;color:#d9f2ef;font-size:12px;line-height:1.55}
+#residents li{margin:8px 0}
+#app .sidebar-toggle{left:365px}
+#app .sidebar-toggle[aria-expanded="false"]{left:18px}
+#app .sidebar-toggle[aria-expanded="false"] + .panel{display:none}
+#xr-overlay{position:absolute;bottom:22px;left:50%;transform:translateX(-50%)}
+#hosted-xr-status{display:inline-block;margin-right:10px;padding:8px 10px;border-radius:7px;background:rgba(7,23,34,.9);color:#d9f2ef;font-size:12px}
+@media(max-width:700px){#visitor-panel{top:auto;bottom:10px;left:10px;right:10px;width:auto;max-height:57vh}#app .sidebar-toggle,#app .sidebar-toggle[aria-expanded="false"]{top:68px;left:10px}.xr-buttons{bottom:calc(57vh + 22px)}#app .sidebar-toggle[aria-expanded="false"] ~ .xr-buttons{bottom:26px}}

@@ -1117,10 +1117,50 @@ def runtime_descriptor(value):
     if type(value.get("schemaVersion")) is not int or value["schemaVersion"] != 1:
         return None
     require(set(value) == {"schemaVersion", "client", "renderer", "presentation"} and
-            value["client"] == "matrix-web" and value["renderer"] == "threejs-webxr" and
-            value["presentation"] in ("desktop", "vr", "ar"),
+            ((value["client"] == "matrix-web" and value["renderer"] == "threejs-webxr" and
+              value["presentation"] in ("desktop", "vr", "ar")) or
+             (value["client"] == "matrix-world-host" and value["renderer"] == "none" and
+              value["presentation"] == "host")),
             "Invalid Matrix Web runtime descriptor")
     return copy.deepcopy(value)
+
+
+def hosted_fixture(current):
+    """A headless claim is limited to the built-in, non-rendered Citizens demo."""
+    objects = current["scene"]["objects"]
+    citizens = current.get("citizensState")
+    require(current["scene"]["roomId"] == "web-virtual-room-v1" and
+            (current.get("roomContext") or {}).get("mode") == "white-room" and
+            (current.get("roomContext") or {}).get("state") == "ready" and
+            current.get("game") is None and not current.get("gameStatus") and
+            not current.get("physicsStates") and not current.get("rigidStates") and
+            not current.get("agentGrab") and not current.get("controlStates") and
+            (current.get("creatorMode") or {}).get("mode") == "creator" and
+            (current.get("creatorMode") or {}).get("simulation") == "paused",
+            "Hosted world requires the static White Room Citizens fixture")
+    if citizens is None:
+        require(not objects, "Hosted bootstrap must have an empty scene")
+        return False
+    require(type(citizens) is dict and citizens.get("schemaVersion") == 12 and
+            citizens.get("clockSpeed") == 1 and
+            type(citizens.get("residents")) is list and
+            type(citizens.get("stations")) is list and
+            len(citizens["residents"]) == 2 and len(citizens["stations"]) == 2 and
+            {item["id"] for item in citizens["residents"]} == {"ada", "bo"} and
+            {item["id"] for item in citizens["stations"]} == {"chair", "food"} and
+            len(objects) == 4 and
+            sorted(item["assetId"] for item in objects) == ["chair", "orb", "orb", "table"] and
+            all(set(item) == {"objectId", "assetId", "anchorId", "transform"} and
+                item["anchorId"] == "web-floor" for item in objects),
+            "Hosted world supports only two resident markers and two stations")
+    by_id = {item["objectId"]: item for item in objects}
+    require(all(by_id.get(item["objectId"], {}).get("assetId") == "orb"
+                for item in citizens["residents"]) and
+            all(by_id.get(item["objectId"], {}).get("assetId") ==
+                ("chair" if item["id"] == "chair" else "table")
+                for item in citizens["stations"]),
+            "Hosted Citizens bindings do not match the scene")
+    return True
 
 
 def snapshot(value):
@@ -2685,6 +2725,10 @@ class State:
         self.last_seen = -float("inf")
         self.latest = None
         self.runtime = None
+        self.host_instance = uuid.uuid4().hex
+        self.host_world_id = None
+        self.host_sequence = 0
+        self.host_saved_sequence = None
         self.pending = collections.OrderedDict()
         self.results = collections.deque(maxlen=100)
         self.agent_move_ids = collections.OrderedDict()
@@ -2837,6 +2881,15 @@ class State:
                 runtime = current.get("roomContext")
             require(not runtime or runtime["mode"] != "ar" or runtime["state"] == "ready" or current.get("readOnly"),
                     "Unavailable room must not publish an editable snapshot")
+        hosted = ((current or {}).get("runtimeDescriptor") or {}).get("client") == "matrix-world-host"
+        host_world_id = body.get("hostWorldId")
+        if hosted:
+            hosted_fixture(current)
+            require(type(host_world_id) is str, "Hosted world ID is required")
+            self.world_checkpoint_path(host_world_id)
+            require(not body.get("captureSupported", False), "Headless world cannot capture images")
+        else:
+            require("hostWorldId" not in body, "Only a headless world can name a hosted world")
         results = body.get("results", [])
         require(isinstance(results, list) and len(results) <= MAX_PENDING, "Too many results")
         checked = []
@@ -2849,6 +2902,8 @@ class State:
         with self.lock:
             self.expire()
             require(self.client_id in (None, client_id), "Another client holds the active lease", 409)
+            if hosted and self.host_world_id is not None:
+                require(self.host_world_id == host_world_id, "Hosted world changed under one lease", 409)
             if restoring_world:
                 require(self.client_id == client_id and self.revision == expected_revision and
                         not self.pending and self.latest is not None and current is not None and
@@ -2862,6 +2917,10 @@ class State:
                         "World changed or a command was queued; retry the PC world restore", 409)
             if self.client_id != client_id:
                 self.runtime_generation += 1
+                if hosted:
+                    self.host_instance = uuid.uuid4().hex
+                    self.host_sequence = 0
+                    self.host_saved_sequence = None
             self.client_id, self.last_seen = client_id, self.clock()
             for result in checked:
                 if result["requestId"] in self.pending:
@@ -2918,6 +2977,11 @@ class State:
                 self.revision += 1
             self.latest = current
             self.runtime = runtime
+            self.host_world_id = host_world_id if hosted else None
+            if hosted:
+                self.host_sequence += 1
+            else:
+                self.host_saved_sequence = None
             self.clients.observe(checked)
             self.capture_supported = body.get("captureSupported", False)
             self.capture_capabilities = capture_capabilities
@@ -4831,11 +4895,29 @@ class State:
         with self.lock:
             self.expire()
             return {"online": self.online(), "clientId": self.client_id, "revision": self.revision,
+                    "hostWorldId": self.host_world_id,
                     "contentLibrary": True, "snapshot": copy.deepcopy(self.latest),
                     "runtime": copy.deepcopy(self.runtime),
                     "pendingCount": len(self.pending), "results": copy.deepcopy(list(self.results)),
                     "capture": self.capture_status(),
                     "voice": voice_status(self) if self.voice_jobs else None}
+
+    def hosted_observation(self):
+        with self.lock:
+            self.expire()
+            current = self.latest
+            require(self.online() and self.host_world_id is not None and current is not None and
+                    (current.get("runtimeDescriptor") or {}).get("client") == "matrix-world-host",
+                    "Hosted Citizens world is unavailable", 409)
+            require(self.host_saved_sequence == self.host_sequence,
+                    "Hosted Citizens tick is not checkpointed", 409)
+            require(hosted_fixture(current), "Hosted Citizens world is unavailable", 409)
+            return {"schemaVersion": 1, "worldId": self.host_world_id,
+                    "instanceId": self.host_instance, "sequence": self.host_sequence,
+                    "clockTick": current["citizensState"]["clockTick"], "online": True,
+                    "readOnly": True, "world": {"version": 3,
+                    "scene": copy.deepcopy(current["scene"]), "game": None,
+                    "citizens": copy.deepcopy(current["citizensState"])}}
 
     def room_unavailable_message(self):
         if self.online() and self.runtime and self.runtime.get("mode") == "ar":
@@ -4963,6 +5045,13 @@ class State:
             dependencies = self._checked_world_checkpoint(world, current)
             require(world["scene"] == current["scene"],
                     "Browser world changed since the last exchange; sync it and retry saving", 409)
+            hosted = (current.get("runtimeDescriptor") or {}).get("client") == "matrix-world-host"
+            if hosted:
+                require(hosted_fixture(current) and set(world) ==
+                        {"version", "scene", "game", "citizens"},
+                        "Hosted checkpoint requires the full Citizens fixture", 409)
+                require(name == self.host_world_id and world.get("citizens") == current.get("citizensState"),
+                        "Hosted Citizens world changed since the last exchange", 409)
             if "controlStates" in world or any("control" in item for item in world["scene"]["objects"]):
                 require(world.get("controlStates") == current.get("controlStates"),
                         "Browser control progress changed since the last exchange; sync it and retry saving", 409)
@@ -4988,10 +5077,25 @@ class State:
                     item["component"]["startedAtMs"] = 0
             document = {"schemaVersion": 1, "world": saved_world,
                         "dependencies": dependencies,
-                        "payloadSha256": world_checkpoint_digest(saved_world, dependencies)}
+                        "payloadSha256": world_checkpoint_digest(saved_world, dependencies),
+                        **({"hostedWorldId": name} if hosted else {})}
             data = json.dumps(document, ensure_ascii=False, allow_nan=False, indent=2).encode("utf-8")
             require(len(data) <= MAX_BODY, "World checkpoint exceeds save size limit", 413)
             target.parent.mkdir(parents=True, exist_ok=True)
+            for existing in target.parent.glob("*.json"):
+                if existing.stem.casefold() != name.casefold():
+                    continue
+                require(existing.name == target.name and not existing.is_symlink(),
+                        "World checkpoint name conflicts with an existing checkpoint", 409)
+                with existing.open("rb") as handle:
+                    prior_data = handle.read(MAX_BODY + 1)
+                require(len(prior_data) <= MAX_BODY,
+                        "Existing world checkpoint exceeds size limit", 409)
+                prior = parse_json(prior_data)
+                require(type(prior) is dict and
+                        (prior.get("hostedWorldId") == name if hosted else
+                         "hostedWorldId" not in prior),
+                        "World checkpoint belongs to a different owner", 409)
             temporary = None
             try:
                 with tempfile.NamedTemporaryFile(dir=target.parent, prefix=".saving-world-", delete=False) as handle:
@@ -5001,6 +5105,8 @@ class State:
                     os.fsync(handle.fileno())
                 os.replace(temporary, target)
                 temporary = None
+                if hosted:
+                    self.host_saved_sequence = self.host_sequence
             finally:
                 if temporary is not None:
                     os.unlink(temporary)
@@ -5013,8 +5119,9 @@ class State:
             data = handle.read(MAX_BODY + 1)
         require(len(data) <= MAX_BODY, "World checkpoint exceeds size limit", 413)
         document = parse_json(data)
-        require(type(document) is dict and set(document) ==
-                {"schemaVersion", "world", "dependencies", "payloadSha256"} and
+        base_keys = {"schemaVersion", "world", "dependencies", "payloadSha256"}
+        require(type(document) is dict and set(document) in
+                (base_keys, base_keys | {"hostedWorldId"}) and
                 type(document["schemaVersion"]) is int and document["schemaVersion"] == 1 and
                 type(document["payloadSha256"]) is str and
                 re.fullmatch(r"[0-9a-f]{64}", document["payloadSha256"]) is not None and
@@ -5030,6 +5137,15 @@ class State:
             dependencies = self._checked_world_checkpoint(document["world"], current)
             require(document["dependencies"] == dependencies,
                     "World checkpoint asset version changed; restore the matching PC asset catalog", 409)
+            hosted = (current.get("runtimeDescriptor") or {}).get("client") == "matrix-world-host"
+            require((document.get("hostedWorldId") == name == self.host_world_id) if hosted else
+                    "hostedWorldId" not in document,
+                    "World checkpoint belongs to a different owner", 409)
+            if hosted:
+                require(set(document["world"]) == {"version", "scene", "game", "citizens"} and
+                        hosted_fixture({**current, "scene": document["world"]["scene"],
+                                        "citizensState": document["world"]["citizens"]}),
+                        "Hosted checkpoint requires the full Citizens fixture", 409)
             restored_world = copy.deepcopy(document["world"])
             started_at_ms = int(time.time() * 1000)
             for item in restored_world["scene"]["objects"]:
@@ -5542,11 +5658,16 @@ def start_voice(state, body):
 
 class Server(ThreadingHTTPServer):
     daemon_threads = True
-    def __init__(self, address, state, token=""):
+    def __init__(self, address, state, token="", world_view_token=""):
         self.is_loopback = loopback(address[0])
         self.scheme = "http"
         require(self.is_loopback or len(token) >= 24, "Non-loopback binding requires SANDBOX_TOKEN of at least 24 characters")
+        require(not world_view_token or
+                (len(token) >= 24 and len(world_view_token) >= 24 and
+                 world_view_token != token),
+                "SANDBOX_WORLD_VIEW_TOKEN requires a distinct SANDBOX_TOKEN; both must be at least 24 characters")
         self.state, self.token = state, token
+        self.world_view_token = world_view_token
         self.state.client_pairing_enabled = len(token) >= 24
         self.quest_connection = QuestConnection()
         super().__init__(address, Handler)
@@ -5627,6 +5748,12 @@ class Handler(BaseHTTPRequestHandler):
             require(hmac.compare_digest(self.headers.get("Authorization", "").encode("utf-8"),
                                         expected.encode("utf-8")), "Authentication required", 401)
 
+    def authenticate_world_view(self):
+        require(bool(self.server.world_view_token), "Hosted world viewing is disabled", 503)
+        expected = "Bearer " + self.server.world_view_token
+        require(hmac.compare_digest(self.headers.get("Authorization", "").encode("utf-8"),
+                                     expected.encode("utf-8")), "World viewing token required", 401)
+
     def client_api(self, path, method, body=None):
         require(loopback(self.client_address[0]), "Client API requires a companion on this PC", 403)
         origin = self.headers.get("Origin")
@@ -5694,10 +5821,11 @@ class Handler(BaseHTTPRequestHandler):
             if path == "/web":
                 self.send_redirect("/web/")
                 return
-            if path in ("/web", "/web/", "/web/citizens.html") or path.startswith("/web/assets/"):
+            if path in ("/web", "/web/", "/web/citizens.html", "/web/hosted.html") or path.startswith("/web/assets/"):
                 dist = Path(__file__).resolve().parent.parent / "WebRuntime" / "dist"
-                if path in ("/web", "/web/", "/web/citizens.html"):
-                    asset = dist / ("citizens.html" if path == "/web/citizens.html" else "index.html")
+                if path in ("/web", "/web/", "/web/citizens.html", "/web/hosted.html"):
+                    asset = dist / ("citizens.html" if path == "/web/citizens.html" else
+                                    "hosted.html" if path == "/web/hosted.html" else "index.html")
                     content_type = "text/html; charset=utf-8"
                 else:
                     name = path[len("/web/assets/"):]
@@ -5718,6 +5846,10 @@ class Handler(BaseHTTPRequestHandler):
                 return
             if client_api_path(path):
                 self.send_data(200, self.client_api(path, "GET"))
+                return
+            if path == "/api/web/hosted/observe":
+                self.authenticate_world_view()
+                self.send_data(200, self.server.state.hosted_observation())
                 return
             self.authenticate()
             if path == "/api/state":
@@ -5901,7 +6033,9 @@ def main():
         parser.error("--tls-cert and --tls-key must be supplied together")
     try:
         server = Server((args.host, args.port), State(args.scenes, learning=LearningBridge(),
-                                                      web_assets_directory=args.web_assets), os.environ.get("SANDBOX_TOKEN", ""))
+                                                       web_assets_directory=args.web_assets),
+                        os.environ.get("SANDBOX_TOKEN", ""),
+                        os.environ.get("SANDBOX_WORLD_VIEW_TOKEN", ""))
         if args.tls_cert:
             context = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
             context.load_cert_chain(args.tls_cert, args.tls_key)

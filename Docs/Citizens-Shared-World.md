@@ -1,10 +1,23 @@
 # AI Citizens in the Matrix Web world
 
+## Persistent hosted visit
+
+The bounded [PC Citizens world host](Persistent-World-Host.md) reuses the existing
+`MatrixWorld` and `CitizensSimulation` for the two-resident fixture. It writes a
+validated PC checkpoint after each virtual tick while every visitor browser may
+be closed. `/web/hosted.html` observes that same checkpointed world on desktop
+and through the existing WebXR digital-world visit path. The visitor is
+read-only: it has no writer lease, local Citizens clock, or browser checkpoint.
+Host restart resumes the exact saved tick without simulating elapsed downtime.
+This is a first isolated owner/visitor path, not migration of arbitrary Creator
+worlds or the separate browser-owned Citizens fixture. The [validation record](../Validation/Persistent-World-Host-Visit-2026-09-27.md)
+separates automated and desktop evidence from Quest wearer checks.
+
 ## Canonical digital-world AR visit — source candidate
 
 The September 27 owner direction treats AR as a visitor view into the same digital Matrix world in which Citizens live. The current source candidate adds an eligible virtual Citizens visit without cloning its scene or changing its room/object IDs. A running `CitizensSimulation` advances during an active browser AR session, including a temporarily unavailable view origin; the overlay hides until tracking returns. An intentionally paused simulation remains paused. Browser saves retain the canonical v3 world and nested Citizens state. The PC snapshot marks this visit explicitly and rejects authored commands from the AR view. Worlds without an eligible Citizens state continue through the existing AR placement/recovery path.
 
-This is a **browser-active** visit slice. It does not yet make Citizens run with the browser closed: the timer still belongs to the browser, and a separate service-owned world host under [#20](https://github.com/School-of-the-Ancients/matrix-loading-operator/issues/20) is in progress. A view anchor is not proof of physical alignment or collision, and no Quest wearer result is claimed. See the [source validation](../Validation/Parallel-World-AR-Visit-2026-09-27.md) for exact checks.
+That merged path is a **browser-active** visit slice: its timer still belongs to the browser. The hosted path above advances a separate, fixed two-resident fixture with every visitor closed; it does not silently convert an existing browser-owned world. A view anchor is not proof of physical alignment or collision, and no Quest wearer result is claimed. See the [source validation](../Validation/Parallel-World-AR-Visit-2026-09-27.md) for the earlier path's exact checks.
 
 The bounded Citizens implementation through [PR #126](https://github.com/School-of-the-Ancients/matrix-loading-operator/pull/126) is merged on `main`. The sections below preserve dated, isolated desktop records; their branch names, candidate labels, localhost ports, and `work/` paths describe those runs and do not imply a service is running now. Nested Citizens v12 is current in source; the outer world envelope remains v3. Quest simulation acceptance and broader #15/#17/#19 work remain open.
 
