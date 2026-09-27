@@ -148,6 +148,23 @@ test('failed AR solver commit restores active and suspended selections',async()=
   }finally{world.rigidPhysics.dispose();}
 });
 
+test('failed delayed solver attach keeps saved motion pending without a half-attached engine',async()=>{
+  const source=await movingWorld();
+  try{
+    const saved=storedWorld(source),world=new MatrixWorld();
+    restoreStoredWorld(world,saved);
+    const engine=await createRigidPhysics();
+    engine.restore=()=>{throw Error('solver attach failed');};
+    assert.throws(()=>world.attachRigidPhysics(engine),/solver attach failed/);
+    assert.equal(world.rigidPhysics,null);
+    assert.deepEqual(world.pendingRigidMotion,saved.rigidMotion);
+    assert.equal(engine.disposed,true);
+    world.attachRigidPhysics(await createRigidPhysics());
+    try{assert.deepEqual(storedWorld(world).rigidMotion,saved.rigidMotion);}
+    finally{world.rigidPhysics.dispose();}
+  }finally{source.rigidPhysics.dispose();}
+});
+
 function controlWorld(){
   let next=0;
   const world=new MatrixWorld(()=>`control-store-${++next}`);
