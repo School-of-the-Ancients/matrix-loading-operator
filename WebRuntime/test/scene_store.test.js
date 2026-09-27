@@ -332,6 +332,7 @@ test('v1 Citizens browser checkpoints migrate an in-flight reservation to v12',(
   simulation.step();original.citizens=simulation.snapshot();
   const legacy=storedWorld(original),state=legacy.citizens;
   state.schemaVersion=1;
+  delete state.construction;
   delete state.clockSpeed;
   delete state.actionSequence;delete state.retiredResidentIds;
   delete state.socialSession;delete state.socialEvents;
@@ -357,7 +358,7 @@ test('v1 Citizens browser checkpoints migrate an in-flight reservation to v12',(
     'failed','paused','resumed'].includes(entry.event));
   const reopened=new MatrixWorld();
   restoreStoredWorld(reopened,legacy);
-  assert.equal(reopened.citizens.schemaVersion,12);
+  assert.equal(reopened.citizens.schemaVersion,13);
   assert.deepEqual(reopened.citizens.residents[0].appointments,[]);
   assert.equal(reopened.citizens.residents[0].appointmentSequence,0);
   assert.equal(reopened.citizens.residents.find(resident=>resident.id==='ada')
@@ -376,6 +377,7 @@ test('v2 Citizens browser checkpoints migrate without changing in-flight claims'
   simulation.step();original.citizens=simulation.snapshot();
   const previous=storedWorld(original),state=previous.citizens;
   state.schemaVersion=2;
+  delete state.construction;
   delete state.clockSpeed;
   delete state.socialSession;delete state.socialEvents;
   delete state.relationships;delete state.nextSocialTick;
@@ -395,7 +397,7 @@ test('v2 Citizens browser checkpoints migrate without changing in-flight claims'
   for(const station of state.stations)delete station.interaction;
   const reopened=new MatrixWorld();
   restoreStoredWorld(reopened,previous);
-  assert.equal(reopened.citizens.schemaVersion,12);
+  assert.equal(reopened.citizens.schemaVersion,13);
   assert.deepEqual(reopened.citizens.residents[0].appointments,[]);
   assert.equal(reopened.citizens.residents[0].appointmentSequence,0);
   assert.deepEqual(reopened.citizens.stations,state.stations.map(station=>

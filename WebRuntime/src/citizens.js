@@ -4,7 +4,8 @@ import {ANCHOR_ID,CITIZENS_VISIT_AUTHORITY,INTERACTION_USE_MARGIN_METRES,MAX_OBJ
   interactionSourceMatches,interactionWorldPoint,validInteractionDescriptor} from './protocol.js';
 import {checkedMove,planPath,segmentClear} from './citizens_navigation.js';
 
-const VERSION=12;
+const VERSION=13;
+const SOCIAL_ROUTE_VERSION=12;
 const APPOINTMENT_SEQUENCE_VERSION=11;
 const APPOINTMENT_VERSION=10;
 const SOCIAL_NEEDS_VERSION=9;
@@ -48,6 +49,17 @@ const APPOINTMENT_HORIZON=1440;
 const APPOINTMENT_LAST_DEADLINE=999999999;
 const APPOINTMENT_MISS_REASON='deadline passed';
 const APPOINTMENT_CANCEL_REASON='cancelled by operator';
+const CONSTRUCTION_STATION_ID='citizen-bench';
+export const CITIZEN_BENCH_TRANSFORM={position:{x:1.5,y:0,z:1.5},
+  rotation:{x:0,y:0,z:0},scale:{x:1,y:1,z:1}};
+export const CITIZEN_BENCH_INTERACTION={schemaVersion:2,
+  interactionId:'curved-seat-rest',kind:'rest',
+  proceduralSource:{generatorId:'curved-bench',generatorVersion:'1.0.0',
+    sourceRevision:'curved-bench-v1'},
+  requiredCapabilities:['static-virtual-floor','reviewed-procedural-geometry'],
+  availability:['target-static','floor-aligned','generator-available'],
+  approachPose:{x:0,z:-.55},usePose:{x:0,z:-.05},rangeMeters:.7,
+  durationTicks:4,capacity:1,effect:{need:'energy',delta:31}};
 const appointmentNumber=id=>{
   const match=typeof id==='string'?id.match(/^appointment-([1-9][0-9]*)$/):null;
   const number=Number(match?.[1]);
@@ -369,7 +381,7 @@ function migrateV1(world,saved){
 }
 
 function validStateV2(world,state,activityVersion=RESERVATION_VERSION,
-  stationVersion=RESERVATION_VERSION){
+  stationVersion=RESERVATION_VERSION,allowConstructionStation=false){
   assertWorld(world);
   if(!keys(state,['schemaVersion','world','seed','rngState','requestSequence',
     'actionSequence','clockTick','paused','residents','retiredResidentIds',
@@ -383,7 +395,7 @@ function validStateV2(world,state,activityVersion=RESERVATION_VERSION,
     state.retiredResidentIds.length>4||
     state.residents.length+state.retiredResidentIds.length>4||
     (state.residents.length===0&&!state.paused)||
-    !Array.isArray(state.stations)||state.stations.length>2||
+    !Array.isArray(state.stations)||state.stations.length>(allowConstructionStation?3:2)||
     !Array.isArray(state.log)||state.log.length>MAX_LOG)
     throw Error('Invalid Citizens state');
   const residentIds=new Set(),retiredIds=new Set(),stationIds=new Set();
@@ -422,7 +434,10 @@ function validStateV2(world,state,activityVersion=RESERVATION_VERSION,
       ...(selectedApproach?['approachMode']:[])])||
       (selectedApproach&&station.approachMode!=='selected')||
       !boundedText(station.id,32)||!station.id||stationIds.has(station.id)||
-      !['rest','eat'].includes(station.kind)||stationKinds.has(station.kind)||
+      !['rest','eat'].includes(station.kind)||
+      (stationKinds.has(station.kind)&&
+        !(allowConstructionStation&&station.id===CONSTRUCTION_STATION_ID&&
+          station.kind==='rest'))||
       !boundedText(station.objectId,128)||objectIds.has(station.objectId)||
       station.capacity!==1||!Array.isArray(station.waiters)||
       station.waiters.length>4)throw Error('Invalid Citizens station');
@@ -505,7 +520,7 @@ function migrateV2(world,saved){
 }
 
 function validStateV3(world,state,activityVersion=SOCIAL_VERSION,
-  stationVersion=SOCIAL_VERSION){
+  stationVersion=SOCIAL_VERSION,allowConstructionStation=false){
   if(!keys(state,['schemaVersion','world','seed','rngState','requestSequence',
     'actionSequence','clockTick','paused','residents','retiredResidentIds',
     'stations','log','socialSession','socialEvents','relationships','nextSocialTick'])||
@@ -525,7 +540,7 @@ function validStateV3(world,state,activityVersion=SOCIAL_VERSION,
       throw Error('Invalid Citizens social resident');
     delete resident.socialSessionId;
   }
-  validStateV2(world,v2,activityVersion,stationVersion);
+  validStateV2(world,v2,activityVersion,stationVersion,allowConstructionStation);
   const ids=new Set([...state.residents.map(resident=>resident.id),
     ...state.retiredResidentIds]);
   const relationshipPairs=new Set();
@@ -634,14 +649,14 @@ function migrateV3(world,saved){
 }
 
 function validStateV4(world,state,activityVersion=COMPLETION_VERSION,
-  stationVersion=COMPLETION_VERSION){
+  stationVersion=COMPLETION_VERSION,allowConstructionStation=false){
   if(!state||state.schemaVersion!==COMPLETION_VERSION||!Array.isArray(state.relationships))
     throw Error('Invalid Citizens completed social state');
   const v3=clone(state);
   v3.schemaVersion=SOCIAL_VERSION;
   for(const relation of v3.relationships)if(relation&&typeof relation==='object')
     delete relation.completed;
-  validStateV3(world,v3,activityVersion,stationVersion);
+  validStateV3(world,v3,activityVersion,stationVersion,allowConstructionStation);
   const bySession=new Map(),requestIds=new Set();
   for(const relation of state.relationships){
     if(!keys(relation,['a','b','score','completed'])||
@@ -695,12 +710,13 @@ function migrateV4(world,saved){
   return state;
 }
 
-function validStateV5(world,state,stationVersion=ROUTE_VERSION){
+function validStateV5(world,state,stationVersion=ROUTE_VERSION,
+  allowConstructionStation=false){
   if(!state||state.schemaVersion!==ROUTE_VERSION)
     throw Error('Invalid Citizens route recovery state');
   const v4=clone(state);
   v4.schemaVersion=COMPLETION_VERSION;
-  validStateV4(world,v4,ROUTE_VERSION,stationVersion);
+  validStateV4(world,v4,ROUTE_VERSION,stationVersion,allowConstructionStation);
 }
 
 function migrateV5(world,saved){
@@ -712,12 +728,12 @@ function migrateV5(world,saved){
   return state;
 }
 
-function validStateV6(world,state){
+function validStateV6(world,state,allowConstructionStation=false){
   if(!state||state.schemaVersion!==INTERACTION_VERSION)
     throw Error('Invalid Citizens interaction state');
   const v5=clone(state);
   v5.schemaVersion=ROUTE_VERSION;
-  validStateV5(world,v5,INTERACTION_VERSION);
+  validStateV5(world,v5,INTERACTION_VERSION,allowConstructionStation);
 }
 
 function migrateV6(world,saved){
@@ -733,7 +749,7 @@ function migrateV6(world,saved){
   return state;
 }
 
-function validStateV7(world,state){
+function validStateV7(world,state,allowConstructionStation=false){
   if(!keys(state,['schemaVersion','world','seed','rngState','requestSequence',
     'actionSequence','clockTick','paused','clockSpeed','residents',
     'retiredResidentIds','stations','log','socialSession','socialEvents',
@@ -749,7 +765,7 @@ function validStateV7(world,state){
       throw Error('Invalid Citizens routine resident');
     delete resident.routines;delete resident.lastDecision;
   }
-  validStateV6(world,v6);
+  validStateV6(world,v6,allowConstructionStation);
   for(const resident of state.residents){
     if(!Array.isArray(resident.routines)||resident.routines.length>MAX_ROUTINES)
       throw Error('Invalid Citizens routines');
@@ -834,7 +850,7 @@ function migrateV7(world,saved){
   return state;
 }
 
-function validStateV8(world,state){
+function validStateV8(world,state,allowConstructionStation=false){
   if(!state||state.schemaVersion!==EGRESS_VERSION)
     throw Error('Invalid Citizens egress state');
   const v7=clone(state);
@@ -855,7 +871,7 @@ function validStateV8(world,state){
     action.phase='use';
     action.target=null;
   }
-  validStateV7(world,v7);
+  validStateV7(world,v7,allowConstructionStation);
 }
 
 function migrateV8(world,saved){
@@ -869,7 +885,7 @@ function migrateV8(world,saved){
   return state;
 }
 
-function validStateV9(world,state){
+function validStateV9(world,state,allowConstructionStation=false){
   if(!state||state.schemaVersion!==SOCIAL_NEEDS_VERSION||
     !Array.isArray(state.residents))
     throw Error('Invalid Citizens social-needs state');
@@ -909,7 +925,7 @@ function validStateV9(world,state){
       resident.lastDecision=null;
     }
   }
-  validStateV8(world,v8);
+  validStateV8(world,v8,allowConstructionStation);
 }
 
 function migrateV9(world,saved){
@@ -933,21 +949,23 @@ function migrateV10(world,saved){
 function migrateV11(world,saved){
   validStateV11(world,saved);
   const state=clone(saved);
-  state.schemaVersion=VERSION;
+  state.schemaVersion=SOCIAL_ROUTE_VERSION;
   if(state.socialSession)state.socialSession.routeRetries=0;
   return state;
 }
 
-function validStateV10(world,state){
-  return validAppointmentState(world,state,APPOINTMENT_VERSION);
+function validStateV10(world,state,allowConstructionStation=false){
+  return validAppointmentState(world,state,APPOINTMENT_VERSION,
+    allowConstructionStation);
 }
 
-function validStateV11(world,state){
-  return validAppointmentState(world,state,APPOINTMENT_SEQUENCE_VERSION);
+function validStateV11(world,state,allowConstructionStation=false){
+  return validAppointmentState(world,state,APPOINTMENT_SEQUENCE_VERSION,
+    allowConstructionStation);
 }
 
-function validStateV12(world,state){
-  if(!state||state.schemaVersion!==VERSION)
+function validStateV12(world,state,allowConstructionStation=false){
+  if(!state||state.schemaVersion!==SOCIAL_ROUTE_VERSION)
     throw Error('Invalid Citizens social route state');
   const prior=clone(state);
   prior.schemaVersion=APPOINTMENT_SEQUENCE_VERSION;
@@ -963,10 +981,11 @@ function validStateV12(world,state){
       throw Error('Invalid Citizens social route retries');
     delete prior.socialSession.routeRetries;
   }
-  validStateV11(world,prior);
+  validStateV11(world,prior,allowConstructionStation);
 }
 
-function validAppointmentState(world,state,version){
+function validAppointmentState(world,state,version,
+  allowConstructionStation=false){
   if(!state||state.schemaVersion!==version||!Array.isArray(state.residents))
     throw Error('Invalid Citizens appointment state');
   const v9=clone(state);
@@ -1093,7 +1112,98 @@ function validAppointmentState(world,state,version){
       old.lastDecision=null;
     }
   }
-  validStateV9(world,v9);
+  validStateV9(world,v9,allowConstructionStation);
+}
+
+function migrateV12(world,saved){
+  validStateV12(world,saved);
+  return {...clone(saved),schemaVersion:VERSION,construction:null};
+}
+
+function validStateV13(world,state){
+  if(!state||state.schemaVersion!==VERSION||
+    !keys(state,['schemaVersion','world','seed','rngState','requestSequence',
+      'actionSequence','clockTick','paused','clockSpeed','residents',
+      'retiredResidentIds','stations','log','socialSession','socialEvents',
+      'relationships','nextSocialTick','construction'])||
+    !Array.isArray(state.stations)||!Array.isArray(state.residents))
+    throw Error('Invalid Citizens construction state');
+  const record=state.construction;
+  const bench=state.stations?.find(station=>station.id===CONSTRUCTION_STATION_ID);
+  if(record!==null){
+    if(!keys(record,['intentId','residentId','blockedStationId','waitExecutionId',
+      'requestedTick','status','requestId','objectId','interactionRequestId',
+      'useRequestId','reason'])||
+      record.residentId!=='bo'||record.blockedStationId!=='chair'||
+      !integer(record.waitExecutionId,1,state.actionSequence)||
+      record.intentId!==`citizens-${state.seed}-construction-${record.waitExecutionId}`||
+      !integer(record.requestedTick,1,state.clockTick)||
+      !['requested','queued','created','used','denied','failed'].includes(record.status)||
+      !state.residents.some(resident=>resident.id===record.residentId)||
+      !state.stations.some(station=>station.id==='chair'&&station.kind==='rest')||
+      !boundedText(record.reason,160))
+      throw Error('Invalid Citizens construction record');
+    const present=value=>boundedText(value,128)&&value.length>0;
+    const absent=value=>value===null;
+    if(record.status==='requested'||record.status==='denied'){
+      if(![record.requestId,record.objectId,record.interactionRequestId,
+        record.useRequestId].every(absent)||
+        (record.status==='requested'&&record.reason!=='')||
+        (record.status==='denied'&&record.reason===''))
+        throw Error('Invalid Citizens construction request');
+    }else if(record.status==='queued'){
+      if(!present(record.requestId)||
+        ![record.objectId,record.interactionRequestId,record.useRequestId].every(absent)||
+        record.reason!=='')
+        throw Error('Invalid Citizens queued construction');
+    }else if(record.status==='failed'){
+      if(record.requestId!==null&&!present(record.requestId)||
+        ![record.objectId,record.interactionRequestId,record.useRequestId].every(absent)||
+        record.reason==='')
+        throw Error('Invalid Citizens failed construction');
+    }else if(!present(record.requestId)||!present(record.objectId)||
+      !present(record.interactionRequestId)||
+      record.interactionRequestId!==`${record.requestId}-interaction`||
+      (record.status==='used'?!present(record.useRequestId):
+        !absent(record.useRequestId))||record.reason!=='')
+      throw Error('Invalid Citizens completed construction');
+    if(record.status==='used'){
+      const use=record.useRequestId.match(
+        /^citizens-([0-9]+)-action-([0-9]+)-([0-9]+)$/);
+      if(!use||Number(use[1])!==state.seed||
+         Number(use[2])!==record.waitExecutionId||
+         !integer(Number(use[3]),1,state.requestSequence)||
+         record.useRequestId!==`citizens-${state.seed}-action-`+
+           `${record.waitExecutionId}-${Number(use[3])}`)
+        throw Error('Invalid Citizens construction use receipt');
+    }
+    if(['requested','queued'].includes(record.status)&&
+      !state.stations.find(station=>station.id==='chair')?.waiters.some(waiter=>
+        waiter.residentId===record.residentId&&
+        waiter.executionId===record.waitExecutionId))
+      throw Error('Citizens construction need is no longer queued');
+  }
+  const bound=['created','used'].includes(record?.status);
+  if(bound){
+    if(state.stations.length!==3||!bench||state.stations[2]!==bench||
+      bench.kind!=='rest'||bench.objectId!==record.objectId||
+      !sameJson(bench.interaction,CITIZEN_BENCH_INTERACTION)||
+      bench.approachMode!=='selected')
+      throw Error('Invalid Citizens construction station');
+    const object=objectById(world,record.objectId);
+    if(!object||object.assetId!=='matrix:procedural'||
+      object.anchorId!==ANCHOR_ID||
+      !sameTransform(object.transform,CITIZEN_BENCH_TRANSFORM)||
+      !sameJson(object.interaction,CITIZEN_BENCH_INTERACTION)||
+      !interactionSourceMatches(object,world.asset?.(object.assetId),
+        CITIZEN_BENCH_INTERACTION))
+      throw Error('Citizens construction object is missing or incompatible');
+  }else if(bench||state.stations.length>2)
+    throw Error('Unexpected Citizens construction station');
+  const prior=clone(state);
+  prior.schemaVersion=SOCIAL_ROUTE_VERSION;
+  delete prior.construction;
+  validStateV12(world,prior,bound);
 }
 
 function pose(x,z,scale=1){
@@ -1117,7 +1227,7 @@ function initialState(world,seed,adaId,boId,stations){
         cooldowns:{rest:0,eat:0,explore:0},lastOutcome:'',socialSessionId:null,
         routines:defaultRoutines('bo'),lastDecision:null,appointments:[],
         appointmentSequence:0}
-    ],stations,log:[]};
+    ],stations,log:[],construction:null};
 }
 
 function selectedStation(world,objectId){
@@ -1292,7 +1402,9 @@ export class CitizensSimulation {
     if(current?.schemaVersion===APPOINTMENT_VERSION)current=migrateV10(world,current);
     if(current?.schemaVersion===APPOINTMENT_SEQUENCE_VERSION)
       current=migrateV11(world,current);
-    validStateV12(world,current);
+    if(current?.schemaVersion===SOCIAL_ROUTE_VERSION)
+      current=migrateV12(world,current);
+    validStateV13(world,current);
     this.world=world;
     this.state=clone(current);
     // Runtime-only baseline: the serialized scene supplies it again on restore.
@@ -1342,7 +1454,7 @@ export class CitizensSimulation {
       `${changes.startMinute}–${changes.endMinute} (${changes.priority}).`,160);
     next.log.push({tick:next.clockTick,residentId,event:'selected',message});
     if(next.log.length>MAX_LOG)next.log.shift();
-    validStateV12(this.world,next);
+    validStateV13(this.world,next);
     this.state=next;
     return this.snapshot();
   }
@@ -1359,7 +1471,7 @@ export class CitizensSimulation {
         this.observedTransforms.get(bound.objectId)))
         throw Error('A Citizens object moved or disappeared; review bindings first');
     }
-    validStateV12(this.world,this.state);
+    validStateV13(this.world,this.state);
   }
   validateAppointmentWindow(details){
     if(!keys(details,['kind','startTick','deadlineTick'])||
@@ -1408,7 +1520,7 @@ export class CitizensSimulation {
       `${details.startTick} through ${details.deadlineTick}.`,160);
     next.log.push({tick:next.clockTick,residentId,event:'selected',message});
     if(next.log.length>MAX_LOG)next.log.shift();
-    validStateV12(this.world,next);
+    validStateV13(this.world,next);
     this.state=next;
     return this.snapshot();
   }
@@ -1425,7 +1537,7 @@ export class CitizensSimulation {
       message:boundedPrefix(`${resident.name} revised ${id} to ${changes.kind} from minute `+
         `${changes.startTick} through ${changes.deadlineTick}.`,160)});
     if(next.log.length>MAX_LOG)next.log.shift();
-    validStateV12(this.world,next);
+    validStateV13(this.world,next);
     this.state=next;
     return this.snapshot();
   }
@@ -1443,9 +1555,135 @@ export class CitizensSimulation {
       message:boundedPrefix(`${resident.name} cancelled ${id} ${appointment.kind} from minute `+
         `${appointment.startTick} through ${appointment.deadlineTick}.`,160)});
     if(next.log.length>MAX_LOG)next.log.shift();
-    validStateV12(this.world,next);
+    validStateV13(this.world,next);
     this.state=next;
     return this.snapshot();
+  }
+  proposeConstruction(){
+    if(this.state.construction!==null||this.state.paused||this.invalidBindings.size||
+       this.world.scene.objects.length!==4||this.state.stations.length!==2)
+      return null;
+    const bound=new Set([...this.state.residents,...this.state.stations]
+      .map(item=>item.objectId));
+    if(bound.size!==4||this.world.scene.objects.some(object=>
+      !bound.has(object.objectId)))return null;
+    const chair=this.station('chair');
+    const bo=this.state.residents.find(resident=>resident.id==='bo');
+    const waiter=chair?.waiters.find(item=>item.residentId==='bo');
+    if(chair?.kind!=='rest'||chair.claim?.residentId!=='ada'||!bo||
+       bo.activity!==null||bo.needs.energy>40||!waiter)return null;
+    const next=this.snapshot();
+    next.construction={
+      intentId:`citizens-${next.seed}-construction-${waiter.executionId}`,
+      residentId:'bo',blockedStationId:'chair',
+      waitExecutionId:waiter.executionId,requestedTick:next.clockTick,
+      status:'requested',requestId:null,objectId:null,
+      interactionRequestId:null,useRequestId:null,reason:''};
+    next.log.push({tick:next.clockTick,residentId:'bo',event:'selected',
+      message:'Bo requested a second rest station while Ada held the chair.'});
+    if(next.log.length>MAX_LOG)next.log.shift();
+    validStateV13(this.world,next);
+    this.state=next;
+    return clone(next.construction);
+  }
+  constructionQueued(requestId){
+    if(this.state.construction?.status!=='requested'||
+       !boundedText(requestId,128)||!requestId)
+      throw Error('Citizens construction is not ready to queue');
+    const next=this.snapshot();
+    next.construction.status='queued';
+    next.construction.requestId=requestId;
+    validStateV13(this.world,next);
+    this.state=next;
+    return this.snapshot();
+  }
+  constructionDenied(reason){
+    if(this.state.construction?.status!=='requested'||
+       !boundedText(reason,160)||!reason)
+      throw Error('Citizens construction denial is invalid');
+    const next=this.snapshot();
+    next.construction.status='denied';
+    next.construction.reason=reason;
+    next.log.push({tick:next.clockTick,residentId:'bo',event:'blocked',
+      message:`Bo's construction request was denied: ${reason}`.slice(0,160)});
+    if(next.log.length>MAX_LOG)next.log.shift();
+    validStateV13(this.world,next);
+    this.state=next;
+    return this.snapshot();
+  }
+  constructionFailed(reason){
+    if(!['requested','queued'].includes(this.state.construction?.status)||
+       !boundedText(reason,160)||!reason)
+      throw Error('Citizens construction failure is invalid');
+    const next=this.snapshot();
+    next.construction.status='failed';
+    next.construction.reason=reason;
+    next.log.push({tick:next.clockTick,residentId:'bo',event:'failed',
+      message:`Bo's construction request failed: ${reason}`.slice(0,160)});
+    if(next.log.length>MAX_LOG)next.log.shift();
+    validStateV13(this.world,next);
+    this.state=next;
+    return this.snapshot();
+  }
+  constructionCreated(createReceipt,interactionReceipt){
+    const record=this.state.construction;
+    if(record?.status!=='queued'||!createReceipt?.ok||
+       createReceipt.error!==''||
+       createReceipt.requestId!==record.requestId||
+       !boundedText(createReceipt.objectId,128)||!createReceipt.objectId||
+       !interactionReceipt?.ok||interactionReceipt.error!==''||
+       !boundedText(interactionReceipt.requestId,128)||
+       !interactionReceipt.requestId||
+       interactionReceipt.requestId!==`${record.requestId}-interaction`||
+       interactionReceipt.objectId!==createReceipt.objectId)
+      throw Error('Citizens construction needs matching Matrix receipts');
+    const object=objectById(this.world,createReceipt.objectId);
+    if(this.world.scene.objects.length!==5||!object||
+       object.assetId!=='matrix:procedural'||object.anchorId!==ANCHOR_ID||
+       !sameTransform(object.transform,CITIZEN_BENCH_TRANSFORM)||
+       !sameJson(object.interaction,CITIZEN_BENCH_INTERACTION)||
+       !interactionSourceMatches(object,this.world.asset?.(object.assetId),
+         CITIZEN_BENCH_INTERACTION))
+      throw Error('Citizens construction receipt has no reviewed Matrix bench');
+    const chair=this.station(record.blockedStationId);
+    const bo=this.state.residents.find(resident=>resident.id===record.residentId);
+    const waiter=chair?.waiters.find(item=>item.residentId===record.residentId&&
+      item.executionId===record.waitExecutionId);
+    if(!bo||bo.activity||!waiter||chair.claim?.residentId!=='ada')
+      throw Error('Citizens construction need changed before the result');
+    const station={...selectedStation(this.world,object.objectId),
+      id:CONSTRUCTION_STATION_ID,approachMode:'selected'};
+    const approach=stationApproach(this.world,bo.objectId,station);
+    if(!approach.ok)throw Error(`Bo cannot reach the created bench: ${approach.reason}`);
+    const previous=this.state;
+    const next=this.snapshot();
+    this.state=next;
+    try{
+      const nextChair=this.station(record.blockedStationId);
+      nextChair.waiters=nextChair.waiters.filter(item=>
+        !(item.residentId===record.residentId&&
+          item.executionId===record.waitExecutionId));
+      station.claim={residentId:record.residentId,
+        executionId:record.waitExecutionId,
+        expiresTick:next.clockTick+LEASE_TICKS};
+      this.state.stations.push(station);
+      const resident=this.state.residents.find(item=>item.id===record.residentId);
+      this.beginActivity(resident,'rest',station,record.waitExecutionId,
+        `reviewed Matrix construction ${record.requestId}; original chair wait transferred.`);
+      this.state.construction={...record,status:'created',
+        objectId:createReceipt.objectId,
+        interactionRequestId:interactionReceipt.requestId};
+      this.log(record.residentId,'completed',
+        `Bo observed Matrix construction receipt ${record.requestId} for ${object.objectId}.`);
+      validStateV13(this.world,this.state);
+      this.observedTransforms.set(object.objectId,clone(object.transform));
+      this.observedProceduralRecipes.set(object.objectId,
+        proceduralRecipeSignature(object));
+      return this.snapshot();
+    }catch(error){
+      this.state=previous;
+      throw error;
+    }
   }
   additionalStation(objectId,{checkRoutes=false}={}){
     assertWorld(this.world);
@@ -1462,7 +1700,7 @@ export class CitizensSimulation {
     if(checkRoutes){
       if(this.world.scene!==this.observedScene)
         throw Error('The scene changed; review Citizens bindings before adding a station');
-      validStateV12(this.world,this.state);
+      validStateV13(this.world,this.state);
       for(const bound of [...this.state.residents,...this.state.stations]){
         const object=objectById(this.world,bound.objectId);
         if(!object||!sameTransform(object.transform,
@@ -1496,7 +1734,7 @@ export class CitizensSimulation {
       this.observedProceduralRecipes.set(station.objectId,
         proceduralRecipeSignature(objectById(this.world,station.objectId)));
       this.log('','selected',`Reviewed ${station.id} station added to the shared world.`);
-      validStateV12(this.world,this.state);
+      validStateV13(this.world,this.state);
       return this.snapshot();
     }catch(error){
       this.state=previous;
@@ -1508,7 +1746,7 @@ export class CitizensSimulation {
   exportState(){
     this.reconcileWorld();
     if(this.invalidBindings.size)throw Error('Citizens binding is missing or incompatible');
-    validStateV12(this.world,this.state);
+    validStateV13(this.world,this.state);
     return this.snapshot();
   }
   reconcileWorld(){this.reconcileBindings();return this.snapshot();}
@@ -2681,6 +2919,14 @@ export class CitizensSimulation {
     const station=this.station(action.stationId);
     const receipt=station?this.requestInteraction(resident,station):this.requestMove(resident,target);
     if(!receipt.ok){this.fail(resident,`completion rejected: ${receipt.error}`);return;}
+    if(station?.id===CONSTRUCTION_STATION_ID&&
+       this.state.construction?.status==='created'&&
+       this.state.construction.residentId===resident.id&&
+       this.state.construction.waitExecutionId===action.executionId&&
+       this.state.construction.objectId===station.objectId){
+      this.state.construction.status='used';
+      this.state.construction.useRequestId=receipt.requestId;
+    }
     const kind=action.kind;
     const appointment=station&&resident.appointments.find(item=>
       item.status==='active'&&item.executionId===action.executionId&&

@@ -9,7 +9,9 @@ import urllib.error
 import urllib.request
 
 from procedural_contract import new_recipe
-from server import APIError, Server, State, world_checkpoint_digest
+from server import (APIError, CITIZEN_BENCH_INTERACTION, CITIZEN_BENCH_TRANSFORM,
+                    Server, State, validate_citizens_checkpoint,
+                    world_checkpoint_digest)
 
 
 FIXTURE = json.loads((Path(__file__).with_name("testdata") /
@@ -41,7 +43,168 @@ class HostedWorldTests(unittest.TestCase):
         return {"objectId": object_id, "assetId": "matrix:procedural",
                 "anchorId": "web-floor", "transform": pose,
                 "procedural": new_recipe(self.snapshot["proceduralGenerators"],
-                                         "curved-bench")}
+                                          "curved-bench")}
+
+    def requested_construction(self):
+        """A minimal real reservation: Ada holds the chair while Bo waits."""
+        world = copy.deepcopy(self.world)
+        state = world["citizens"]
+        state["schemaVersion"] = 13
+        state["clockTick"] = 1
+        state["actionSequence"] = 2
+        state["stations"][0]["claim"] = {
+            "residentId": "ada", "executionId": 1, "expiresTick": 73}
+        state["stations"][0]["waiters"] = [{
+            "residentId": "bo", "executionId": 2, "enqueuedTick": 1}]
+        state["residents"][0]["activity"] = {
+            "kind": "rest", "stationId": "chair", "phase": "travel",
+            "remainingTicks": 7, "travelTicks": 1, "target": None,
+            "executionId": 1, "routeRetries": 0, "routeGeometryId": None}
+        state["construction"] = {
+            "intentId": f'citizens-{state["seed"]}-construction-2',
+            "residentId": "bo", "blockedStationId": "chair",
+            "waitExecutionId": 2, "requestedTick": 1, "status": "requested",
+            "requestId": None, "objectId": None,
+            "interactionRequestId": None, "useRequestId": None, "reason": ""}
+        snapshot = copy.deepcopy(self.snapshot)
+        snapshot["citizensState"] = copy.deepcopy(state)
+        return snapshot, world
+
+    def requested_service(self, *, budget=1):
+        self.state = State(Path(self.temp.name) / f"scenes-budget-{budget}",
+                           clock=lambda: self.now,
+                           web_assets_directory=Path(self.temp.name) / "assets",
+                           citizen_construction_budget=budget)
+        snapshot, world = self.requested_construction()
+        self.exchange(snapshot)
+        self.state.save_world_checkpoint("AdaBo", world)
+        return snapshot, world
+
+    def test_citizen_construction_uses_typed_procedural_queue_with_identity(self):
+        snapshot, world = self.requested_service()
+        record = world["citizens"]["construction"]
+        result = self.state.citizen_construction_request({
+            "intentId": record["intentId"], "residentId": "bo"})
+        self.assertEqual(set(result), {"allowed", "requestId"})
+        self.assertTrue(result["allowed"])
+        request_id = result["requestId"]
+        self.assertRegex(request_id, r"^[0-9a-f]{32}$")
+        command = self.state.pending[request_id]
+        self.assertEqual(command["op"], "create_procedural")
+        self.assertEqual(command["anchorId"], "web-floor")
+        self.assertEqual(command["transform"], CITIZEN_BENCH_TRANSFORM)
+        self.assertEqual(command["procedural"],
+                         new_recipe(snapshot["proceduralGenerators"], "curved-bench"))
+        self.assertEqual(self.state.agent_procedural_ids[request_id]["residentId"], "bo")
+        self.assertEqual(self.state.agent_procedural_ids[request_id]["citizenIntentId"],
+                         record["intentId"])
+        denied = self.state.citizen_construction_request({
+            "intentId": record["intentId"], "residentId": "bo"})
+        self.assertEqual(denied, {"allowed": False,
+                                  "reason": "Citizen construction budget is exhausted"})
+        self.assertEqual(list(self.state.pending), [request_id])
+
+    def test_zero_budget_and_stale_intent_deny_without_mutation(self):
+        snapshot, world = self.requested_service(budget=0)
+        before = copy.deepcopy(self.state.latest)
+        record = world["citizens"]["construction"]
+        denied = self.state.citizen_construction_request({
+            "intentId": record["intentId"], "residentId": "bo"})
+        self.assertEqual(denied, {"allowed": False,
+                                  "reason": "Citizen construction budget is exhausted"})
+        self.assertFalse(self.state.pending)
+        self.assertEqual(self.state.latest, before)
+        self.state.citizen_construction_budget = 1
+        stale = self.state.citizen_construction_request({
+            "intentId": "different-intent", "residentId": "bo"})
+        self.assertFalse(stale["allowed"])
+        self.assertFalse(self.state.pending)
+        self.assertEqual(self.state.latest, before)
+        self.assertEqual(snapshot["scene"], world["scene"])
+
+    def test_citizen_construction_endpoint_requires_owner_token(self):
+        _, world = self.requested_service()
+        intent = {"intentId": world["citizens"]["construction"]["intentId"],
+                  "residentId": "bo"}
+        service = Server(("127.0.0.1", 0), self.state, OWNER, VIEWER)
+        thread = threading.Thread(target=service.serve_forever, daemon=True)
+        thread.start()
+
+        def post(token):
+            request = urllib.request.Request(
+                f"http://127.0.0.1:{service.server_port}/api/citizens/construction",
+                data=json.dumps(intent).encode("utf-8"),
+                headers={"Authorization": "Bearer " + token,
+                         "Content-Type": "application/json"})
+            try:
+                response = urllib.request.urlopen(request, timeout=3)
+            except urllib.error.HTTPError as error:
+                response = error
+            with response:
+                return response.status, json.loads(response.read())
+
+        try:
+            self.assertEqual(post(VIEWER)[0], 401)
+            self.assertFalse(self.state.pending)
+            status, allowed = post(OWNER)
+            self.assertEqual(status, 200)
+            self.assertEqual(allowed["allowed"], True)
+            self.assertEqual(list(self.state.pending), [allowed["requestId"]])
+        finally:
+            service.shutdown()
+            service.server_close()
+            thread.join(timeout=3)
+
+    def test_v13_reviewed_station_and_queued_intermediate_validate(self):
+        snapshot, world = self.requested_construction()
+        validate_citizens_checkpoint(world["citizens"], world["scene"])
+        queued = copy.deepcopy(world)
+        queued["citizens"]["construction"]["status"] = "queued"
+        queued["citizens"]["construction"]["requestId"] = "a" * 32
+        addition = self.procedural_object()
+        addition["transform"] = copy.deepcopy(CITIZEN_BENCH_TRANSFORM)
+        queued["scene"]["objects"].append(addition)
+        validate_citizens_checkpoint(queued["citizens"], queued["scene"])
+        exchanged = copy.deepcopy(snapshot)
+        exchanged["citizensState"] = copy.deepcopy(queued["citizens"])
+        exchanged["scene"] = copy.deepcopy(queued["scene"])
+        self.exchange(exchanged)
+        created = copy.deepcopy(queued)
+        created["citizens"]["construction"].update(
+            status="created", objectId=addition["objectId"],
+            interactionRequestId="a" * 32 + "-interaction")
+        created["scene"]["objects"][-1]["interaction"] = copy.deepcopy(
+            CITIZEN_BENCH_INTERACTION)
+        created["citizens"]["stations"][0]["waiters"] = []
+        created["citizens"]["stations"][2:] = [{
+            "id": "citizen-bench", "kind": "rest", "objectId": addition["objectId"],
+            "capacity": 1, "claim": {"residentId": "bo", "executionId": 2,
+                                      "expiresTick": 73}, "waiters": [],
+            "interaction": copy.deepcopy(CITIZEN_BENCH_INTERACTION),
+            "approachMode": "selected"}]
+        created["citizens"]["residents"][1]["activity"] = {
+            "kind": "rest", "stationId": "citizen-bench", "phase": "travel",
+            "remainingTicks": 4, "travelTicks": 0, "target": None,
+            "executionId": 2, "routeRetries": 0, "routeGeometryId": None}
+        validate_citizens_checkpoint(created["citizens"], created["scene"])
+        exchanged["citizensState"] = copy.deepcopy(created["citizens"])
+        exchanged["scene"] = copy.deepcopy(created["scene"])
+        self.exchange(exchanged)
+        self.state.save_world_checkpoint("AdaBo", created)
+        self.assertEqual(self.state.hosted_observation()["world"]["citizens"][
+            "construction"]["objectId"], addition["objectId"])
+        used = copy.deepcopy(created)
+        used["citizens"]["requestSequence"] = 1
+        used["citizens"]["construction"].update(
+            status="used", useRequestId="citizens-29-action-2-1")
+        validate_citizens_checkpoint(used["citizens"], used["scene"])
+        used["citizens"]["construction"]["useRequestId"] = "citizens-29-action-1-1"
+        with self.assertRaisesRegex(APIError, "use receipt"):
+            validate_citizens_checkpoint(used["citizens"], used["scene"])
+        forged = copy.deepcopy(created)
+        forged["scene"]["objects"][-1]["interaction"]["effect"]["delta"] = 50
+        with self.assertRaises(APIError):
+            validate_citizens_checkpoint(forged["citizens"], forged["scene"])
 
     def test_operator_procedural_receipt_waits_for_atomic_hosted_checkpoint(self):
         self.exchange()
@@ -258,6 +421,9 @@ class HostedWorldTests(unittest.TestCase):
             self.assertEqual(get("/api/state", OWNER)[0], 200)
             self.assertEqual(post("/api/agent/session", VIEWER, {}), 401)
             self.assertEqual(post("/api/exchange", VIEWER, {}), 401)
+            intent = {"intentId": "citizens-29-construction-2", "residentId": "bo"}
+            self.assertEqual(post("/api/citizens/construction", VIEWER, intent), 401)
+            self.assertEqual(post("/api/citizens/construction", OWNER, intent), 200)
         finally:
             service.shutdown()
             service.server_close()

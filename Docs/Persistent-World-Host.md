@@ -6,8 +6,9 @@ Quest visitor. One Node process runs the existing `MatrixWorld` and
 virtual tick with the PC `ControlService`, then saves the version 3 world
 checkpoint atomically. The scene starts with two orb resident markers, one
 chair, and one table. The owner can add one reviewed procedural construction
-through the existing Agent Portal and typed Matrix tool. There is no renderer
-in this process.
+through the existing Agent Portal and typed Matrix tool. With the optional
+Citizen construction flag, Bo can request one bench after encountering chair
+contention. There is no renderer in this process.
 
 ## Run an isolated local world
 
@@ -52,6 +53,10 @@ restores the last atomic checkpoint and continues from that tick, without
 advancing through downtime. A paused checkpoint requires inspection and an
 explicit `--resume-paused` on restart.
 
+Pass `--citizen-construction` to enable the bounded autonomous case. Without
+that flag, the existing human Operator creation slot remains available.
+`--interval-ms` can set the tick interval for an isolated demonstration.
+
 Each world has one named PC checkpoint under the chosen scene directory. A
 hosted exchange publishes a headless runtime descriptor
 `matrix-world-host/none/host`. The service accepts the four built-in Citizens
@@ -74,15 +79,43 @@ Codex reads the live scene and generator list, then uses
 mode presents the bounded creation for approval. The view token cannot open an
 Agent session, queue an edit, or call the owner API.
 
-The service accepts hosted procedural writes only through that typed Agent
-path. It rejects a new request while an exchange is awaiting its atomic
-checkpoint and rejects another creation once the object exists. The host uses
+The service accepts hosted procedural writes through that typed Agent path or
+the scoped Citizen request path below. It rejects a new request while an
+exchange is awaiting its atomic checkpoint and rejects another creation once
+the object exists. The host uses
 the existing `MatrixWorld.execute` generator path. The typed status reports
 `succeeded` only after the matching object, runtime receipt, and saved
 checkpoint all agree. The visitor then receives the five-object observation;
 there is no second world-state owner. The ordinary browser-owned `/web/`
 Creator Mode remains available for its existing broader create/revise/save
 flow.
+
+## Optional Citizen construction
+
+With `--citizen-construction`, the existing seed-29 Ada/Bo schedule creates a
+chair reservation conflict: Ada holds the chair while Bo waits to rest. Bo
+records one construction intent with his resident ID and asks the owner-only
+`/api/citizens/construction` endpoint for a curved bench. The request contains
+only its durable intent ID and resident ID. Neither resident receives an owner
+token, Agent session, MCP bridge, or tool credentials.
+
+The service checks the saved need, chair contention, fixed bench recipe and
+placement, pending work, and a one-request budget before queuing the existing
+typed procedural action. A rejection records its reason and creates nothing.
+The Matrix host executes the typed create with `MatrixWorld.execute`, checks
+its exact receipt, then attaches the reviewed station interaction through the
+existing Matrix interaction command and receipt. Only after both receipts
+match the object does Bo observe the new station and resume his rest
+interaction there. His checked use receipt marks the construction used.
+
+The version 13 Citizens checkpoint retains the original intent, decision,
+Matrix request IDs, created object ID, interaction request ID, and use result.
+Restart restores that provenance, the bench, Ada and Bo, and the
+same read-only visitor scene. The request remains one-shot across restart.
+If a process stops with a saved but unresolved request, startup stops for
+inspection instead of risking a duplicate policy submission.
+See `Validation/Citizen-Construction-2026-09-27.md` for an isolated live run
+with exact receipts and rejection tests.
 
 ## Read-only observation contract
 
