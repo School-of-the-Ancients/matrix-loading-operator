@@ -822,23 +822,29 @@ export class MatrixWorld {
     if (!scene||scene.schemaVersion!==1||scene.roomId!==this.scene.roomId||!Array.isArray(scene.objects)||scene.objects.length>MAX_OBJECTS) throw Error('Incompatible scene');
     if(scene.objects.filter(object=>object.physics).length>16)throw Error('Physics object limit reached');
     const ids=new Set();
+    const anchors=this.availableAnchors();
+    // Check intrinsic structure across the whole scene before resolving any
+    // catalog asset. A missing Web asset must not mask a corrupt later object.
     for(const o of scene.objects) {
-      if(!validId(o.objectId)||ids.has(o.objectId)||!this.asset(o.assetId)||!this.availableAnchors().some(anchor=>anchor.anchorId===o.anchorId)||!validTransform(o.transform)) throw Error('Invalid scene object');
-      const anchor=this.spatial?.anchors.find(item=>item.anchorId===o.anchorId);
-      if(anchor?.surface.kind==='support')this.assertSupportedFootprint(o.transform,o.assetId,anchor);
+      if(!o||!validId(o.objectId)||ids.has(o.objectId)||!anchors.some(anchor=>anchor.anchorId===o.anchorId)||!validTransform(o.transform)) throw Error('Invalid scene object');
       ids.add(o.objectId);
       if(o.behaviors && (!Array.isArray(o.behaviors)||o.behaviors.length>2||new Set(o.behaviors.map(b=>b.kind)).size!==o.behaviors.length||!o.behaviors.every(validBehavior))) throw Error('Invalid scene behavior');
       if(o.component){validateAttachment(o.component);if(o.anchorId!==ANCHOR_ID)throw Error('Component requires virtual-floor object');}
-      if(Object.hasOwn(o,'interaction'))
-        assertInteractionTarget(o,this.asset(o.assetId),o.interaction);
-      if(o.animation&&(o.anchorId!==ANCHOR_ID||!validAnimationBinding(o.animation,this.asset(o.assetId))))
-        throw Error('Invalid GLB animation binding');
-      if(o.physics)this.assertPhysicsEligible(o);
     }
     for(const o of scene.objects)if(o.component){
       const target=scene.objects.find(item=>item.objectId===o.component.targetObjectId);
       if(target&&(target.anchorId!==ANCHOR_ID||target.objectId===o.objectId))throw Error('Invalid component target');
       if(!target&&o.component.status!=='failed')throw Error('Invalid component target');
+    }
+    for(const o of scene.objects) {
+      if(!this.asset(o.assetId))throw Error('Invalid scene object');
+      const anchor=this.spatial?.anchors.find(item=>item.anchorId===o.anchorId);
+      if(anchor?.surface.kind==='support')this.assertSupportedFootprint(o.transform,o.assetId,anchor);
+      if(Object.hasOwn(o,'interaction'))
+        assertInteractionTarget(o,this.asset(o.assetId),o.interaction);
+      if(o.animation&&(o.anchorId!==ANCHOR_ID||!validAnimationBinding(o.animation,this.asset(o.assetId))))
+        throw Error('Invalid GLB animation binding');
+      if(o.physics)this.assertPhysicsEligible(o);
     }
   }
   replay(from,to) {if(!from.length)throw Error('History is empty'); to.push(clone(this.scene)); if(to.length>32)to.shift(); this.scene=from.pop(); this.selection.objectId='';this.physicsBodies.clear();this.physicsVerification.clear();this.renderedVerification.clear();this.physicsSceneReference=this.scene;}

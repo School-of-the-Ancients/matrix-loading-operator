@@ -454,10 +454,202 @@ test('scene-only saves migrate without replacing Matrix object IDs',()=>{
   assert.ok(durable.getItem(WORLD_KEY));
 });
 
+test('dual-GLB Citizens world waits for both catalog entries and restores the exact saved state',()=>{
+  const tab=storage(),durable=storage();
+  let sequence=0;
+  const original=new MatrixWorld(()=>`recovery-object-${++sequence}`);
+  const simulation=createCitizensDemo(original,{seed:29});
+  simulation.step();
+  const assets=[
+    {kind:'rest',name:'recovery-seat',sha256:'a'.repeat(64),
+      bounds:{center:{x:0,y:.475,z:0},size:{x:.62,y:.95,z:.62}},
+      approachZ:-.75,useZ:-.2,need:'energy',delta:22,durationTicks:7},
+    {kind:'eat',name:'recovery-food',sha256:'b'.repeat(64),
+      bounds:{center:{x:0,y:.4275,z:0},size:{x:1.2,y:.855,z:.8}},
+      approachZ:-.9,useZ:-.28,need:'hunger',delta:32,durationTicks:5}
+  ].map(item=>({
+    ...item,asset:{assetId:`web:${item.name}:${item.sha256.slice(0,12)}`,
+      displayName:item.name,description:'Static reviewed fixture',spawnScale:1,
+      sha256:item.sha256,byteLength:1024,url:`/api/web/assets/${item.sha256}.glb`,
+      localBounds:item.bounds,geometry:{animationClips:[]}}
+  }));
+  original.registerAssets(assets.map(item=>item.asset));
+  const state=simulation.snapshot();
+  for(const item of assets){
+    const station=state.stations.find(candidate=>candidate.kind===item.kind);
+    const object=original.requireObject(station.objectId);
+    const interaction={schemaVersion:1,interactionId:`${item.name}-${item.kind}`,
+      kind:item.kind,assetSha256:item.sha256,
+      requiredCapabilities:['static-virtual-floor','verified-rendered-bounds'],
+      availability:['target-static','floor-aligned','rendered-verified'],
+      approachPose:{x:0,z:item.approachZ},usePose:{x:0,z:item.useZ},
+      rangeMeters:.8,durationTicks:item.durationTicks,capacity:1,
+      effect:{need:item.need,delta:item.delta}};
+    object.assetId=item.asset.assetId;
+    object.interaction=interaction;
+    station.interaction=interaction;
+  }
+  original.citizens=state;
+  const expected=storedWorld(original);
+  assert.equal(saveStoredWorld(storedBrowserWorld(original),tab,durable),'');
+  const browserCopy=durable.getItem(WORLD_KEY);
+  const pending=loadStoredWorld(storage(),durable);
+  const reopened=new MatrixWorld();
+  const before=storedWorld(reopened);
+  let result=restoreBestStoredWorld(reopened,pending,durable);
+  assert.equal(result.state,'waiting');
+  assert.deepEqual(result.missingAssets,assets.map(item=>item.asset.assetId).sort());
+  assert.deepEqual(result.rejected,[]);
+  assert.deepEqual(storedWorld(reopened),before);
+  assert.equal(durable.getItem(WORLD_KEY),browserCopy);
+  assert.equal(durable.getItem(QUARANTINE_KEY),null);
+
+  reopened.registerAssets([assets[0].asset]);
+  result=restoreBestStoredWorld(reopened,pending,durable);
+  assert.equal(result.state,'waiting');
+  assert.deepEqual(result.missingAssets,[assets[1].asset.assetId]);
+  assert.deepEqual(storedWorld(reopened),before);
+  reopened.registerAssets(assets.map(item=>item.asset));
+  result=restoreBestStoredWorld(reopened,pending,durable);
+  assert.equal(result.state,'restored');
+  assert.deepEqual(storedWorld(reopened),expected);
+  assert.equal(reopened.citizens.clockTick,1);
+  assert.equal(durable.getItem(WORLD_KEY),browserCopy);
+  assert.equal(durable.getItem(QUARANTINE_KEY),null);
+});
+
+test('newer asset-dependent browser save waits instead of restoring an older valid tab copy',()=>{
+  const tab=storage(),durable=storage();
+  const older=new MatrixWorld(()=> 'older-orb');
+  assert.equal(older.execute({requestId:'older',op:'spawn',assetId:'orb',
+    anchorId:'web-floor',transform:pose}).ok,true);
+  assert.equal(saveStoredWorld(storedBrowserWorld(older),tab,durable),'');
+  const olderCopy=tab.getItem(TAB_WORLD_KEY);
+  const sha256='c'.repeat(64);
+  const asset={assetId:`web:recovery-newer:${sha256.slice(0,12)}`,
+    displayName:'Newer prop',description:'Static fixture',spawnScale:1,sha256,
+    byteLength:1024,url:`/api/web/assets/${sha256}.glb`,
+    localBounds:{center:{x:0,y:.5,z:0},size:{x:1,y:1,z:1}},
+    geometry:{animationClips:[]}};
+  const newer=new MatrixWorld(()=> 'newer-prop');
+  newer.registerAssets([asset]);
+  assert.equal(newer.execute({requestId:'newer',op:'spawn',assetId:asset.assetId,
+    anchorId:'web-floor',transform:pose}).ok,true);
+  const newest={...storedBrowserWorld(newer),
+    savedAtMs:JSON.parse(olderCopy).savedAtMs+1};
+  const newestCopy=JSON.stringify(newest);
+  durable.setItem(WORLD_KEY,newestCopy);
+  const pending=loadStoredWorld(tab,durable);
+  assert.equal(pending.source,WORLD_KEY);
+  const reopened=new MatrixWorld();
+  const before=storedWorld(reopened);
+  const waiting=restoreBestStoredWorld(reopened,pending,durable);
+  assert.equal(waiting.state,'waiting');
+  assert.deepEqual(waiting.missingAssets,[asset.assetId]);
+  assert.deepEqual(waiting.rejected,[]);
+  assert.deepEqual(storedWorld(reopened),before);
+  assert.equal(tab.getItem(TAB_WORLD_KEY),olderCopy);
+  assert.equal(durable.getItem(WORLD_KEY),newestCopy);
+  assert.equal(durable.getItem(QUARANTINE_KEY),null);
+  assert.throws(()=>restoreStoredWorld(reopened,pending.value),/Invalid scene object/);
+  assert.deepEqual(storedWorld(reopened),before);
+  reopened.registerAssets([asset]);
+  assert.equal(restoreBestStoredWorld(reopened,pending,durable).state,'restored');
+  assert.deepEqual(reopened.scene,newer.scene);
+  assert.notDeepEqual(reopened.scene,older.scene);
+});
+
+test('a saved game referencing a Web pickup waits for its scene asset and restores its bindings',()=>{
+  const tab=storage(),durable=storage(),sha256='d'.repeat(64);
+  const asset={assetId:`web:recovery-game:${sha256.slice(0,12)}`,
+    displayName:'Game pickup',description:'Static fixture',spawnScale:1,sha256,
+    byteLength:1024,url:`/api/web/assets/${sha256}.glb`,
+    localBounds:{center:{x:0,y:.5,z:0},size:{x:1,y:1,z:1}},
+    geometry:{animationClips:[]}};
+  const original=new MatrixWorld(()=>crypto.randomUUID().replaceAll('-',''));
+  original.registerAssets([asset]);
+  startGame(original,{kind:'game',title:'Recovered pickup',summary:'Return one pickup.',
+    roles:[{roleId:'pickup',kind:'pickup',assetId:asset.assetId,count:1},
+      {roleId:'zone',kind:'delivery-zone',assetId:'pedestal',count:1}],
+    rules:[{event:'release-near',actorRoleId:'pickup',targetRoleId:'zone',
+      distanceMeters:.6,scorePoints:1}],
+    objectives:[{kind:'delivered-count',roleId:'pickup',targetCount:1}]});
+  const expected=storedWorld(original);
+  assert.equal(saveStoredWorld(storedBrowserWorld(original),tab,durable),'');
+  const pending=loadStoredWorld(storage(),durable);
+  const reopened=new MatrixWorld();
+  assert.deepEqual(restoreBestStoredWorld(reopened,pending,durable).missingAssets,
+    [asset.assetId]);
+  assert.equal(durable.getItem(QUARANTINE_KEY),null);
+  reopened.registerAssets([asset]);
+  assert.equal(restoreBestStoredWorld(reopened,pending,durable).state,'restored');
+  assert.deepEqual(storedWorld(reopened),expected);
+  assert.deepEqual(reopened.game.bindings,original.game.bindings);
+});
+
+test('a game-only missing Web role with no matching scene object is invalid, not waiting',()=>{
+  const tab=storage(),durable=storage();
+  const older=new MatrixWorld(()=>crypto.randomUUID().replaceAll('-',''));
+  startGame(older,{kind:'game',title:'Older game',summary:'Return one orb.',
+    roles:[{roleId:'pickup',kind:'pickup',assetId:'orb',count:1},
+      {roleId:'zone',kind:'delivery-zone',assetId:'pedestal',count:1}],
+    rules:[{event:'release-near',actorRoleId:'pickup',targetRoleId:'zone',
+      distanceMeters:.6,scorePoints:1}],
+    objectives:[{kind:'delivered-count',roleId:'pickup',targetCount:1}]});
+  assert.equal(saveStoredWorld(storedBrowserWorld(older),tab,durable),'');
+  const olderCopy=tab.getItem(TAB_WORLD_KEY);
+  const newer=structuredClone(JSON.parse(olderCopy));
+  newer.savedAtMs++;
+  newer.game.spec.roles[0].assetId='web:unplaced-game-role';
+  const raw=JSON.stringify(newer);
+  durable.setItem(WORLD_KEY,raw);
+  const reopened=new MatrixWorld();
+  const result=restoreBestStoredWorld(reopened,loadStoredWorld(tab,durable),durable);
+  assert.equal(result.state,'restored');
+  assert.equal(result.source,TAB_WORLD_KEY);
+  assert.equal(result.rejected.length,1);
+  assert.deepEqual(storedWorld(reopened),storedWorld(older));
+  assert.equal(durable.getItem(QUARANTINE_KEY),raw);
+});
+
+test('an absent Web asset does not hide envelope, origin, room or earlier object corruption',()=>{
+  for(const [label,corrupt] of [
+    ['envelope',value=>{delete value.game;}],
+    ['origin',value=>{value.originBinding='unsupported-origin';}],
+    ['room',value=>{value.scene.roomId='another-room';}],
+    ['object',value=>{value.scene.objects[0].objectId='';}],
+    ['transform',value=>{value.scene.objects[0].transform.position.x=101;}],
+    ['later transform',value=>{value.scene.objects.push({objectId:'bad-later',assetId:'orb',
+      anchorId:'web-floor',transform:{...pose,position:{...pose.position,x:101}}});}]
+  ]){
+    const tab=storage(),durable=storage();
+    const older=new MatrixWorld(()=> 'older-valid-orb');
+    assert.equal(older.execute({requestId:'older',op:'spawn',assetId:'orb',
+      anchorId:'web-floor',transform:pose}).ok,true);
+    assert.equal(saveStoredWorld(storedBrowserWorld(older),tab,durable),'');
+    const olderRaw=tab.getItem(TAB_WORLD_KEY);
+    const newer=structuredClone(JSON.parse(olderRaw));
+    newer.scene.objects=[{objectId:'missing-web-object',assetId:'web:temporarily-absent',
+      anchorId:'web-floor',transform:structuredClone(pose)}];
+    corrupt(newer);
+    const raw=JSON.stringify(newer);
+    const pending={value:newer,source:WORLD_KEY,raw,alternates:[
+      {value:JSON.parse(olderRaw),source:TAB_WORLD_KEY,raw:olderRaw}]};
+    const reopened=new MatrixWorld();
+    const result=restoreBestStoredWorld(reopened,pending,durable);
+    assert.equal(result.state,'restored',label);
+    assert.equal(result.source,TAB_WORLD_KEY,label);
+    assert.equal(result.rejected.length,1,label);
+    assert.deepEqual(reopened.scene,older.scene,label);
+    assert.equal(durable.getItem(QUARANTINE_KEY),raw,label);
+  }
+});
+
 test('invalid saved world can be quarantined and subsequent edits persist',()=>{
   const tab=storage(),durable=storage(),current=new MatrixWorld();
   const invalid={version:2,scene:{schemaVersion:1,roomId:'web-virtual-room-v1',
-    objects:[{objectId:'missing-asset',assetId:'web:absent',anchorId:'web-floor',transform:pose}]},game:null};
+    objects:[{objectId:'bad-transform',assetId:'orb',anchorId:'web-floor',
+      transform:{...pose,position:{...pose.position,x:101}}}]},game:null};
   durable.setItem(WORLD_KEY,JSON.stringify(invalid));
   const pending=loadStoredWorld(tab,durable);
   assert.throws(()=>restoreStoredWorld(current,pending.value),/Invalid scene object/);
@@ -519,7 +711,7 @@ test('an invalid newest world is quarantined before restoring the older valid co
   assert.equal(saveStoredWorld(storedWorld(original),tab,durable),'');
   const newest=JSON.parse(durable.getItem(WORLD_KEY));
   newest.savedAtMs++;
-  newest.scene.objects[0].assetId='web:missing';
+  newest.scene.objects[0].transform.position.x=101;
   const raw=JSON.stringify(newest);
   durable.setItem(WORLD_KEY,raw);
   const pending=loadStoredWorld(tab,durable);
@@ -540,7 +732,8 @@ test('failed quarantine blocks recovery before either browser copy is overwritte
   assert.equal(saveStoredWorld(storedWorld(world),tab,durable),'');
   const invalid=JSON.parse(durable.getItem(WORLD_KEY));
   invalid.savedAtMs++;
-  invalid.scene.objects=[{objectId:'missing',assetId:'web:missing',anchorId:'web-floor',transform:pose}];
+  invalid.scene.objects=[{objectId:'bad-transform',assetId:'orb',anchorId:'web-floor',
+    transform:{...pose,position:{...pose.position,x:101}}}];
   durable.setItem(WORLD_KEY,JSON.stringify(invalid));
   const before=durable.getItem(WORLD_KEY);
   const noSpace={getItem:key=>durable.getItem(key),setItem(){throw Error('quota exceeded');}};
@@ -552,15 +745,16 @@ test('failed quarantine blocks recovery before either browser copy is overwritte
 
 test('two invalid browser worlds get separate recovery copies',()=>{
   const tab=storage(),durable=storage(),base=storedWorld(new MatrixWorld());
-  const invalid=assetId=>({...base,scene:{...base.scene,objects:[
-    {objectId:assetId,assetId,anchorId:'web-floor',transform:pose}]}});
-  tab.setItem(TAB_WORLD_KEY,JSON.stringify({...invalid('web:old'),savedAtMs:1}));
-  durable.setItem(WORLD_KEY,JSON.stringify({...invalid('web:new'),savedAtMs:2}));
+  const invalid=objectId=>({...base,scene:{...base.scene,objects:[
+    {objectId,assetId:'orb',anchorId:'web-floor',
+      transform:{...pose,position:{...pose.position,x:101}}}]}});
+  tab.setItem(TAB_WORLD_KEY,JSON.stringify({...invalid('corrupt-old'),savedAtMs:1}));
+  durable.setItem(WORLD_KEY,JSON.stringify({...invalid('corrupt-new'),savedAtMs:2}));
   const result=restoreBestStoredWorld(new MatrixWorld(),loadStoredWorld(tab,durable),durable);
   assert.equal(result.state,'invalid');
   assert.equal(result.rejected.length,2);
-  assert.equal(JSON.parse(durable.getItem(QUARANTINE_KEY)).scene.objects[0].assetId,'web:new');
-  assert.equal(JSON.parse(durable.getItem(QUARANTINE_BACKUP_KEY)).scene.objects[0].assetId,'web:old');
+  assert.equal(JSON.parse(durable.getItem(QUARANTINE_KEY)).scene.objects[0].objectId,'corrupt-new');
+  assert.equal(JSON.parse(durable.getItem(QUARANTINE_BACKUP_KEY)).scene.objects[0].objectId,'corrupt-old');
 });
 
 test('checkpoint restore clears selection missing from the restored scene, including after leaving AR',()=>{

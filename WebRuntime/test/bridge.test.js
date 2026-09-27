@@ -361,3 +361,50 @@ test('PC restore waits for an earlier exchange before staging and pauses periodi
     assert.equal(bridge.receipts.size,0);
   }finally{globalThis.sessionStorage=previousStorage;}
 });
+
+test('startup recovery rejects old pending commands once, then accepts new commands',async()=>{
+  const previousStorage=globalThis.sessionStorage;
+  globalThis.sessionStorage={getItem:()=> 'returning-client',setItem:()=>{}};
+  try{
+    let nextId=0;
+    const world=new MatrixWorld(()=>`recovery-object-${++nextId}`);
+    const pose={position:{x:0,y:0,z:-2},rotation:{x:0,y:0,z:0},scale:{x:1,y:1,z:1}};
+    const old={requestId:'old-pending-spawn',op:'spawn',assetId:'orb',anchorId:'web-floor',transform:pose};
+    assert.equal(world.execute(old).ok,true,'saved world already contains the old spawn');
+    const savedScene=structuredClone(world.scene),savedUndo=structuredClone(world.undo);
+    const fresh={...old,requestId:'new-spawn',assetId:'block'};
+    const events=[],requests=[];
+    const bridge=new MatrixBridge(world,()=>'',event=>events.push(event));
+    bridge.running=true;
+    bridge.exchangePaused=true;
+    bridge.rejectPendingOnNextExchange=true;
+    bridge.request=async(path,body)=>{
+      assert.equal(path,'/api/exchange');requests.push(structuredClone(body));
+      if(requests.length===1)throw Error('temporary connection failure');
+      if(requests.length===2)return {commands:[old]};
+      if(requests.length===3)return {commands:[fresh]};
+      return {commands:[]};
+    };
+    await bridge.tick(true);
+    assert.equal(requests.length,0,'no snapshot is exchanged before recovery finishes');
+    bridge.exchangePaused=false;
+    await bridge.tick(true);
+    assert.equal(bridge.rejectPendingOnNextExchange,true,
+      'a failed exchange must not consume the recovery guard');
+    await bridge.tick(true);
+    assert.equal(bridge.rejectPendingOnNextExchange,false);
+    assert.deepEqual(world.scene,savedScene,'the old spawn is not replayed');
+    assert.deepEqual(world.undo,savedUndo);
+    const rejected=bridge.receipts.get(old.requestId);
+    assert.equal(rejected.ok,false);
+    assert.match(rejected.error,/outcome unknown after saved-world recovery/);
+    assert.equal(events.some(event=>event.type==='receipt'&&event.result===rejected),true);
+    assert.equal(events.some(event=>event.type==='scene'),false);
+    await bridge.tick(true);
+    assert.deepEqual(requests[2].results,[rejected],'the failed receipt is sent to clear the old queue');
+    assert.equal(bridge.receipts.has(old.requestId),false);
+    assert.equal(world.scene.objects.length,2,'a new command executes after the guarded exchange');
+    assert.equal(world.scene.objects[1].assetId,'block');
+    assert.equal(bridge.receipts.get(fresh.requestId).ok,true);
+  }finally{globalThis.sessionStorage=previousStorage;}
+});

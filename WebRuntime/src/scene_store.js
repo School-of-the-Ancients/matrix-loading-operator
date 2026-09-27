@@ -165,13 +165,45 @@ export function quarantineStoredWorld(pending,storage,index=0){
   }catch{return false;}
 }
 
+function missingExternalAssets(world,value){
+  const sceneObjects=Array.isArray(value?.scene?.objects)?value.scene.objects:[];
+  const gameRoles=Array.isArray(value?.game?.spec?.roles)?value.game.spec.roles:[];
+  return [...new Set([...sceneObjects,...gameRoles]
+    .map(item=>item?.assetId)
+    .filter(id=>typeof id==='string'&&id.startsWith('web:')&&!world.asset(id)))].sort();
+}
+
+class MissingWebAssetsError extends Error {
+  constructor(ids){
+    super(`Saved world is waiting for catalog assets: ${ids.join(', ')}`);
+    this.missingAssets=ids;
+  }
+}
+
+function validateSavedScene(world,scene,value){
+  // Use MatrixWorld's validator without changing the active world. Its normal
+  // checks run in order; only an actual lookup of an absent Web asset signals
+  // a recoverable catalog dependency.
+  const validationWorld=Object.create(world);
+  validationWorld.asset=id=>{
+    const asset=world.asset(id);
+    if(!asset&&typeof id==='string'&&id.startsWith('web:'))
+      throw new MissingWebAssetsError(missingExternalAssets(world,value));
+    return asset;
+  };
+  world.validateScene.call(validationWorld,scene);
+}
+
 export function restoreBestStoredWorld(world,pending,storage){
   const rejected=[];
   for(const candidate of [pending,...(pending.alternates||[])]){
     try{
-      restoreStoredWorld(world,candidate.value);
+      restoreStoredWorld(world,candidate.value,{waitForWebAssets:true});
       return {state:'restored',source:candidate.source,rejected};
     }catch(error){
+      if(error instanceof MissingWebAssetsError)
+        return {state:'waiting',source:candidate.source,
+          missingAssets:error.missingAssets,reason:error.message,rejected};
       if(!quarantineStoredWorld(candidate,storage,rejected.length))
         return {state:'blocked',reason:`Could not preserve rejected ${candidate.source} before recovery: ${error.message}`,
           rejected};
@@ -181,7 +213,7 @@ export function restoreBestStoredWorld(world,pending,storage){
   return {state:'invalid',rejected};
 }
 
-export function restoreStoredWorld(world,value){
+export function restoreStoredWorld(world,value,{waitForWebAssets=false}={}){
   if(world.spatial?.originUnavailable)
     throw Error('Saved room origin is unavailable; recover it before replacing the active world');
   if(!validEnvelope(value))throw Error('Invalid world save envelope');
@@ -200,9 +232,18 @@ export function restoreStoredWorld(world,value){
   // names scene objects, so it is checked against the saved virtual scene.
   const savedScene=structuredClone(value.scene);
   const scene=world.spatial?{...savedScene,roomId:world.scene.roomId}:savedScene;
-  world.validateScene(scene);
-  if(value.game!==null&&!validSavedGame(value.game,scene,id=>!!world.asset(id)))
+  if(waitForWebAssets)validateSavedScene(world,scene,value);
+  else world.validateScene(scene);
+  if(value.game!==null&&!validSavedGame(value.game,scene,id=>!!world.asset(id))){
+    if(waitForWebAssets){
+      const missing=missingExternalAssets(world,value);
+      const missingSet=new Set(missing);
+      if(missing.length&&validSavedGame(value.game,scene,
+        id=>!!world.asset(id)||missingSet.has(id)))
+        throw new MissingWebAssetsError(missing);
+    }
     throw Error('Saved game bindings or progress are invalid');
+  }
   const game=structuredClone(value.game);
   const citizens=value.version===3?checkedCitizens(world,savedScene,value.citizens):null;
   restoreStoredScene(world,savedScene);
