@@ -1,0 +1,119 @@
+{
+  "49": {
+    "inputs": {
+      "aspect_ratio": "4:3 (Standard)",
+      "megapixels": 1,
+      "multiple": 8
+    },
+    "class_type": "ResolutionSelector"
+  },
+  "53": {
+    "inputs": {
+      "text": "",
+      "clip": [
+        "58",
+        0
+      ]
+    },
+    "class_type": "CLIPTextEncode"
+  },
+  "54": {
+    "inputs": {
+      "width": [
+        "49",
+        0
+      ],
+      "height": [
+        "49",
+        1
+      ],
+      "batch_size": 1
+    },
+    "class_type": "EmptyLatentImage"
+  },
+  "55": {
+    "inputs": {
+      "seed": 123456789,
+      "steps": 8,
+      "cfg": 1,
+      "sampler_name": "euler",
+      "scheduler": "simple",
+      "denoise": 1,
+      "model": [
+        "73",
+        0
+      ],
+      "positive": [
+        "53",
+        0
+      ],
+      "negative": [
+        "78",
+        0
+      ],
+      "latent_image": [
+        "54",
+        0
+      ]
+    },
+    "class_type": "KSampler"
+  },
+  "56": {
+    "inputs": {
+      "samples": [
+        "55",
+        0
+      ],
+      "vae": [
+        "59",
+        0
+      ]
+    },
+    "class_type": "VAEDecode"
+  },
+  "58": {
+    "inputs": {
+      "clip_name": "qwen3-vl-4b-heretic_int8.safetensors",
+      "type": "krea2",
+      "device": "default"
+    },
+    "class_type": "CLIPLoader"
+  },
+  "59": {
+    "inputs": {
+      "vae_name": "qwen_image_vae.safetensors"
+    },
+    "class_type": "VAELoader"
+  },
+  "73": {
+    "inputs": {
+      "model_name": "redcraft23INT8INT4FP8_30Krea2.safetensors",
+      "weight_dtype": "default",
+      "compute_dtype": "default",
+      "patch_cublaslinear": false,
+      "sage_attention": "disabled",
+      "enable_fp16_accumulation": false
+    },
+    "class_type": "DiffusionModelLoaderKJ"
+  },
+  "77": {
+    "inputs": {
+      "filename_prefix": "Matrix_concepts/Krea2_turbo",
+      "images": [
+        "56",
+        0
+      ]
+    },
+    "class_type": "SaveImage"
+  },
+  "78": {
+    "inputs": {
+      "text": "",
+      "clip": [
+        "58",
+        0
+      ]
+    },
+    "class_type": "CLIPTextEncode"
+  }
+}
