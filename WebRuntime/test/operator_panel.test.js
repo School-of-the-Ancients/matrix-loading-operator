@@ -27,6 +27,9 @@ test('Codex XR page exposes one shared creation-mode selector and keeps turn con
     const hit=(x,y)=>panel.hit({x:x/1024,y:1-y/768});
     assert.equal(hit(190,212),null,'creation modes belong to the Codex page');
     panel.toggleAgent();
+    assert.ok(drawn.some(item=>item.kind==='text'&&
+      item.text==='METHOD FOR SELECTED IMAGE BUILDS ONLY'&&item.y===158),
+      'XR mode choice only applies when building the selected image');
     assert.equal(hit(190,212),'creation-mode-auto');
     assert.equal(hit(490,212),'creation-mode-procedural');
     assert.equal(hit(810,212),'creation-mode-blender');

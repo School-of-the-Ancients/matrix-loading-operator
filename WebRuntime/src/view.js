@@ -255,7 +255,7 @@ export function operatorPanel(){
     }else{
       if(mode==='agent'){
         ctx.fillStyle='#8bb8c2';ctx.font='bold 21px sans-serif';
-        ctx.fillText('CREATION MODE FOR NEXT REQUEST',55,158);
+        ctx.fillText('METHOD FOR SELECTED IMAGE BUILDS ONLY',55,158);
         button('creation-mode-auto','AUTO',55,176,265,72,creationMode==='auto');
         button('creation-mode-procedural','PROCEDURAL',345,176,290,72,
           creationMode==='procedural');
