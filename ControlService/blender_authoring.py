@@ -39,7 +39,9 @@ def blender_executable():
 def build_in_blender(recipe, directory, executable=None):
     recipe = validate_blueprint(recipe)
     executable = executable or blender_executable()
-    directory = Path(directory)
+    # Blender runs with this directory as cwd, so its file arguments must be
+    # absolute even when ControlService was started with a relative scenes path.
+    directory = Path(os.path.abspath(directory))
     source = directory / "blueprint.json"
     output = directory / "asset.glb"
     metadata = directory / "bounds.json"
@@ -70,7 +72,8 @@ class BlenderAuthoringJobs:
         self.lock = threading.RLock()
         self.worker = threading.Semaphore(1)
         self.jobs = OrderedDict()
-        self.citizen_directory = Path(citizen_directory) if citizen_directory else None
+        self.citizen_directory = (Path(os.path.abspath(citizen_directory))
+                                  if citizen_directory else None)
         self.citizen_ids = {}
         if self.citizen_directory is not None:
             self._restore_citizen_jobs()
@@ -119,7 +122,8 @@ class BlenderAuthoringJobs:
                         re.fullmatch(r"[0-9a-f]{32}", job["jobId"]) is None or
                         re.fullmatch(r"[0-9a-f]{64}", job.get("requestSha256", "")) is None or
                         job.get("profileId") != PROFILE_ID or
-                        job.get("profileRevision") != PROFILE_REVISION or
+                        re.fullmatch(r"[0-9a-f]{64}",
+                                     job.get("profileRevision", "")) is None or
                         job.get("phase") not in ("queued", "building", "generated",
                                                  "registered", "ready", "error", "unconfirmed") or
                         job["jobId"] in self.jobs or key in self.citizen_ids):
@@ -131,6 +135,11 @@ class BlenderAuthoringJobs:
             self.citizen_ids[key] = job["jobId"]
             if job["phase"] == "building":
                 job.update(phase="unconfirmed", error="Blender was interrupted; inspect the retained job before retrying")
+                self._save_citizen_job(job)
+            elif (job["profileRevision"] != PROFILE_REVISION and
+                  job["phase"] in ("queued", "generated", "registered")):
+                job.update(phase="unconfirmed", error=
+                           "Reviewed Blender profile changed while work was pending; inspect retained job")
                 self._save_citizen_job(job)
             elif job["phase"] in ("queued", "generated", "registered"):
                 threading.Thread(target=self._run_profile, args=(job["jobId"],),

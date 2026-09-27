@@ -42,7 +42,12 @@ def start_service(directory, owner, viewer, events, builder_calls, policy_calls)
 
     def capture_policy(request):
         events.append("policy:" + request["citizenRequestId"])
-        decision = policy(request)
+        try:
+            decision = policy(request)
+        except Exception as error:
+            print(f"Citizen policy raised {type(error).__name__}: {error}",
+                  file=sys.stderr, flush=True)
+            raise
         policy_calls.append({"request": copy.deepcopy(request),
                              "decision": copy.deepcopy(decision)})
         return decision
@@ -94,7 +99,8 @@ def run():
     owner = secrets.token_urlsafe(32)
     viewer = secrets.token_urlsafe(32)
     with tempfile.TemporaryDirectory(prefix="matrix-citizen-blender-") as temporary:
-        directory = Path(temporary)
+        directory = (Path(os.path.relpath(temporary, Path.cwd()))
+                     if "--relative-scenes" in sys.argv else Path(temporary))
         events, builder_calls, policy_calls = [], [], []
         state = service = thread = host = None
         try:

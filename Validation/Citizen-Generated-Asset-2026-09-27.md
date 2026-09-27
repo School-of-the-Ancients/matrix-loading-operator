@@ -20,6 +20,10 @@ temporary local URL and separate view token after Bo's use. Connect Chrome's
 the service and host, then connect to the newly printed URL with the same view
 token. Press Enter again to finish and remove the temporary world.
 
+Add `--relative-scenes` to exercise the documented relative PC scenes path.
+That run also completed one real Blender build, GLB registration, Matrix spawn
+and use, and a full restart with zero duplicate builds, policy calls or spawns.
+
 The probe uses an isolated PC service, temporary job/catalog/checkpoint
 directories, a persistent Node world host, and distinct owner and visitor
 tokens. It builds a real GLB with the installed headless Blender executable,
@@ -85,7 +89,9 @@ desktop visitor evidence; no headset or physical-room claim is made.
 
 `test_citizen_asset_job.py` covers durable idempotency, retained generated
 bytes and registration-only retry, and interrupted Blender work becoming
-unconfirmed without a second build. `test_hosted_world.py` covers zero-budget
+unconfirmed without a second build. It also covers relative Blender paths and
+profile revision drift: completed GLBs remain available, while unfinished jobs
+from an older profile stop as unconfirmed. `test_hosted_world.py` covers zero-budget
 denial, exact saved-request policy matching, boolean-as-number tampering,
 typed spawn dispatch, a narrow pre-execution checkpoint, rejected unrelated
 pending saves, failed spawn receipt, GLB dependency on restore, and view-token
@@ -94,6 +100,6 @@ rollback, forged receipts, wrong job provenance, rejected budget, restored
 identity, and actual rest use. The human Operator and procedural Citizen paths
 remain in the full regression suites.
 
-Full suite results: WebRuntime **548/548 passed**, ControlService **788/788
+Full suite results: WebRuntime **548/548 passed**, ControlService **791/791
 passed**, and the production WebRuntime build succeeded. `git diff --check`
 passed.
