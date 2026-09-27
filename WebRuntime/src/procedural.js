@@ -229,6 +229,38 @@ const curvedBenchGenerator = {
   }
 };
 
+const staircaseGenerator = {
+  generatorId: 'staircase', generatorVersion: '1.0.0',
+  sourceRevision: 'staircase-v1',
+  description: 'A bounded straight staircase with flat treads rising along local +X.',
+  dependencies: [],
+  parameterSchema: {
+    stepCount: {type: 'number', default: 6, min: 2, max: 12},
+    widthMeters: {type: 'number', default: 1.2, min: .8, max: 3},
+    treadDepthMeters: {type: 'number', default: .32, min: .25, max: .5},
+    stepRiseMeters: {type: 'number', default: .18, min: .12, max: .25}
+  },
+  estimate(p) {
+    if (!Number.isInteger(p.stepCount))
+      throw Error('Staircase stepCount must be a whole number');
+    // Each closed prism has six quads, with independent face vertices.
+    return {parts: p.stepCount, vertices: p.stepCount * 24,
+      triangles: p.stepCount * 12, bufferBytes: p.stepCount * 432};
+  },
+  build(p) {
+    const run = p.stepCount * p.treadDepthMeters;
+    const parts = [];
+    for (let index = 0; index < p.stepCount; index++) {
+      const height = (index + 1) * p.stepRiseMeters;
+      const x = -run / 2 + (index + .5) * p.treadDepthMeters;
+      parts.push(part(`step-${String(index + 1).padStart(2, '0')}`,
+        box(x, height / 2, 0, p.treadDepthMeters, height, p.widthMeters),
+        materials.deck));
+    }
+    return {parts};
+  }
+};
+
 function measuredGeometry(parts) {
   if (!Array.isArray(parts) || parts.length < 1 || parts.length > PROCEDURAL_BUDGET.parts)
     throw Error('Invalid procedural part count');
@@ -411,7 +443,8 @@ export function createProceduralRegistry(definitions) {
   });
 }
 
-const registry = createProceduralRegistry([bridgeGenerator, curvedBenchGenerator]);
+const registry = createProceduralRegistry([
+  bridgeGenerator, curvedBenchGenerator, staircaseGenerator]);
 export const listProceduralGenerators = () => registry.list();
 export const createProceduralRecipe = (...args) => registry.createRecipe(...args);
 export const normalizeProceduralRecipe = recipe => registry.normalizeRecipe(recipe);
