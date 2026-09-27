@@ -6,7 +6,8 @@ export class ConceptClient {
   constructor(request,onChange=()=>{}){
     this.request=request;this.onChange=onChange;
     this.sessionId=null;this.jobs=[];this.concepts=[];
-    this.selectedConceptId=null;this.builds=[];this.error='';this.refreshing=false;
+    this.selectedConceptId=null;this.builds=[];this.error='';this.refreshPromise=null;
+    this.refreshSessionId=null;
   }
   _session(sessionId){
     if(!SESSION_ID.test(sessionId||''))throw Error('Connect Codex before using image concepts.');
@@ -27,11 +28,17 @@ export class ConceptClient {
   }
   async refresh(sessionId){
     this._session(sessionId);
-    if(this.refreshing)return null;
-    this.refreshing=true;
-    try{return this._update(await this.request(`/api/agent/concepts?sessionId=${encodeURIComponent(sessionId)}`));}
-    catch(error){this._fail(error);throw error;}
-    finally{this.refreshing=false;}
+    if(this.refreshPromise&&this.refreshSessionId===sessionId)return this.refreshPromise;
+    const pending=(async()=>{
+      try{
+        const data=await this.request(`/api/agent/concepts?sessionId=${encodeURIComponent(sessionId)}`);
+        return this.sessionId===sessionId?this._update(data):null;
+      }catch(error){if(this.sessionId===sessionId)this._fail(error);throw error;}
+    })();
+    this.refreshPromise=pending;this.refreshSessionId=sessionId;
+    try{return await pending;}
+    finally{if(this.refreshPromise===pending){
+      this.refreshPromise=null;this.refreshSessionId=null;}}
   }
   async generate(sessionId,prompt){
     this._session(sessionId);

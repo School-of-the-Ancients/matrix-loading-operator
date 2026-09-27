@@ -48,7 +48,11 @@ export class ConceptUI {
     const sessionId=this.getSession();
     if(!sessionId)return null;
     if(this.client.sessionId&&this.client.sessionId!==sessionId)this._clearPreviews();
-    return this.client.refresh(sessionId);
+    const before=this.client.jobs.map(job=>`${job.conceptId}:${job.status}:${job.message||''}`).join('|');
+    const result=await this.client.refresh(sessionId);
+    const after=this.client.jobs.map(job=>`${job.conceptId}:${job.status}:${job.message||''}`).join('|');
+    if(before!==after){this.notice='';this.noticeError=false;this.render();}
+    return result;
   }
   async generate(prompt){
     const sessionId=await this._session();
@@ -83,7 +87,7 @@ export class ConceptUI {
   }
   async selectVersion(version,notes){
     const sessionId=await this._session();
-    if(!this.client.concepts.length)await this.client.refresh(sessionId);
+    await this.client.refresh(sessionId);
     const concept=this.client.byVersion(version);
     if(!concept){
       const pending=this.client.jobs.find(job=>job.version===version);
@@ -146,7 +150,7 @@ export class ConceptUI {
     this.els.generate.disabled=this.busy;
     this.els.vary.disabled=this.busy||!concepts.length;
     this.els.saveNotes.disabled=this.busy||!selected;
-    const status=this.notice||error||(activeJobs.length?
+    const status=error||this.notice||(activeJobs.length?
       `${activeJobs.map(job=>`${label(job)} ${job.status}`).join(' · ')}. Selected version will not change when a job finishes.`:
       selected?`${label(selected)} is selected. Image generation stops here until you explicitly ask Codex to build.`:
         this.getSession()?'No image selected. Generate an image or choose a ready version.':
@@ -224,7 +228,8 @@ export class ConceptUI {
       const response=await fetch(parsed.href,{headers,cache:'no-store'});
       if(!response.ok)throw Error(`Preview HTTP ${response.status}`);
       const blob=await response.blob();
-      if(!['image/png','image/jpeg','image/webp'].includes(blob.type)||blob.size>20_000_000)
+      if(!['image/png','image/jpeg','image/webp'].includes(blob.type)||
+          blob.size===0||blob.size>24*1024*1024)
         throw Error('Preview image format is unsupported');
       if(this.client.sessionId!==sessionId)return;
       const objectUrl=URL.createObjectURL(blob);

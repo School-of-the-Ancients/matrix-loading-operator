@@ -61,3 +61,15 @@ test('unavailable service keeps last confirmed selection and reports failure',as
   assert.equal(client.selected.conceptId,one.conceptId);
   assert.equal(client.error,'ComfyUI unavailable');
 });
+
+test('an explicit version lookup can join an in-flight status refresh',async()=>{
+  let finish,calls=0;
+  const client=new ConceptClient(async()=>{calls++;
+    return new Promise(resolve=>{finish=resolve;});});
+  const first=client.refresh(sessionId);
+  const second=client.refresh(sessionId);
+  assert.equal(calls,1);
+  finish({jobs:[],concepts:[one,two],selectedConceptId:null});
+  await Promise.all([first,second]);
+  assert.equal(client.byVersion(2)?.conceptId,two.conceptId);
+});
