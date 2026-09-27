@@ -1,8 +1,10 @@
 # Matrix Operator checkpoints
 
+These are dated evidence records, not a live PR-status list or current work queue. The owner selected Three.js/WebXR for new runtime and coursework work and placed native Unity source in a [read-only archive](../Archive/Unity/README.md). Historical Unity device observations do not validate equivalent WebXR behavior; use the [WebXR Quest acceptance matrix](../WebRuntime/QUEST3_ACCEPTANCE.md) for remaining wearer checks.
+
 ## Immersive Creator Mode candidate (September 26, 2026)
 
-The current implementation work continues the open Citizens stack through [PR #123](https://github.com/School-of-the-Ancients/matrix-loading-operator/pull/123), rather than replacing its shared `/web/` world. [Issue #122](https://github.com/School-of-the-Ancients/matrix-loading-operator/issues/122) controls procedural creation and the Creator/Play journey. The product documents from [PR #124](https://github.com/School-of-the-Ancients/matrix-loading-operator/pull/124) are now merged on `main`; that docs-only merge did not merge the Citizens or Creator runtime candidates or deploy them to the user's service. See the [runbook and acceptance route](Procedural-Creation.md).
+[Creator Mode PR #127](https://github.com/School-of-the-Ancients/matrix-loading-operator/pull/127) merged into `main` after the Citizens stack through [PR #123](https://github.com/School-of-the-Ancients/matrix-loading-operator/pull/123). [Issue #122](https://github.com/School-of-the-Ancients/matrix-loading-operator/issues/122) controls procedural creation and the Creator/Play journey. The earlier [PR #124](https://github.com/School-of-the-Ancients/matrix-loading-operator/pull/124) changed product docs; merged code and these isolated observations do not establish deployment to the user's service. See the [runbook and acceptance route](Procedural-Creation.md).
 
 Candidate source adds two pinned procedural generators (`bridge`, `curved-bench`) through one generic recipe/mesh path, bounded output validation, stable semantic parts, stale-checked edits and old-save recovery. It adds a saved Creator/Play state; desktop and in-world XR mode controls; Rapier dynamic/static/sensor colliders and virtual-floor gravity; repeated rigid grab/move/release; a version-2 game bound to existing object IDs with a credited-event ledger and observable exit unlock; and saved world-space displays reading the same game, gravity, rigid-body, or referenced-object transform state. A generic reviewed object move can also set a complete bounded scale target in paused Creator Mode. The original scene object IDs, GLB/Blender path, Agent Portal, approvals, runtime receipts, Citizens state, and browser/PC checkpoint owners remain in use. An old world lacking creator/gravity fields restores to paused Creator Mode and default gravity. The scene pose, rules, ledger and unlock persist; transient solver velocities are reconstructed after reopen.
 
@@ -15,6 +17,7 @@ The restarted Agent discovered four additional world archive tools (**49 total**
 A further isolated desktop **Dimensions Exhibit** exercises a different, non-physics interaction through the same world/Agent/receipt/checkpoint path. The connected Agent created block `bb3516e9efd24091ad284ff0454e34da`, transform-bound wall `3a907a3ab998473aaf9543935e81c77a`, and static instruction wall `ff12e3e023ff44d8965d568c9145d790`. A reviewed generic `matrix_move_object` scale edit changed the same block from `(1, 1, 1)` to `(2, 3, 4)`; board and live inspection reported **2 × 3 × 4 m** local dimensions from the available bounds. After Play/Creator switching and named PC save `creator-dimensions-exhibit`, the browser reloaded, the Agent returned the block to `(1, 1, 1)`, and the PC UI's two-step restore recovered `(2, 3, 4)` on the same block ID. A fresh Agent inspection agreed with the restored browser scene; the entity tool did not itself prove checkpoint provenance. The static wall's 24× ratio text is an instruction, not a live calculation. At a 1055 px desktop viewport the expanded sidebar covered part of one wall; **Hide controls** revealed both boards and **Show controls** restored the sidebar without changing the three IDs, `(2, 3, 4)` block scale or Creator revision 2. Default-camera text remained small. This demonstrates desktop non-physics reuse; immersive readability and control remain open.
 
 The connected Agent request was typed, not spoken in a headset. No new Quest VR/AR wearer check has been performed for this Creator Mode candidate. The existing [Quest acceptance matrix](../WebRuntime/QUEST3_ACCEPTANCE.md) describes earlier M4 evidence and cannot be carried forward as proof of the new controls, displays, or physics. VR/AR controls and readable displays need wearer evidence. Rapier colliders on virtual AR content are **virtual**; no physical-room wall/table/floor collider is verified. Preserve live worlds and assets, and leave the PR stack open for review.
+
 
 ## Citizens social trip recovery candidate (September 26, 2026)
 
@@ -114,7 +117,7 @@ This is a partial #17 implementation: hard appointments, in-flight interruption,
 
 ## Browser world waits for missing Web catalog assets (September 26, 2026)
 
-Open review: [PR #111](https://github.com/School-of-the-Ancients/matrix-loading-operator/pull/111), stacked on open PR #110.
+At the time of this record, [PR #111](https://github.com/School-of-the-Ancients/matrix-loading-operator/pull/111) was stacked on #110. It has since merged; consult current refs for later work.
 
 The `codex/citizens-catalog-recovery` candidate addresses a restart gap in the ordinary `/web/` world. If the newest browser save refers to registered `web:` assets absent from the current catalog, startup reports their exact asset IDs and keeps that save pending. It does not quarantine that copy, restore an older tab copy, overwrite either browser save, or exchange an empty fallback scene with the PC. The page leaves world editing and checkpoints locked while it waits. After the matching catalog entries return, **Refresh assets** or the ten-second catalog poll retries the same saved candidate through normal scene, game and Citizens validation. Intrinsic envelope, origin, scene-object and transform errors still use the quarantine and older-copy recovery path; asset-dependent validity is decided when the catalog returns. The first exchange after recovery rejects any old queued command whose outcome might already be in the saved world, returning a failed receipt for reconciliation instead of replaying it. Named PC whole-world checkpoints continue to require their exact catalog files and hashes; this change does not embed or fetch GLB bytes.
 
@@ -122,7 +125,7 @@ The [isolated browser run](../Validation/citizens-catalog-recovery-browser.json)
 
 ## Two reviewed Citizens stations in one world (September 26, 2026)
 
-Open review: [PR #110](https://github.com/School-of-the-Ancients/matrix-loading-operator/pull/110), stacked on open PR #108.
+At the time of this record, [PR #110](https://github.com/School-of-the-Ancients/matrix-loading-operator/pull/110) was stacked on #108. It has since merged; consult current refs for later work.
 
 The `codex/citizens-dual-stations` candidate extends the open [#15](https://github.com/School-of-the-Ancients/matrix-loading-operator/issues/15) and [#29](https://github.com/School-of-the-Ancients/matrix-loading-operator/issues/29) work on the ordinary `/web/` desktop virtual room. **Use selected station** still starts two residents from one existing, reviewed object. The new **Add selected station** action runs only while Citizens is paused, accepts a complementary `rest` or `eat` object, checks the current bindings and both resident routes, and keeps the existing clock, needs, reservations and social state. One simulation can bind at most one station of each kind. It uses the same MatrixWorld movement and interaction receipts; a new station does not create residents or replace the scene. Selected built-in furniture now retains its chosen approach after the station count changes; the original fixed **Start here** fixture retains its old approach rule.
 
@@ -489,9 +492,9 @@ for exact commands and limits. This is desktop evidence. The unfinished
 
 ## Earlier merged Matrix Web baseline snapshot (September 26, 2026)
 
-The generalized Matrix runtime in this merged-baseline snapshot is the [Three.js/WebXR client](../WebRuntime/README.md)
+The forward Matrix runtime is the [Three.js/WebXR client](../WebRuntime/README.md)
 at `/web/`, backed by the PC-local ControlService and Codex Agent Portal. The
-[project map](../PROJECTS.md) separates it from the supported original Unity
+[project map](../PROJECTS.md) separates it from the archived original Unity
 apps, Matrix World, and AI Citizens. The Web stack through
 [PR #98](https://github.com/School-of-the-Ancients/matrix-loading-operator/pull/98)
 merged at `2f6554c`, followed by [PR #99](https://github.com/School-of-the-Ancients/matrix-loading-operator/pull/99)

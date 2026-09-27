@@ -16,7 +16,7 @@ POST /api/web/world/save
 
 Version 2 requires `version`, `scene`, and `game` and loads as a world without
 Citizens. Version 3 requires those fields plus a non-null `citizens` section.
-The Immersive Creator Mode candidate permits optional `creatorMode` and
+The merged Immersive Creator Mode implementation permits optional `creatorMode` and
 `rigidGravity` fields in either envelope; old files without them restore to
 paused Creator Mode and default gravity. Scene objects may carry validated
 procedural recipes, rigid configurations, and world-display definitions,
@@ -33,7 +33,7 @@ the [Creator Mode runbook](../Docs/Procedural-Creation.md).
 The `citizens` section holds resident and station IDs, needs, current
 finite activities, reservations, clock, seed/random state, and bounded event
 history. The service validates residents and stations against stable object IDs
-and built-in orb/chair/table assets in the same scene. Nested Citizens v4
+and their supported built-in or registered assets in the same scene. Nested Citizens v4
 requires a bounded per-pair completed-session receipt record; its relationship
 score must match that record, and retained `ended` events must name a recorded
 completion. Nested v5 adds `routeRetries` (an integer from 0 through 3) and a
@@ -41,17 +41,22 @@ bounded `routeGeometryId` or `null` to each active activity, plus a `rerouted`
 log event. This preserves a blocked execution and its claim across browser
 reload and named PC restore. Nested v6 adds an exact `interaction` field to
 every station: `null` for a built-in chair/table, or the exact object-authored
-descriptor. V1 binds a static registered Web GLB to its SHA-256; V2 binds a
+descriptor. Interaction descriptor V1 binds a static registered Web GLB to its SHA-256; V2 binds a
 static curved bench to `curved-bench@1.0.0:curved-bench-v1`. The PC checks the
 station kind, matching scene descriptor, pinned generator recipe and availability,
 and approach/use points against the reviewed curved-bench bounds formula. V1
-still checks GLB bytes and catalog metadata. A missing or changed dependency rejects the checkpoint
-without replacing the active world. Older nested v1–v5 shapes remain accepted. A v3
-social file is accepted only while its retained completed events account for
-its relationship score. Browser restore migrates valid v1–v5 Citizens states
-through the intermediate schemas to v6; a v4 active activity starts with zero
-route retries and a null geometry identity, and older built-in stations gain a
-null interaction field. The PC validates and returns older
+still checks GLB bytes and catalog metadata. A missing or changed dependency
+rejects the checkpoint
+without replacing the active world. Subsequent v7–v12 states add the virtual
+day and routine schedule, station egress, social choices and appointments, and
+bounded retries for an accepted conversation's route. The current nested
+Citizens schema is **v12**; the outer world envelope remains version 3. The PC
+accepts exact valid v1–v12 shapes. A v3 social file is accepted only while its
+retained completed events account for its relationship score. Browser restore
+migrates valid older Citizens states through the intermediate schemas to v12;
+a v4 active activity starts with zero route retries and a null geometry
+identity, and older built-in stations gain a null interaction field. The PC
+validates and returns older
 checkpoint files in their original shape without rewriting the raw file. A
 historical browser receipt reference is checkpoint consistency evidence; the PC
 service does not re-execute that conversation or authenticate the browser's old
@@ -108,7 +113,7 @@ with the matching `--web-assets` catalog to restore its registered GLBs after
 a PC move or reinstall. The checkpoint is not a portable bundle of asset
 bytes, editable Blender sources, Agent Portal chat, or School records.
 
-## Browser world archives in the Creator Mode candidate
+## Browser world archives in Creator Mode
 
 **World archives**, **New world**, and **Restore archive** switch among worlds in
 the same browser profile. A safe switch first stores the active world, then

@@ -8,7 +8,7 @@ Read [VISION.md](VISION.md), [PROJECTS.md](PROJECTS.md), [PRD.md](PRD.md), and [
 
 “White Room” is the Matrix-inspired blank-canvas idea, **not the original Unity prefab, scene or app, and not a required separate editing room**. Start blank and load existing are two entry paths into the same sandbox. Operator editing can happen in either, under world permissions. Playable experiences and interactive student demos are proving grounds, not a restriction to classrooms.
 
-**Continue the existing implementation. Do not rebuild the engine, restart the project, create a replacement repository or discard current work.** This documentation clarification does not request a service restart, live-world reset or new runtime build.
+**Continue the existing implementation. Do not rebuild the engine, restart the project, create a replacement repository or discard current work.** The owner has since selected Three.js/WebXR as the sole forward runtime and archived the Unity project as read-only history. The repository move does not request a service restart or live-world reset.
 
 The selected feature remains [#122 — Immersive Creator Mode](https://github.com/School-of-the-Ancients/matrix-loading-operator/issues/122), supported by #44/#59, #116, and the relevant runtime/experiment contracts. Use `IMPLEMENTATION_PLAN.md` for its active slice. Do not revert to an older Citizens-first or indefinitely desktop-only queue because a dated checkpoint or earlier prompt says “next.” Preserve that work and its acceptance; do not erase it or claim it is merged.
 
@@ -25,7 +25,7 @@ Procedural generation, reusable catalog assets and Blender are complementary cre
 
 ## Default target
 
-Unless the task or issue explicitly says otherwise, **new generalized Matrix runtime work targets the Three.js/WebXR Matrix in `WebRuntime/` and the shared PC-side capability boundary in `ControlService/`.**
+**All new Matrix runtime and coursework deliverables target the Three.js/WebXR Matrix in `WebRuntime/` and the shared PC-side capability boundary in `ControlService/`.** The archived Unity source is for historical inspection and release provenance, not future native builds.
 
 ```text
 Web / Quest WebXR
@@ -42,7 +42,7 @@ Authorized Operator edits apply in the current world; creating does not require 
 ## Do not confuse these tracks
 
 - **Current Web Matrix:** `WebRuntime/`, Agent Portal, Matrix tools, procedural creation, Blender/GLB, reusable behaviors, HTML/Three.js/WebXR experiences and demonstrations.
-- **Unity/original Matrix:** `Assets/`, `Packages/`, `ProjectSettings/`, Unity build scripts, original White Room application, Room AR and content packs. Preserve the supported native/legacy client and its actual historical names; it is not the conceptual definition of today's sandbox.
+- **Unity/original Matrix archive:** `Archive/Unity/Assets/`, `Archive/Unity/Packages/`, `Archive/Unity/ProjectSettings/`, native build scripts, original White Room application, Room AR and content packs. Preserve its source and release evidence as read-only history; it is not a supported forward client or the conceptual definition of today's sandbox.
 - **Matrix World:** persistent inhabited-world experiences, including worlds with AI citizens. Boulder/Earth registration is a specialization. An existing world need not have citizens, and a city or separate creation room is not needed for a classroom or game. #125 portals are speculative.
 - **AI Citizens:** embodiment, navigation, needs, schedules, GOAP, memory and social simulation; preserve the open stack, but do not require a society to create a world or teach a concept. Real tool-using workers and animated/simulated citizens are not interchangeable evidence.
 - **School of the Ancients:** independent education product. Matrix may host a reusable demonstration/adapter; School owns curriculum, mentor pedagogy, learner records and assessment.
@@ -50,7 +50,7 @@ Authorized Operator edits apply in the current world; creating does not require 
 
 ## Current design rules
 
-1. Preserve working Unity/native paths and release evidence. Do not make Unity the default for new generalized creation.
+1. Preserve archived Unity source, release artifacts and dated evidence. Do not add native build support or treat old APK observations as WebXR acceptance.
 2. Do not reproduce Codex inside WebXR or add another agent gateway, scene-state owner, catalog, framework, database or universal DSL without a concrete requirement.
 3. Use reusable capabilities/components, not hundreds of object-specific semantic endpoints. A new mechanic follows the ordinary reviewed code/test/build/deploy path; imported assets do not authorize arbitrary downloaded code.
 4. Use one authoritative experience state across HTML, Three.js and WebXR views. Human controls and agent actions should share transitions/observations, though their authority may differ.
@@ -66,8 +66,8 @@ Authorized Operator edits apply in the current world; creating does not require 
 ## Before coding
 
 - Read the controlling issue and dependencies; continue the compatible user-visible slice already underway, or select the next missing slice from the implementation plan.
-- Inspect `main`, current open PRs, their base/head refs and active worktrees. The latest implementation may be stacked and not on `main`; a running service may be older again. A docs-only merge does not merge its referenced runtime candidates.
-- Preserve stacked history, review fixes, state migrations and existing demos. Do not force-push, mass-move code, close umbrella issues or auto-merge as part of an ordinary documentation/priority change.
+- Inspect `main`, current open PRs, their base/head refs and active worktrees. The latest implementation may be stacked and not on `main`; a running service may be older again. An archive/documentation PR does not merge its referenced runtime candidates.
+- Preserve stacked history, review fixes, state migrations and existing demos. The owner-authorized Unity archive is a bounded historical move; do not force-push, move active Web/ControlService code, close umbrella issues or auto-merge as part of an ordinary documentation/priority change.
 - Identify the track from PROJECTS.md and reuse existing world, validation, receipt, asset, component and checkpoint contracts.
 - Verify existing behavior before building. Fix prerequisites that block the chosen demo; do not continue unrelated resident refinements merely because they were the previous task.
 - Use an isolated service/scene/profile for validation. Do not clear the user's live worlds, anchors, authoring source or checkpoints.

@@ -1,4 +1,5 @@
 # This .gitignore file should be placed at the root of your Unity project directory
+# This archived project retains these rules for historical local inspection.
 #
 # Get latest from https://github.com/github/gitignore/blob/main/Unity.gitignore
 #
@@ -8,6 +9,11 @@
 /[Oo]bj/
 /[Bb]uild/
 /[Bb]uilds/
+/Validation/
+/.white-room-fixture/
+/.room-ar-fixture/
+/.desktop-fixture/
+/.matrix-boulder-fixture/
 /[Ll]ogs/
 /[Uu]ser[Ss]ettings/
 *.log

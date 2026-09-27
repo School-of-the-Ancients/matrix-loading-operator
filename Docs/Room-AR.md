@@ -1,5 +1,7 @@
 # Quest Pro room AR
 
+**Archived Unity history:** This page records the native Unity build and its evidence. The project and build scripts now live in [Archive/Unity](../Archive/Unity/) as read-only source. Commands and root-relative paths below assume the pre-archive repository layout and are not maintained build instructions. Current runtime development targets [WebRuntime](../WebRuntime/README.md).
+
 Implementation and headset evidence, 2026-09-20. The acceptance loop is: **place an orb on the real table by voice, move it by voice, save, clear, and restore it on the same table**.
 
 The subsequent [runtime behavior milestone](Runtime-Behaviors.md) adds Rotate/Bob and includes actual Quest voice, animation and behavior save/restore evidence. Its newer build/test results and one successful same-room restore after a reported restart are in [the current checkpoint](Current-Checkpoint.md). The section below records the original room-placement acceptance.

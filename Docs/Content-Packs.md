@@ -1,5 +1,7 @@
 # Downloadable static prefab packs
 
+**Archived Unity history:** This page records the native Unity build and its evidence. The project and build scripts now live in [Archive/Unity](../Archive/Unity/) as read-only source. Commands and root-relative paths below assume the pre-archive repository layout and are not maintained build instructions. Current runtime development targets [WebRuntime](../WebRuntime/README.md).
+
 The content loader adds static props to an already-built Matrix player. The PC
 catalog supplies an explicit pack manifest and serves its exact bundle bytes;
 the player verifies them, loads all prefabs, measures their bounds, and registers

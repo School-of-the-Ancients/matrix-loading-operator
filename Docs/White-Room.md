@@ -1,5 +1,7 @@
 # Matrix Operator: the virtual white room
 
+**Archived Unity history:** This page records the native Unity build and its evidence. The project and build scripts now live in [Archive/Unity](../Archive/Unity/) as read-only source. Commands and root-relative paths below assume the pre-archive repository layout and are not maintained build instructions. Current runtime development targets [WebRuntime](../WebRuntime/README.md).
+
 The original white-room headset milestone on September 20, 2026 passed 21 direct command/persistence checks and 61 live Codex AI loop checks on the actual Quest Pro. Five real model turns completed spawn, same-ID resize, save, clear and exact restore; the wearer confirmed seeing the AI changes and their scene restored.
 
 Current source also includes [headset voice](Voice-And-Codex-Controls.md), Rotate/Bob, and [downloadable static prefab packs](Content-Library-User-Guide.md). Native [room-aware AR](Room-AR.md) has separate Quest Pro hardware evidence. Consult the [current checkpoint](Current-Checkpoint.md) for the build and validation scope of each feature; the original white-room results do not validate later features. Quest 3 is not required for this virtual mode.

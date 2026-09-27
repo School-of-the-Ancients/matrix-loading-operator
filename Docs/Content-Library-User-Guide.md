@@ -1,5 +1,7 @@
 # Using the Matrix content library
 
+**Unity archive note:** This page was written for the native Unity era. The project and build scripts are preserved in the [read-only Unity archive](../Archive/Unity/README.md). Build commands and forward-looking Unity instructions below reflect the pre-archive checkpoint; current runtime work targets [WebRuntime](../WebRuntime/README.md).
+
 The content library lets an already-built Matrix app receive additional compatible
 props. You install a pack, then ask the Operator to place and edit its props in
 your room. Installing a pack adds choices; it does not place anything by itself.
