@@ -785,7 +785,9 @@ class ContentCatalog:
         graph = read_json(workflow["path"])
         require(isinstance(graph, dict) and graph and all(isinstance(node, dict) and isinstance(node.get("class_type"), str)
                     and isinstance(node.get("inputs"), dict) for node in graph.values()), "Workflow must use ComfyUI API graph format")
-        workflow_sha256 = hashlib.sha256(json_bytes(graph)).hexdigest()
+        workflow_sha256 = hashlib.sha256(json.dumps(
+            graph, ensure_ascii=False, allow_nan=False, sort_keys=True,
+            separators=(",", ":")).encode("utf-8")).hexdigest()
         if prompt:
             node = graph.get(workflow["promptNode"])
             require(node is not None and workflow["promptInput"] in node["inputs"], "Configured workflow does not expose this prompt input")
