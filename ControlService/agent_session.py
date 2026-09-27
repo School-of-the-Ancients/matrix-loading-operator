@@ -37,12 +37,15 @@ class AgentSessionBackend(Protocol):
     def start_conversation(self) -> str: ...
     def resume_conversation(self, conversation_id: str) -> str: ...
     def send_text(self, conversation_id: str, text: str, *, image_path: str | Path | None = None) -> str: ...
+    def start_native_image(self, conversation_id: str, text: str) -> str: ...
     def poll(self, cursor: int) -> tuple[int, list[dict]]: ...
     def events_since(self, cursor: int) -> list[dict]: ...
     def pending_approvals(self) -> list[dict]: ...
     def pending_pc_commands(self) -> list[dict]: ...
     def decide(self, approval_id: int | str, conversation_id: str, turn_id: str, approve: bool) -> None: ...
     def cancel(self, conversation_id: str, turn_id: str) -> None: ...
+    def native_image_capability(self) -> tuple[bool, str | None]: ...
+    def image_generation_result(self, conversation_id: str, turn_id: str) -> dict | None: ...
     def close(self) -> None: ...
     @property
     def access_mode(self) -> str: ...
@@ -661,7 +664,8 @@ def normalize_event(event: dict) -> dict | None:
 class LocalCodexAgentBackend:
     """Codex app-server implementation of the Matrix session contract."""
 
-    def __init__(self, config: CodexConfig, cwd: str | Path, matrix_bridge=None):
+    def __init__(self, config: CodexConfig, cwd: str | Path, matrix_bridge=None,
+                 *, artifact_directory: str | Path | None = None):
         config.validate()
         self.config = config
         self.enabled_matrix_tools: tuple[str, ...] = ()
@@ -724,7 +728,8 @@ class LocalCodexAgentBackend:
             environment = {"MATRIX_CONTROL_URL": matrix_bridge.url,
                            "MATRIX_CONTROL_TOKEN": matrix_bridge.token}
         command += ["app-server", "--stdio"]
-        self.transport = AppServerTransport(command, cwd, environment=environment)
+        self.transport = AppServerTransport(command, cwd, environment=environment,
+                                            artifact_directory=artifact_directory)
 
     def start(self) -> None:
         if self.enabled_matrix_tools:
@@ -758,6 +763,18 @@ class LocalCodexAgentBackend:
         return self.transport.turn_start(conversation_id, text,
                                          effort=self.config.reasoning_effort,
                                          **({"image_path": image_path} if image_path is not None else {}))
+
+    def native_image_capability(self) -> tuple[bool, str | None]:
+        return self.transport.native_image_capability()
+
+    def image_generation_result(self, conversation_id: str, turn_id: str) -> dict | None:
+        return self.transport.image_generation_result(conversation_id, turn_id)
+
+    def start_native_image(self, conversation_id: str, text: str) -> str:
+        skill = self.transport._generated_root.parent / "skills" / ".system" / "imagegen" / "SKILL.md"
+        return self.transport.turn_start(conversation_id, text,
+                                         effort=self.config.reasoning_effort,
+                                         **({"skill_path": skill} if skill.is_file() else {}))
 
     def events_since(self, cursor: int) -> list[dict]:
         return self.poll(cursor)[1]

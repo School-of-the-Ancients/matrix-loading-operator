@@ -341,6 +341,13 @@ CONCEPT_SCENE_MUTATIONS = frozenset({
     "/world-archive", "/bind-animation", "/component-action", "/physics",
     "/interaction"})
 
+BRIDGE_POST_PATHS = frozenset({
+    "/move", "/spawn", "/spawn-builtin", "/procedural", "/bind-game", "/update-game",
+    "/display", "/control", "/rigid", "/inspect-entity", "/entity-action",
+    "/world-archive", "/bind-animation", "/register-glb", "/publish-component",
+    "/component-action", "/scale", "/physics", "/interaction", "/concept-build"})
+NATIVE_IMAGE_BLOCKED_POSTS = BRIDGE_POST_PATHS - {"/inspect-entity"}
+
 
 def entity_page(state, offset: int, limit: int) -> dict:
     if type(offset) is not int or type(limit) is not int or not 0 <= offset <= 100 or not 1 <= limit <= 24:
@@ -528,7 +535,7 @@ class _Handler(BaseHTTPRequestHandler):
     def do_POST(self):
         if not self._authorized():
             return
-        if self.path not in ("/move", "/spawn", "/spawn-builtin", "/procedural", "/bind-game", "/update-game", "/display", "/control", "/rigid", "/inspect-entity", "/entity-action", "/world-archive", "/bind-animation", "/register-glb", "/publish-component", "/component-action", "/scale", "/physics", "/interaction", "/concept-build"):
+        if self.path not in BRIDGE_POST_PATHS:
             self.send_error(404)
             return
         try:
@@ -539,6 +546,10 @@ class _Handler(BaseHTTPRequestHandler):
             if not 0 < length <= limit:
                 raise ValueError("Invalid Matrix tool request size")
             value = json.loads(self.rfile.read(length))
+            if (self.path in NATIVE_IMAGE_BLOCKED_POSTS and
+                    self.server.state.agent_portal.native_generation_active()):
+                from server import APIError
+                raise APIError(409, "Matrix mutation is blocked during native concept image generation")
             if self.path in CONCEPT_SCENE_MUTATIONS:
                 self.server.state.concept_build_preflight()
             if self.path == "/concept-build":

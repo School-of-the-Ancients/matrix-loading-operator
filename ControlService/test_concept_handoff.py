@@ -145,10 +145,12 @@ class ConceptHandoffTests(unittest.TestCase):
 
     def test_image_only_and_selection_phrases_do_not_trigger_build(self):
         for request in ("Create an image of a forest temple", "Make another version",
-                        "Use version 2", "Show this image", "Place this there"):
+                        "Use version 2", "Show this image", "Place this there",
+                        "Build this bridge in Matrix", "Create this spaceship in Matrix"):
             self.assertFalse(concept_build_request(request), request)
-        for request in ("Build this spaceship", "Make this in Blender",
-                        "Create this around what's already here", "Use this design"):
+        for request in ("Build this", "Build this in Matrix", "Build selected image",
+                        "Make this in Blender", "Create this around what's already here",
+                        "Use this design"):
             self.assertTrue(concept_build_request(request), request)
 
     def test_explicit_version_must_match_persisted_selection(self):

@@ -6,22 +6,30 @@ Only the PC process sees Codex's stdio protocol and credentials.
 """
 from __future__ import annotations
 
-from collections import deque
+from collections import OrderedDict, deque
 from copy import deepcopy
 from dataclasses import dataclass, field
+import base64
+import binascii
+import hashlib
 import json
 import os
 from pathlib import Path
 import subprocess
+import tempfile
 import threading
 from typing import Any
 
 
-MAX_LINE = 2 * 1024 * 1024
+# A native imageGeneration completion may contain a base64 PNG. The image is
+# extracted on the PC and never enters the bounded event stream.
+MAX_LINE = 48 * 1024 * 1024
 MAX_SEND = 1024 * 1024
 MAX_EVENT = 64 * 1024
 MAX_EVENTS = 256
 MAX_APPROVALS = 16
+MAX_GENERATED_IMAGE_BYTES = 32 * 1024 * 1024
+MAX_IMAGE_RESULTS = 128
 APPROVAL_METHODS = {"item/commandExecution/requestApproval", "item/fileChange/requestApproval",
                     "mcpServer/elicitation/request"}
 
@@ -64,7 +72,8 @@ class AppServerTransport:
     """
 
     def __init__(self, command: list[str], cwd: str | Path, *, timeout: float = 10.0,
-                 environment: dict[str, str] | None = None):
+                 environment: dict[str, str] | None = None,
+                 artifact_directory: str | Path | None = None):
         path = Path(cwd).resolve(strict=True)
         if not path.is_dir() or not command or not all(isinstance(part, str) and part for part in command):
             raise ValueError("Invalid app-server command or working directory")
@@ -79,6 +88,11 @@ class AppServerTransport:
         self._waiters: dict[int, _Waiter] = {}
         self._approvals: dict[int | str, dict] = {}
         self._events: deque[dict] = deque(maxlen=MAX_EVENTS)
+        self._image_results: OrderedDict[tuple[str, str], dict] = OrderedDict()
+        codex_home = self.environment.get("CODEX_HOME") or os.environ.get("CODEX_HOME")
+        self._generated_root = (Path(codex_home) if codex_home else Path.home() / ".codex") / "generated_images"
+        self._image_directory = (Path(artifact_directory) if artifact_directory is not None else
+                                 self.cwd / ".agent_portal" / "native_generated")
         self._sequence = 0
         self._failure: str | None = None
 
@@ -209,10 +223,137 @@ class AppServerTransport:
                 if isinstance(request_id, (int, str)):
                     self._approvals.pop(request_id, None)
             self._sequence += 1
-            raw = json.dumps(params, ensure_ascii=False, separators=(",", ":"))
-            safe_params = params if len(raw.encode("utf-8")) <= MAX_EVENT else _truncated_event_params(params)
+            image_item = (params.get("item") if isinstance(params, dict) and
+                          method in ("item/started", "item/completed") else None)
+            if isinstance(image_item, dict) and image_item.get("type") == "imageGeneration":
+                if method == "item/completed":
+                    self._capture_generated_image(params)
+                # Even a short image item can contain a private savedPath. Only
+                # routing metadata may reach the event normalization layer.
+                safe_params = _truncated_event_params(params)
+            else:
+                raw = json.dumps(params, ensure_ascii=False, separators=(",", ":"))
+                safe_params = params if len(raw.encode("utf-8")) <= MAX_EVENT else _truncated_event_params(params)
             self._events.append({"sequence": self._sequence, "method": method,
                                  "params": safe_params, **({"requestId": message["id"]} if "id" in message else {})})
+
+    @staticmethod
+    def _image_type(data: bytes) -> tuple[str, str] | None:
+        if data.startswith(b"\x89PNG\r\n\x1a\n"):
+            return "image/png", ".png"
+        if data.startswith(b"\xff\xd8\xff"):
+            return "image/jpeg", ".jpg"
+        if len(data) >= 12 and data[:4] == b"RIFF" and data[8:12] == b"WEBP":
+            return "image/webp", ".webp"
+        return None
+
+    def _validated_saved_image(self, value: str) -> dict | None:
+        if not isinstance(value, str) or len(value) > 2048:
+            return None
+        path = Path(value)
+        try:
+            checked = path.resolve(strict=True)
+            checked.relative_to(self._generated_root.resolve(strict=True))
+            size = checked.stat().st_size
+            if not path.is_absolute() or not checked.is_file() or not 0 < size <= MAX_GENERATED_IMAGE_BYTES:
+                return None
+            digest = hashlib.sha256()
+            with checked.open("rb") as stream:
+                header = stream.read(12)
+                stream.seek(0)
+                for block in iter(lambda: stream.read(1024 * 1024), b""):
+                    digest.update(block)
+            image_type = self._image_type(header)
+            if image_type is None or checked.suffix.lower() not in (
+                    (".jpg", ".jpeg") if image_type[0] == "image/jpeg" else (image_type[1],)):
+                return None
+            return {"imagePath": str(checked), "sha256": digest.hexdigest(),
+                    "mimeType": image_type[0]}
+        except (OSError, ValueError):
+            return None
+
+    def _decoded_image(self, result: str) -> tuple[bytes, str, str] | None:
+        if not isinstance(result, str) or not 0 < len(result) <= 4 * ((MAX_GENERATED_IMAGE_BYTES + 2) // 3):
+            return None
+        try:
+            raw = base64.b64decode(result, validate=True)
+        except (binascii.Error, ValueError):
+            return None
+        if not 0 < len(raw) <= MAX_GENERATED_IMAGE_BYTES:
+            return None
+        image_type = self._image_type(raw[:12])
+        if image_type is None:
+            return None
+        return raw, image_type[0], image_type[1]
+
+    def _persist_decoded_image(self, decoded: tuple[bytes, str, str]) -> dict | None:
+        raw, mime_type, suffix = decoded
+        directory = self._image_directory
+        temporary = None
+        try:
+            directory.mkdir(parents=True, exist_ok=True)
+            with tempfile.NamedTemporaryFile(mode="wb", dir=directory, suffix=suffix,
+                                             prefix="codex-", delete=False) as stream:
+                temporary = Path(stream.name)
+                stream.write(raw)
+                stream.flush()
+                os.fsync(stream.fileno())
+            return {"imagePath": str(temporary), "sha256": hashlib.sha256(raw).hexdigest(),
+                    "mimeType": mime_type}
+        except OSError:
+            if temporary is not None:
+                temporary.unlink(missing_ok=True)
+            return None
+
+    def _capture_generated_image(self, params: dict) -> None:
+        thread_id, turn_id, item = params.get("threadId"), params.get("turnId"), params.get("item")
+        if not all(isinstance(value, str) and 1 <= len(value) <= 128 for value in (thread_id, turn_id)):
+            return
+        key = (thread_id, turn_id)
+        if key in self._image_results:
+            self._image_results[key] = {"status": "failed", "error": "Multiple native image results in one turn"}
+            return
+        result = {"status": "failed", "error": "Native image generation did not return a valid image"}
+        if isinstance(item, dict) and item.get("status") == "completed":
+            saved = self._validated_saved_image(item.get("savedPath"))
+            encoded = item.get("result")
+            decoded = self._decoded_image(encoded) if isinstance(encoded, str) and encoded else None
+            if isinstance(encoded, str) and encoded:
+                # The app-server supplies both values today. A path is trusted
+                # only when it names the same bytes as the completed item.
+                artifact = (saved if saved is not None and decoded is not None and
+                            saved["sha256"] == hashlib.sha256(decoded[0]).hexdigest() else
+                            self._persist_decoded_image(decoded) if decoded is not None else None)
+            else:
+                artifact = saved
+            if artifact is not None:
+                revised = item.get("revisedPrompt")
+                result = {"status": "ready", **artifact,
+                          **({"revisedPrompt": revised[:4096]} if isinstance(revised, str) else {})}
+        self._image_results[key] = result
+        self._image_results.move_to_end(key)
+        while len(self._image_results) > MAX_IMAGE_RESULTS:
+            self._image_results.popitem(last=False)
+
+    def image_generation_result(self, thread_id: str, turn_id: str) -> dict | None:
+        """PC-only verified artifact; no base64 or arbitrary native path escapes."""
+        with self._lock:
+            result = self._image_results.get((thread_id, turn_id))
+            return dict(result) if result is not None else None
+
+    def native_image_capability(self) -> tuple[bool, str | None]:
+        """Require authenticated ChatGPT and an image capable model provider."""
+        try:
+            account = self.request("account/read", {})
+            if not isinstance(account, dict) or not isinstance(account.get("account"), dict) or \
+                    account["account"].get("type") != "chatgpt":
+                return False, "Codex needs a ChatGPT sign-in for native image generation"
+            capabilities = self.request("modelProvider/capabilities/read", {})
+            if not isinstance(capabilities, dict) or capabilities.get("imageGeneration") is not True:
+                return False, "Codex image generation is unavailable in this session"
+            return True, None
+        except AppServerError:
+            return False, "Codex image generation capability could not be verified"
 
     def events_since(self, sequence: int = 0) -> list[dict]:
         """PC-internal raw events. Never forward this return value to the browser."""
@@ -275,7 +416,8 @@ class AppServerTransport:
         return result["thread"]
 
     def turn_start(self, thread_id: str, text: str, *, effort: str | None = None,
-                   image_path: str | Path | None = None) -> str:
+                   image_path: str | Path | None = None,
+                   skill_path: str | Path | None = None) -> str:
         if not isinstance(text, str) or not text.strip() or len(text) > 16000:
             raise ValueError("Turn text must be 1–16000 characters")
         inputs = [{"type": "text", "text": text}]
@@ -285,6 +427,11 @@ class AppServerTransport:
                     path.suffix.lower() not in (".png", ".jpg", ".jpeg", ".webp")):
                 raise ValueError("Turn image must be an existing local image")
             inputs.append({"type": "localImage", "path": str(path.resolve())})
+        if skill_path is not None:
+            path = Path(skill_path)
+            if not path.is_absolute() or not path.is_file() or path.name != "SKILL.md":
+                raise ValueError("Turn skill must be an existing local skill")
+            inputs.append({"type": "skill", "name": "imagegen", "path": str(path.resolve())})
         params = {"threadId": thread_id, "input": inputs}
         if effort:
             params["effort"] = effort
