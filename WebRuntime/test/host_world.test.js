@@ -399,7 +399,9 @@ test('generation failure records job provenance without spawning',async()=>{
   const state=host.simulation.snapshot();
   assert.equal(state.generatedConstruction.status,'failed');
   assert.equal(state.generatedConstruction.jobId,'d'.repeat(32));
-  assert.match(state.generatedConstruction.reason,/Blender build failed/);
+  assert.equal(state.generatedConstruction.reason,
+    'Blender generation failed; inspect the PC job');
+  assert.equal(service.blenderJobs.get('d'.repeat(32)).error,'Blender build failed');
   assert.equal(state.capabilityRequests[0].receipts.length,0);
   assert.equal(service.worlds.get('AdaBo').scene.objects.length,4);
   assert.equal(service.spawnByCitizen.size,0);
@@ -446,11 +448,14 @@ test('registration uncertainty remains durable and cannot restart generation',as
   const host=await generatingHost(service);
   service.blenderJobs.set('d'.repeat(32),{
     ...service.blenderJobs.get('d'.repeat(32)),phase:'generated',
-    error:'catalog write interrupted',sha256:generatedSha});
+    error:'C:\\Users\\owner\\private\\catalog write interrupted',
+    sha256:generatedSha});
   await assert.rejects(host.tick(),/registration is unresolved/);
   const saved=service.worlds.get('AdaBo').citizens.generatedConstruction;
   assert.equal(saved.status,'unconfirmed');
   assert.equal(saved.jobId,'d'.repeat(32));
+  assert.equal(saved.reason,'Blender registration is unresolved; inspect the PC job');
+  assert.doesNotMatch(JSON.stringify(service.worlds.get('AdaBo')),/private/);
   assert.equal(service.generationSubmissions,1);
   assert.equal(service.spawnByCitizen.size,0);
   service.online=false;
@@ -458,6 +463,23 @@ test('registration uncertainty remains durable and cannot restart generation',as
     request:service.request,assetBytes:generatedBytesRequest});
   await assert.rejects(resumed.start(),/queued Citizen capability/);
   assert.equal(service.generationSubmissions,1);
+});
+
+test('Blender job failure keeps private diagnostics out of the visitor world',async()=>{
+  const service=new FakeService();
+  const host=await generatingHost(service);
+  service.blenderJobs.set('d'.repeat(32),{
+    ...service.blenderJobs.get('d'.repeat(32)),phase:'error',
+    error:'C:\\Users\\owner\\private\\asset.glb failed'});
+  await host.tick();
+  const saved=service.worlds.get('AdaBo').citizens;
+  assert.equal(saved.generatedConstruction.status,'failed');
+  assert.equal(saved.generatedConstruction.reason,
+    'Blender generation failed; inspect the PC job');
+  assert.equal(saved.capabilityRequests[0].reason,
+    saved.generatedConstruction.reason);
+  assert.doesNotMatch(JSON.stringify(saved),/private|asset\.glb/);
+  assert.match(service.blenderJobs.get('d'.repeat(32)).error,/private/);
 });
 
 test('unconfirmed dispatch records exact reserved spawn ID and never queues again',async()=>{
@@ -639,7 +661,7 @@ test('host refuses a typed command that differs from the approved capability',as
   assert.deepEqual(service.worlds.get('AdaBo').citizens.capabilityRequests[0],journal);
 });
 
-test('a long Matrix creation failure saves a bounded failed record',async()=>{
+test('a long Matrix creation failure keeps its receipt and a bounded public reason',async()=>{
   const service=new FakeService();
   const host=new HostedWorld({name:'AdaBo',seed:29,citizenConstruction:true,
     request:service.request});
@@ -654,8 +676,8 @@ test('a long Matrix creation failure saves a bounded failed record',async()=>{
   assert.equal(record.status,'failed');
   assert.equal(host.simulation.snapshot().capabilityRequests[0].status,'failed');
   assert.equal(host.simulation.snapshot().capabilityRequests[0].receipts.length,1);
-  assert.equal(record.reason,error.slice(0,160));
-  assert.equal(record.reason.length,160);
+  assert.equal(record.reason,'Matrix rejected the reviewed capability');
+  assert.ok(record.reason.length<=160);
   assert.equal(record.objectId,null);
   assert.equal(host.world.scene.objects.length,4);
   assert.deepEqual(service.worlds.get('AdaBo').citizens.construction,record);

@@ -1164,6 +1164,66 @@ def citizen_generated_rest_interaction(sha256):
             "effect": {"need": "energy", "delta": 31}}
 
 
+PRIVATE_HOSTED_TEXT = re.compile(
+    r"(?:[a-z]:\\|\\\\|/(?:users|home|tmp|private)/|\bbearer\s|"
+    r"\bapi[_ -]?key\b|\btoken\b|\bsecret\b|\bpassword\b)", re.I)
+
+
+def public_hosted_citizens(citizens):
+    """Keep owner diagnostics in the saved PC world, not the view-token copy.
+
+    Older hosted checkpoints may contain arbitrary Blender subprocess text.
+    Failure/denial fields are replaced by status, rather than filtered for
+    known path shapes, so the visitor still gets a valid checkpoint.
+    """
+    public = copy.deepcopy(citizens)
+    def denial(value):
+        return value if value in ("Citizen capability budget is exhausted",
+                                  "Citizen generation budget is exhausted",
+                                  "Citizen construction budget is exhausted") else \
+            "Policy denied this request."
+
+    entries = public.get("capabilityRequests") or []
+    for record in (public.get("construction"), public.get("generatedConstruction")):
+        if not isinstance(record, dict) or record.get("status") not in (
+                "denied", "failed", "unconfirmed"):
+            continue
+        safe = (denial(record.get("reason")) if record["status"] == "denied"
+                else "Citizen work is unconfirmed; inspect PC diagnostics" if
+                record["status"] == "unconfirmed" else
+                "Citizen work failed; inspect PC diagnostics")
+        record["reason"] = safe
+        for entry in entries:
+            if entry.get("request", {}).get("intentId") == record.get("intentId"):
+                entry["reason"] = safe
+                if entry.get("policy") and not entry["policy"]["allowed"]:
+                    entry["policy"]["reason"] = safe
+    for entry in entries:
+        if entry.get("status") in ("failed", "unconfirmed"):
+            entry["reason"] = ("Citizen work is unconfirmed; inspect PC diagnostics"
+                               if entry["status"] == "unconfirmed" else
+                               "Citizen work failed; inspect PC diagnostics")
+        if entry.get("status") == "denied":
+            entry["reason"] = denial(entry.get("reason"))
+            if entry.get("policy"):
+                entry["policy"]["reason"] = entry["reason"]
+        for receipt in entry.get("receipts", []):
+            if not receipt.get("ok"):
+                receipt["error"] = "Matrix operation failed; inspect PC diagnostics"
+    for resident in public.get("residents", []):
+        if (resident.get("lastOutcome", "").startswith("Failed:") or
+                PRIVATE_HOSTED_TEXT.search(resident.get("lastOutcome", ""))):
+            resident["lastOutcome"] = "A previous action failed; inspect PC diagnostics"
+        for appointment in resident.get("appointments", []):
+            if PRIVATE_HOSTED_TEXT.search(appointment.get("reason", "")):
+                appointment["reason"] = "Appointment failed; inspect PC diagnostics"
+    for event in public.get("log", []):
+        if (event.get("event") in ("failed", "blocked", "paused") or
+                PRIVATE_HOSTED_TEXT.search(event.get("message", ""))):
+            event["message"] = "Citizen work failed; inspect PC diagnostics"
+    return public
+
+
 def hosted_fixture(current):
     """A headless claim keeps Ada/Bo and at most one reviewed construction."""
     objects = current["scene"]["objects"]
@@ -5996,12 +6056,14 @@ class State:
                     "clockTick": current["citizensState"]["clockTick"], "online": True,
                     "readOnly": True, "assets": assets, "world": {"version": 3,
                     "scene": copy.deepcopy(current["scene"]), "game": None,
-                    "citizens": copy.deepcopy(current["citizensState"])}}
+                    "citizens": public_hosted_citizens(current["citizensState"])}}
 
-    def _saved_hosted_assets(self, *, include_pending=False):
+    def _saved_hosted_assets(self, *, include_pending=False,
+                             allow_inflight=False):
         """Expose catalog entries only for the durable hosted checkpoint."""
+        inflight = allow_inflight and self.host_saved_sequence != self.host_sequence
         require(self.host_world_id is not None and
-                self.host_saved_sequence == self.host_sequence and
+                (allow_inflight or self.host_saved_sequence == self.host_sequence) and
                 self.latest is not None, "Hosted checkpoint is unavailable", 409)
         path = self.world_checkpoint_path(self.host_world_id)
         require(path.is_file(), "Hosted checkpoint is unavailable", 409)
@@ -6017,8 +6079,10 @@ class State:
         except (TypeError, ValueError, UnicodeError, RecursionError):
             raise APIError(409, "Hosted checkpoint is unreadable") from None
         require(document.get("hostedWorldId") == self.host_world_id and
-                type(world) is dict and world.get("scene") == self.latest["scene"] and
-                world.get("citizens") == self.latest.get("citizensState") and
+                type(world) is dict and
+                (inflight or
+                 (world.get("scene") == self.latest["scene"] and
+                  world.get("citizens") == self.latest.get("citizensState"))) and
                 document.get("payloadSha256") == digest,
                 "Hosted checkpoint differs from the observed world", 409)
         scene_referenced = {item["assetId"] for item in world["scene"]["objects"]
@@ -6055,8 +6119,11 @@ class State:
         require(type(sha256) is str and GLB_SHA.fullmatch(sha256),
                 "Unknown hosted GLB", 404)
         with self.lock:
+            # The visitor may fetch a GLB just as the host exchanges the next
+            # unsaved tick. The last verified on-disk checkpoint still grants
+            # this read, even while the new tick awaits its own save.
             require(any(item["sha256"] == sha256 for item in
-                        self._saved_hosted_assets()),
+                        self._saved_hosted_assets(allow_inflight=True)),
                     "GLB is not referenced by the saved hosted world", 404)
             try:
                 return self.web_assets.file(sha256)

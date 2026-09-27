@@ -65,12 +65,15 @@ def start_service(directory, owner, viewer, events, builder_calls, policy_calls)
     return state, saved, service, thread
 
 
-def start_host(port, owner):
+def start_host(port, owner, *, resume_paused=False):
     environment = {**os.environ, "SANDBOX_TOKEN": owner}
     flags = subprocess.CREATE_NO_WINDOW if os.name == "nt" else 0
+    command = ["node", "src/host_world.js", "--url", f"http://127.0.0.1:{port}",
+               "--name", "AdaBo", "--citizen-generated-asset", "--interval-ms", "100"]
+    if resume_paused:
+        command.append("--resume-paused")
     return subprocess.Popen(
-        ["node", "src/host_world.js", "--url", f"http://127.0.0.1:{port}",
-         "--name", "AdaBo", "--citizen-generated-asset", "--interval-ms", "100"],
+        command,
         cwd=ROOT / "WebRuntime", env=environment, stdout=subprocess.PIPE,
         stderr=subprocess.PIPE, creationflags=flags)
 
@@ -93,6 +96,27 @@ def read_binary(port, path, token):
         response = error
     with response:
         return response.status, response.read()
+
+
+def inspect_snapshots(worlds):
+    """Use the same pure projection as the PC and hosted visitor UI."""
+    script = """import fs from 'node:fs';
+import {projectCitizensInspector} from './src/citizens_inspector.js';
+const snapshots=JSON.parse(fs.readFileSync(0,'utf8'));
+const projected=snapshots.map(citizens=>{
+  const before=JSON.stringify(citizens);
+  const result=projectCitizensInspector(citizens);
+  if(JSON.stringify(citizens)!==before)throw Error('Inspector mutated a checkpoint');
+  return result;
+});
+process.stdout.write(JSON.stringify(projected));
+"""
+    result = subprocess.run(
+        ["node", "--input-type=module", "-e", script],
+        cwd=ROOT / "WebRuntime", input=json.dumps(
+            [world["citizens"] for world in worlds]), text=True,
+        capture_output=True, check=True)
+    return json.loads(result.stdout)
 
 
 def run():
@@ -120,6 +144,14 @@ def run():
             journal = used["citizens"]["capabilityRequests"]
             assert len(journal) == 1
             capability = journal[0]
+            inspector_worlds = None
+            if "--inspector" in sys.argv:
+                inspector_worlds = {
+                    status: saved_at(saved, status)
+                    for status in ("requested", "generating", "registered",
+                                   "spawning", "created", "used")}
+                assert all(inspector_worlds.values()), (
+                    "The hosted world did not save every Inspector capability stage")
             requested_capability = requested["citizens"]["capabilityRequests"][0]
             request = requested_capability["request"]
             work = capability["work"]
@@ -174,6 +206,17 @@ def run():
             assert object_["assetId"] == asset["assetId"]
             assert object_["interaction"]["assetSha256"] == asset["sha256"]
             assert object_["interaction"]["kind"] == "rest"
+            if inspector_worlds is not None:
+                station_id = next(item["id"] for item in used["citizens"]["stations"]
+                                  if item["objectId"] == work["objectId"])
+                active = next((world for world in saved
+                               if any(resident["id"] == "bo" and
+                                      resident["activity"] is not None and
+                                      resident["activity"]["stationId"] == station_id
+                                      for resident in world["citizens"]["residents"])),
+                              None)
+                assert active is not None, "No saved Bo activity at the generated seat"
+                inspector_worlds["active"] = active
             matrix_result = next(item for item in state.results
                                  if item["requestId"] == work["spawnRequestId"])
             assert spawn_receipt == matrix_result
@@ -187,13 +230,23 @@ def run():
             assert code == 200 and visit["readOnly"] is True
             assert ids(visit["world"]) == ids(used)
             assert visit["world"]["citizens"]["capabilityRequests"] == journal
+            if inspector_worlds is not None:
+                assert any(world == visit["world"] for world in saved), (
+                    "Read-only visitor did not receive an exact saved hosted world")
+                inspector_worlds["visitor"] = visit["world"]
             assert any(item["assetId"] == asset["assetId"]
                        for item in visit["assets"])
             asset_path = "/api/web/assets/" + asset["sha256"] + ".glb"
             asset_code, viewer_glb = read_binary(service.server_port,
                                                   asset_path, viewer)
-            assert asset_code == 200
+            assert asset_code == 200, f"Visitor referenced GLB returned HTTP {asset_code}"
             assert hashlib.sha256(viewer_glb).hexdigest() == asset["sha256"]
+            # Repeated reads straddle new host ticks; the prior durable scene
+            # remains a valid scope while the next tick is being saved.
+            for _ in range(20):
+                code, _ = read_binary(service.server_port, asset_path, viewer)
+                assert code == 200, f"Visitor GLB was unavailable during tick: HTTP {code}"
+                time.sleep(.025)
             assert api(service.server_port, "GET", "/api/web/assets", viewer)[0] == 401
             on_disk = json.loads(state.world_checkpoint_path("AdaBo").read_text())
             assert on_disk["world"]["citizens"]["capabilityRequests"] == journal
@@ -215,7 +268,11 @@ def run():
             state, restart_saved, service, thread = start_service(
                 directory, owner, viewer, restart_events, restart_builders,
                 restart_policy)
-            host = start_host(service.server_port, owner)
+            restart_checkpoint = json.loads(
+                state.world_checkpoint_path("AdaBo").read_text(encoding="utf-8"))
+            resume_paused = restart_checkpoint["world"]["citizens"]["paused"]
+            host = start_host(service.server_port, owner,
+                              resume_paused=resume_paused)
             restored = wait_for("same generated world after process restart", host,
                                 lambda: next((world for world in restart_saved
                                               if world["citizens"]["clockTick"] >
@@ -229,6 +286,71 @@ def run():
             code, revisit = api(service.server_port, "GET",
                                 "/api/web/hosted/observe", viewer)
             assert code == 200 and ids(revisit["world"]) == ids(used)
+            inspector_evidence = None
+            if inspector_worlds is not None:
+                assert any(world == revisit["world"] for world in restart_saved), (
+                    "Restarted visitor did not receive an exact saved hosted world")
+                inspector_worlds["restored"] = restored
+                inspector_worlds["revisitor"] = revisit["world"]
+                names = list(inspector_worlds)
+                projected = dict(zip(names, inspect_snapshots(
+                    [inspector_worlds[name] for name in names]), strict=True))
+                for status in ("requested", "generating", "registered",
+                               "spawning", "created", "used"):
+                    expected = "succeeded" if status in ("created", "used") else status
+                    assert projected[status]["capabilities"][0]["status"] == expected
+                    assert projected[status]["capabilities"][0]["outcome"]["status"] == status
+                    assert projected[status]["tick"] == (
+                        inspector_worlds[status]["citizens"]["clockTick"])
+                requested_view = projected["requested"]["capabilities"][0]
+                used_view = projected["used"]["capabilities"][0]
+                requested_bo = next(item for item in projected["requested"]["residents"]
+                                    if item["id"] == "bo")
+                active_bo = next(item for item in projected["active"]["residents"]
+                                 if item["id"] == "bo")
+                assert requested_bo["reservation"]["mode"] == "queue"
+                assert requested_bo["reservation"]["holderId"] == "ada"
+                assert requested_bo["reservation"]["queuePosition"] == 1
+                assert requested_bo["latestChoice"]["selectedKind"] == "rest"
+                assert requested_bo["latestChoice"]["candidates"][0]["score"] > 0
+                assert active_bo["activity"]["target"]["objectId"] == work["objectId"]
+                assert active_bo["activity"]["phase"] in ("travel", "use")
+                assert requested_view["request"] == request
+                assert used_view["request"] == request
+                assert used_view["policy"] == capability["policy"]
+                assert used_view["receipts"] == capability["receipts"]
+                assert used_view["outcome"]["status"] == "used"
+                assert used_view["outcome"]["useRequestId"] == record["useRequestId"]
+                assert projected["created"]["capabilities"][0]["outcome"]["useRequestId"] is None
+                assert projected["created"]["capabilities"][0]["summary"] != used_view["summary"]
+                for status in ("used", "visitor", "restored", "revisitor"):
+                    assert projected[status]["capabilities"][0]["receipts"] == (
+                        capability["receipts"])
+                    assert projected[status]["capabilities"][0]["outcome"]["status"] == "used"
+                assert len(projected["requested"]["residents"]) == 2
+                active_bo = next(item for item in projected["active"]["residents"]
+                                 if item["id"] == "bo")
+                assert "rest seat created after Bo's wait for chair" in (
+                    active_bo["currentSummary"])
+                assert {resident["id"] for resident in projected["restored"]["residents"]} == {
+                    "ada", "bo"}
+                inspector_evidence = {}
+                for name in names:
+                    view = projected[name]
+                    bo_view = next(item for item in view["residents"]
+                                   if item["id"] == "bo")
+                    cap_view = view["capabilities"][0]
+                    inspector_evidence[name] = {
+                        "tick": view["tick"], "capabilityStatus": cap_view["status"],
+                        "summary": cap_view["summary"],
+                        "boLatestChoice": bo_view["latestChoice"],
+                        "boSummary": bo_view["currentSummary"],
+                        "boActivity": bo_view["activity"],
+                        "boReservation": bo_view["reservation"],
+                        "policyAllowed": cap_view["policy"]["allowed"]
+                        if cap_view["policy"] else None,
+                        "receiptCount": len(cap_view["receipts"]),
+                        "outcome": cap_view["outcome"]}
             if "--browser-hold" in sys.argv:
                 print(json.dumps({
                     "browserUrlAfterRestart":
@@ -263,7 +385,10 @@ def run():
                 "restartBlenderBuilds": len(restart_builders),
                 "restartPolicyCalls": len(restart_policy),
                 "restartSpawnRequests": len(state.agent_spawn_ids),
+                "restartResumedPausedCheckpoint": resume_paused,
                 "visitorReadOnlySameWorld": True,
+                **({"inspectorEvidence": inspector_evidence}
+                   if inspector_evidence is not None else {}),
             }, sort_keys=True), flush=True)
         finally:
             stop_host(host)

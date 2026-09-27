@@ -2,6 +2,8 @@
 // chooses intentions; MatrixWorld remains the executor and scene owner.
 import {CitizensSimulation,createCitizensDemo,
   createCitizensWithSelectedFurniture} from './citizens.js';
+import {projectCitizensInspector} from './citizens_inspector.js';
+import {renderCitizensInspector} from './citizens_inspector_view.js';
 
 const byId=id=>document.getElementById(id);
 const intervalMs=500;
@@ -865,6 +867,8 @@ export class CitizensPanel {
 
   render(){
     const state=this.simulation?.snapshot();
+    renderCitizensInspector(byId('citizens-inspector'),
+      state?.schemaVersion>=12?projectCitizensInspector(state):null);
     const navigationIssue=state&&(!this.world.spatial||this.world.digitalWorldVisit)?
       this.simulation.navigationIssue?.()||'':'';
     const residentNames=new Map((state?.residents||[]).map(resident=>

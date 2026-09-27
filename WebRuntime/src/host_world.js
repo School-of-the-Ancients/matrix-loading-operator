@@ -433,7 +433,7 @@ export class HostedWorld {
         .includes(job.phase)&&!job.error)return;
       if(['generated','registered'].includes(job.phase)&&job.error){
         this.world.citizens=this.simulation.generatedCapabilityFailed(
-          `Blender registration is unresolved: ${job.error}`.slice(0,160),
+          'Blender registration is unresolved; inspect the PC job',
           {unconfirmed:true});
         await this.exchange();
         await this.save();
@@ -449,7 +449,7 @@ export class HostedWorld {
       }
       if(job.phase==='error'){
         this.world.citizens=this.simulation.generatedCapabilityFailed(
-          String(job.error||'Blender generation failed').slice(0,160));
+          'Blender generation failed; inspect the PC job');
         await this.exchange();
         await this.save();
         return;
@@ -524,7 +524,7 @@ export class HostedWorld {
       if(this.world.scene.objects.length!==4)
         fail('Failed generated asset spawn changed the hosted scene');
       this.world.citizens=this.simulation.generatedCapabilityFailed(
-        String(spawn.error||'Matrix rejected the generated asset').slice(0,160),
+        'Matrix rejected the generated asset',
         {receipts:[spawn]});
       await this.exchange();
       await this.save();
@@ -547,13 +547,15 @@ export class HostedWorld {
         throw Error(interaction?.error||'Matrix did not confirm generated rest interaction');
       this.world.citizens=this.simulation.generatedCapabilityCompleted([spawn,interaction]);
     }catch(error){
+      console.error('Generated asset validation or interaction failed:',
+        String(error?.message||error));
       const rollback=this.world.execute({requestId:`${dispatched.requestId}-rollback`,
         op:'delete',objectId:spawn.objectId},{recordHistory:false});
       if(!rollback?.ok||this.world.scene.objects.some(item=>
         item.objectId===spawn.objectId))
         fail('Generated asset failed and Matrix rollback was not confirmed');
       this.world.citizens=this.simulation.generatedCapabilityFailed(
-        String(error?.message||'Generated asset interaction failed').slice(0,160),
+        'Generated asset validation or interaction failed',
         {receipts:[spawn,...(interaction?[interaction]:[]),rollback]});
     }
     await this.exchange();
@@ -595,7 +597,7 @@ export class HostedWorld {
       if(this.world.scene.objects.length!==4)
         fail('Failed Matrix capability changed the hosted scene');
       this.world.citizens=this.simulation.capabilityFailed([creation],
-        String(creation.error||'Matrix rejected the capability').slice(0,160));
+        'Matrix rejected the reviewed capability');
       await this.exchange();
       await this.save();
       return;
@@ -617,13 +619,15 @@ export class HostedWorld {
         throw Error(interaction?.error||'Matrix did not confirm the reviewed interaction');
       this.world.citizens=this.simulation.capabilityCompleted([creation,interaction]);
     }catch(error){
+      console.error('Reviewed capability interaction failed:',
+        String(error?.message||error));
       const rollback=this.world.execute({requestId:`${decision.requestId}-rollback`,
         op:'delete',objectId:creation.objectId},{recordHistory:false});
       if(!rollback?.ok||this.world.scene.objects.some(item=>item.objectId===creation.objectId))
         fail('Citizen capability failed and Matrix rollback was not confirmed');
       this.world.citizens=this.simulation.capabilityFailed(
         [creation,interaction,rollback],
-        String(error?.message||'Matrix interaction failed').slice(0,160));
+        'Reviewed capability interaction failed');
     }
     await this.exchange();
     await this.save();
