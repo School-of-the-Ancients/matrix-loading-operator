@@ -2,6 +2,47 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import {operatorPanel} from '../src/view.js';
 
+test('Codex XR page exposes one shared creation-mode selector and keeps turn controls',()=>{
+  const drawn=[];
+  const context={
+    fillRect(x,y,w,h){drawn.push({kind:'rect',x,y,w,h,color:this.fillStyle});},
+    strokeRect(){},
+    fillText(text,x,y){drawn.push({kind:'text',text:String(text),x,y});},
+    measureText(text){return {width:String(text).length*14};},
+  };
+  const previousDocument=globalThis.document;
+  globalThis.document={createElement:kind=>{
+    assert.equal(kind,'canvas');return {width:0,height:0,getContext:()=>context};
+  }};
+  try{
+    const panel=operatorPanel();
+    const hit=(x,y)=>panel.hit({x:x/1024,y:1-y/768});
+    assert.equal(hit(190,212),null,'creation modes belong to the Codex page');
+    panel.toggleAgent();
+    assert.equal(hit(190,212),'creation-mode-auto');
+    assert.equal(hit(490,212),'creation-mode-procedural');
+    assert.equal(hit(810,212),'creation-mode-blender');
+    assert.ok(drawn.some(item=>item.kind==='rect'&&item.x===55&&item.y===176&&
+      item.color==='#53dcc5'),'Auto is selected by default');
+    assert.ok(drawn.some(item=>item.kind==='text'&&item.text.startsWith('CODEX AGENT')&&
+      item.y===286),'transcript starts below the selector');
+    panel.setCreationMode('blender');
+    assert.ok(drawn.some(item=>item.kind==='rect'&&item.x===660&&item.y===176&&
+      item.color==='#53dcc5'));
+    assert.equal(hit(250,680),'agent-connect');
+    panel.setAgentStatus({activity:'Waiting',content:'Review this request.',pending:true,
+      approvalReviewable:true,active:true,connected:true,voiceStatus:'',latestTurnId:''});
+    assert.equal(hit(190,212),'creation-mode-auto');
+    assert.equal(hit(150,680),'agent-approve');
+    assert.equal(hit(430,680),'agent-deny');
+    assert.equal(hit(650,680),'agent-stop');
+    assert.throws(()=>panel.setCreationMode('anything'),/Invalid creation mode/);
+  }finally{
+    if(previousDocument===undefined)delete globalThis.document;
+    else globalThis.document=previousDocument;
+  }
+});
+
 test('Codex panel shows voice phases and returns to the first page for new feedback',()=>{
   const drawn=[];
   const context={

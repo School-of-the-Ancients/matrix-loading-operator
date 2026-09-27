@@ -83,6 +83,20 @@ test('the in-world HIDE control clears the panel without selecting the scene',()
   assert.equal(view.operatorPanel.group.visible,false);
 });
 
+test('XR creation-mode selection reaches the shared Operator action handler',()=>{
+  const {controller,panel}=controllerAndPanel();
+  panel.mesh.updateWorldMatrix(true,false);
+  const view=Object.create(MatrixView.prototype);
+  view.grab=null;view.raycaster=new THREE.Raycaster();
+  view.operatorPanel={...panel,hit:()=> 'creation-mode-blender'};
+  view.selectFromRay=()=>{throw Error('The panel action must not select the scene');};
+  let action=null;
+  view.onPanelAction=next=>{action=next;};
+  view.selectFromController(controller);
+  assert.equal(action,'creation-mode-blender');
+  assert.equal(view.operatorPanel.group.visible,true);
+});
+
 function selectableFirefly(){
   const scene=new THREE.Scene();
   const controller=new THREE.Group();controller.position.set(0,1,0);scene.add(controller);

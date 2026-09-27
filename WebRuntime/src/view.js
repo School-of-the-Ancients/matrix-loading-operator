@@ -145,6 +145,7 @@ export function operatorPanel(){
   const group=new THREE.Group();group.add(mesh);group.visible=false;
   let message='Aim here, hold trigger, and ask for a scene.',tone='idle',page=0,mode='chat',proposal=null;
   let agent={activity:'Not connected',content:'Connect to Codex on the PC.',pending:false,approvalReviewable:false,active:false,connected:false,voiceStatus:'',latestTurnId:''};
+  let creationMode='auto';
   let pinLabel='PIN TO WALL',voiceLabel='VOICE ON',originLabel='ROOM ORIGIN UNKNOWN',conversationCount=0;
   let voiceInputLabel='HOLD TO SPEAK';
   let gameStatus='No game running.',worldInfo={objects:0,canConfirm:false,alignment:'No room scan'},worldWarning='';
@@ -252,6 +253,15 @@ export function operatorPanel(){
           'Return to paused Creator Mode or finish recovery first.',55,560,910);
       }
     }else{
+      if(mode==='agent'){
+        ctx.fillStyle='#8bb8c2';ctx.font='bold 21px sans-serif';
+        ctx.fillText('CREATION MODE FOR NEXT REQUEST',55,158);
+        button('creation-mode-auto','AUTO',55,176,265,72,creationMode==='auto');
+        button('creation-mode-procedural','PROCEDURAL',345,176,290,72,
+          creationMode==='procedural');
+        button('creation-mode-blender','BLENDER',660,176,309,72,
+          creationMode==='blender');
+      }
       const content=mode==='agent'?`CODEX AGENT · ${agent.activity}\n\n${agent.content}`:mode==='proposal'&&proposal?
         `REVIEW BEFORE APPLY\n${proposal.summary||''}\n\n${proposal.kind==='game'?
           `GAME: ${proposal.gamePlan?.title||''}\nROLES\n${proposal.gamePlan?.roles?.map(role=>`${role.count} × ${role.assetId} as ${role.roleId} (${role.kind})`).join('\n')||''}\nRULES\n${proposal.gamePlan?.rules?.map(rule=>`${rule.actorRoleId} → ${rule.targetRoleId}: ${rule.event} within ${rule.distanceMeters} m, +${rule.scorePoints}`).join('\n')||''}\nOBJECTIVES\n${proposal.gamePlan?.objectives?.map(objective=>objective.kind==='score-at-least'?`At least ${objective.targetPoints} points`:`${objective.roleId}: ${objective.targetCount} delivered`).join('\n')||''}`:
@@ -266,9 +276,12 @@ export function operatorPanel(){
         }
         lines.push(line);
       }
-      const perPage=content.length>500?14:12,pages=Math.max(1,Math.ceil(lines.length/perPage));page%=pages;
-      const step=content.length>500?30:37;
-      lines.slice(page*perPage,(page+1)*perPage).forEach((line,index)=>ctx.fillText(line,55,160+index*step));
+      const perPage=mode==='agent'?content.length>500?10:9:content.length>500?14:12;
+      const pages=Math.max(1,Math.ceil(lines.length/perPage));page%=pages;
+      const step=mode==='agent'?content.length>500?28:34:content.length>500?30:37;
+      const contentTop=mode==='agent'?286:160;
+      lines.slice(page*perPage,(page+1)*perPage).forEach((line,index)=>
+        ctx.fillText(line,55,contentTop+index*step));
       ctx.fillStyle='#8bb8c2';ctx.font='24px sans-serif';ctx.fillText(`Page ${page+1}/${pages}`,55,596);
     }
     if(worldWarning){ctx.fillStyle='#ffad8d';ctx.font='bold 19px sans-serif';ctx.fillText(worldWarning,55,625);}
@@ -329,6 +342,10 @@ export function operatorPanel(){
     if(agent.pending!==next.pending||agent.voiceStatus!==next.voiceStatus||agent.latestTurnId!==next.latestTurnId)page=0;
     agent=next;if(mode==='agent')paint();
   }};
+  const setCreationMode=next=>{
+    if(!['auto','procedural','blender'].includes(next))throw Error('Invalid creation mode');
+    if(creationMode!==next){creationMode=next;if(mode==='agent')paint();}
+  };
   const toggleWorld=()=>{mode=mode==='world'?'chat':'world';page=0;paint();};
   const toggleArchives=()=>{mode=mode==='archives'?'world':'archives';page=0;paint();};
   const toggleModePage=()=>{mode=mode==='modes'?'chat':'modes';page=0;paint();};
@@ -342,7 +359,7 @@ export function operatorPanel(){
   const nextPage=()=>{page++;paint();};
   paint();
   return {group,mesh,setMessage,setPinLabel,setVoiceLabel,setOriginLabel,setConversationCount,
-    setProposal,setWorldInfo,setWorldNotice,setGameStatus,setCreatorMode,setWarning,setCameraStatus,setAgentStatus,setVoiceInputLabel,toggleWorld,toggleArchives,toggleModePage,toggleAgent,isAgentMode,openProposal,hit,nextPage};
+    setProposal,setWorldInfo,setWorldNotice,setGameStatus,setCreatorMode,setWarning,setCameraStatus,setAgentStatus,setCreationMode,setVoiceInputLabel,toggleWorld,toggleArchives,toggleModePage,toggleAgent,isAgentMode,openProposal,hit,nextPage};
 }
 const v3=v=>new THREE.Vector3(v.x,v.y,v.z);
 const plain=v=>({x:Number(v.x.toFixed(3)),y:Number(v.y.toFixed(3)),z:Number(v.z.toFixed(3))});
@@ -669,6 +686,8 @@ export class MatrixView {
   setOperatorWarning(warning){this.operatorPanel.setWarning(warning);}
   setOperatorCameraStatus(status,active){this.operatorPanel.setCameraStatus(status,active);}
   setOperatorAgentStatus(status){this.operatorPanel.setAgentStatus(status);}
+  setOperatorCreationMode(mode){this.operatorPanel.setCreationMode(mode);}
+  setCreationMode(mode){this.setOperatorCreationMode(mode);}
   setOperatorVoiceInputLabel(label){this.operatorPanel.setVoiceInputLabel(label);}
   isOperatorAgentMode(){return this.operatorPanel.isAgentMode();}
   showOperatorAgentMode(){
