@@ -182,9 +182,12 @@ class ConceptStore:
                                                 approved=True, seed=job["seed"],
                                                 negative_prompt=job["negativePrompt"],
                                                 validate_image=True)
-        except (ContentError, OSError, ValueError) as error:
+        except ContentError as error:
             return {"job": self._set_fields(session_id, concept_id,
                                             status="failed", message=str(error))}
+        except (OSError, ValueError):
+            return {"job": self._set_fields(session_id, concept_id, status="failed",
+                                            message="PC image submission could not be confirmed; check the service.")}
         except Exception:
             return {"job": self._set_fields(session_id, concept_id, status="failed",
                                             message="PC image submission failed; check the service.")}

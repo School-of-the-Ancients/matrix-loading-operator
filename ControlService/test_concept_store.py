@@ -124,7 +124,6 @@ class ConceptStoreTests(unittest.TestCase):
         failed = self.create()
         self.assertEqual(failed["status"], "failed")
         self.assertEqual(len(self.catalog.requests), 0)
-
         payload = self.store.data
         payload["sessions"][self.session]["jobs"][0].update(status="queued", message="submitting")
         from content_catalog import atomic_json
@@ -133,6 +132,13 @@ class ConceptStoreTests(unittest.TestCase):
         self.assertEqual(recovered.status(self.session)["jobs"][0]["status"], "failed")
         self.assertIn("outcome is unknown", recovered.status(self.session)["jobs"][0]["message"])
         self.assertEqual(len(self.catalog.requests), 0)
+
+    def test_pc_storage_error_does_not_expose_private_path(self):
+        with patch.object(self.catalog, "submit_workflow",
+                          side_effect=OSError("C:/private/token-folder failed")):
+            failed = self.create()
+        self.assertEqual(failed["status"], "failed")
+        self.assertNotIn("token-folder", failed["message"])
 
     def test_selection_requires_ready_and_cancel_is_confirmed(self):
         job = self.create()
