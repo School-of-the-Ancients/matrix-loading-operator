@@ -20,6 +20,30 @@ const pose={position:{x:1,y:0,z:-2},rotation:{x:0,y:0,z:0},scale:{x:1,y:1,z:1}};
 const rigidConfig=type=>({schemaVersion:1,type,collider:'bounds-box',
   restitution:0,friction:.8,sensor:false});
 
+test('AR visit saves the canonical Citizens world and rejects replacement while visiting',()=>{
+  let sequence=0;
+  const world=new MatrixWorld(()=>`visit-save-${++sequence}`);
+  const simulation=createCitizensDemo(world,{seed:17});
+  world.citizens=simulation.step();
+  const before=storedBrowserWorld(world),tab=storage(),durable=storage();
+  world.enterAR();
+  const visiting=storedBrowserWorld(world);
+  assert.deepEqual(visiting,before);
+  assert.equal(visiting.scene.roomId,'web-virtual-room-v1');
+  assert.equal(saveStoredWorld(visiting,tab,durable),'');
+  const saved=loadStoredWorld(tab,durable).value;
+  const scene=world.scene,state=structuredClone(world.citizens);
+  assert.throws(()=>restoreStoredWorld(world,saved),/Leave the digital world AR visit/);
+  assert.equal(world.scene,scene);
+  assert.deepEqual(world.citizens,state);
+  world.leaveAR();
+  const reopened=new MatrixWorld();
+  restoreStoredWorld(reopened,saved);
+  assert.deepEqual(reopened.scene,world.scene);
+  assert.deepEqual(reopened.citizens,world.citizens);
+  assert.deepEqual(CitizensSimulation.restore(reopened,reopened.citizens).snapshot(),state);
+});
+
 async function movingWorld(){
   let next=0;
   const world=new MatrixWorld(()=>`motion-${++next}`);

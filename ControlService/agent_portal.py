@@ -78,6 +78,10 @@ def build_matrix_turn_message(user_text: str, context: dict,
     creator = context.get("creatorMode")
     if type(creator) is dict and creator.get("mode") in ("creator", "play") and creator.get("simulation") in ("paused", "running"):
         lines.append(f"Current world authority: {creator['mode']} mode, simulation {creator['simulation']}.")
+    if context.get("digitalWorldVisit") is True:
+        lines.append("This AR view visits the canonical digital world while its citizens continue. "
+                     "The visit does not authorize world edits or prove physical-room alignment; "
+                     "inspect the live world and use a supported Creator session for placement.")
     if re.search(r"\b(?:load|create|build|make)\b", user_text, re.IGNORECASE):
         tools = set(enabled_tools)
         discovery = ["For this load/create request, discover current content and capabilities. "

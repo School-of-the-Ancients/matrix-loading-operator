@@ -145,19 +145,19 @@ function discardProposal(){
 function updateWorldControls(){
   const creator=world.creatorMode;
   $('creator-mode-status').textContent=`${creator.mode==='creator'?'Creator Mode':'Play/Test Mode'} · simulation ${creator.simulation} · revision ${creator.revision}`;
-  $('enter-play').disabled=!!pendingWorld||creator.mode==='play';
-  $('enter-creator').disabled=!!pendingWorld||creator.mode==='creator';
-  $('stop-play').disabled=!!pendingWorld||creator.mode!=='play'||creator.simulation==='paused';
-  $('resume-play').disabled=!!pendingWorld||creator.mode!=='play'||creator.simulation==='running';
+  $('enter-play').disabled=!!pendingWorld||world.digitalWorldVisit||creator.mode==='play';
+  $('enter-creator').disabled=!!pendingWorld||world.digitalWorldVisit||creator.mode==='creator';
+  $('stop-play').disabled=!!pendingWorld||world.digitalWorldVisit||creator.mode!=='play'||creator.simulation==='paused';
+  $('resume-play').disabled=!!pendingWorld||world.digitalWorldVisit||creator.mode!=='play'||creator.simulation==='running';
   view.setOperatorCreatorMode(creator);
   const originUnavailable=!!world.spatial?.originUnavailable;
-  const resetAvailable=!!view.isAR&&originUnavailable&&view.roomAnchorRestoreFailed;
+  const resetAvailable=!!view.isAR&&!world.digitalWorldVisit&&originUnavailable&&view.roomAnchorRestoreFailed;
   const canRetryOrigin=originUnavailable&&(view.roomAnchorHandleAvailable||view.roomAnchorCreationFailed);
-  const canConfirm=!!world.spatial&&!originUnavailable&&!world.spatial.alignmentVerified&&!world.spatial.stale&&
+  const canConfirm=!!world.spatial&&!world.digitalWorldVisit&&!originUnavailable&&!world.spatial.alignmentVerified&&!world.spatial.stale&&
     world.spatial.anchors.some(anchor=>anchor.surface?.kind==='support');
   $('confirm-room').disabled=!canConfirm;
   for(const id of ['undo','redo','clear','save','restore'])
-    $(id).disabled=originUnavailable||!!pendingWorld||pcWorldBusy||worldSwitchBusy||
+    $(id).disabled=(world.digitalWorldVisit||originUnavailable)||!!pendingWorld||pcWorldBusy||worldSwitchBusy||
       (creator.mode==='play'&&id!=='save');
   $('save-pc-world').disabled=!!world.spatial||!!pendingWorld||pcWorldBusy||worldSwitchBusy||
     creator.simulation==='running';
@@ -179,7 +179,7 @@ function updateWorldControls(){
     $('world-archives').value=selectedArchiveId;
   }
   const archiveReady=creator.mode==='creator'&&creator.simulation==='paused'&&
-    !originUnavailable&&!world.spatial?.stale&&!pendingWorld&&!pcWorldBusy&&
+    !world.digitalWorldVisit&&!originUnavailable&&!world.spatial?.stale&&!pendingWorld&&!pcWorldBusy&&
     !worldSwitchBusy&&!archiveStatusError;
   $('new-world').disabled=!archiveReady;
   $('restore-archive').disabled=!archiveReady||!selectedArchiveId;
@@ -200,7 +200,9 @@ function updateWorldControls(){
     newWorldArmed:performance.now()<newWorldArmedUntil,
     archiveRestoreArmed:performance.now()<archiveRestoreArmedUntil&&
       selectedArchiveId===archiveRestoreId,
-    alignment:!world.spatial?'Virtual room':originUnavailable?'Room origin unavailable':world.spatial.alignmentVerified?'AR room aligned':
+    alignment:!world.spatial?'Virtual room':world.digitalWorldVisit?
+      originUnavailable?'AR visit view unavailable':view.roomAnchorLocated?'Digital world overlay anchored':'Digital world preview':
+      originUnavailable?'Room origin unavailable':world.spatial.alignmentVerified?'AR room aligned':
       canConfirm?'Check outlines, then confirm':'Waiting for room planes'});
   $('retry-room-origin').classList.toggle('hidden',!canRetryOrigin);
   $('reset-room-origin').classList.toggle('hidden',!resetAvailable);
@@ -210,6 +212,7 @@ function updateWorldControls(){
   $('rebase-room-origin').textContent=performance.now()<roomResetArmedUntil&&roomRecoveryChoice==='rebase'?
     'Confirm archive and place here':'Archive and place world here';
   $('room-origin-status').textContent=!view.isAR?'Room origin status appears in AR.':
+    world.digitalWorldVisit?(originUnavailable?'AR overlay hidden until its view anchor tracks again. Citizens continues in the digital world.':'Visiting the live digital world. Room tracking places its view only.'):
     resetAvailable?canRetryOrigin?'Saved world hidden. Retry, place it here explicitly, or archive and start empty.':
       'Saved world hidden. Archive and place it here or start empty.':
     originUnavailable?'Waiting for a tracked room anchor; editing is paused.':
@@ -688,6 +691,7 @@ async function showProposal(data,requestText=''){
   feedback(pending?'Review the proposal, then Apply in the world or browser.':data.message||'No scene edits proposed.');
 }
 async function applyProposal(){
+  if(world.digitalWorldVisit){feedback('Leave the AR visit before editing the digital world.',true);return;}
   if(pendingWorld||worldSwitchBusy){feedback('Finish world recovery or switching before applying a proposal.',true);return;}
   if(gameProposal){
     if(JSON.stringify(storedWorld(world))!==gameProposal.worldAtProposal){feedback('The world changed. Ask Codex to plan the game again.',true);discardProposal();return;}
@@ -709,6 +713,7 @@ async function confirmRoom(){
   if(result)view.setOperatorStatus('Room alignment confirmation queued. Wait for the runtime receipt.');
 }
 async function saveWorld(){
+  if(world.digitalWorldVisit){feedback('Leave the AR visit before making a manual checkpoint. Browser progress continues to save.',true);return;}
   if(pendingWorld||worldSwitchBusy){feedback('Finish world recovery or switching before saving a checkpoint.',true);return;}
   if(pcWorldBusy){feedback('Wait for the current PC world save or restore to finish.',true);return;}
   if(world.spatial?.originUnavailable){
@@ -735,6 +740,7 @@ async function saveWorld(){
   }
 }
 function restoreWorld(){
+  if(world.digitalWorldVisit){feedback('Leave the AR visit before restoring a world.',true);return;}
   if(world.creatorMode.mode!=='creator'){
     feedback('Return to Creator Mode before restoring a browser checkpoint.',true);return;
   }
@@ -819,6 +825,7 @@ async function restorePCWorld(){
   }
 }
 function worldSwitchBlocker({fromAgent=false}={}){
+  if(world.digitalWorldVisit)return 'Leave the AR visit before switching digital worlds.';
   if(pendingWorld||pcWorldBusy||worldSwitchBusy)return 'Finish the current world recovery or checkpoint first.';
   if(world.creatorMode.mode!=='creator'||world.creatorMode.simulation!=='paused')
     return 'Return to paused Creator Mode before switching worlds.';
@@ -916,6 +923,7 @@ function retryRoomOrigin(){
   feedback('Retrying room anchor localization. Old world remains hidden until its saved origin is tracked.');
 }
 function recoverRoomOrigin(choice){
+  if(world.digitalWorldVisit){feedback('The AR view origin cannot archive or replace the digital world.',true);return;}
   if(!view.isAR||!world.spatial?.originUnavailable||!view.roomAnchorRestoreFailed)return;
   if(performance.now()>=roomResetArmedUntil||roomRecoveryChoice!==choice){
     roomRecoveryChoice=choice;
@@ -954,6 +962,7 @@ function clearExportedRoomArchives(){
   catch(error){feedback(`Could not clear recovery archives: ${error.message}`,true);}
 }
 function changeCreatorMode(action){
+  if(world.digitalWorldVisit){feedback('Leave the AR visit before changing the digital world mode.',true);return;}
   if(pendingWorld||pcWorldBusy||worldSwitchBusy){feedback('Finish world recovery or switching before changing modes.',true);return;}
   if(action==='enter-play'&&world.scene.objects.some(item=>item.rigidBody)&&
      !world.rigidPhysics){feedback('Wait for rigid physics to load before playing.',true);return;}

@@ -1,6 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {MatrixWorld} from '../src/protocol.js';
+import {createCitizensDemo} from '../src/citizens.js';
 import {recordGameEvent} from '../src/game.js';
 import {createRigidPhysics} from '../src/physics_rigid.js';
 import {storedBrowserWorld,saveStoredWorld,loadStoredWorld,restoreStoredWorld,
@@ -20,6 +21,20 @@ function storage(){
     },removeItem:key=>values.delete(key),
     failNext:key=>{failOnce=key;},silentNext:key=>{silentOnce=key;}};
 }
+
+test('AR visit cannot switch or archive the canonical Citizens world',()=>{
+  let sequence=0;
+  const world=new MatrixWorld(()=>`visit-slot-${++sequence}`);
+  world.citizens=createCitizensDemo(world,{seed:17}).step();
+  const scene=world.scene,state=structuredClone(world.citizens);
+  const tab=storage(),durable=storage();
+  world.enterAR();
+  assert.throws(()=>startNewWorld(world,tab,durable,'unwanted'),
+    /Leave the digital world AR visit/);
+  assert.equal(world.scene,scene);
+  assert.deepEqual(world.citizens,state);
+  assert.deepEqual(worldArchives(durable),[]);
+});
 const pose=(x=0,z=0)=>({position:{x,y:0,z},rotation:{x:0,y:0,z:0},
   scale:{x:1,y:1,z:1}});
 let request=0;

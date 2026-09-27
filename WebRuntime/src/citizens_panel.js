@@ -114,7 +114,7 @@ export class CitizensPanel {
     // A PC restore stages its candidate directly on the world until the PC
     // exchange accepts it. Do not bind to or reconcile that temporary state.
     if(this.canMutate()){this.render();return;}
-    if(this.world.spatial){
+    if(this.world.spatial&&!this.world.digitalWorldVisit){
       // An explicit AR world restore can replace Citizens while this paused
       // adapter exists. Rebind to that restored state instead of overwriting it.
       if(this.world.citizens!==this.boundState){
@@ -266,7 +266,7 @@ export class CitizensPanel {
   }
 
   toggle(){
-    if(this.canMutate())return;
+    if(this.canMutate()||this.world.spatial)return;
     this.syncFromWorld();
     if(!this.simulation||this.error)return;
     this.simulation.snapshot().paused?this.simulation.resume():this.simulation.pause();
@@ -274,7 +274,7 @@ export class CitizensPanel {
   }
 
   step(){
-    if(this.canMutate())return;
+    if(this.canMutate()||this.world.spatial)return;
     this.syncFromWorld();
     if(!this.simulation||this.error||!this.simulation.snapshot().paused)return;
     this.simulation.step();this.commit();
@@ -747,7 +747,11 @@ export class CitizensPanel {
     if(this.recoverArmedUntil&&performance.now()>this.recoverArmedUntil){
       this.recoverArmedUntil=0;this.recoverArmedCopy='';this.render();
     }
-    if(document.hidden||!this.simulation||this.world.spatial||this.canMutate())return;
+    // An immersive visit may hide the page while the AR session stays active.
+    const liveARVisit=this.world.digitalWorldVisit&&this.world.spatial&&
+      this.world.runtimePresentation==='ar';
+    if(document.hidden&&!liveARVisit||!this.simulation||
+       this.world.spatial&&!this.world.digitalWorldVisit||this.canMutate())return;
     this.syncFromWorld();
     if(!this.simulation||this.error||this.simulation.snapshot().paused)return;
     const speed=this.simulation.snapshot().clockSpeed||1;
@@ -778,7 +782,7 @@ export class CitizensPanel {
   }
 
   stop(){
-    if(this.canMutate())return;
+    if(this.canMutate()||this.world.spatial)return;
     if(!this.world.citizens)return;
     if(performance.now()>this.stopArmedUntil){
       this.stopArmedUntil=performance.now()+10000;
@@ -861,7 +865,7 @@ export class CitizensPanel {
 
   render(){
     const state=this.simulation?.snapshot();
-    const navigationIssue=state&&!this.world.spatial?
+    const navigationIssue=state&&(!this.world.spatial||this.world.digitalWorldVisit)?
       this.simulation.navigationIssue?.()||'':'';
     const residentNames=new Map((state?.residents||[]).map(resident=>
       [resident.id,resident.name]));
@@ -903,7 +907,7 @@ export class CitizensPanel {
     byId('citizens-speed').disabled=!state||!!this.error||
       !!this.world.spatial||!!mutationBlocked;
     byId('citizens-speed').value=String(state?.clockSpeed||1);
-    byId('citizens-stop').disabled=!this.world.citizens||!!mutationBlocked;
+    byId('citizens-stop').disabled=!this.world.citizens||!!this.world.spatial||!!mutationBlocked;
     byId('citizens-recover').disabled=!recovery||!!recoveryBlocked||!!this.world.spatial;
     byId('citizens-recover').textContent=performance.now()<this.recoverArmedUntil&&recovery?
       `Confirm restore ${recoveryTick}`:`Restore ${recoveryTick||'before deletion'}`;
@@ -918,7 +922,7 @@ export class CitizensPanel {
     const day=state?Math.floor(state.clockTick/1440)+1:1;
     const time=state?`${String(Math.floor(minute/60)).padStart(2,'0')}:${String(minute%60).padStart(2,'0')}`:'00:00';
     byId('citizens-status').textContent=this.error||(
-      state?`${state.paused?'Paused':'Running'} · day ${day} ${time} · minute ${state.clockTick} · ${state.clockSpeed||1}× · seed ${state.seed}${navigationIssue?` · navigation unavailable: ${navigationIssue}`:''}`:
+      state?`${this.world.digitalWorldVisit?'Visiting digital world · ':''}${state.paused?'Paused':'Running'} · day ${day} ${time} · minute ${state.clockTick} · ${state.clockSpeed||1}× · seed ${state.seed}${navigationIssue?` · navigation unavailable: ${navigationIssue}`:''}`:
         this.world.citizens?'Citizens state needs recovery. Undo the edit, restore a valid PC world, or stop Citizens.':
           (blocked&&selectedBlocked?blocked:
             'No Citizens in this world. Start an empty fixture or use a selected station.'));

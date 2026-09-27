@@ -31,6 +31,8 @@ export function clearRoomArchives(storage){
 }
 
 function archiveAndStartRoom(world,storage,keepWorld){
+  if(world.digitalWorldVisit)
+    throw Error('AR visit origin belongs to the view; leave AR before changing the digital world');
   if(!world.spatial?.originUnavailable)throw Error('Room reset is available only while its origin is unavailable');
   if(world.scene.objects.some(object=>object.anchorId!=='web-floor'))
     throw Error('Session-only physical objects cannot be archived; exit AR and retry recovery before resetting the room');

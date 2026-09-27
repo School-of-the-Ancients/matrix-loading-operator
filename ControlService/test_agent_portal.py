@@ -222,6 +222,19 @@ class AgentPortalTests(unittest.TestCase):
         self.assertEqual(message.count("<matrix_runtime_context>"), 1)
         self.assertTrue(message.endswith("User request:\nMove the existing object"))
 
+    def test_canonical_ar_visit_is_described_without_physical_alignment_claim(self):
+        context = {"kind": "matrix_runtime_context", "online": True,
+                   "runtimeDescriptor": {"schemaVersion": 1, "client": "matrix-web",
+                                         "renderer": "threejs-webxr", "presentation": "ar"},
+                   "room": {"mode": "ar", "state": "ready", "alignmentVerified": False,
+                            "readOnly": False},
+                   "digitalWorldVisit": True, "capabilityVersions": {}}
+        message = build_matrix_turn_message("How are the citizens doing?", context)
+        self.assertIn("visits the canonical digital world", message)
+        self.assertIn("citizens continue", message)
+        self.assertIn("Physical-room alignment: unverified", message)
+        self.assertNotIn("Physical-room alignment: verified.", message)
+
     def test_provisional_portal_survives_restart_before_first_turn(self):
         portal = self.portal()
         session_id = portal.open()["sessionId"]

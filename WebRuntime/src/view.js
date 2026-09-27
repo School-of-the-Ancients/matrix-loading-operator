@@ -447,7 +447,7 @@ export class MatrixView {
     this.operatorMount={kind:'head'};this.operatorPanel.setPinLabel(this.isAR?'PIN TO WALL':'PIN HERE');
     this.operatorThumbstickHeld=false;
     this.sessionStartedAt=performance.now();this.roomCaptureRequested=false;this.virtualFloorCalibrated=false;this.roomAnchorCreationFailed=false;this.roomAnchorRestoreFailed=false;this.roomAnchorLocated=false;this.roomPoseMissingSince=0;
-    if(this.isAR)this.world.enterAR();
+    if(this.isAR)this.world.enterAR({visitDigitalWorld:this.world.canVisitDigitalWorld()});
     this.restoreRoomAnchor(session);
     if(this.isAR)this.sync();
     this.onRuntimeChange();
@@ -468,6 +468,9 @@ export class MatrixView {
   restoreRoomAnchor(session){
     if(!this.isAR)return;
     this.roomAnchor=null;this.roomAnchorPending=false;this.roomAnchorPersistent=false;this.roomAnchorRestoredHandle=null;this.roomAnchorHandleAvailable=false;this.roomPoseMissingSince=0;
+    // A digital world visit gets a fresh view anchor. The existing saved AR
+    // room handle belongs to physical placement, not to the digital scene.
+    if(this.world.digitalWorldVisit)return;
     // A world explicitly saved as virtual has no proven relationship to the
     // browser's last AR anchor. Keep its virtual-floor preview visible even if
     // that unrelated handle is stale, inaccessible, or restores successfully.
@@ -558,6 +561,7 @@ export class MatrixView {
     Promise.resolve(created).then(async anchor=>{
       if(this.renderer.xr.getSession()!==session)return;
       this.roomAnchor=anchor;
+      if(this.world.digitalWorldVisit)return;
       if(typeof anchor.requestPersistentHandle==='function'){
         const handle=await anchor.requestPersistentHandle();
         if(this.renderer.xr.getSession()===session){
@@ -598,9 +602,10 @@ export class MatrixView {
     this.virtualFloorRoot.quaternion.set(x,y,z,w);
     this.roomAnchorLocated=true;
     this.virtualFloorCalibrated=true;
-    const newlyBound=!!this.roomAnchorRestoredHandle&&
+    const newlyBound=!this.world.digitalWorldVisit&&!!this.roomAnchorRestoredHandle&&
       (this.world.originBinding!=='ar'||this.world.originAnchorHandle!==this.roomAnchorRestoredHandle);
-    if(this.roomAnchorRestoredHandle)this.world.originAnchorHandle=this.roomAnchorRestoredHandle;
+    if(this.roomAnchorRestoredHandle&&!this.world.digitalWorldVisit)
+      this.world.originAnchorHandle=this.roomAnchorRestoredHandle;
     if(newlyBound)this.world.originBinding='ar';
     this.world.setOriginUnavailable(false);
     setRoomContentVisible(this,true);
@@ -1012,6 +1017,10 @@ export class MatrixView {
     if(event.button===2){this.pointerLook={pointerId:event.pointerId,x:event.clientX,y:event.clientY};return;}
     this.rayFromPointer(event);
     const id=this.selectFromRay();
+    if(id&&this.world.digitalWorldVisit){
+      this.onAssetError('This AR visit shows the live digital world. Leave AR to edit its objects.');
+      return;
+    }
     if(id){const animation=animationSelectionState(this.world.requireObject(id),this.objectRoots.get(id));
       if(animation==='loading'){this.onAssetError('Animation is still loading; select again when the GLB appears.');return;}}
     if(id&&this.isPlayMode()&&this.activateWorldControl(id))return;
@@ -1091,6 +1100,10 @@ export class MatrixView {
       return;
     }
     const id=this.selectFromRay();
+    if(id&&this.world.digitalWorldVisit){
+      this.onAssetError('This AR visit shows the live digital world. Leave AR to edit its objects.');
+      return;
+    }
     if(id){const animation=animationSelectionState(this.world.requireObject(id),this.objectRoots.get(id));
       if(animation==='loading'){this.onAssetError('Animation is still loading; select again when the GLB appears.');return;}}
     if(id&&(this.world.spatial?.stale||this.world.spatial?.originUnavailable)){
@@ -1128,6 +1141,9 @@ export class MatrixView {
     this.operatorVoiceController=null;this.onVoiceEnd();
   }
   commitMove(objectId,transform){
+    if(this.world.digitalWorldVisit){
+      this.sync();this.onAssetError('Leave the AR visit before moving digital objects.');return;
+    }
     if(this.isPlayMode()){
       this.sync();this.onAssetError('Return to Creator Mode before changing an authored transform.');return;
     }
@@ -1148,6 +1164,7 @@ export class MatrixView {
         if(object.animation?.selectClip&&!this.world.spatial?.stale&&!this.world.spatial?.originUnavailable)
           this.objectRoots.get(id)?.userData.selectAnimation?.();
         return id;}}
+    if(this.isAR&&this.world.digitalWorldVisit)return null;
     if(this.isAR){const hits=this.raycaster.intersectObjects([...this.planeOutlines.values()],true);
       const hit=hits.find(item=>item.object.isMesh&&item.object.userData.anchorId);
       if(hit){const anchorId=hit.object.userData.anchorId;const root=this.planeOutlines.get(anchorId);const local=root.worldToLocal(hit.point.clone());this.world.setSelection('',plain(local),anchorId);this.onSelection();return;}

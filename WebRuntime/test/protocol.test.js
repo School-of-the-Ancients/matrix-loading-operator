@@ -20,6 +20,51 @@ test('web runtime emits the existing Matrix schema and catalog',()=>{
   assert.deepEqual(ASSETS.map(a=>a.assetId),['chair','table','wall','pedestal','block','orb','column']);
 });
 
+test('eligible Citizens AR visit retains canonical scene and rejects ordinary edits',()=>{
+  let sequence=0;
+  const world=new MatrixWorld(()=>`visit-object-${++sequence}`);
+  const simulation=createCitizensDemo(world,{seed:17});
+  world.citizens=simulation.step();
+  const scene=world.scene,ids=scene.objects.map(object=>object.objectId);
+  const state=structuredClone(world.citizens);
+  world.enterAR();
+  assert.equal(world.digitalWorldVisit,true);
+  assert.equal(world.scene,scene);
+  assert.equal(world.scene.roomId,ROOM_ID);
+  assert.deepEqual(world.scene.objects.map(object=>object.objectId),ids);
+  assert.deepEqual(world.citizens,state);
+  assert.equal(world.snapshot().digitalWorldVisit,true);
+  const resident=world.citizens.residents[0];
+  const transform=structuredClone(world.requireObject(resident.objectId).transform);
+  transform.position.x+=.1;
+  assert.match(world.execute(command('visitor-move','set_transform',
+    {objectId:resident.objectId,transform}),{recordHistory:false}).error,/AR visit/);
+  assert.match(world.execute(command('visitor-spawn','spawn',
+    {assetId:'orb',anchorId:ANCHOR_ID,transform:pose()})).error,/AR visit/);
+  assert.equal(world.execute(command('visitor-read','get_scene')).ok,true);
+  assert.equal(world.scene,scene);
+  world.leaveAR();
+  assert.equal(world.scene,scene);
+  assert.deepEqual(world.citizens,state);
+  assert.equal(world.snapshot().digitalWorldVisit,undefined);
+});
+
+test('AR-bound Citizens keep the legacy placement and origin guard',()=>{
+  let sequence=0;
+  const world=new MatrixWorld(()=>`legacy-object-${++sequence}`);
+  world.citizens=createCitizensDemo(world,{seed:17}).snapshot();
+  world.originBinding='ar';world.originAnchorHandle='saved-handle';
+  const scene=world.scene,before=structuredClone(scene);
+  assert.equal(world.canVisitDigitalWorld(),false);
+  world.enterAR();
+  assert.equal(world.digitalWorldVisit,false);
+  assert.notEqual(world.scene,scene);
+  assert.match(world.scene.roomId,/^webxr-session-/);
+  world.leaveAR();
+  assert.deepEqual(world.scene,before);
+  assert.equal(world.originAnchorHandle,'saved-handle');
+});
+
 test('spawn, transform, behavior, undo and restore preserve stable identity',()=>{
   let n=0;const world=new MatrixWorld(()=>`object-${++n}`);
   const created=world.execute(command('1','spawn',{assetId:'table',anchorId:ANCHOR_ID,transform:pose()}));

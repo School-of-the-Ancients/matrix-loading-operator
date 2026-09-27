@@ -73,7 +73,7 @@ test('AR recovery archive preserves v3 Citizens and clear removes their active s
   simulation.step();world.citizens=simulation.snapshot();
   const before=storedWorld(world);
   assert.equal(before.version,3);
-  world.enterAR();world.setOriginUnavailable(true);
+  world.enterAR({visitDigitalWorld:false});world.setOriginUnavailable(true);
   const archive=archiveAndClearRoom(world,local);
   assert.deepEqual(archive.world,before);
   assert.deepEqual(roomArchives(local)[0].world,before);
@@ -81,6 +81,48 @@ test('AR recovery archive preserves v3 Citizens and clear removes their active s
   world.setOriginUnavailable(false);world.leaveAR();
   assert.equal(storedWorld(world).version,2);
   assert.equal(world.scene.objects.length,0);
+});
+
+test('digital Citizens visit anchors only its view and cannot reset the world on pose loss',async()=>{
+  const priorStorage=globalThis.localStorage,priorTransform=globalThis.XRRigidTransform;
+  const local=storage();local.setItem(ROOM_ANCHOR_KEY,'unrelated-physical-room');
+  globalThis.localStorage=local;
+  globalThis.XRRigidTransform=class {constructor(position,orientation){this.position=position;this.orientation=orientation;}};
+  try{
+    let sequence=0,persistentRequests=0;
+    const world=new MatrixWorld(()=>`visit-origin-${++sequence}`);
+    world.citizens=createCitizensDemo(world,{seed:17}).step();
+    const digital=storedWorld(world);
+    world.enterAR();
+    const session={restorePersistentAnchor(){throw Error('Unrelated physical anchor was restored');}};
+    const anchor={anchorSpace:{},requestPersistentHandle(){persistentRequests++;return 'wrong';}};
+    const view={world,isAR:true,roomAnchor:null,roomAnchorPending:false,
+      roomAnchorCreationFailed:false,roomAnchorRestoreFailed:false,
+      xrViewer:{position:new THREE.Vector3(0,1.7,0),direction:new THREE.Vector3(0,0,-1)},
+      virtualFloorRoot:new THREE.Group(),anchorRoots:new Map(),
+      renderer:{xr:{getSession:()=>session}},onRuntimeChange(){},onAssetError(){}};
+    MatrixView.prototype.restoreRoomAnchor.call(view,session);
+    assert.equal(view.roomAnchor,null);
+    MatrixView.prototype.createRoomAnchor.call(view,
+      {session,createAnchor:()=>Promise.resolve(anchor)}, {},0);
+    await new Promise(resolve=>setImmediate(resolve));
+    assert.equal(view.roomAnchor,anchor);
+    assert.equal(persistentRequests,0);
+    assert.equal(local.getItem(ROOM_ANCHOR_KEY),'unrelated-physical-room');
+    assert.equal(world.originBinding,'virtual');
+    MatrixView.prototype.updateRoomAnchor.call(view,{getPose:()=>({transform:{
+      position:{x:1,y:0,z:2},orientation:{x:0,y:0,z:0,w:1}}})},{});
+    assert.equal(view.virtualFloorRoot.visible,true);
+    MatrixView.prototype.updateRoomAnchor.call(view,{getPose:()=>null},{});
+    assert.equal(view.virtualFloorRoot.visible,false);
+    assert.equal(world.snapshot().readOnly,true);
+    assert.throws(()=>archiveAndClearRoom(world,local),/AR visit origin belongs to the view/);
+    assert.throws(()=>archiveAndRebaseRoom(world,local),/AR visit origin belongs to the view/);
+    assert.deepEqual(storedWorld(world),digital);
+  }finally{
+    if(priorStorage===undefined)delete globalThis.localStorage;else globalThis.localStorage=priorStorage;
+    if(priorTransform===undefined)delete globalThis.XRRigidTransform;else globalThis.XRRigidTransform=priorTransform;
+  }
 });
 
 test('a passive AR preview with only a session anchor stays virtual after browser reopen',()=>{

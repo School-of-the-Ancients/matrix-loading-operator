@@ -1308,15 +1308,27 @@ def snapshot(value):
         require(room and room["mode"] == "ar" and room["state"] != "ready",
                 "Read-only recovery requires an unavailable AR room")
         result["readOnly"] = True
+    visit = value.get("digitalWorldVisit", False)
+    require(type(visit) is bool, "Invalid digital-world visit marker")
+    if visit:
+        require(descriptor is not None and descriptor["presentation"] == "ar" and
+                room is not None and room["mode"] == "ar" and
+                result["scene"]["roomId"] == "web-virtual-room-v1" and
+                all(item["anchorId"] == "web-floor" for item in result["scene"]["objects"]) and
+                result.get("worldSlotSchemaVersion") == 1 and
+                result.get("citizensState") is not None,
+                "AR visit requires one canonical virtual Citizens world")
+        result["digitalWorldVisit"] = True
     observation = value.get("citizensObservation")
     if observation is not None:
         require(type(observation) is dict and set(observation) ==
                 {"residentObjectIds", "authoredGeneration"}, "Invalid Citizens observation")
         ids = observation["residentObjectIds"]
         generation = observation["authoredGeneration"]
+        desktop = room is not None and room["mode"] == "white-room" and room["state"] == "ready" and not read_only
         require(result["scene"]["roomId"] == "web-virtual-room-v1" and
-                room is not None and room["mode"] == "white-room" and room["state"] == "ready" and
-                not read_only, "Citizens observations require the ready desktop virtual room")
+                (desktop or visit),
+                "Citizens observations require the ready desktop room or canonical AR visit")
         require(type(ids) is list and len(ids) <= 4 and
                 all(type(object_id) is str and object_id for object_id in ids) and
                 ids == sorted(set(ids)), "Invalid Citizens resident IDs")
@@ -1332,6 +1344,12 @@ def snapshot(value):
                     for object_id in ids), "Citizens observation references an incompatible resident")
         result["citizensObservation"] = {"residentObjectIds": ids[:],
                                          "authoredGeneration": generation}
+    if visit:
+        residents = result["citizensState"]["residents"]
+        require(observation is not None and
+                result["citizensObservation"]["residentObjectIds"] ==
+                sorted({resident["objectId"] for resident in residents}),
+                "AR visit requires exact Citizens motion observation")
     return result
 
 
@@ -1358,7 +1376,8 @@ def scene_revision_data(value, *, include_observed_motion=False):
     # Browser planes refine their poses and polygons while the wearer moves. Their
     # session-local IDs identify the same targets; the browser checks current fit
     # again when it executes a command. Do not stale a proposal for pose jitter.
-    if result["scene"]["roomId"].startswith("webxr-session-"):
+    if (result["scene"]["roomId"].startswith("webxr-session-") or
+            result.get("digitalWorldVisit") is True):
         result["anchors"] = [{"anchorId": anchor["anchorId"], "displayName": anchor["displayName"],
                               "source": anchor.get("source"),
                               "labels": anchor.get("semanticLabels"),
@@ -2430,7 +2449,8 @@ def agent_capability_context(current):
             "capabilityVersions": versions,
             "assetCatalogCount": len(current["assets"]),
             "proceduralGeneratorCount": len(current.get("proceduralGenerators", [])),
-            "creatorMode": current.get("creatorMode")}
+            "creatorMode": current.get("creatorMode"),
+            "digitalWorldVisit": current.get("digitalWorldVisit", False)}
 
 
 def agent_room_status(current):
@@ -2874,11 +2894,15 @@ class State:
                         result.pop("outcome", None)
                     del self.pending[result["requestId"]]
                     self.results.append(result)
-            if current is None or (current.get("readOnly") and not (self.latest or {}).get("readOnly")):
-                self.clients.commands_unconfirmed(self.pending, "Room became unavailable after dispatch; the effect is unknown. Reconcile before retrying.")
+            visit_started = (current is not None and current.get("digitalWorldVisit", False) and
+                             not (self.latest or {}).get("digitalWorldVisit", False))
+            if current is None or (current.get("readOnly") and not (self.latest or {}).get("readOnly")) or visit_started:
+                reason = ("AR digital-world visit began after dispatch" if visit_started else
+                          "Room became unavailable after dispatch")
+                self.clients.commands_unconfirmed(self.pending, reason + "; the effect is unknown. Reconcile before retrying.")
                 for request_id in self.pending:
                     self.results.append({"requestId": request_id, "ok": False, "objectId": "",
-                                         "error": "Room became unavailable; command outcome unknown. " + runtime["message"]})
+                                         "error": reason + "; command outcome unknown. " + runtime["message"]})
                 self.pending.clear()
                 self.proposals.clear()
                 for job in self.voice_jobs.values():
@@ -3067,6 +3091,8 @@ class State:
             require(not self.learning or not self.learning.restore, "Finish the pending lesson restore before editing", 409)
             require(self.online(), "Headset client is offline", 409)
             require(self.latest is not None, self.room_unavailable_message(), 409)
+            require(not self.latest.get("digitalWorldVisit"),
+                    "AR digital-world visit is observing the canonical world; return to Creator Mode for edits", 409)
             require(not self.content.busy(), "Wait for content installation before editing", 409)
             room = self.runtime
             for item in checked:
