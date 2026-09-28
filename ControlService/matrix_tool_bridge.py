@@ -44,10 +44,22 @@ def read_scene(url: str, token: str) -> dict:
     return _request_json(url, token)
 
 
+def room_spatial_context(url: str, token: str) -> dict:
+    if not url.endswith("/scene"):
+        raise ValueError("Invalid Matrix tool bridge URL")
+    return _request_json(url[:-6] + "/room-spatial", token)
+
+
 def move_object(url: str, token: str, value: dict) -> dict:
     if not url.endswith("/scene"):
         raise ValueError("Invalid Matrix tool bridge URL")
     return _request_json(url[:-6] + "/move", token, value)
+
+
+def move_with_room_constraint(url: str, token: str, value: dict) -> dict:
+    if not url.endswith("/scene"):
+        raise ValueError("Invalid Matrix tool bridge URL")
+    return _request_json(url[:-6] + "/move-room", token, value)
 
 
 def move_status(url: str, token: str, request_id: str) -> dict:
@@ -60,6 +72,12 @@ def spawn_asset(url: str, token: str, value: dict) -> dict:
     if not url.endswith("/scene"):
         raise ValueError("Invalid Matrix tool bridge URL")
     return _request_json(url[:-6] + "/spawn", token, value)
+
+
+def spawn_surface(url: str, token: str, value: dict) -> dict:
+    if not url.endswith("/scene"):
+        raise ValueError("Invalid Matrix tool bridge URL")
+    return _request_json(url[:-6] + "/spawn-surface", token, value)
 
 
 def spawn_builtin(url: str, token: str, value: dict) -> dict:
@@ -364,13 +382,13 @@ def scene_summary(state) -> dict:
 
 
 CONCEPT_SCENE_MUTATIONS = frozenset({
-    "/move", "/spawn", "/spawn-builtin", "/procedural", "/bind-game",
+    "/move", "/move-room", "/spawn", "/spawn-surface", "/spawn-builtin", "/procedural", "/bind-game",
     "/update-game", "/display", "/control", "/rigid", "/entity-action",
     "/world-archive", "/bind-animation", "/component-action", "/physics",
     "/interaction", "/scale", "/environment"})
 
 BRIDGE_POST_PATHS = frozenset({
-    "/move", "/spawn", "/spawn-builtin", "/procedural", "/bind-game", "/update-game",
+    "/move", "/move-room", "/spawn", "/spawn-surface", "/spawn-builtin", "/procedural", "/bind-game", "/update-game",
     "/display", "/control", "/rigid", "/inspect-entity", "/entity-action",
     "/world-archive", "/bind-animation", "/register-glb", "/publish-component",
     "/component-action", "/scale", "/physics", "/interaction", "/concept-build",
@@ -430,6 +448,12 @@ class _Handler(BaseHTTPRequestHandler):
             return
         if self.path == "/scene":
             self._send_json(200, scene_summary(self.server.state))
+        elif self.path == "/room-spatial":
+            try:
+                self._send_json(200, self.server.state.agent_room_spatial())
+            except Exception as error:
+                self._send_json(getattr(error, "status", 500),
+                                {"error": str(error) if hasattr(error, "status") else "Matrix tool failed"})
         elif re.fullmatch(r"/moves/[0-9a-f]{32}", self.path):
             try:
                 self._send_json(200, self.server.state.agent_move_status(self.path.rsplit("/", 1)[1]))
@@ -705,6 +729,18 @@ class _Handler(BaseHTTPRequestHandler):
                 while result["status"] == "queued" and time.monotonic() < deadline:
                     time.sleep(.1)
                     result = self.server.state.agent_spawn_status(result["requestId"])
+            elif self.path == "/spawn-surface":
+                result = self.server.state.agent_spawn_surface(value)
+                deadline = time.monotonic() + MOVE_WAIT
+                while result["status"] == "queued" and time.monotonic() < deadline:
+                    time.sleep(.1)
+                    result = self.server.state.agent_spawn_status(result["requestId"])
+            elif self.path == "/move-room":
+                result = self.server.state.agent_move_room(value)
+                deadline = time.monotonic() + MOVE_WAIT
+                while result["status"] == "queued" and time.monotonic() < deadline:
+                    time.sleep(.1)
+                    result = self.server.state.agent_move_status(result["requestId"])
             else:
                 result = self.server.state.agent_move(value)
                 deadline = time.monotonic() + MOVE_WAIT

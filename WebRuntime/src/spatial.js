@@ -103,6 +103,43 @@ export function footprintInsideBoundary(corners,boundary){
   return true;
 }
 
+const finiteVector=value=>value&&['x','y','z'].every(axis=>Number.isFinite(value[axis]));
+const finiteTransform=value=>value&&finiteVector(value.position)&&
+  finiteVector(value.rotation)&&finiteVector(value.scale)&&
+  ['x','y','z'].every(axis=>value.scale[axis]>0);
+const matrixFromTransform=transform=>new THREE.Matrix4().compose(
+  new THREE.Vector3(transform.position.x,transform.position.y,transform.position.z),
+  new THREE.Quaternion().setFromEuler(new THREE.Euler(
+    THREE.MathUtils.degToRad(transform.rotation.x),
+    THREE.MathUtils.degToRad(transform.rotation.y),
+    THREE.MathUtils.degToRad(transform.rotation.z),'XYZ')),
+  new THREE.Vector3(transform.scale.x,transform.scale.y,transform.scale.z));
+
+// The object remains a virtual-floor entity. Convert its floor-aligned bounds
+// through the tracked web-floor pose into the current measured support frame.
+export function footprintFitsRoomSupport(transform,bounds,spawnScale,webFloorPose,anchor){
+  if(!finiteTransform(transform)||!finiteTransform(webFloorPose)||
+     !finiteTransform(anchor?.roomPose)||!finiteVector(bounds?.size)||
+     bounds.size.x<=0||bounds.size.z<=0||
+     !Number.isFinite(spawnScale)||spawnScale<=0||
+     anchor?.source!=='webxr'||anchor.surface?.kind!=='support'||
+     !Array.isArray(anchor.surface.boundary)||
+     Math.abs(transform.rotation.x)>.01||Math.abs(transform.rotation.z)>.01)
+    return {ok:false,reason:'Room constraint needs upright measured object and support geometry'};
+  const toSupport=matrixFromTransform(anchor.roomPose).invert()
+    .multiply(matrixFromTransform(webFloorPose))
+    .multiply(matrixFromTransform(transform));
+  const halfX=bounds.size.x*spawnScale/2,halfZ=bounds.size.z*spawnScale/2;
+  const corners=[[-halfX,-halfZ],[halfX,-halfZ],[halfX,halfZ],[-halfX,halfZ]]
+    .map(([x,z])=>new THREE.Vector3(x,0,z).applyMatrix4(toSupport));
+  const feet=new THREE.Vector3(0,0,0).applyMatrix4(toSupport);
+  if(![feet,...corners].every(point=>Number.isFinite(point.y)&&Math.abs(point.y)<=.08))
+    return {ok:false,reason:'Object feet do not meet the measured support plane'};
+  if(!footprintInsideBoundary(corners,anchor.surface.boundary))
+    return {ok:false,reason:'Object footprint extends beyond the measured room surface'};
+  return {ok:true};
+}
+
 function extent(boundary,axis){
   const values=boundary.map(point=>point[axis]);return Math.max(...values)-Math.min(...values);
 }

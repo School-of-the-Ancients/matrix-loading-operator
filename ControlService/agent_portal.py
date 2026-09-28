@@ -168,6 +168,24 @@ def build_matrix_turn_message(user_text: str, context: dict,
                      " A panorama is distant visual art, not geometry or a physical-room measurement. "
                      "It is hidden in passthrough AR by default. Use the typed environment tools and "
                      "matching receipt for changes; preserve scene objects.")
+    spatial = context.get("roomSpatial")
+    if type(spatial) is dict:
+        if spatial.get("usable") is True:
+            lines.append("This turn includes bounded, measured WebXR room surfaces in a verified "
+                         "coordinate frame. Surface IDs and polygons are session observations, "
+                         "not saved room assets. Refresh matrix_room_spatial_context immediately "
+                         "before a physical-room action; use its current spatial token. "
+                         "A measured-surface spawn also requires surfaceSpawnAvailable. "
+                         "Use matrix_move_with_room_constraint to reposition an existing "
+                         "virtual-floor object against a measured support while retaining "
+                         "its ID. The browser checks the final footprint. "
+                         "Explain which measured constraint influenced the result without "
+                         "exposing private room geometry in a public artifact.")
+        else:
+            lines.append("Physical-room layout is currently unverified or unavailable. "
+                         "Do not claim a room-fitted result from passthrough, plane outlines, "
+                         "camera pixels, or a prior turn. A digital-world composition can "
+                         "continue in its own coordinates if the user wants it.")
     selected_creation_mode = (selected_concept.get("creationMode", "auto")
                               if selected_concept is not None else None)
     if selected_concept is not None:
@@ -237,6 +255,27 @@ def build_matrix_turn_message(user_text: str, context: dict,
             lines.append("Inspect the target's current transform and bindings before changing it.")
         if "matrix_move_object" not in tools:
             lines.append("matrix_move_object is not enabled in this session; discover another supported action or report the limit.")
+    if re.search(r"\b(?:create|build|make|compose|reorganiz\w*|arrang\w*|fit)\b",
+                 user_text, re.IGNORECASE):
+        lines.append("For a scene-aware composition, capture the current scene revision, "
+                     "object IDs, transforms and available bounds before authoring. "
+                     "Use matrix_list_entities pages if a summary omits objects. Preserve "
+                     "unrelated objects and use normal validated assets or recipes and typed "
+                     "Matrix mutations. Re-read the world/room identity and scene revision "
+                     "before the first edit; if the source changed, stop and replan. Refresh "
+                     "the revision after each successful receipt. Save and reopen to verify "
+                     "persistent digital additions; measured-plane additions live only in "
+                     "the current AR session.")
+    if re.search(r"\b(?:physical|my room|living room|real room|wall|table|surface|"
+                 r"room.aware|fit.*room|reorganiz\w*.*room)\b", user_text, re.IGNORECASE):
+        lines.append("For a physical-room request, recapture matrix_room_spatial_context "
+                     "after entering AR or relocalizing and immediately before an edit. "
+                     "Use measured placement only when it reports fresh usable geometry, "
+                     "a verified origin, and a common coordinate frame. Supply its current "
+                     "spatial token to matrix_spawn_on_surface or "
+                     "matrix_move_with_room_constraint as appropriate. If unavailable, explain the "
+                     "specific limit and keep any proposal in digital coordinates without "
+                     "claiming physical fit.")
     encoded = (json.dumps(context, ensure_ascii=True, separators=(",", ":"))
                .replace("<", "\\u003c").replace(">", "\\u003e"))
     context_tag = ("matrix_runtime_context" if context.get("kind") == "matrix_runtime_context"

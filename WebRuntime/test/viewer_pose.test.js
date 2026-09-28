@@ -15,7 +15,8 @@ function viewFixture({presenting=false,ar=false}={}){
   view.virtualFloorRoot=new THREE.Group();
   view.virtualFloorRoot.updateMatrixWorld(true);
   view.planeOutlines=new Map();
-  view.world={spatial:{anchors:[]},scene:{roomId:'room-1',objects:[]},
+  view.world={runtimePresentation:ar?'ar':presenting?'vr':'desktop',
+    spatial:{anchors:[]},scene:{roomId:'room-1',objects:[]},
     selection:{objectId:''}};
   view.xrViewer=null;
   view.xrViewerCapturedAt=0;
@@ -105,6 +106,8 @@ test('room tracking epoch changes on unavailable origin and first anchor pose lo
   view.world.digitalWorldVisit=false;
   view.world.spatial.originUnavailable=false;
   view.world.setOriginUnavailable=value=>{view.world.spatial.originUnavailable=value;};
+  view.world.setOriginLocated=value=>{view.world.spatial.originLocated=value;};
+  view.world.setSpatialObservation=()=>{};
   view.onRuntimeChange=()=>{};
   view.onAssetError=()=>{};
   view.updateRoomAnchor({getPose:()=>null},{});

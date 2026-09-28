@@ -187,7 +187,9 @@ function updateWorldControls(){
   const originUnavailable=!!world.spatial?.originUnavailable;
   const resetAvailable=!!view.isAR&&!world.digitalWorldVisit&&originUnavailable&&view.roomAnchorRestoreFailed;
   const canRetryOrigin=originUnavailable&&(view.roomAnchorHandleAvailable||view.roomAnchorCreationFailed);
-  const canConfirm=!!world.spatial&&!world.digitalWorldVisit&&!originUnavailable&&!world.spatial.alignmentVerified&&!world.spatial.stale&&
+  const canConfirm=!!world.spatial&&!world.digitalWorldVisit&&!originUnavailable&&
+    world.originFresh()&&world.planeFresh()&&
+    !world.spatial.alignmentVerified&&!world.spatial.stale&&
     world.spatial.anchors.some(anchor=>anchor.surface?.kind==='support');
   $('confirm-room').disabled=!canConfirm;
   for(const id of ['undo','redo','clear','save','restore'])

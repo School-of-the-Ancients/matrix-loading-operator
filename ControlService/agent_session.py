@@ -137,6 +137,12 @@ def _xr_pose_summary(value):
                      for name in ("position", "rotation", "scale"))
 
 
+def _xr_bounded_vector(value, lower, upper):
+    return (type(value) is dict and set(value) == {"x", "y", "z"} and
+            all(type(value[axis]) in (int, float) and math.isfinite(value[axis]) and
+                lower <= value[axis] <= upper for axis in ("x", "y", "z")))
+
+
 def _xr_parameters(value, *, patch=False):
     from procedural_contract import PARAMETER_NAME
     return (type(value) is dict and (0 < len(value) <= 24 if patch else len(value) <= 24) and
@@ -224,7 +230,52 @@ def _new_matrix_approval_summary(tool, arguments):
                         grab_pose, rigid_body_config,
                         rigid_gravity)
     try:
-        if tool == "matrix_spawn_builtin":
+        if tool == "matrix_move_with_room_constraint":
+            required = {"room_id", "scene_revision", "spatial_token", "anchor_id",
+                        "object_id", "expected_asset_id", "position"}
+            if (type(arguments) is dict and
+                    required <= set(arguments) <= required | {"rotation", "scale"} and
+                    _xr_entity_id(arguments["room_id"]) and
+                    arguments["room_id"].startswith("webxr-session-") and
+                    type(arguments["scene_revision"]) is int and
+                    0 <= arguments["scene_revision"] <= 9007199254740991 and
+                    type(arguments["spatial_token"]) is str and
+                    re.fullmatch(r"[0-9a-f]{64}", arguments["spatial_token"]) and
+                    _xr_entity_id(arguments["anchor_id"]) and
+                    arguments["anchor_id"].startswith("webxr-plane-") and
+                    _xr_entity_id(arguments["object_id"]) and
+                    _xr_entity_id(arguments["expected_asset_id"]) and
+                    _xr_bounded_vector(arguments["position"], -100, 100) and
+                    ("rotation" not in arguments or
+                     _xr_bounded_vector(arguments["rotation"], -36000, 36000)) and
+                    ("scale" not in arguments or
+                     _xr_bounded_vector(arguments["scale"], .01, 20))):
+                point = arguments["position"]
+                optional = ""
+                if "rotation" in arguments:
+                    turn = arguments["rotation"]
+                    optional += f", rotation ({turn['x']},{turn['y']},{turn['z']}) degrees"
+                if "scale" in arguments:
+                    size = arguments["scale"]
+                    optional += f", scale ({size['x']},{size['y']},{size['z']})"
+                return (f"Move {arguments['expected_asset_id']} ({arguments['object_id']}) to "
+                        f"web-floor ({point['x']},{point['y']},{point['z']}){optional} "
+                        f"constrained by measured AR surface {arguments['anchor_id']} "
+                        f"in {arguments['room_id']} rev {arguments['scene_revision']}.")
+        elif tool == "matrix_spawn_on_surface":
+            if (_xr_context(arguments, {"spatial_token", "asset_id", "anchor_id", "transform"}) and
+                    arguments["room_id"].startswith("webxr-session-") and
+                    type(arguments["spatial_token"]) is str and
+                    re.fullmatch(r"[0-9a-f]{64}", arguments["spatial_token"]) and
+                    _xr_entity_id(arguments["asset_id"]) and
+                    _xr_entity_id(arguments["anchor_id"]) and
+                    arguments["anchor_id"].startswith("webxr-plane-") and
+                    _xr_pose(arguments["transform"])):
+                return (f"Place {arguments['asset_id']} on measured AR surface "
+                        f"{arguments['anchor_id']} in {arguments['room_id']} "
+                        f"rev {arguments['scene_revision']}: "
+                        f"{_xr_pose_summary(arguments['transform'])}. Session-only surface object.")
+        elif tool == "matrix_spawn_builtin":
             if (_xr_context(arguments, {"asset_id", "transform"}) and
                     type(arguments["asset_id"]) is str and
                     re.fullmatch(r"[A-Za-z][A-Za-z0-9._-]{0,127}", arguments["asset_id"]) and
@@ -371,9 +422,11 @@ def _mcp_approval_description(params: dict) -> tuple[str, bool]:
             meta.get("codex_approval_kind") != "mcp_tool_call"):
         return "Codex requests an MCP tool. Review it on PC before approval.", False
     arguments = meta.get("tool_params")
-    if (arguments == {} and params.get("message") ==
-            'Allow the matrix_webxr MCP server to run tool "matrix_scene_summary"?'):
-        return "Read the current Matrix room summary. This does not change the world.", True
+    if arguments == {}:
+        if params.get("message") == 'Allow the matrix_webxr MCP server to run tool "matrix_scene_summary"?':
+            return "Read the current Matrix room summary. This does not change the world.", True
+        if params.get("message") == 'Allow the matrix_webxr MCP server to run tool "matrix_room_spatial_context"?':
+            return "Read current bounded WebXR room geometry. This does not change the world.", True
     scale_tool = params.get("message")
     if scale_tool in (
             'Allow the matrix_webxr MCP server to run tool "matrix_scale_block"?',
@@ -716,13 +769,16 @@ class LocalCodexAgentBackend:
             script = Path(__file__).with_name("matrix_mcp.py")
             settings = {"command": sys.executable, "args": [str(script)],
                         "env_vars": ["MATRIX_CONTROL_URL", "MATRIX_CONTROL_TOKEN"],
-                        "enabled_tools": ["matrix_scene_summary", "matrix_move_object", "matrix_move_status",
+                        "enabled_tools": ["matrix_scene_summary", "matrix_room_spatial_context",
+                                          "matrix_move_object", "matrix_move_with_room_constraint",
+                                          "matrix_move_status",
                                           "matrix_scale_block", "matrix_reset_block_scale", "matrix_scale_status",
                                           "matrix_list_assets", "matrix_register_glb",
                                           "matrix_list_environments", "matrix_register_panorama",
                                           "matrix_get_environment", "matrix_set_environment",
                                           "matrix_remove_environment", "matrix_environment_status",
-                                          "matrix_spawn_asset", "matrix_spawn_builtin", "matrix_spawn_status",
+                                          "matrix_spawn_asset", "matrix_spawn_builtin",
+                                          "matrix_spawn_on_surface", "matrix_spawn_status",
                                           "matrix_list_procedural_generators",
                                           "matrix_create_procedural", "matrix_update_procedural",
                                           "matrix_procedural_status", "matrix_record_concept_build",
@@ -751,10 +807,12 @@ class LocalCodexAgentBackend:
             for key, value in settings.items():
                 command += ["-c", f"mcp_servers.matrix_webxr.{key}={json.dumps(value)}"]
             if config.agent_approval_policy == "on-request":
-                for name in ("matrix_move_object", "matrix_scale_block", "matrix_reset_block_scale",
+                for name in ("matrix_move_object", "matrix_move_with_room_constraint",
+                             "matrix_scale_block", "matrix_reset_block_scale",
                              "matrix_register_glb", "matrix_spawn_asset", "matrix_spawn_builtin",
                              "matrix_register_panorama", "matrix_set_environment",
                              "matrix_remove_environment",
+                             "matrix_spawn_on_surface",
                              "matrix_create_procedural", "matrix_update_procedural",
                              "matrix_bind_game", "matrix_update_game",
                              "matrix_set_display", "matrix_remove_display",

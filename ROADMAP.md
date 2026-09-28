@@ -16,6 +16,11 @@ Canonical implementation epic: [#152](https://github.com/School-of-the-Ancients/
 
 Complete these milestones in order:
 
+Owner sequencing update (2026-09-28): #150 entered `main` through PR #159 after
+the prompt-to-panorama and Quest review. Continue #149 and then #26 on that
+integrated baseline. Test the exact combined source and package before the
+v1.0 release.
+
 ### 1. Grab + thumbstick transforms — #147
 
 Improve direct VR/AR manipulation while preserving the existing ray-grab, animation, physics and persistence behavior.
@@ -50,7 +55,7 @@ Keep camera imagery separate from measured room geometry. #149 supplies metric/s
 
 ## v1.0 release gate
 
-After #147 → #91 → #150 → #149 → #26:
+After the included feature milestones:
 
 1. stop feature work;
 2. run the integrated Quest VR/AR journey defined in #152;
