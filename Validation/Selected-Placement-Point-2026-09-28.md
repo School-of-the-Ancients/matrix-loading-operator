@@ -16,7 +16,7 @@ The read-only archive in `Archive/Unity/Assets/Sandbox/Runtime/QuestRoomAdapter.
 
 The old “Room target” surface selector belongs to the archived Unity Operator compatibility page in `ControlService/index.html`. It is disabled when a WebXR client is connected. The current `/web/` interaction now uses a point selected with the ray rather than that selector.
 
-## Evidence
+## Original #168 head evidence (`9fe1d9a`)
 
 - `WebRuntime`: `npm test` passed, 687 tests. `npm run build` passed. Focused point, view, Agent context, Blender placement, world-slot, and PC-checkpoint tests cover retention, repeated hits, object selection coexistence, boundary rejection, stale alignment/origin handling, controller ray misses, and same-room world replacement with rollback.
 - `ControlService`: `python -m unittest discover` passed, 880 tests. Focused Agent context HTTP test accepts a valid measured point and rejects a missing support, outside point, and unverified alignment. Prompt coverage distinguishes a synthetic virtual-floor pin from an AR measured-support hit.
@@ -26,3 +26,9 @@ The old “Room target” surface selector belongs to the archived Unity Operato
 These checks do not claim physical collision, safe object fit, or successful live world mutation. The existing typed tool guards and receipts decide those operations.
 
 The Blender bridge test also checks that the exchanged PC selection matches the pinned destination projection while the selected object ID remains intact, including an AR pin on another measured support. A changed PC selection or marker is rejected. The Agent prompt identifies `web-floor` raycast points as virtual rather than measured room evidence.
+
+## Restack on durable room-aware placement
+
+PR #168 was restacked on #160 at `e152aa9`. A Blender-created GLB aimed at a measured AR support now queues `placement: 'surface'` with the current support ID and tracking epoch as `roomConstraint`. Capture and delivery require the same fresh aligned room and origin as the runtime's guarded surface spawn. The browser converts a successful spawn to a canonical `web-floor` object and checks measured overlap; the Blender bridge confirms the PC receipt's `room-surface-spawn` outcome, support ID, and exact stored transform. A failed or uncertain placement leaves the registered GLB in the catalog and does not queue a retry.
+
+On this restacked source, WebRuntime `npm test` passed 697/697 and `npm run build` passed. ControlService `python -m unittest discover -q` passed 884/884. The added Blender regression executes a guarded spawn in `MatrixWorld`, confirms its PC and browser receipt, saves it, exits AR, and restores the same object ID and transform. It also covers lost support before and after queue guard, stale measured context, missing durable outcome, and one queue on an uncertain receipt. These are automated checks; current-head Quest wearer placement and marker readability remain open.
