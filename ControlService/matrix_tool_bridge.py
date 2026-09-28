@@ -65,10 +65,14 @@ def read_scene(url: str, token: str) -> dict:
     return _request_json(url, token)
 
 
-def room_spatial_context(url: str, token: str) -> dict:
+def room_spatial_context(url: str, token: str, anchor_id: str | None = None) -> dict:
     if not url.endswith("/scene"):
         raise ValueError("Invalid Matrix tool bridge URL")
-    return _request_json(url[:-6] + "/room-spatial", token)
+    if anchor_id is not None and (type(anchor_id) is not str or
+                                  re.fullmatch(r"[A-Za-z0-9._:-]{1,128}", anchor_id) is None):
+        raise ValueError("Invalid measured room anchor ID")
+    suffix = "" if anchor_id is None else "/" + anchor_id
+    return _request_json(url[:-6] + "/room-spatial" + suffix, token)
 
 
 def move_object(url: str, token: str, value: dict) -> dict:
@@ -469,9 +473,12 @@ class _Handler(BaseHTTPRequestHandler):
             return
         if self.path == "/scene":
             self._send_json(200, scene_summary(self.server.state))
-        elif self.path == "/room-spatial":
+        elif (self.path == "/room-spatial" or
+              re.fullmatch(r"/room-spatial/[A-Za-z0-9._:-]{1,128}", self.path)):
             try:
-                self._send_json(200, self.server.state.agent_room_spatial())
+                anchor_id = (None if self.path == "/room-spatial" else
+                             self.path[len("/room-spatial/"):])
+                self._send_json(200, self.server.state.agent_room_spatial(anchor_id))
             except Exception as error:
                 self._send_json(getattr(error, "status", 500),
                                 {"error": str(error) if hasattr(error, "status") else "Matrix tool failed"})

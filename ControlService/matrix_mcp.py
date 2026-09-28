@@ -44,18 +44,19 @@ def matrix_scene_summary() -> dict:
 
 
 @server.tool(annotations=ToolAnnotations(readOnlyHint=True))
-def matrix_room_spatial_context() -> dict:
+def matrix_room_spatial_context(anchor_id: str | None = None) -> dict:
     """Recapture current bounded WebXR room planes and placement readiness.
 
     Use this immediately before a room-aware action and after each VR/AR mode,
-    tracking, or origin change. The spatialToken is an opaque current-context
+    tracking, or origin change. Once a target surface is chosen, pass its
+    anchor_id to include it first even in a dense room. The spatialToken is an opaque current-context
     guard, not an anchor or proof that a physical room is aligned. Check usable,
     alignmentVerified, coordinateFrame, planeAgeMs, and the target plane's
     measured support boundary. If unusable, explain the reason and do not claim
     that an unanchored virtual-floor edit fits the physical room.
     """
     return room_spatial_context(os.environ["MATRIX_CONTROL_URL"],
-                                os.environ["MATRIX_CONTROL_TOKEN"])
+                                os.environ["MATRIX_CONTROL_TOKEN"], anchor_id)
 
 
 @server.tool(annotations=ToolAnnotations(readOnlyHint=False, destructiveHint=False,

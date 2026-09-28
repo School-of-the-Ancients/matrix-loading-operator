@@ -171,6 +171,12 @@ class MatrixToolBridgeTests(unittest.TestCase):
         self.assertTrue(spatial["usable"])
         self.assertEqual(spatial["planeCount"], 1)
         self.assertEqual(spatial["planes"][0]["anchorId"], "webxr-plane-1")
+        targeted = room_spatial_context(self.bridge.url, self.bridge.token,
+                                        "webxr-plane-1")
+        self.assertEqual(targeted["planes"][0]["spatialToken"],
+                         spatial["planes"][0]["spatialToken"])
+        with self.assertRaises(ValueError):
+            room_spatial_context(self.bridge.url, self.bridge.token, "../other")
         self.assertEqual(spatial["coordinateFrame"], "xr-reference-space")
         request = {"room_id": spatial["roomId"], "scene_revision": spatial["sceneRevision"],
                    "spatial_token": spatial["spatialToken"], "asset_id": "chair",
