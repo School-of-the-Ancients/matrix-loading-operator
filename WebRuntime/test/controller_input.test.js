@@ -120,35 +120,6 @@ function selectableFirefly(){
   return {view,controller,root,glowCount:()=>glowCount};
 }
 
-test('a successful grab clears the following Operator but preserves a pinned panel',()=>{
-  for(const kind of ['head','world']){
-    const {view,controller,root}=selectableFirefly();
-    const buttons=Array.from({length:4},()=>({pressed:false}));
-    const source={gamepad:{mapping:'xr-standard',buttons}};
-    const mesh=new THREE.Mesh(new THREE.PlaneGeometry(.96,.72));
-    mesh.position.set(10,10,-1);mesh.updateMatrixWorld(true);
-    view.scene=root.parent;
-    view.operatorPanel={group:{visible:true},mesh,setPinLabel(){}};
-    view.operatorMount={kind};view.operatorThumbstickHeld=false;view.isAR=false;
-    view.renderer={xr:{isPresenting:true,getSession:()=>({inputSources:[source]})}};
-    view.hasFreshXrViewer=()=>true;
-    view.positionOperatorPanel=()=>{};
-
-    view.selectFromController(controller,source);
-    assert.equal(view.grab?.objectId,'firefly-1');
-    assert.equal(view.operatorPanel.group.visible,kind==='world',
-      'only a head-following panel clears during a grab');
-    view.releaseGrab(controller);
-    assert.equal(view.operatorPanel.group.visible,kind==='world',
-      'release does not restore a hidden panel');
-    if(kind==='head'){
-      buttons[3].pressed=true;view.updateOperatorShortcut();
-      assert.equal(view.operatorPanel.group.visible,true,
-        'a fresh stick click after release recalls the panel');
-    }
-  }
-});
-
 test('a stick click between frames cannot recall the panel after grab release or cancellation',()=>{
   const {view,controller}=selectableFirefly();
   const buttons=Array.from({length:4},()=>({pressed:false}));

@@ -15,10 +15,7 @@ uses X for side-to-side yaw and Y for up/down pitch, including flips, on the
 same held object. Grabbing with the other hand exchanges these roles. Stick
 click still recalls the Operator panel after the grab ends; a click made during
 the grab must not unexpectedly open it on release. A gold outline follows the
-held object without controller text labels. A successful grab hides a
-head-following Operator panel so its text does not occlude the object; a panel
-deliberately pinned to a wall or world position remains visible. Release does
-not restore a hidden panel; a fresh stick click outside the grab recalls it.
+held object without controller text labels.
 
 The translation dead zone is 0.18. Translation moves at most 0.75 metres per
 second, each frame contributes at most 0.1 seconds, and the stick offset is
@@ -39,12 +36,11 @@ returns it to simulation.
 
 ## Automated validation on the revised two-hand candidate
 
-- WebRuntime: **598/598** Node tests passed, including two-hand source binding,
+- WebRuntime: **597/597** Node tests passed, including two-hand source binding,
   role reversal, yaw/pitch and full-flip math, AR parent transforms, Undo, save
-  and reopen, Play/Test grab behavior, and following-panel hide/pinned-panel
-  preservation with later recall.
+  and reopen, and Play/Test grab behavior.
 - ControlService: **798/798** Python tests passed.
-- Vite production build passed with `view-P0ugTY58.js`; `git diff --check`
+- Vite production build passed with `view-sss3M221.js`; `git diff --check`
   passed. The build has the existing large-chunk size warning.
 
 These results validate source behavior and the built bundle. They do not
@@ -94,8 +90,6 @@ XR features, object ID, initial/final transform, and wearer observations.
    beyond-arm depth, and click plus Y for height. With the free hand's stick,
    use X to yaw both ways and Y to pitch both ways through a visible flip.
    Check the gold outline, the absence of controller text, and UI readability.
-   A head-following Operator panel should clear once the grab begins. Repeat
-   with an intentionally pinned panel and confirm it stays pinned.
    Repeat with the hands exchanged and check that both sticks can affect the
    same held object without position/rotation drift when released to neutral.
 2. Release in Creator Mode. Confirm the same ID, animation, scale and unrelated
