@@ -3308,27 +3308,45 @@ def concept_build_request(value):
     """Recognize an explicit request to use the selected design for a build."""
     if type(value) is not str:
         return False
+    request = re.sub(r"^(?:please\s+)?(?:hey\s+)?operator[,;:\s]+", "", value.strip(),
+                     flags=re.IGNORECASE)
+    request = re.sub(r"^please\s+", "", request, flags=re.IGNORECASE)
+    # Bind/review follow-ups can mention a completed build and say not to
+    # spawn another one; neither phrase authorizes a new selected-image build.
+    request = re.sub(r"\b(?:do not|don't|never|without|no need to)\b[^.!?;,]*?"
+                     r"(?=\b(?:but|then)\b|[.!?;,]|$)", "", request, flags=re.IGNORECASE)
+    request = re.sub(r"\bbuild\s+(?:is|was|has been)\s+(?:already\s+)?"
+                     r"(?:complete|completed|finished|done)\b", "", request,
+                     flags=re.IGNORECASE)
+    followup = re.match(r"(?:(?:can|could|would) you\s+)?(?:bind|review|inspect|check|"
+                        r"verify|show|report|describe|summarize|status|explain|tell|resume|"
+                        r"continue|play)\b", request, re.IGNORECASE)
+    new_build = re.search(r"(?:\b(?:and|then|now|also)\s+|[;,]\s*)"
+                          r"(?:build|construct|model|spawn|import|place|make|create|turn)\b",
+                          request, re.IGNORECASE)
+    if followup and not new_build:
+        return False
     explicit = (re.search(r"\b(?:selected|concept|design|reference|version)\b",
-                          value, re.IGNORECASE) or
+                          request, re.IGNORECASE) or
                 re.search(r"\b(?:this|that|the)\s+image\b|\bimage\s+[0-9a-f]{32}\b",
-                          value, re.IGNORECASE))
+                          request, re.IGNORECASE))
     # "Build this bridge" names an ordinary text creation. A bare pronoun
     # refers to the selected design only when no object noun follows it.
     deictic = re.search(r"\b(?:this|that|it)\b(?=\s*(?:[.!?,;]|$)|\s+"
-                        r"(?:in|into|around|here|there|at|on|for)\b)", value, re.IGNORECASE)
+                        r"(?:in|into|around|here|there|at|on|for)\b)", request, re.IGNORECASE)
     if not explicit and not deictic:
         return False
-    if re.search(r"\b(?:build|construct|model|spawn|import)\b", value, re.IGNORECASE):
+    if re.search(r"\b(?:build|construct|model|spawn|import)\b", request, re.IGNORECASE):
         return True
-    if re.search(r"\bplace\b", value, re.IGNORECASE):
+    if re.search(r"\bplace\b", request, re.IGNORECASE):
         return bool(explicit or deictic and re.search(r"\b(?:matrix|world|scene)\b",
-                                                       value, re.IGNORECASE))
-    if re.search(r"\b(?:make|create|turn)\b", value, re.IGNORECASE):
+                                                       request, re.IGNORECASE))
+    if re.search(r"\b(?:make|create|turn)\b", request, re.IGNORECASE):
         return bool(deictic or explicit and re.search(
             r"\b(?:matrix|world|scene|blender|asset|object|geometry|around|into)\b",
-            value, re.IGNORECASE))
+            request, re.IGNORECASE))
     return bool(re.search(r"\buse\b.{0,40}\b(?:design|concept|reference|image)\b",
-                          value, re.IGNORECASE))
+                          request, re.IGNORECASE))
 
 
 def concept_reference_matches(value, selected):

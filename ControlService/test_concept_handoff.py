@@ -182,6 +182,24 @@ class ConceptHandoffTests(unittest.TestCase):
                         "Use this design"):
             self.assertTrue(concept_build_request(request), request)
 
+    def test_bind_only_completed_build_followup_does_not_start_another_build(self):
+        followup = ("Bind Lantern Beacon on the existing selected Version 4 Blender build. "
+                    "The build is already completed; do not build or spawn a second bridge.")
+        for request in (followup,
+                        "Review the selected Version 4 build status; do not spawn a duplicate.",
+                        "Operator, the selected Version 4 Blender build is already completed. "
+                        "Do not spawn another copy.",
+                        "Do not build this in the Matrix."):
+            self.assertFalse(concept_build_request(request), request)
+        for request in ("Build the selected Version 4 concept in Blender and bind its animation.",
+                        "Review the selected design, then build this in Blender.",
+                        "Build this selected concept. Do not spawn a second copy."):
+            self.assertTrue(concept_build_request(request), request)
+        result = self.build(followup)
+        self.assertNotIn("buildRequestId", result)
+        self.assertIsNone(self.backend.sent[0][2])
+        self.assertEqual(self.state.concepts.status(self.session_id, refresh=False)["builds"], [])
+
     def test_expected_concept_must_match_current_selection(self):
         with self.assertRaisesRegex(APIError, "Selected concept changed"):
             self.build("Create this", expectedConceptId="b" * 32,

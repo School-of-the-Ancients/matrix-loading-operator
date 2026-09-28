@@ -44,3 +44,23 @@ test('concept parsing leaves ordinary build and world requests alone',()=>{
     'Create a concept bridge','Make another chair'])
     assert.equal(isSelectedConceptBuildRequest(text),false,text);
 });
+
+test('reviewing or binding a completed selected build does not create another build',async()=>{
+  const followups=[
+    'Bind Lantern Beacon on the existing selected Version 4 Blender build. The build is already completed; do not build or spawn a second bridge.',
+    'Review the selected Version 4 build status; do not spawn a duplicate.',
+    'The selected Version 4 Blender build is already completed. Do not spawn another copy.',
+    'Do not build this in the Matrix.',
+  ];
+  for(const request of followups){
+    assert.equal(isSelectedConceptBuildRequest(request),false,request);
+    assert.equal(await stopPlannerConceptFallback(request,async()=>{
+      throw Error('Planner should remain available');
+    }),false,request);
+  }
+  for(const request of [
+    'Build the selected Version 4 concept in Blender and bind its animation.',
+    'Review the selected design, then build this in Blender.',
+    'Build this selected concept. Do not spawn a second copy.',
+  ])assert.equal(isSelectedConceptBuildRequest(request),true,request);
+});

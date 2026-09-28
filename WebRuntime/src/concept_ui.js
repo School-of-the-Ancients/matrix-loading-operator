@@ -201,15 +201,21 @@ export class ConceptUI {
     return {conceptId:selected.conceptId,version:selected.version};
   }
   buildStatus(){
-    const build=this.client.builds.at(-1);
+    const builds=this.client.builds||[],build=builds.at(-1);
     if(!build)return '';
     const concept=this.client.concepts.find(item=>item.conceptId===build.conceptId);
     const source=concept?label(concept):'selected concept';
     const strategy=build.strategy?` Strategy: ${short(build.strategy)}.`:'';
     if(build.status==='completed')
       return `Verified Matrix result from ${source}.${strategy} ${build.objectIds?.length||0} object ID(s), ${build.receipts?.length||0} receipt(s).`;
-    if(build.status==='failed')
-      return `No verified Matrix result from ${source}. Inspect the world and receipts before retrying.${strategy}`;
+    if(build.status==='failed'){
+      const earlier=[...builds.slice(0,-1)].reverse().find(item=>item.status==='completed');
+      const previousConcept=earlier&&this.client.concepts.find(item=>item.conceptId===earlier.conceptId);
+      const previousSource=previousConcept?label(previousConcept):'an earlier selected concept';
+      const previous=earlier?
+        ` Earlier verified Matrix result from ${previousSource} remains: ${earlier.objectIds?.length||0} object ID(s), ${earlier.receipts?.length||0} receipt(s).`:'';
+      return `Latest build attempt from ${source} has no verified Matrix result. Inspect the world and receipts before retrying.${strategy}${previous}`;
+    }
     return `Codex build requested from ${source}. Awaiting a verified Matrix result.${strategy}`;
   }
   statusForWorld(){

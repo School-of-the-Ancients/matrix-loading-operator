@@ -157,5 +157,14 @@ test('terminal build without a receipt reports an unverified world result',()=>{
   const ui={client:{builds:[{status:'failed',conceptId:'a'}],concepts:[
     {conceptId:'a',version:4}]}};
   assert.match(ConceptUI.prototype.buildStatus.call(ui),
-    /No verified Matrix result from Version 4\. Inspect the world and receipts before retrying\./);
+    /Latest build attempt from Version 4 has no verified Matrix result\. Inspect the world and receipts before retrying\./);
+});
+
+test('a failed follow-up keeps the last completed selected build visible',()=>{
+  const ui={client:{builds:[
+    {status:'completed',conceptId:'a',objectIds:['bridge'],receipts:['receipt']},
+    {status:'failed',conceptId:'a'}],concepts:[{conceptId:'a',version:4}]}};
+  const status=ConceptUI.prototype.buildStatus.call(ui);
+  assert.match(status,/Latest build attempt from Version 4 has no verified Matrix result/);
+  assert.match(status,/Earlier verified Matrix result from Version 4 remains: 1 object ID\(s\), 1 receipt\(s\)/);
 });
