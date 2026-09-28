@@ -209,35 +209,49 @@ velocity components while gravity increased downward speed. This corroborates
 a moving release and subsequent arc; the headset result is the wearer's
 observation. The Dragon retained its ID, Flight, and scale.
 
-## Remaining Quest acceptance
+## Quest AR wearer run on the final bundle — passed
 
-The VR control, UI, Undo, browser reopen, and Play/Test throw checks above
-passed. The separate AR wearer run remains open.
+On 2026-09-28 UTC, the same Quest 3 wearer (Android 14, Quest Browser
+`152.0.0.44.30.1069357998`) entered AR from the isolated
+`http://127.0.0.1:18791/web/` page running PR head `d3964c0` and bundle
+`view-Dyy84z0d.js`. They reported visible passthrough, the Ice Dragon, and
+room floor/support outlines. The live service reported `presentation: ar`,
+38 WebXR room planes, 39 anchors including the virtual floor, and Creator Mode
+paused. The Dragon was initially the same ID
+`1894e1a2812c4243a85393bb707621d3`, `Flight`, scale `0.5`, at position
+`(-1.64, 1.209, -2.651)` and rotation `(177.2, -11.67, 171.75)` degrees.
 
-Run VR and AR separately on the revised exact PR head using an isolated browser origin
-and a disposable world. Record the Quest OS, Browser version, URL, bundle/commit,
-XR features, object ID, initial/final transform, and wearer observations.
+The wearer ray-grabbed the Dragon and reported that tracked hand movement,
+the grabbing hand's lateral/depth and click-plus-height stick controls, and
+the free hand's spin/flip stick controls all worked in AR. The gold outline
+and Operator panel stayed visible. At revision 277, after release, the same
+Dragon ID had position `(-3.054, 1.397, -0.108)` and rotation
+`(-136.09, -34.63, -146.32)` with `Flight` and scale `0.5` retained. The
+wearer swapped hands, confirmed the stick roles exchanged and the Dragon
+stayed at its released pose without neutral-stick drift. Revision 284 showed
+the same ID at `(-3.261, 1.274, 0.909)` and
+`(-178.89, -59.32, 178.99)`. A further Creator edit moved it to
+`(-3.033, 2.382, 0.178)` at revision 286; the wearer tapped World → Undo
+**inside AR** and reported the prior pose returned while Flight continued.
+Revision 298 restored the revision-284 transform with the same ID, animation,
+and scale. Outside a grab, the wearer clicked a stick to hide and restore the
+Operator panel and confirmed moving either stick did not move the Dragon.
 
-1. Grab a distant animated object with one hand. Move it with tracked controller
-   motion, then use that hand's stick X for a small sideways adjustment, Y for
-   beyond-arm depth, and click plus Y for height. With the free hand's stick,
-   use X to yaw both ways and Y to pitch both ways through a visible flip.
-   Check the gold outline, the absence of held-item instruction text, that the
-   Operator panel remains visible during a grab, and UI readability.
-   Repeat with the hands exchanged and check that both sticks can affect the
-   same held object without position/rotation drift when released to neutral.
-2. Release in Creator Mode. Confirm the same ID, animation, scale and unrelated
-   objects; Undo and save/reopen must preserve the authored transform.
-3. Click either stick outside a grab to hide/show the Operator panel. Stick
-   axes without a grab must not move or rotate objects; a click held through
-   grab release must not open the panel unexpectedly. The guide documents how
-   to recall a hidden panel.
-4. In running Play/Test, grab a dynamic body, translate and rotate it by stick,
-   release it, and verify simulation resumes without an authored `set_transform`.
-5. In AR, repeat only when the room origin is ready. Check that unavailable
-   tracking suspends motion and rotation, a disconnected free controller stops
-   its rotation while the valid grab can continue, and a stale-origin release
-   does not save the edit.
+The wearer read **ROOM ANCHORED** in the AR panel before saving. They then
+tapped World → SAVE WORLD, exited AR, fully closed the Quest Browser tab,
+reopened the same URL, and entered AR again. They reported **ROOM ANCHORED**
+and the same flapping Dragon at the same physical room position. The service
+observed a new browser client ID `d835409011cc4e4395b965f5c2827d64`,
+runtime generation 3, and, at revision 305, the same Dragon ID with the exact
+pre-reopen position, rotation, scale, and `Flight`. The room-context message
+still calls virtual-floor objects unanchored previews, so the physical-room
+position and persistent-origin label here are wearer observations, not
+inferences from that message. The exact WebXR feature grant list was not
+captured; plane tracking and a persistent room anchor were observed.
 
-Keep #147 open until both mode-specific wearer runs pass. This candidate does
-not constitute a physical-room alignment or collision claim.
+Together with the VR and Play/Test checks above, this completes #147's
+mode-specific Quest interaction and persistence acceptance. The automated
+tracking-loss, missing-axis, stale-origin, and cancellation tests passed;
+we did not deliberately interrupt Quest tracking or disconnect a controller
+during the wearer run. No physical collision or measured support-footprint
+claim follows from this grab test.
