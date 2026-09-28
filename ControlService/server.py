@@ -3722,6 +3722,16 @@ def agent_portal_action(state, path, body):
             return agent_portal_turn(state, body)
         finally:
             state.agent_turn_submission_lock.release()
+    if path == "/api/agent/steer":
+        require(set(body) in ({"sessionId", "turnId", "text"},
+                              {"sessionId", "turnId", "text", "context"}),
+                "Invalid Agent instruction request")
+        current = state.agent_portal_status(body["sessionId"])
+        if current.get("activeTurnId") != body["turnId"]:
+            raise AgentPortalError(409, "That Agent turn can no longer accept an instruction")
+        context = (agent_turn_context(state, body["context"], creation=False)
+                   if "context" in body else None)
+        return portal.steer_text(body["sessionId"], body["turnId"], body["text"], context)
     if path == "/api/agent/approval":
         require(set(body) == {"sessionId", "approvalId", "turnId", "approve"}, "Invalid Agent approval request")
         return portal.decide(body["sessionId"], body["approvalId"], body["turnId"], body["approve"])

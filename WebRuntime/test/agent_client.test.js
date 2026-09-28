@@ -19,6 +19,7 @@ test('agent session persists only an opaque Matrix ID and sends follow-ups to it
     if(path==='/api/agent/session')return status();
     if(path==='/api/agent/status')return status();
     if(path==='/api/agent/turn')return {sessionId:id,turnId:'turn-1',activity:'working'};
+    if(path==='/api/agent/steer')return {sessionId:id,turnId:'turn-1',activity:'working'};
     if(path==='/api/agent/transcribe')return {transcript:'Put this there'};
     if(path==='/api/agent/approval')return status();
     if(path==='/api/agent/cancel')return status();
@@ -33,6 +34,7 @@ test('agent session persists only an opaque Matrix ID and sends follow-ups to it
     {conceptId:id,version:2});
   await client.send('Build the selected design in Blender',null,
     {conceptId:id,version:2},'blender');
+  await client.steer('And add some lighting',{schemaVersion:1,roomId:'room-1'});
   assert.equal(await client.transcribe('wav-data'),'Put this there');
   await client.decide(42,'turn-1',false);
   await client.cancel();
@@ -50,9 +52,38 @@ test('agent session persists only an opaque Matrix ID and sends follow-ups to it
     {sessionId:id,approvalId:42,turnId:'turn-1',approve:false});
   assert.deepEqual(calls.filter(([path])=>path==='/api/agent/transcribe')[0][1],
     {sessionId:id,audioBase64:'wav-data'});
+  assert.deepEqual(calls.filter(([path])=>path==='/api/agent/steer')[0][1],
+    {sessionId:id,turnId:'turn-1',text:'And add some lighting',
+      context:{schemaVersion:1,roomId:'room-1'}});
   assert.equal(calls.filter(([path])=>path==='/api/agent/cancel')[0][1].turnId,'turn-1');
   assert.equal(client.status.transcript[0].assistant,'Hi');
   assert.equal(agentActivityLabel('using_blender'),'Using Blender');
+});
+
+test('steer uses the captured turn ID and never starts a replacement turn on failure',async()=>{
+  const calls=[];
+  const client=new AgentClient(async(path,body)=>{
+    calls.push([path,body]);
+    if(path==='/api/agent/steer')throw Error('Turn finished');
+    return status();
+  },storage({[AGENT_SESSION_KEY]:id}));
+  await client.restore();
+  await assert.rejects(client.steer('Add another object',null,'turn-1'),/Turn finished/);
+  assert.deepEqual(calls.map(([path])=>path),['/api/agent/status','/api/agent/steer']);
+  assert.equal(client.error,'Turn finished');
+});
+
+test('acknowledged steer stays accepted if the following status read fails',async()=>{
+  const calls=[];
+  const client=new AgentClient(async(path,body)=>{
+    calls.push([path,body]);
+    if(path==='/api/agent/steer')return {sessionId:id,turnId:'turn-1',activity:'working'};
+    throw Error('Status temporarily unavailable');
+  },storage({[AGENT_SESSION_KEY]:id}));
+  const result=await client.steer('Add lighting',null,'turn-1');
+  assert.equal(result.turnId,'turn-1');
+  assert.deepEqual(calls.map(([path])=>path),['/api/agent/steer','/api/agent/status']);
+  assert.equal(client.error,'Status temporarily unavailable');
 });
 
 test('failed resume never starts an unrelated conversation or clears its ID',async()=>{

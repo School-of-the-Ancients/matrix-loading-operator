@@ -57,6 +57,9 @@ class FakeTransport:
     def turn_interrupt(self, *args):
         self.calls.append(("interrupt", *args))
 
+    def turn_steer(self, *args):
+        self.calls.append(("steer", *args))
+
 
 class AgentSessionTests(unittest.TestCase):
     def test_pc_command_review_requires_complete_untruncated_native_request(self):
@@ -186,8 +189,10 @@ class AgentSessionTests(unittest.TestCase):
         self.assertIn(("start", "model-test", "workspace-write", "on-request"), backend.transport.calls)
         self.assertIn(("resume", "thread-1", "workspace-write", "on-request"), backend.transport.calls)
         self.assertEqual(backend.send_text("thread-1", "Hello"), "turn-1")
+        backend.steer("thread-1", "turn-1", "Add some color")
         self.assertIn(("send", "thread-1", "Hello", "medium", "workspace-write",
                        "on-request", None, None), backend.transport.calls)
+        self.assertIn(("steer", "thread-1", "turn-1", "Add some color"), backend.transport.calls)
         events = backend.events_since(0)
         self.assertEqual([event["type"] for event in events],
                          ["text", "activity", "approval", "activity"])

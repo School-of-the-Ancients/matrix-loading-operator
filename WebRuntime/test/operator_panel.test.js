@@ -47,6 +47,10 @@ test('Codex XR page exposes one shared creation-mode selector and keeps turn con
     assert.equal(hit(150,680),'agent-approve');
     assert.equal(hit(430,680),'agent-deny');
     assert.equal(hit(650,680),'agent-stop');
+    panel.setAgentStatus({activity:'Working',content:'Arranging the room.',pending:false,
+      approvalReviewable:false,active:true,connected:true,voiceStatus:'',latestTurnId:'turn-1'});
+    assert.equal(hit(250,680),'voice','the wearer can speak an addition during a turn');
+    assert.equal(hit(650,680),'agent-stop','stop remains available');
     assert.throws(()=>panel.setCreationMode('anything'),/Invalid creation mode/);
   }finally{
     if(previousDocument===undefined)delete globalThis.document;
