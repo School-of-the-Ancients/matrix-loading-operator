@@ -35,3 +35,32 @@ test('Version 4 bridge lantern clip advances and loops in the browser mixer',asy
     else globalThis.self=previousSelf;
   }
 });
+
+test('Agent-authored Beacon GLB has a moving named clip in the browser mixer',async()=>{
+  const raw=await readFile(new URL('../art/concept-v4-garden-bridge-beacon.glb',import.meta.url));
+  const bytes=raw.buffer.slice(raw.byteOffset,raw.byteOffset+raw.byteLength);
+  const previousCreateImageBitmap=globalThis.createImageBitmap;
+  const previousSelf=globalThis.self;
+  globalThis.createImageBitmap=async()=>({width:1,height:1,close(){}});
+  globalThis.self=globalThis;
+  try{
+    const gltf=await new GLTFLoader().parseAsync(bytes,'');
+    assert.equal(gltf.animations.length,1);
+    const clip=gltf.animations[0];
+    assert.equal(clip.name,'Lantern Beacon');
+    const instance=instantiateAnimatedAsset(gltf,{geometry:{animationClips:[
+      {name:clip.name,durationSeconds:clip.duration}]}});
+    const pane=instance.model.getObjectByName('left_near_lantern_inner_amber_glass');
+    assert.ok(pane);
+    const rest=pane.scale.y;
+    instance.mixer.update(.5);
+    assert.ok(Math.abs(pane.scale.y-rest)>.025*Math.abs(rest),
+      `Beacon glass moves at half-second: rest ${rest}, now ${pane.scale.y}`);
+    stopAnimatedAsset(instance.mixer,instance.model);
+  }finally{
+    if(previousCreateImageBitmap===undefined)delete globalThis.createImageBitmap;
+    else globalThis.createImageBitmap=previousCreateImageBitmap;
+    if(previousSelf===undefined)delete globalThis.self;
+    else globalThis.self=previousSelf;
+  }
+});
