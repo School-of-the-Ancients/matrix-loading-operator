@@ -7,6 +7,42 @@ const sessionId='a'.repeat(32),one={conceptId:'concept-one',version:1,status:'re
 const two={conceptId:'concept-two',version:2,status:'ready',
   previewUrl:'/api/agent/concepts/concept-two/preview',prompt:'forest temple'};
 
+test('panorama drafts and selection stay separate from build concepts',async()=>{
+  const panorama={conceptId:'b'.repeat(32),version:1,status:'ready',
+    previewUrl:`/api/agent/concepts/${'b'.repeat(32)}/preview`,prompt:'Moonlit forest',
+    providerId:'codex-native'};
+  const calls=[];
+  const client=new ConceptClient(async(path,body)=>{
+    calls.push([path,body]);
+    if(path.startsWith('/api/agent/concepts?'))return {jobs:[],concepts:[one],
+      selectedConceptId:one.conceptId,panoramaJobs:[panorama],panoramas:[panorama],
+      selectedPanoramaId:null};
+    if(path==='/api/agent/concepts')return {job:{...panorama,status:'queued'}};
+    if(path==='/api/agent/concepts/select')return {
+      selectedPanoramaId:panorama.conceptId,panorama};
+    if(path==='/api/agent/concepts/register-panorama')return {
+      status:'registered',assetId:`panorama:moonlit:${'a'.repeat(12)}`,
+      displayName:'Moonlit forest',sha256:'a'.repeat(64),byteLength:2048,
+      width:4,height:2,format:'png',
+      url:`/api/web/environments/${'a'.repeat(64)}.png`};
+    throw Error('Unexpected route');
+  });
+  await client.refresh(sessionId);
+  await client.generatePanorama(sessionId,'Moonlit forest');
+  assert.deepEqual(calls.at(-1)[1],{sessionId,prompt:'Moonlit forest',
+    providerId:'codex-native',purpose:'panorama'});
+  await client.selectPanorama(sessionId,panorama.conceptId);
+  assert.deepEqual(calls.at(-1)[1],{sessionId,conceptId:panorama.conceptId,
+    purpose:'panorama'});
+  assert.equal(client.selected.conceptId,one.conceptId);
+  assert.equal(client.selectedPanorama.conceptId,panorama.conceptId);
+  const registered=await client.registerPanorama(sessionId,panorama.conceptId,'Moonlit forest');
+  assert.equal(registered.status,undefined);
+  assert.equal(registered.assetId,`panorama:moonlit:${'a'.repeat(12)}`);
+  assert.deepEqual(calls.at(-1)[1],{sessionId,conceptId:panorama.conceptId,
+    name:'Moonlit forest'});
+});
+
 test('durable concept jobs and selection use only the Agent session ID',async()=>{
   const calls=[];let list={jobs:[],concepts:[],selectedConceptId:null};
   const client=new ConceptClient(async(path,body)=>{

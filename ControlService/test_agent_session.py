@@ -106,8 +106,12 @@ class AgentSessionTests(unittest.TestCase):
             executable = Path(folder) / "codex.exe"
             executable.write_bytes(b"MZ test")
             bridge = SimpleNamespace(url="http://127.0.0.1:1234/scene", token="PC-only")
-            prompted_tools = {"matrix_move_object", "matrix_scale_block", "matrix_reset_block_scale",
-                              "matrix_register_glb", "matrix_spawn_asset", "matrix_spawn_builtin",
+            prompted_tools = {"matrix_move_object", "matrix_move_with_room_constraint",
+                              "matrix_scale_block", "matrix_reset_block_scale",
+                              "matrix_register_glb", "matrix_register_panorama",
+                              "matrix_set_environment", "matrix_remove_environment",
+                              "matrix_spawn_asset", "matrix_spawn_builtin",
+                              "matrix_spawn_on_surface",
                               "matrix_create_procedural", "matrix_update_procedural",
                               "matrix_bind_game", "matrix_update_game",
                               "matrix_set_display", "matrix_remove_display",
@@ -327,6 +331,13 @@ class AgentSessionTests(unittest.TestCase):
                      "rotation": {"x": 0, "y": 45, "z": 0}}
         cases = {
             "matrix_spawn_builtin": ({**common, "asset_id": "block", "transform": pose}, "Spawn built-in block"),
+            "matrix_spawn_on_surface": ({**common, "room_id": "webxr-session-review",
+                "spatial_token": "a" * 64, "asset_id": "block", "anchor_id": "webxr-plane-1",
+                "transform": pose}, "measured AR surface webxr-plane-1"),
+            "matrix_move_with_room_constraint": ({**common, "room_id": "webxr-session-review",
+                "spatial_token": "a" * 64, "anchor_id": "webxr-plane-1",
+                "object_id": "block-one", "expected_asset_id": "block",
+                "position": {"x": 1, "y": 0, "z": -2}}, "constrained by measured AR surface webxr-plane-1"),
             "matrix_create_procedural": ({**common, "generator_id": "parametric-bridge",
                 "parameters": {"width": 2, "rail": True}, "transform": pose}, "params"),
             "matrix_update_procedural": ({**common, "object_id": "ramp-one",
@@ -368,6 +379,18 @@ class AgentSessionTests(unittest.TestCase):
                 "scale": {"x": 1, "y": 1, "z": 1}}
         self.assertFalse(allowed("matrix_spawn_builtin", {**common, "asset_id": "matrix:procedural", "transform": pose}))
         self.assertFalse(allowed("matrix_spawn_builtin", {**common, "asset_id": "block", "transform": {**pose, "extra": 1}}))
+        surface = {**common, "room_id": "webxr-session-review", "spatial_token": "a" * 64,
+                   "asset_id": "block", "anchor_id": "webxr-plane-1", "transform": pose}
+        self.assertFalse(allowed("matrix_spawn_on_surface", {**surface, "spatial_token": "stale"}))
+        self.assertFalse(allowed("matrix_spawn_on_surface", {**surface, "anchor_id": "web-floor"}))
+        self.assertFalse(allowed("matrix_spawn_on_surface", {**surface, "extra": "unreviewed"}))
+        room_move = {**common, "room_id": "webxr-session-review", "spatial_token": "a" * 64,
+                     "anchor_id": "webxr-plane-1", "object_id": "block-one",
+                     "expected_asset_id": "block", "position": {"x": 1, "y": 0, "z": -2}}
+        self.assertFalse(allowed("matrix_move_with_room_constraint", {**room_move, "spatial_token": "stale"}))
+        self.assertFalse(allowed("matrix_move_with_room_constraint", {**room_move, "anchor_id": "web-floor"}))
+        self.assertFalse(allowed("matrix_move_with_room_constraint", {**room_move, "position": {"x": 1, "y": 0, "z": float("nan")}}))
+        self.assertFalse(allowed("matrix_move_with_room_constraint", {**room_move, "extra": "unreviewed"}))
         self.assertFalse(allowed("matrix_create_procedural", {**common, "generator_id": "bridge",
             "parameters": {"width": float("nan")}, "transform": pose}))
         self.assertFalse(allowed("matrix_update_procedural", {**common, "object_id": "ramp",

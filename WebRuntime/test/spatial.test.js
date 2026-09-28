@@ -1,9 +1,10 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import * as THREE from 'three';
 import {MatrixWorld} from '../src/protocol.js';
-import {validateRenderedFootprint} from '../src/view.js';
+import {MatrixView,validateRenderedFootprint} from '../src/view.js';
 import {viewerPose,planeData,insideBoundary,footprintInsideBoundary,
-  matchPlaneAnchor,samePlaneShape,measuredFloorHeight} from '../src/spatial.js';
+  footprintFitsRoomSupport,matchPlaneAnchor,samePlaneShape,measuredFloorHeight} from '../src/spatial.js';
 
 const boundary=[{x:-2,y:0,z:-2},{x:2,y:0,z:-2},{x:2,y:0,z:2},{x:-2,y:0,z:2}];
 const anchor={anchorId:'webxr-plane-1',displayName:'FLOOR',source:'webxr',semanticLabels:['FLOOR'],
@@ -20,8 +21,21 @@ test('AR scene uses session room planes, confirms alignment, and restores the de
   assert.equal(world.snapshot().selection.anchorId,'web-floor');
   assert.equal(world.snapshot().scene.objects[0].objectId,virtual.objectId);
   world.setSelection('',{x:0,y:0,z:0},anchor.anchorId);
-  assert.match(world.execute({requestId:'before',op:'spawn',assetId:'orb',anchorId:anchor.anchorId,placement:'surface',transform}).error,/Confirm room/);
+  assert.match(world.execute({requestId:'before',op:'spawn',assetId:'orb',anchorId:anchor.anchorId,placement:'surface',transform}).error,/Confirm .*room alignment/);
+  assert.match(world.execute({requestId:'origin-missing',op:'confirm_room'}).error,/tracked room origin/);
+  world.setOriginLocated(true);
+  world.setSpatialObservation({planeObservedAt:performance.now()-2100});
+  assert.match(world.execute({requestId:'stale-plane-confirm',op:'confirm_room'}).error,
+    /measured support surface/);
+  assert.equal(world.snapshot().roomContext.alignmentVerified,false);
+  world.setSpatialObservation({planeObservedAt:performance.now()});
   assert.equal(world.execute({requestId:'confirm',op:'confirm_room'}).ok,true);
+  world.spatial.planeObservedAt=performance.now()-2100;
+  assert.equal(world.snapshot().roomContext.alignmentVerified,false);
+  assert.match(world.execute({requestId:'stale-plane-place',op:'spawn',assetId:'orb',
+    anchorId:anchor.anchorId,placement:'surface',transform}).error,/measured planes/);
+  assert.equal(world.scene.objects.length,1,'stale measured placement leaves the scene untouched');
+  world.setSpatialObservation({planeObservedAt:performance.now()});
   const placed=world.execute({requestId:'place',op:'spawn',assetId:'orb',anchorId:anchor.anchorId,placement:'surface',transform});
   assert.equal(placed.ok,true);
   assert.equal(world.snapshot().scene.objects[1].anchorId,anchor.anchorId);
@@ -32,6 +46,104 @@ test('AR scene uses session room planes, confirms alignment, and restores the de
   assert.equal(world.snapshot().roomContext.state,'missing');
   world.leaveAR();assert.deepEqual(world.scene,desktop);
   assert.equal(world.snapshot().roomContext.mode,'white-room');
+});
+
+test('measured AR move keeps the panorama and object identities in the same world',()=>{
+  let next=0;const world=new MatrixWorld(()=>`integrated-${++next}`);
+  const digest='b'.repeat(64);
+  const asset={assetId:`panorama:forest:${digest.slice(0,12)}`,
+    displayName:'Forest',sha256:digest,byteLength:2048,width:4,height:2,
+    format:'png',url:`/api/web/environments/${digest}.png`};
+  world.registerEnvironmentAssets([asset]);
+  const panorama={schemaVersion:1,kind:'equirectangular',
+    assetId:asset.assetId,sha256:digest,yawDegrees:45};
+  const applied=world.execute({requestId:'integrated-panorama',op:'set_environment',
+    roomId:world.scene.roomId,expectedEnvironment:null,environment:panorama});
+  assert.equal(applied.ok,true,applied.error);
+  const spawned=world.execute({requestId:'integrated-spawn',op:'spawn',
+    assetId:'orb',anchorId:'web-floor',transform});
+  assert.equal(spawned.ok,true,spawned.error);
+  world.enterAR();world.setSpatialAnchors([anchor]);world.setOriginLocated(true);
+  world.setSpatialObservation({planeObservedAt:performance.now(),trackingEpoch:2,
+    webFloorPose:anchor.roomPose});
+  assert.equal(world.execute({requestId:'integrated-confirm',op:'confirm_room'}).ok,true);
+  const before=world.snapshot();
+  assert.deepEqual(before.scene.environment,panorama);
+  assert.equal(before.spatialObservation.trackingEpoch,2);
+  const moved=world.execute({requestId:'integrated-move',op:'set_transform',
+    objectId:spawned.objectId,transform:{...transform,position:{x:.5,y:0,z:0}},
+    roomConstraint:{anchorId:anchor.anchorId,trackingEpoch:2}});
+  assert.equal(moved.ok,true,moved.error);
+  assert.equal(world.scene.objects[0].objectId,spawned.objectId);
+  assert.deepEqual(world.scene.environment,panorama);
+  world.leaveAR();
+  assert.deepEqual(world.scene.environment,panorama);
+  assert.equal(world.scene.objects[0].objectId,spawned.objectId);
+  assert.equal(world.snapshot().spatialObservation,undefined);
+});
+
+test('queued surface spawn rejects a changed tracking epoch or lost room observation',()=>{
+  let sequence=0;
+  const world=new MatrixWorld(()=>`surface-${++sequence}`);
+  world.enterAR();world.setSpatialAnchors([anchor]);world.setOriginLocated(true);
+  const observe=epoch=>world.setSpatialObservation({planeObservedAt:performance.now(),
+    trackingEpoch:epoch});
+  observe(4);
+  assert.equal(world.execute({requestId:'confirm-spawn',op:'confirm_room'}).ok,true);
+  const spawn=(requestId,trackingEpoch=4,anchorId=anchor.anchorId)=>world.execute({
+    requestId,op:'spawn',assetId:'orb',anchorId:anchor.anchorId,
+    placement:'surface',transform,
+    roomConstraint:{anchorId,trackingEpoch}});
+  observe(5); // The same plane ID can survive room relocalization.
+  assert.match(spawn('relocalized').error,/Room observation changed/);
+  assert.match(spawn('wrong-support',5,'another-support').error,/target support/);
+  world.spatial.planeObservedAt=performance.now()-2100;
+  assert.match(spawn('stale-plane',5).error,/Room observation changed/);
+  assert.equal(world.scene.objects.length,0);
+  observe(5);world.setOriginLocated(false);
+  assert.match(spawn('lost-origin',5).error,/aligned AR room/);
+  assert.equal(world.scene.objects.length,0);
+  world.setOriginLocated(true);observe(6);
+  assert.equal(world.execute({requestId:'reconfirm-spawn',op:'confirm_room'}).ok,true);
+  assert.equal(spawn('current-spawn',6).ok,true);
+  assert.equal(world.scene.objects.length,1);
+  assert.equal(world.scene.objects[0].anchorId,anchor.anchorId);
+  world.leaveAR();
+  assert.equal(world.scene.objects.length,0,'measured-plane objects remain session-only');
+});
+
+test('guarded placement uses the latest boundary even when display smoothing keeps the old plane',()=>{
+  let sequence=0;
+  const world=new MatrixWorld(()=>`edge-${++sequence}`);
+  const existing=world.execute({requestId:'edge-original',op:'spawn',assetId:'orb',
+    anchorId:'web-floor',transform});
+  assert.equal(existing.ok,true);
+  world.enterAR();world.setSpatialAnchors([anchor]);world.setOriginLocated(true);
+  const observe=()=>world.setSpatialObservation({planeObservedAt:performance.now(),
+    trackingEpoch:1,webFloorPose:anchor.roomPose});
+  observe();
+  assert.equal(world.execute({requestId:'edge-confirm',op:'confirm_room'}).ok,true);
+  const shrunk=structuredClone(anchor);
+  shrunk.surface.boundary=boundary.map(point=>({
+    x:point.x>0?point.x-.015:point.x+.015,y:0,
+    z:point.z>0?point.z-.015:point.z+.015}));
+  world.setSpatialAnchors([shrunk]);observe();
+  assert.deepEqual(world.snapshot().anchors.find(item=>item.anchorId===anchor.anchorId)
+    .surface.boundary,boundary,'the displayed plane remains smoothed');
+  const edgeTransform={...transform,position:{x:1.74,y:0,z:0}};
+  const constraint={anchorId:anchor.anchorId,trackingEpoch:1};
+  const spawn=world.execute({requestId:'guarded-edge-spawn',op:'spawn',
+    assetId:'orb',anchorId:anchor.anchorId,placement:'surface',
+    transform:edgeTransform,roomConstraint:constraint});
+  assert.match(spawn.error,/footprint/);
+  const move=world.execute({requestId:'guarded-edge-move',op:'set_transform',
+    objectId:existing.objectId,transform:edgeTransform,roomConstraint:constraint});
+  assert.match(move.error,/footprint/);
+  assert.equal(world.scene.objects.length,1);
+  assert.deepEqual(world.requireObject(existing.objectId).transform,transform);
+  assert.equal(world.execute({requestId:'guarded-center-spawn',op:'spawn',
+    assetId:'orb',anchorId:anchor.anchorId,placement:'surface',
+    transform,roomConstraint:constraint}).ok,true);
 });
 
 test('WebXR viewer and plane coordinates are read from the XR frame',()=>{
@@ -45,6 +157,118 @@ test('WebXR viewer and plane coordinates are read from the XR frame',()=>{
   assert.equal(measured.displayName,'FLOOR');
   assert.equal(insideBoundary({x:0,z:0},measured.surface.boundary),true);
   assert.equal(insideBoundary({x:3,z:0},measured.surface.boundary),false);
+});
+
+test('AR snapshot reports age only after a detected-planes observation',t=>{
+  const world=new MatrixWorld();world.enterAR();
+  assert.deepEqual(world.snapshot().spatialObservation,
+    {schemaVersion:1,planeAgeMs:null,trackingEpoch:0,webFloorPose:null});
+  const originalDocument=globalThis.document;
+  globalThis.document={getElementById:()=>({textContent:''})};
+  t.after(()=>{if(originalDocument===undefined)delete globalThis.document;
+    else globalThis.document=originalDocument;});
+  const view=Object.create(MatrixView.prototype);
+  Object.assign(view,{world,isAR:true,lastPlaneTime:0,lastPlaneObservedAt:null,
+    roomTrackingEpoch:3,planeOutlines:new Map(),planeIds:new WeakMap(),
+    virtualFloorRoot:new THREE.Group(),roomAnchor:null,roomAnchorPending:false,
+    roomAnchorLocated:false,roomAnchorRestoreFailed:false,roomCaptureRequested:false,
+    sessionStartedAt:0,operatorPanel:{setOriginLabel(){}},xrViewer:null});
+  view.updatePlanes(500,{detectedPlanes:new Set(),session:{}},{});
+  const observedAt=world.spatial.planeObservedAt;
+  assert.ok(Number.isFinite(observedAt));
+  assert.ok(world.snapshot().spatialObservation.planeAgeMs<1000);
+  assert.equal(world.snapshot().spatialObservation.trackingEpoch,3);
+  view.updatePlanes(900,{session:{}},{});
+  assert.equal(world.spatial.planeObservedAt,observedAt,
+    'a frame without detectedPlanes does not refresh measured-plane evidence');
+  world.spatial.planeObservedAt=performance.now()-60001;
+  assert.equal(world.snapshot().spatialObservation.planeAgeMs,null);
+  world.leaveAR();
+  assert.equal(world.snapshot().spatialObservation,undefined);
+});
+
+test('room alignment requires a located anchor and expires when its pose is lost',()=>{
+  const world=new MatrixWorld();world.enterAR();world.setSpatialAnchors([anchor]);
+  assert.match(world.execute({requestId:'early-confirm',op:'confirm_room'}).error,/tracked room origin/);
+  const view=Object.create(MatrixView.prototype);
+  Object.assign(view,{world,isAR:true,roomAnchor:{anchorSpace:{}},
+    roomAnchorLocated:false,roomAnchorRestoredHandle:null,roomAnchorRestoreFailed:false,
+    roomPoseMissingSince:0,roomTrackingEpoch:1,lastPlaneObservedAt:performance.now(),
+    virtualFloorRoot:new THREE.Group(),anchorRoots:new Map(),
+    observationStale:false,onRuntimeChange(){},onAssetError(){}});
+  view.updateRoomAnchor({getPose:()=>({transform:{position:{x:1,y:0,z:2},
+    orientation:{x:0,y:0,z:0,w:1}}})},{});
+  assert.deepEqual(world.snapshot().spatialObservation.webFloorPose.position,{x:1,y:0,z:2});
+  assert.equal(world.execute({requestId:'tracked-confirm',op:'confirm_room'}).ok,true);
+  assert.equal(world.snapshot().roomContext.alignmentVerified,true);
+  world.spatial.originObservedAt=performance.now()-2100;
+  assert.equal(world.snapshot().roomContext.alignmentVerified,false);
+  assert.equal(world.snapshot().spatialObservation.webFloorPose,null);
+  assert.match(world.execute({requestId:'stale-origin-spawn',op:'spawn',assetId:'orb',
+    anchorId:anchor.anchorId,placement:'surface',transform}).error,/current room alignment/);
+  view.updateRoomAnchor({getPose:()=>({transform:{position:{x:1,y:0,z:2},
+    orientation:{x:0,y:0,z:0,w:1}}})},{});
+  assert.equal(world.snapshot().roomContext.alignmentVerified,false,
+    'tracking recovery needs a new alignment confirmation');
+  assert.equal(world.execute({requestId:'reconfirm',op:'confirm_room'}).ok,true);
+  view.updateRoomAnchor({getPose:()=>null},{});
+  assert.equal(world.snapshot().roomContext.alignmentVerified,false);
+  assert.deepEqual(world.snapshot().spatialObservation,
+    {schemaVersion:1,planeAgeMs:null,trackingEpoch:2,webFloorPose:null});
+});
+
+test('a guarded virtual-floor move respects a rotated measured room support and persists its ID',()=>{
+  let sequence=0;
+  const world=new MatrixWorld(()=>`room-guard-${++sequence}`);
+  const spawned=world.execute({requestId:'spawn-original',op:'spawn',assetId:'orb',
+    anchorId:'web-floor',transform});
+  assert.equal(spawned.ok,true);
+  const original=structuredClone(world.requireObject(spawned.objectId).transform);
+  world.enterAR();
+  const pose=(x,y,z,ry=0)=>({position:{x,y,z},rotation:{x:0,y:ry,z:0},
+    scale:{x:1,y:1,z:1}});
+  const webFloorPose=pose(2,0,3,90);
+  const support={...anchor,roomPose:pose(2,0,3),surface:{kind:'support',
+    boundary:[{x:-.3,y:0,z:-1},{x:.3,y:0,z:-1},
+      {x:.3,y:0,z:1},{x:-.3,y:0,z:1}]}};
+  const next={...transform,position:{x:.5,y:0,z:0}};
+  assert.equal(footprintFitsRoomSupport(next,world.objectBounds(
+    world.requireObject(spawned.objectId)),1,webFloorPose,support).ok,true,
+  'virtual X maps along measured support Z after the 90-degree room rotation');
+  world.setSpatialAnchors([support]);world.setOriginLocated(true);
+  const observe=()=>world.setSpatialObservation({planeObservedAt:performance.now(),
+    trackingEpoch:7,webFloorPose});
+  observe();
+  assert.equal(world.execute({requestId:'confirm-guard',op:'confirm_room'}).ok,true);
+  const move=(requestId,position,trackingEpoch=7)=>world.execute({requestId,
+    op:'set_transform',objectId:spawned.objectId,
+    transform:{...transform,position},
+    roomConstraint:{anchorId:support.anchorId,trackingEpoch}});
+  assert.match(move('stale-epoch',next.position,6).error,/Room observation changed/);
+  world.spatial.planeObservedAt=performance.now()-2100;
+  assert.match(move('stale-plane',next.position).error,/Room observation changed/);
+  observe();
+  assert.match(move('outside-room',{x:1,y:0,z:0}).error,/footprint/);
+  assert.match(move('above-room',{x:.5,y:.15,z:0}).error,/feet/);
+  assert.deepEqual(world.requireObject(spawned.objectId).transform,original);
+  world.setSpatialAnchors([{...support,surface:{...support.surface,boundary:[
+    {x:-.3,y:0,z:-.2},{x:.3,y:0,z:-.2},
+    {x:.3,y:0,z:.2},{x:-.3,y:0,z:.2}]}}]);
+  observe();
+  assert.match(move('shrunk-room',next.position).error,/footprint/);
+  assert.deepEqual(world.requireObject(spawned.objectId).transform,original);
+  world.setSpatialAnchors([support]);observe();
+  world.setOriginUnavailable(true);
+  assert.equal(move('origin-lost',next.position).ok,false);
+  assert.deepEqual(world.requireObject(spawned.objectId).transform,original);
+  world.setOriginUnavailable(false);world.setOriginLocated(true);observe();
+  assert.equal(world.execute({requestId:'reconfirm-guard',op:'confirm_room'}).ok,true);
+  assert.equal(move('guarded-move',next.position).ok,true);
+  assert.equal(world.requireObject(spawned.objectId).objectId,spawned.objectId);
+  assert.deepEqual(world.requireObject(spawned.objectId).transform,next);
+  world.leaveAR();
+  assert.equal(world.scene.objects[0].objectId,spawned.objectId);
+  assert.deepEqual(world.scene.objects[0].transform,next);
 });
 
 test('a relocalized floor keeps its session ID only when its shape is unique',()=>{
@@ -77,6 +301,8 @@ test('surface footprint cannot bridge a concave notch even when all four corners
 
   const world=new MatrixWorld(()=> 'placed');world.enterAR();
   world.setSpatialAnchors([{...anchor,surface:{kind:'support',boundary:u}}]);
+  world.setOriginLocated(true);
+  world.setSpatialObservation({planeObservedAt:performance.now()});
   assert.equal(world.execute({requestId:'confirm',op:'confirm_room'}).ok,true);
   const result=world.execute({requestId:'bridge',op:'spawn',assetId:'block',anchorId:anchor.anchorId,
     placement:'surface',transform:{...transform,position:{x:1.5,y:0,z:1.5},
@@ -93,6 +319,8 @@ test('surface footprint uses the horizontally recentered GLB bounds',()=>{
     localBounds:{center:{x:.8,y:1,z:0},size:{x:.6,y:1,z:.6}}});
   const support=[{x:0,z:0},{x:2,z:0},{x:2,z:2},{x:0,z:2}];
   world.setSpatialAnchors([{...anchor,surface:{kind:'support',boundary:support}}]);
+  world.setOriginLocated(true);
+  world.setSpatialObservation({planeObservedAt:performance.now()});
   assert.equal(world.execute({requestId:'confirm',op:'confirm_room'}).ok,true);
   const overhang=world.execute({requestId:'overhang',op:'spawn',assetId:'web:offset-left',anchorId:anchor.anchorId,
     placement:'surface',transform:{...transform,position:{x:1.8,y:0,z:1}}});
@@ -109,6 +337,8 @@ test('moving, duplicating, or loading a support object cannot bypass footprint v
   const world=new MatrixWorld(()=>String(++nextId));world.enterAR();
   const support=[{x:0,z:0},{x:2,z:0},{x:2,z:2},{x:0,z:2}];
   world.setSpatialAnchors([{...anchor,surface:{kind:'support',boundary:support}}]);
+  world.setOriginLocated(true);
+  world.setSpatialObservation({planeObservedAt:performance.now()});
   assert.equal(world.execute({requestId:'confirm',op:'confirm_room'}).ok,true);
   const spawn=world.execute({requestId:'spawn',op:'spawn',assetId:'block',anchorId:anchor.anchorId,
     placement:'surface',transform:{...transform,position:{x:1.4,y:0,z:1}}});

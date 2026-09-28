@@ -7,6 +7,12 @@ const validViewerFrame=frame=>frame&&typeof frame.anchorId==='string'&&
   Math.hypot(frame.forward.x,frame.forward.z)>=.99&&
   Math.hypot(frame.forward.x,frame.forward.z)<=1.01;
 export function captureAgentContext(world,view,clientId,inputSource){
+  const presentation=world.runtimePresentation;
+  if(!['desktop','vr','ar'].includes(presentation))
+    throw Error('Current Matrix presentation is unavailable');
+  const trackingEpoch=presentation==='ar'?view.roomTrackingEpoch:null;
+  if(presentation==='ar'&&(!Number.isSafeInteger(trackingEpoch)||trackingEpoch<0))
+    throw Error('Current AR tracking epoch is unavailable');
   const selected=world.scene.objects.find(item=>item.objectId===world.selection.objectId);
   const selectedObjectId=selected?.objectId||null;
   const pointingTarget=view.pointingTarget();
@@ -17,6 +23,6 @@ export function captureAgentContext(world,view,clientId,inputSource){
   const preferred=[pointingTarget?.anchorId,selected?.anchorId,'web-floor'];
   const viewerFrame=preferred.map(anchorId=>frames.find(frame=>
     frame.anchorId===anchorId)).find(Boolean)||null;
-  return {schemaVersion:1,inputSource,clientId,roomId:world.scene.roomId,
-    selectedObjectId,pointingTarget,viewerFrame};
+  return {schemaVersion:2,inputSource,clientId,roomId:world.scene.roomId,
+    presentation,trackingEpoch,selectedObjectId,pointingTarget,viewerFrame};
 }

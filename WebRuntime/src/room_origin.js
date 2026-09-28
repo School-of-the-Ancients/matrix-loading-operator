@@ -5,7 +5,8 @@ export const ROOM_ARCHIVES_KEY='matrix-web-room-archives-v1';
 const MAX_ARCHIVES=3;
 
 export function hasWorldToProtect(world){
-  return world.scene.objects.length>0||world.game!==null||world.citizens!=null;
+  return world.scene.objects.length>0||world.scene.environment!==undefined||
+    world.game!==null||world.citizens!=null;
 }
 
 export function roomArchives(storage){
@@ -47,7 +48,9 @@ function archiveAndStartRoom(world,storage,keepWorld){
   storage.removeItem(ROOM_ANCHOR_KEY);
   if(!keepWorld){
     world.scene.objects=[];
+    delete world.scene.environment;
     if(world.virtualScene)world.virtualScene.scene.objects=[];
+    if(world.virtualScene)delete world.virtualScene.scene.environment;
     world.game=null;
     world.citizens=null;
     world.pendingRigidMotion=null;

@@ -1,5 +1,6 @@
 """Configured concept graph values are checked against the live ComfyUI schema."""
 import json
+import hashlib
 from pathlib import Path
 import tempfile
 import unittest
@@ -80,6 +81,40 @@ class ConceptPreflightTests(unittest.TestCase):
                 self.catalog.submit_workflow("worker", "image", "forest", approved=True,
                                              seed=1234, negative_prompt="", validate_image=True)
         self.assertEqual(request.call_count, 1)
+
+    def test_panorama_renders_a_two_to_one_latent_without_resizing_source(self):
+        calls = []
+        def response(provider, url, payload=None, **kwargs):
+            calls.append((url, payload))
+            return self.schema if url.endswith("/object_info") else {"prompt_id": "accepted"}
+        with patch.object(self.catalog, "_json_request", side_effect=response):
+            job = self.catalog.submit_workflow("worker", "image", "sunset desert",
+                                               approved=True, seed=9, negative_prompt="",
+                                               validate_image=True,
+                                               panorama=True)
+        submitted = calls[1][1]["prompt"]
+        self.assertEqual(submitted["2"]["inputs"]["width"], 1024)
+        self.assertEqual(submitted["2"]["inputs"]["height"], 512)
+        self.assertEqual(job["outputPurpose"], "panorama")
+        self.assertEqual((job["outputWidth"], job["outputHeight"]), (1024, 512))
+        self.assertNotEqual(job["workflowSha256"], job["submittedGraphSha256"])
+        self.assertEqual(job["submittedGraphSha256"], hashlib.sha256(json.dumps(
+            submitted, ensure_ascii=False, allow_nan=False, sort_keys=True,
+            separators=(",", ":")).encode("utf-8")).hexdigest())
+        self.assertEqual(self.graph["2"]["inputs"]["width"], 512)
+        self.assertEqual(self.graph["2"]["inputs"]["height"], 512)
+
+    def test_panorama_rejects_ambiguous_graph_before_worker_submission(self):
+        graph = dict(self.graph)
+        graph["9"] = {"class_type": "EmptyLatentImage", "inputs": {
+            "width": 512, "height": 512, "batch_size": 1}}
+        (self.root / "graph.json").write_text(json.dumps(graph), encoding="utf-8")
+        with patch.object(self.catalog, "_json_request") as request:
+            with self.assertRaisesRegex(ContentError, "one single-image latent"):
+                self.catalog.submit_workflow("worker", "image", "sunset desert",
+                                             approved=True, seed=9, validate_image=True,
+                                             panorama=True)
+        request.assert_not_called()
 
 
 if __name__ == "__main__":

@@ -11,6 +11,7 @@ import {canPlayWorld} from './creator_mode.js';
 import {gameStatus,isGameExitUnlocked} from './game.js';
 import {displayHeadline,displayObservation,validDisplay} from './display.js';
 import {MAX_RIGID_RELEASE_LINEAR_SPEED,MAX_RIGID_RELEASE_ANGULAR_SPEED} from './physics_rigid.js';
+import {matchingEnvironmentAsset} from './environment.js';
 
 const wood=()=>new THREE.MeshStandardMaterial({color:0xa56f45,roughness:.78});
 const metal=()=>new THREE.MeshStandardMaterial({color:0x738995,roughness:.45,metalness:.45});
@@ -154,9 +155,11 @@ export function operatorPanel({createImage=()=>new Image()}={}){
   let worldNotice={text:'',tone:'idle'};
   let cameraStatus='Camera not tested',cameraActive=false;
   let concepts=[],conceptIndex=0,conceptKey='[]';
+  let panoramas=[],panoramaIndex=0,panoramaKey='[]';
   const conceptImages=new Map();
   let buttons=[];
   const currentConcept=()=>concepts[conceptIndex]||null;
+  const currentPanorama=()=>panoramas[panoramaIndex]||null;
   const loadConceptImage=(url)=>{
     if(!url||conceptImages.has(url))return;
     const image=createImage(),entry={image,state:'loading'};
@@ -164,11 +167,11 @@ export function operatorPanel({createImage=()=>new Image()}={}){
     image.onload=()=>{
       if(conceptImages.get(url)!==entry)return;
       entry.state=image.naturalWidth>0&&image.naturalHeight>0?'ready':'error';
-      if(mode==='concepts')paint();
+      if(mode==='concepts'||mode==='panoramas')paint();
     };
     image.onerror=()=>{
       if(conceptImages.get(url)!==entry)return;
-      entry.state='error';if(mode==='concepts')paint();
+      entry.state='error';if(mode==='concepts'||mode==='panoramas')paint();
     };
     image.src=url;
   };
@@ -186,7 +189,7 @@ export function operatorPanel({createImage=()=>new Image()}={}){
     if(mode==='world'&&xrMode)button('exit-xr',xrMode==='ar'?'EXIT AR':'EXIT VR',35,35,240,72);
     else {ctx.fillStyle='#75f4df';ctx.font='bold 30px sans-serif';ctx.fillText('◈  OPERATOR',55,83);}
     button('toggle-agent',mode==='agent'?'CHAT':'CODEX',290,35,103,72,
-      mode==='agent'||mode==='concepts');
+      mode==='agent'||mode==='concepts'||mode==='panoramas');
     button('toggle-world',mode==='world'?'CHAT':'WORLD',404,35,120,72,
       mode==='world'||mode==='archives');
     button('toggle-mode',mode==='modes'?'CHAT':creatorMode.mode==='play'?'PLAY':'CREATE',535,35,124,72,mode==='modes');
@@ -219,6 +222,9 @@ export function operatorPanel({createImage=()=>new Image()}={}){
       ctx.font='25px sans-serif';
       const label=gameStatus.length>70?gameStatus.slice(0,67)+'…':gameStatus;
       ctx.fillText(label,55,235);
+      ctx.font='21px sans-serif';ctx.fillStyle='#75f4df';
+      ctx.fillText((worldInfo.environmentLabel||'Panorama: none').slice(0,85),
+        55,265,910);
       ctx.fillStyle='#8bb8c2';ctx.fillText(`Conversation: ${conversationCount} recent turn${conversationCount===1?'':'s'}`,55,290);
       if(worldNotice.text){
         ctx.fillStyle=worldNotice.tone==='error'?'#ffad8d':worldNotice.tone==='pending'?'#dff7f8':'#75f4df';
@@ -274,16 +280,21 @@ export function operatorPanel({createImage=()=>new Image()}={}){
           'Recover the saved room origin before switching.':
           'Return to paused Creator Mode or finish recovery first.',55,560,910);
       }
-    }else if(mode==='concepts'){
+    }else if(mode==='concepts'||mode==='panoramas'){
+      const panoramaMode=mode==='panoramas';
+      const gallery=panoramaMode?panoramas:concepts;
+      const index=panoramaMode?panoramaIndex:conceptIndex;
+      const prefix=panoramaMode?'panorama':'concept';
       ctx.fillStyle='#dff7f8';ctx.font='bold 32px sans-serif';
-      ctx.fillText('IMAGE CONCEPTS',55,177);
-      const concept=currentConcept();
+      ctx.fillText(panoramaMode?'PANORAMA BACKGROUNDS':'IMAGE CONCEPTS',55,177);
+      const concept=panoramaMode?currentPanorama():currentConcept();
       if(!concept){
         ctx.font='26px sans-serif';ctx.fillStyle='#8bb8c2';
-        ctx.fillText('No ready images yet. Ask Codex to generate one.',55,260,910);
+        ctx.fillText(panoramaMode?'No ready panoramas. Ask Codex to generate one.':
+          'No ready images yet. Ask Codex to generate one.',55,260,910);
       }else{
         ctx.font='bold 26px sans-serif';ctx.fillStyle='#75f4df';
-        ctx.fillText(`VERSION ${concept.version} · ${conceptIndex+1}/${concepts.length}${concept.selected?' · SELECTED':''}`,
+        ctx.fillText(`VERSION ${concept.version} · ${index+1}/${gallery.length}${concept.selected?' · SELECTED':''}`,
           55,209,900);
         ctx.fillStyle='#112e3b';ctx.fillRect(55,225,595,335);
         ctx.strokeStyle='#245568';ctx.lineWidth=3;ctx.strokeRect(55,225,595,335);
@@ -312,17 +323,21 @@ export function operatorPanel({createImage=()=>new Image()}={}){
         }
         if(line&&lineNumber<6)ctx.fillText(line,680,307+lineNumber*31,285);
         const previewFailed=concept.previewStatus==='error'||preview?.state==='error';
-        if(previewFailed)button(`concept-retry-${concept.version}`,'RETRY PREVIEW',680,495,285,60);
+        if(previewFailed)button(`${prefix}-retry-${concept.version}`,'RETRY PREVIEW',680,495,285,60);
         else if(agent.pending){ctx.fillStyle='#ffad8d';ctx.font='20px sans-serif';
           ctx.fillText('Codex review waiting · return to CODEX',680,535,285);}
-        button('concept-prev','PREVIOUS',55,566,205,63);
-        button('concept-next','NEXT IMAGE',275,566,205,63);
-        if(!concept.selected&&preview?.state==='ready')button(`concept-select-${concept.version}`,
-          `USE VERSION ${concept.version}`,495,566,475,63,true);
+        button(`${prefix}-prev`,'PREVIOUS',55,566,205,63);
+        button(`${prefix}-next`,panoramaMode?'NEXT PANORAMA':'NEXT IMAGE',275,566,205,63);
+        if(!concept.selected&&preview?.state==='ready')button(`${prefix}-select-${concept.version}`,
+          `${panoramaMode?'CHOOSE':'USE'} VERSION ${concept.version}`,495,566,475,63,true);
+        else if(panoramaMode&&concept.selected&&concept.applyAvailable&&preview?.state==='ready')
+          button(`panorama-apply-${concept.version}`,'APPLY TO WORLD',495,566,475,63,true);
         else {ctx.fillStyle=concept.selected?'#53dcc5':'#245568';ctx.fillRect(495,566,475,63);
           ctx.fillStyle=concept.selected?'#062b34':'#e9f9fa';ctx.font='bold 25px sans-serif';
           ctx.textAlign='center';ctx.textBaseline='middle';
-          ctx.fillText(concept.selected?'SELECTED':previewFailed?'PREVIEW REQUIRED':'WAIT FOR IMAGE',732,597);
+          ctx.fillText(panoramaMode&&concept.selected&&!concept.applyAvailable?
+            'LEAVE AR / PAUSE':concept.selected?'SELECTED':
+            previewFailed?'PREVIEW REQUIRED':'WAIT FOR IMAGE',732,597);
           ctx.textAlign='left';ctx.textBaseline='alphabetic';}
       }
     }else{
@@ -338,6 +353,9 @@ export function operatorPanel({createImage=()=>new Image()}={}){
       if(mode==='agent'&&concepts.length)
         button('open-concepts',`IMAGE PREVIEWS · ${concepts.length} VERSION${concepts.length===1?'':'S'}`,
           55,258,914,61,true);
+      if(mode==='agent'&&panoramas.length)
+        button('open-panoramas',`PANORAMAS · ${panoramas.length} VERSION${panoramas.length===1?'':'S'}`,
+          55,concepts.length?326:258,914,61,true);
       const content=mode==='agent'?`CODEX AGENT · ${agent.activity}\n\n${agent.content}`:mode==='proposal'&&proposal?
         `REVIEW BEFORE APPLY\n${proposal.summary||''}\n\n${proposal.kind==='game'?
           `GAME: ${proposal.gamePlan?.title||''}\nROLES\n${proposal.gamePlan?.roles?.map(role=>`${role.count} × ${role.assetId} as ${role.roleId} (${role.kind})`).join('\n')||''}\nRULES\n${proposal.gamePlan?.rules?.map(rule=>`${rule.actorRoleId} → ${rule.targetRoleId}: ${rule.event} within ${rule.distanceMeters} m, +${rule.scorePoints}`).join('\n')||''}\nOBJECTIVES\n${proposal.gamePlan?.objectives?.map(objective=>objective.kind==='score-at-least'?`At least ${objective.targetPoints} points`:`${objective.roleId}: ${objective.targetCount} delivered`).join('\n')||''}`:
@@ -352,11 +370,12 @@ export function operatorPanel({createImage=()=>new Image()}={}){
         }
         lines.push(line);
       }
-      const perPage=mode==='agent'?concepts.length?7:content.length>500?10:9:
+      const previewRows=Number(concepts.length>0)+Number(panoramas.length>0);
+      const perPage=mode==='agent'?previewRows===2?5:previewRows===1?7:content.length>500?10:9:
         content.length>500?14:12;
       const pages=Math.max(1,Math.ceil(lines.length/perPage));page%=pages;
       const step=mode==='agent'?content.length>500?28:34:content.length>500?30:37;
-      const contentTop=mode==='agent'?concepts.length?355:286:160;
+      const contentTop=mode==='agent'?previewRows===2?425:previewRows===1?355:286:160;
       lines.slice(page*perPage,(page+1)*perPage).forEach((line,index)=>
         ctx.fillText(line,55,contentTop+index*step));
       ctx.fillStyle='#8bb8c2';ctx.font='24px sans-serif';ctx.fillText(`Page ${page+1}/${pages}`,55,596);
@@ -376,8 +395,8 @@ export function operatorPanel({createImage=()=>new Image()}={}){
         button('pin',pinLabel,519,636,210,90);
         button('next','NEXT',741,636,248,90);
       }
-    }else if(mode==='concepts'){
-      button('concept-back','BACK TO CODEX',35,636,472,90,true);
+    }else if(mode==='concepts'||mode==='panoramas'){
+      button(mode==='panoramas'?'panorama-back':'concept-back','BACK TO CODEX',35,636,472,90,true);
       button('pin',pinLabel,519,636,210,90);
       button('voice',voiceInputLabel,741,636,248,90);
     }else if(mode==='proposal'&&proposal){
@@ -422,14 +441,14 @@ export function operatorPanel({createImage=()=>new Image()}={}){
   const setCameraStatus=(next,active)=>{if(cameraStatus!==next||cameraActive!==active){cameraStatus=next;cameraActive=active;paint();}};
   const setAgentStatus=next=>{if(JSON.stringify(agent)!==JSON.stringify(next)){
     if(agent.pending!==next.pending||agent.voiceStatus!==next.voiceStatus||agent.latestTurnId!==next.latestTurnId)page=0;
-    agent=next;if(mode==='agent'||mode==='concepts')paint();
+    agent=next;if(mode==='agent'||mode==='concepts'||mode==='panoramas')paint();
   }};
   const setConceptGallery=next=>{
     const key=JSON.stringify(next||[]);
     if(key===conceptKey)return;
     const previousVersion=currentConcept()?.version;
     conceptKey=key;concepts=Array.isArray(next)?next:[];
-    const urls=new Set(concepts.map(concept=>concept.previewObjectUrl).filter(Boolean));
+    const urls=new Set([...concepts,...panoramas].map(item=>item.previewObjectUrl).filter(Boolean));
     for(const [url,entry] of conceptImages){
       if(urls.has(url))continue;
       entry.image.onload=null;entry.image.onerror=null;conceptImages.delete(url);
@@ -440,6 +459,22 @@ export function operatorPanel({createImage=()=>new Image()}={}){
       Math.max(0,concepts.length-1);
     if(mode==='agent'||mode==='concepts')paint();
   };
+  const setPanoramaGallery=next=>{
+    const key=JSON.stringify(next||[]);
+    if(key===panoramaKey)return;
+    const previousVersion=currentPanorama()?.version;
+    panoramaKey=key;panoramas=Array.isArray(next)?next:[];
+    const urls=new Set([...concepts,...panoramas].map(item=>item.previewObjectUrl).filter(Boolean));
+    for(const [url,entry] of conceptImages){
+      if(urls.has(url))continue;
+      entry.image.onload=null;entry.image.onerror=null;conceptImages.delete(url);
+    }
+    const previousIndex=panoramas.findIndex(item=>item.version===previousVersion);
+    const selectedIndex=panoramas.findIndex(item=>item.selected);
+    panoramaIndex=previousIndex>=0?previousIndex:selectedIndex>=0?selectedIndex:
+      Math.max(0,panoramas.length-1);
+    if(mode==='agent'||mode==='panoramas')paint();
+  };
   const setCreationMode=next=>{
     if(!['auto','procedural','blender'].includes(next))throw Error('Invalid creation mode');
     if(creationMode!==next){creationMode=next;if(mode==='agent')paint();}
@@ -447,12 +482,15 @@ export function operatorPanel({createImage=()=>new Image()}={}){
   const toggleWorld=()=>{mode=mode==='world'?'chat':'world';page=0;paint();};
   const toggleArchives=()=>{mode=mode==='archives'?'world':'archives';page=0;paint();};
   const toggleModePage=()=>{mode=mode==='modes'?'chat':'modes';page=0;paint();};
-  const toggleAgent=()=>{if(mode==='concepts'){mode='agent';paint();return;}
+  const toggleAgent=()=>{if(mode==='concepts'||mode==='panoramas'){mode='agent';paint();return;}
     mode=mode==='agent'?'chat':'agent';page=0;paint();};
   const toggleConcepts=()=>{mode=mode==='concepts'?'agent':'concepts';paint();};
+  const togglePanoramas=()=>{mode=mode==='panoramas'?'agent':'panoramas';paint();};
   const previousConcept=()=>{if(concepts.length){conceptIndex=(conceptIndex+concepts.length-1)%concepts.length;paint();}};
   const nextConcept=()=>{if(concepts.length){conceptIndex=(conceptIndex+1)%concepts.length;paint();}};
-  const isAgentMode=()=>mode==='agent'||mode==='concepts';
+  const previousPanorama=()=>{if(panoramas.length){panoramaIndex=(panoramaIndex+panoramas.length-1)%panoramas.length;paint();}};
+  const nextPanorama=()=>{if(panoramas.length){panoramaIndex=(panoramaIndex+1)%panoramas.length;paint();}};
+  const isAgentMode=()=>mode==='agent'||mode==='concepts'||mode==='panoramas';
   const openProposal=()=>{if(proposal){mode='proposal';page=0;paint();}};
   const hit=uv=>{
     if(!uv)return null;const x=uv.x*1024,y=(1-uv.y)*768;
@@ -462,12 +500,37 @@ export function operatorPanel({createImage=()=>new Image()}={}){
   paint();
   return {group,mesh,setMessage,setPinLabel,setXRMode,setVoiceLabel,setOriginLabel,setConversationCount,
     setProposal,setWorldInfo,setWorldNotice,setGameStatus,setCreatorMode,setWarning,setCameraStatus,
-    setAgentStatus,setConceptGallery,setCreationMode,setVoiceInputLabel,toggleWorld,toggleArchives,
-    toggleModePage,toggleAgent,toggleConcepts,previousConcept,nextConcept,isAgentMode,openProposal,hit,nextPage};
+    setAgentStatus,setConceptGallery,setPanoramaGallery,setCreationMode,setVoiceInputLabel,toggleWorld,toggleArchives,
+    toggleModePage,toggleAgent,toggleConcepts,togglePanoramas,previousConcept,nextConcept,
+    previousPanorama,nextPanorama,isAgentMode,openProposal,hit,nextPage};
 }
 const v3=v=>new THREE.Vector3(v.x,v.y,v.z);
 const plain=v=>({x:Number(v.x.toFixed(3)),y:Number(v.y.toFixed(3)),z:Number(v.z.toFixed(3))});
-const advanceRoomTrackingEpoch=view=>{view.roomTrackingEpoch=(view.roomTrackingEpoch||0)+1;};
+const monotonicNow=()=>typeof globalThis.performance?.now==='function'?
+  globalThis.performance.now():null;
+function publishSpatialObservation(view){
+  if(!view.isAR||!view.world?.spatial)return;
+  const root=view.virtualFloorRoot;
+  let webFloorPose=null;
+  if(view.roomAnchorLocated&&view.world.spatial.originLocated&&
+     root?.position&&root?.quaternion&&root?.scale&&
+     ['x','y','z'].every(axis=>Number.isFinite(root.position[axis])&&
+       Number.isFinite(root.scale[axis]))){
+    const rotation=new THREE.Euler().setFromQuaternion(root.quaternion,'XYZ');
+    webFloorPose={position:plain(root.position),
+      rotation:{x:Number(THREE.MathUtils.radToDeg(rotation.x).toFixed(2)),
+        y:Number(THREE.MathUtils.radToDeg(rotation.y).toFixed(2)),
+        z:Number(THREE.MathUtils.radToDeg(rotation.z).toFixed(2))},
+      scale:plain(root.scale)};
+  }
+  view.world.setSpatialObservation({planeObservedAt:view.lastPlaneObservedAt??null,
+    trackingEpoch:view.roomTrackingEpoch??0,webFloorPose});
+}
+const advanceRoomTrackingEpoch=view=>{
+  view.roomTrackingEpoch=(view.roomTrackingEpoch||0)+1;
+  view.lastPlaneObservedAt=null;
+  publishSpatialObservation(view);
+};
 function setRoomContentVisible(view,visible){
   const shown=visible&&!view.observationStale;
   view.virtualFloorRoot.visible=shown;
@@ -480,9 +543,12 @@ export class MatrixView {
     this.world=world;this.onSelection=onSelection;this.getToken=getToken;this.onAssetError=onAssetError;this.onSceneEdit=onSceneEdit;this.onRuntimeChange=onRuntimeChange;this.onVoiceStart=onVoiceStart;this.onVoiceEnd=onVoiceEnd;this.onVoiceOutputToggle=onVoiceOutputToggle;this.onVisualReview=onVisualReview;this.onNewChat=onNewChat;this.onPanelAction=()=>{};this.onFrame=()=>{};this.onAssetReadinessChange=()=>{};this.onPhysicsContacts=()=>{};this.onPlayInteraction=()=>{};
     this.readOnly=options.readOnly===true;
     this.observationStale=false;
-    this.container=container;this.objectRoots=new Map();this.anchorRoots=new Map();this.planeOutlines=new Map();this.planeIds=new WeakMap();this.nextPlaneId=0;this.hitSource=null;this.reticleVisible=false;this.xrViewer=null;this.xrViewerCapturedAt=0;this.roomTrackingEpoch=0;this.reticleAnchorId='';this.lastPlaneTime=0;
-    this.modelCache=new Map();
-    this.scene=new THREE.Scene();this.scene.background=new THREE.Color(0x0a1b29);
+    this.container=container;this.objectRoots=new Map();this.anchorRoots=new Map();this.planeOutlines=new Map();this.planeIds=new WeakMap();this.nextPlaneId=0;this.hitSource=null;this.reticleVisible=false;this.xrViewer=null;this.xrViewerCapturedAt=0;this.roomTrackingEpoch=0;this.reticleAnchorId='';this.lastPlaneTime=0;this.lastPlaneObservedAt=null;
+    this.modelCache=new Map();this.environmentTextures=new Map();
+    this.environmentLoads=new Map();this.environmentFailures=new Map();
+    this.environmentSyncPending=new Set();
+    this.neutralBackground=new THREE.Color(0x0a1b29);
+    this.scene=new THREE.Scene();this.scene.background=this.neutralBackground;
     this.virtualFloorRoot=new THREE.Group();this.scene.add(this.virtualFloorRoot);
     this.roomAnchor=null;this.roomAnchorPending=false;this.roomAnchorCreationFailed=false;this.roomAnchorPersistent=false;this.roomAnchorRestoredHandle=null;this.roomAnchorRestoreFailed=false;this.roomAnchorLocated=false;this.roomAnchorHandleAvailable=false;this.roomPoseMissingSince=0;
     const storedEyeHeight=Number(sessionStorage.getItem('matrix-web-eye-height'));
@@ -558,7 +624,10 @@ export class MatrixView {
       const button=document.createElement('button');entries.push({button,mode,label});
       button.addEventListener('click',()=>{
         entryStatus.textContent='';
-        return this.xrControls.currentMode===mode?this.xrControls.exit():this.xrControls.enter(mode,options);
+        if(this.xrControls.currentMode===mode)return this.xrControls.exit();
+        const blocker=this.xrEntryBlocker?.();
+        if(blocker){entryStatus.textContent=blocker;this.onAssetError(blocker);return false;}
+        return this.xrControls.enter(mode,options);
       });
       buttons.append(button);
     };
@@ -579,13 +648,15 @@ export class MatrixView {
     this.operatorPanel.group.visible=!this.readOnly;
     this.operatorMount={kind:'head'};this.operatorPanel.setPinLabel(this.isAR?'PIN TO WALL':'PIN HERE');
     this.operatorThumbstickHeld=false;
-    this.sessionStartedAt=performance.now();this.roomCaptureRequested=false;this.virtualFloorCalibrated=false;this.roomAnchorCreationFailed=false;this.roomAnchorRestoreFailed=false;this.roomAnchorLocated=false;this.roomPoseMissingSince=0;
+    this.sessionStartedAt=performance.now();this.roomCaptureRequested=false;this.virtualFloorCalibrated=false;this.roomAnchorCreationFailed=false;this.roomAnchorRestoreFailed=false;this.roomAnchorLocated=false;this.roomPoseMissingSince=0;this.lastPlaneTime=0;
     if(this.isAR)this.world.enterAR({visitDigitalWorld:this.world.canVisitDigitalWorld()});
+    publishSpatialObservation(this);
     this.restoreRoomAnchor(session);
     if(this.isAR)this.sync();
     this.onRuntimeChange();
     for(const ray of this.controllerRays)ray.visible=!this.readOnly;
-    this.floor.visible=!this.isAR;this.grid.visible=!this.isAR;this.scene.background=this.isAR?null:new THREE.Color(0x0a1b29);
+    this.floor.visible=!this.isAR;this.grid.visible=!this.isAR;
+    this.syncEnvironment();
     document.getElementById('view-label').textContent=this.isAR?'WEBXR AR · SCANNING ROOM PLANES':'WEBXR VR · VIRTUAL ROOM';
     if(this.isAR)await this.acquireARHitSource(session);
   }
@@ -659,6 +730,7 @@ export class MatrixView {
     advanceRoomTrackingEpoch(this);
     this.roomAnchorRestoreFailed=true;setRoomContentVisible(this,false);
     this.world.setOriginUnavailable(true);
+    publishSpatialObservation(this);
     this.onAssetError(message);
     this.onRuntimeChange();
   }
@@ -736,11 +808,13 @@ export class MatrixView {
     if(!pose){
       if(!this.isAR)return;
       if(!this.roomPoseMissingSince){this.roomPoseMissingSince=performance.now();advanceRoomTrackingEpoch(this);}
+      this.world.setOriginLocated(false);
       if(this.roomAnchorLocated||this.world.digitalWorldVisit&&
          !this.world.spatial?.originUnavailable){
         this.roomAnchorLocated=false;setRoomContentVisible(this,false);
         this.world.setOriginUnavailable(true);this.onRuntimeChange();
       }
+      publishSpatialObservation(this);
       if(!this.roomAnchorRestoreFailed&&performance.now()-this.roomPoseMissingSince>10000){
         if(this.world.digitalWorldVisit){
           this.roomAnchorCreationFailed=true;this.roomAnchor=null;
@@ -766,6 +840,8 @@ export class MatrixView {
       this.world.originAnchorHandle=this.roomAnchorRestoredHandle;
     if(newlyBound)this.world.originBinding='ar';
     this.world.setOriginUnavailable(false);
+    this.world.setOriginLocated(true);
+    publishSpatialObservation(this);
     setRoomContentVisible(this,true);
     if(wasUnavailable||newlyBound)this.onRuntimeChange();
   }
@@ -785,7 +861,7 @@ export class MatrixView {
     setRoomContentVisible(this,true);this.virtualFloorRoot.position.set(0,0,0);this.virtualFloorRoot.quaternion.identity();this.virtualFloorCalibrated=false;
     this.world.leaveAR();this.world.runtimePresentation='desktop';this.sync();this.onRuntimeChange();
     document.getElementById('xr-overlay').style.display='none';document.getElementById('xr-exit').textContent='Exit AR';this.floor.visible=true;this.grid.visible=true;
-    this.scene.background=new THREE.Color(0x0a1b29);document.getElementById('view-label').textContent='DESKTOP · VIRTUAL ROOM';
+    this.syncEnvironment();document.getElementById('view-label').textContent='DESKTOP · VIRTUAL ROOM';
   }
   setOperatorStatus(message,tone='idle'){this.operatorPanel.setMessage(message,tone);}
   setConversationCount(count){this.operatorPanel.setConversationCount(count);}
@@ -798,6 +874,7 @@ export class MatrixView {
   setOperatorCameraStatus(status,active){this.operatorPanel.setCameraStatus(status,active);}
   setOperatorAgentStatus(status){this.operatorPanel.setAgentStatus(status);}
   setOperatorConceptGallery(concepts){this.operatorPanel.setConceptGallery(concepts);}
+  setOperatorPanoramaGallery(panoramas){this.operatorPanel.setPanoramaGallery(panoramas);}
   setOperatorCreationMode(mode){this.operatorPanel.setCreationMode(mode);}
   setCreationMode(mode){this.setOperatorCreationMode(mode);}
   setOperatorVoiceInputLabel(label){this.operatorPanel.setVoiceInputLabel(label);}
@@ -908,6 +985,8 @@ export class MatrixView {
     }
     for(const [id,group] of this.planeOutlines)if(!present.has(id)){this.scene.remove(group);disposeGroup(group);this.planeOutlines.delete(id);}
     this.world.setSpatialAnchors(anchors);
+    this.lastPlaneObservedAt=monotonicNow();
+    publishSpatialObservation(this);
     const floorHeight=measuredFloorHeight(anchors,this.xrViewer?.position.y);
     if(floorHeight!==null){
       if(!this.roomAnchor)this.virtualFloorRoot.position.y=floorHeight;
@@ -930,6 +1009,7 @@ export class MatrixView {
     }
   }
   sync(){
+    this.syncEnvironment();
     if(this.grab?.rigid)this.world.releaseRigidGrab?.(this.grab.objectId);
     if(this.pointerGrab?.rigid)this.world.releaseRigidGrab?.(this.pointerGrab.objectId);
     if(this.grab)this.world.resumePhysics?.(this.grab.objectId);
@@ -1023,6 +1103,133 @@ export class MatrixView {
     this.refreshGamePresentation();
     setRoomContentVisible(this,!this.isAR||!this.world.spatial?.originUnavailable);
     this.highlight();
+  }
+  async prepareEnvironment(environment){
+    if(!environment)return null;
+    const asset=this.world.environmentAsset(environment.assetId);
+    if(!matchingEnvironmentAsset(environment,asset))
+      throw Error('Panorama is missing from the registered environment catalog');
+    const ready=this.environmentTextures.get(asset.sha256);
+    if(ready){
+      if(ready.image?.width!==asset.width||ready.image?.height!==asset.height)
+        throw Error('Cached panorama dimensions differ from the registered asset');
+      return ready;
+    }
+    const inFlight=this.environmentLoads.get(asset.sha256);
+    if(inFlight){
+      const texture=await inFlight;
+      if(texture.image?.width!==asset.width||texture.image?.height!==asset.height)
+        throw Error('Panorama dimensions differ from the registered asset');
+      return texture;
+    }
+    const controller=new AbortController();
+    let timeoutId;
+    const timeout=new Promise((_,reject)=>{
+      timeoutId=setTimeout(()=>{
+        reject(Error('Panorama loading timed out'));controller.abort();
+      },this.environmentLoadTimeoutMs??12000);
+    });
+    const download=(async()=>{
+      const token=this.getToken();
+      const response=await fetch(asset.url,{headers:token?
+        {Authorization:`Bearer ${token}`}:{},cache:'no-store',
+        signal:controller.signal});
+      if(controller.signal.aborted)throw Error('Panorama loading timed out');
+      if(!response.ok)throw Error(`Panorama download returned HTTP ${response.status}`);
+      const declared=Number(response.headers?.get('content-length'));
+      if(Number.isFinite(declared)&&declared>asset.byteLength)
+        throw Error('Panorama response exceeds its registered byte length');
+      if(!response.body?.getReader)throw Error('Panorama response cannot be streamed safely');
+      const reader=response.body.getReader(),bytes=new Uint8Array(asset.byteLength);
+      let size=0;
+      while(true){
+        const {done,value}=await reader.read();
+        if(controller.signal.aborted)throw Error('Panorama loading timed out');
+        if(done)break;
+        if(size+value.byteLength>bytes.byteLength){
+          void reader.cancel().catch(()=>{});
+          throw Error('Panorama response exceeds its registered byte length');
+        }
+        bytes.set(value,size);size+=value.byteLength;
+      }
+      if(size!==asset.byteLength)
+        throw Error('Panorama byte length differs from its registered asset');
+      if(!crypto.subtle)throw Error('Secure panorama checksum verification is unavailable');
+      const digest=Array.from(new Uint8Array(await crypto.subtle.digest('SHA-256',bytes)),
+        byte=>byte.toString(16).padStart(2,'0')).join('');
+      if(controller.signal.aborted)throw Error('Panorama loading timed out');
+      if(digest!==asset.sha256)throw Error('Panorama checksum differs from its registered asset');
+      // ImageBitmap ignores Texture.flipY; decode with Three.js's texture orientation.
+      const image=await createImageBitmap(new Blob([bytes],{type:'image/png'}),
+        {imageOrientation:'flipY'});
+      if(controller.signal.aborted){image.close?.();throw Error('Panorama loading timed out');}
+      if(image.width!==asset.width||image.height!==asset.height){
+        image.close?.();throw Error('Panorama dimensions differ from its registered asset');
+      }
+      const texture=new THREE.Texture(image);
+      texture.mapping=THREE.EquirectangularReflectionMapping;
+      texture.colorSpace=THREE.SRGBColorSpace;
+      texture.needsUpdate=true;
+      this.environmentTextures.set(asset.sha256,texture);
+      this.environmentFailures.delete(asset.sha256);
+      while(this.environmentTextures.size>3){
+        const evicted=[...this.environmentTextures].find(([sha,candidate])=>
+          sha!==asset.sha256&&candidate!==this.scene.background);
+        if(!evicted)break;
+        this.environmentTextures.delete(evicted[0]);
+        evicted[1].dispose();evicted[1].image?.close?.();
+      }
+      return texture;
+    })();
+    const promise=Promise.race([download,timeout]).finally(()=>clearTimeout(timeoutId));
+    this.environmentLoads.set(asset.sha256,promise);
+    try{return await promise;}
+    catch(error){
+      this.environmentFailures.set(asset.sha256,Date.now());
+      while(this.environmentFailures.size>8)
+        this.environmentFailures.delete(this.environmentFailures.keys().next().value);
+      throw error;
+    }
+    finally{if(this.environmentLoads.get(asset.sha256)===promise)
+      this.environmentLoads.delete(asset.sha256);}
+  }
+  syncEnvironment(){
+    const environment=this.world.scene?.environment??null;
+    this.scene.backgroundRotation?.set(0,
+      environment?THREE.MathUtils.degToRad(environment.yawDegrees):0,0);
+    if(this.isAR){this.scene.background=null;return;}
+    if(!environment){this.scene.background=this.neutralBackground||
+      new THREE.Color(0x0a1b29);return;}
+    const asset=this.world.environmentAsset(environment.assetId);
+    if(!matchingEnvironmentAsset(environment,asset)){
+      this.scene.background=this.neutralBackground||new THREE.Color(0x0a1b29);
+      const missingKey=`missing:${environment.assetId}:${environment.sha256}`;
+      if(!this.environmentFailures.has(missingKey)){
+        this.environmentFailures.set(missingKey,Date.now());
+        this.onAssetError('Panorama is missing or differs from the registered image.');
+      }
+      return;
+    }
+    const ready=this.environmentTextures.get(asset.sha256);
+    if(ready&&ready.image?.width===asset.width&&
+       ready.image?.height===asset.height){this.scene.background=ready;return;}
+    this.scene.background=this.neutralBackground||new THREE.Color(0x0a1b29);
+    this.environmentSyncPending??=new Set();
+    if(this.environmentSyncPending.has(asset.sha256))return;
+    if(Date.now()-(this.environmentFailures.get(asset.sha256)||0)<30000)return;
+    this.environmentFailures.delete(asset.sha256);
+    this.environmentSyncPending.add(asset.sha256);
+    void this.prepareEnvironment(environment).then(texture=>{
+      if(!this.isAR&&this.world.scene.environment?.assetId===environment.assetId&&
+         this.world.scene.environment?.sha256===environment.sha256){
+        this.scene.background=texture;
+        this.scene.backgroundRotation?.set(0,THREE.MathUtils.degToRad(
+          this.world.scene.environment.yawDegrees),0);
+      }
+    }).catch(error=>{
+      this.environmentFailures.set(asset.sha256,Date.now());
+      this.onAssetError(`Panorama could not render: ${error.message}`);
+    }).finally(()=>this.environmentSyncPending.delete(asset.sha256));
   }
   syncObservedTransforms(){
     // The hosted visitor fixture has fixed static assets and IDs. Move their
@@ -1366,6 +1573,9 @@ export class MatrixView {
       else if(action==='open-concepts'||action==='concept-back')this.operatorPanel.toggleConcepts();
       else if(action==='concept-prev')this.operatorPanel.previousConcept();
       else if(action==='concept-next')this.operatorPanel.nextConcept();
+      else if(action==='open-panoramas'||action==='panorama-back')this.operatorPanel.togglePanoramas();
+      else if(action==='panorama-prev')this.operatorPanel.previousPanorama();
+      else if(action==='panorama-next')this.operatorPanel.nextPanorama();
       else if(action==='open-proposal')this.operatorPanel.openProposal();
       else if(action==='next')this.operatorPanel.nextPage();
       else if(action==='voice-output')this.onVoiceOutputToggle();
@@ -1526,7 +1736,11 @@ export class MatrixView {
     const previous=this.xrViewer;
     this.xrViewer=frame&&referenceSpace?viewerPose(frame,referenceSpace):null;
     this.xrViewerCapturedAt=this.xrViewer?now:0;
-    if(previous&&!this.xrViewer)advanceRoomTrackingEpoch(this);
+    if(previous&&!this.xrViewer){
+      advanceRoomTrackingEpoch(this);
+      if(this.isAR)this.world.setOriginLocated(false);
+      publishSpatialObservation(this);
+    }
     return this.xrViewer;
   }
   viewer(){

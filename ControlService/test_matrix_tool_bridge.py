@@ -11,7 +11,10 @@ from unittest.mock import patch
 
 from agent_session import LocalCodexAgentBackend
 from codex_provider import CodexConfig
-from matrix_tool_bridge import MatrixToolBridge, read_scene, scene_summary
+from matrix_tool_bridge import (MatrixToolBridge, move_status,
+                                move_with_room_constraint, read_scene,
+                                room_spatial_context, scene_summary,
+                                spawn_status, spawn_surface)
 from server import State, local_agent_backend
 from test_server import SNAPSHOT
 
@@ -136,10 +139,111 @@ class MatrixToolBridgeTests(unittest.TestCase):
         self.assertIsNotNone(other.matrix_tool_bridge)
         other.matrix_tool_bridge.close()
 
+    def test_measured_room_bridge_requires_fresh_context_and_observed_spawn(self):
+        origin = {"position": {"x": 0, "y": 0, "z": 0},
+                  "rotation": {"x": 0, "y": 0, "z": 0},
+                  "scale": {"x": 1, "y": 1, "z": 1}}
+        pose = copy.deepcopy(origin)
+        room = copy.deepcopy(SNAPSHOT)
+        room["scene"]["roomId"] = "webxr-session-bridge"
+        room["scene"]["objects"] = [{"objectId": "chair-vr", "assetId": "chair",
+                                     "anchorId": "web-floor", "transform": copy.deepcopy(pose)}]
+        room["assets"] = [{"assetId": "chair", "displayName": "Chair", "spawnScale": 1,
+                           "localBounds": {"center": {"x": 0, "y": .45, "z": 0},
+                                           "size": {"x": .6, "y": .9, "z": .6}}}]
+        room["anchors"] = [{"anchorId": "web-floor", "displayName": "Virtual floor"},
+                           {"anchorId": "webxr-plane-1", "displayName": "FLOOR",
+                            "source": "webxr", "semanticLabels": ["FLOOR"],
+                            "surface": {"kind": "support", "boundary": [
+                                {"x": -2, "y": 0, "z": -2}, {"x": 2, "y": 0, "z": -2},
+                                {"x": 2, "y": 0, "z": 2}, {"x": -2, "y": 0, "z": 2}]},
+                            "roomPose": copy.deepcopy(origin)}]
+        room["roomContext"] = {"mode": "ar", "state": "ready", "message": "Room aligned",
+                               "alignmentVerified": True}
+        room["runtimeDescriptor"] = {"schemaVersion": 1, "client": "matrix-web",
+                                     "renderer": "threejs-webxr", "presentation": "ar"}
+        room["creatorMode"] = {"schemaVersion": 1, "mode": "creator",
+                               "simulation": "paused", "revision": 0}
+        room["spatialObservation"] = {"schemaVersion": 1, "planeAgeMs": 0,
+                                      "trackingEpoch": 1, "webFloorPose": copy.deepcopy(origin)}
+        self.state.exchange({"clientId": "web-client", "snapshot": room, "results": []})
+        spatial = room_spatial_context(self.bridge.url, self.bridge.token)
+        self.assertTrue(spatial["usable"])
+        self.assertEqual(spatial["planeCount"], 1)
+        self.assertEqual(spatial["planes"][0]["anchorId"], "webxr-plane-1")
+        self.assertEqual(spatial["coordinateFrame"], "xr-reference-space")
+        request = {"room_id": spatial["roomId"], "scene_revision": spatial["sceneRevision"],
+                   "spatial_token": spatial["spatialToken"], "asset_id": "chair",
+                   "anchor_id": "webxr-plane-1", "transform": pose}
+        with self.assertRaises(urllib.error.HTTPError) as denied_read:
+            room_spatial_context(self.bridge.url, "wrong-token")
+        self.assertEqual(denied_read.exception.code, 404)
+        with self.assertRaises(urllib.error.HTTPError) as denied_write:
+            spawn_surface(self.bridge.url, "wrong-token", request)
+        self.assertEqual(denied_write.exception.code, 404)
+
+        room["spatialObservation"]["trackingEpoch"] = 2
+        self.state.exchange({"clientId": "web-client", "snapshot": room, "results": []})
+        with self.assertRaises(urllib.error.HTTPError) as stale:
+            spawn_surface(self.bridge.url, self.bridge.token, request)
+        self.assertEqual(stale.exception.code, 409)
+        self.assertFalse(self.state.pending)
+
+        spatial = room_spatial_context(self.bridge.url, self.bridge.token)
+        request.update(scene_revision=spatial["sceneRevision"],
+                       spatial_token=spatial["spatialToken"])
+        with patch("matrix_tool_bridge.MOVE_WAIT", .05):
+            queued = spawn_surface(self.bridge.url, self.bridge.token, request)
+        self.assertEqual(queued["status"], "queued")
+        self.assertEqual(self.state.pending[queued["requestId"]]["anchorId"], "webxr-plane-1")
+        room["scene"]["objects"].append({"objectId": "chair-1", "assetId": "chair",
+                                         "anchorId": "webxr-plane-1", "transform": pose})
+        self.state.exchange({"clientId": "web-client", "snapshot": room,
+                             "results": [{"requestId": queued["requestId"], "ok": True,
+                                          "objectId": "chair-1", "error": ""}]})
+        self.assertEqual(spawn_status(self.bridge.url, self.bridge.token,
+                                      queued["requestId"])["status"], "succeeded")
+
+        spatial = room_spatial_context(self.bridge.url, self.bridge.token)
+        move = {"room_id": spatial["roomId"], "scene_revision": spatial["sceneRevision"],
+                "spatial_token": spatial["spatialToken"], "anchor_id": "webxr-plane-1",
+                "object_id": "chair-vr", "expected_asset_id": "chair",
+                "position": {"x": 1, "y": 0, "z": 0}}
+        with self.assertRaises(urllib.error.HTTPError) as denied_move:
+            move_with_room_constraint(self.bridge.url, "wrong-token", move)
+        self.assertEqual(denied_move.exception.code, 404)
+        room["spatialObservation"]["trackingEpoch"] = 3
+        self.state.exchange({"clientId": "web-client", "snapshot": room, "results": []})
+        with self.assertRaises(urllib.error.HTTPError) as stale_move:
+            move_with_room_constraint(self.bridge.url, self.bridge.token, move)
+        self.assertEqual(stale_move.exception.code, 409)
+        self.assertFalse(self.state.pending)
+
+        spatial = room_spatial_context(self.bridge.url, self.bridge.token)
+        move.update(scene_revision=spatial["sceneRevision"],
+                    spatial_token=spatial["spatialToken"])
+        with patch("matrix_tool_bridge.MOVE_WAIT", .05):
+            moved = move_with_room_constraint(self.bridge.url, self.bridge.token, move)
+        self.assertEqual(moved["status"], "queued")
+        command = self.state.pending[moved["requestId"]]
+        self.assertEqual(command["op"], "set_transform")
+        self.assertEqual(command["roomConstraint"], {"anchorId": "webxr-plane-1",
+                                                      "trackingEpoch": 3})
+        self.assertEqual(command["transform"]["position"], move["position"])
+        room["scene"]["objects"][0]["transform"]["position"] = move["position"]
+        self.state.exchange({"clientId": "web-client", "snapshot": room,
+                             "results": [{"requestId": moved["requestId"], "ok": True,
+                                          "objectId": "chair-vr", "error": ""}]})
+        receipt = move_status(self.bridge.url, self.bridge.token, moved["requestId"])
+        self.assertEqual(receipt["status"], "succeeded")
+        self.assertEqual(receipt["constraintAnchorId"], "webxr-plane-1")
+        self.assertEqual(receipt["transform"]["position"], move["position"])
+
     def test_native_image_turn_blocks_matrix_mutations_at_private_bridge(self):
         self.state.agent_portal._native_starting = True
         try:
-            for path in ("/spawn-builtin", "/scale", "/register-glb", "/concept-build"):
+            for path in ("/spawn-builtin", "/spawn-surface", "/move-room", "/scale",
+                         "/register-glb", "/concept-build"):
                 with self.subTest(path=path):
                     request = urllib.request.Request(
                         self.bridge.url.replace("/scene", path), data=b"{}",

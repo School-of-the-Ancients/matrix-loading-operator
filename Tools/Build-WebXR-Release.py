@@ -39,6 +39,7 @@ ROOT_FILES = (
 DOC_FILES = (
     "Docs/Persistent-World-Host.md", "Docs/Citizens-Shared-World.md",
     "Docs/Versions-And-Submissions.md", "Docs/Control-Page-Routes.md",
+    "Docs/Matrix-Environments.md",
 )
 COMPAT_FILES = ("Examples/block_scale_client.py",
                 "Validation/client-api-v1-fixtures.json")

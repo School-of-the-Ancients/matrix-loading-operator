@@ -181,6 +181,26 @@ The authenticated Operator API uses the existing Agent session ID:
 | Preview | `GET /api/agent/concepts/<conceptId>/preview` | Authenticated image bytes |
 | Build selected | `POST /api/agent/turn` | `{sessionId,text,context?,expectedConceptId?,expectedConceptVersion?,creationMode?}`; the UI sends both expected fields and a creation mode for a selected build |
 
+### Panorama image drafts and world environment
+
+Issue #150 uses the same image generator and Agent session, with `purpose:"panorama"` and a separate selection. These are authenticated, same-origin owner routes:
+
+| Action | Route | JSON body/result |
+| --- | --- | --- |
+| Generate panorama | `POST /api/agent/concepts` | `{sessionId,prompt,purpose:"panorama",providerId?}` → `{job}` |
+| Generate another version | `POST /api/agent/concepts/variation` | `{sessionId,sourceConceptId,prompt?,purpose:"panorama",providerId?}` → `{job}` |
+| List and refresh | `GET /api/agent/concepts?sessionId=...` | Adds `panoramaJobs`, ready `panoramas`, `selectedPanoramaId` alongside the unchanged object-concept fields |
+| Select a ready version | `POST /api/agent/concepts/select` | `{sessionId,conceptId,purpose:"panorama"}` → `{selectedPanoramaId,panorama}` |
+| Register selected image | `POST /api/agent/concepts/register-panorama` | `{sessionId,conceptId,name}` → `{status:"registered",assetId,displayName,sha256,byteLength,width,height,format,url}` |
+| Apply registered image | `POST /api/agent/environments/action` | `{action:"set",room_id,scene_revision,asset_id,yaw_degrees}` → queued action with `requestId` and target `environment` |
+| Confirm exact action | `GET /api/agent/environments/actions/<requestId>` | `status`, target `environment`, and `outcome` only when the matching browser receipt and observed scene both succeed |
+
+Panorama version numbers advance independently from the existing object-design concept versions. A variation can use only an image of the same purpose. Selecting a panorama never changes `selectedConceptId`, and the generic object-build flow never consumes `selectedPanoramaId`. An image finishing later does not change either selection. The user explicitly selects a ready panorama version, registers it, then applies the returned asset ID. Registration alone never edits the world. Applying remains restricted to a fresh room/revision and the existing Creator Mode and XR presentation rules.
+
+Codex-native is the default image source when its capability is available. Its image-only turn asks for a seamless 360-degree equirectangular 2:1 PNG. The actual returned file must be a decoded, non-interlaced 2:1 RGB/RGBA PNG within the panorama catalog limits; a different aspect ratio, JPEG or WebP becomes a failed draft with a visible reason. Configured ComfyUI remains an option. Its reviewed graph must have exactly one `EmptyLatentImage` and one `SaveImage`; the latent inputs are set to 1024 × 512 before the worker's `/object_info` validation and submission. This renders at 2:1 rather than stretching a 4:3 result, but the returned file still undergoes the same decoder check. A 2:1 shape and generation prompt do not prove that the horizon or horizontal seam is visually correct, so inspect the preview and VR result.
+
+The PC concept record keeps the source prompt, provider, configured workflow digest and submitted graph digest plus seed when applicable, generated image digest, and registered panorama asset ID. The submitted graph digest includes the effective 2:1 latent dimensions and prompt/seed values; it is a checksum, not a public copy of those values. The public panorama catalog exposes the registered image identity and display name, without the private PC image path or full prompt. Identical bytes deduplicate to the existing asset ID and name. See [Matrix Environments](../Docs/Matrix-Environments.md) for runtime persistence and receipt semantics.
+
 `providers` contains `codex-native` and `comfyui` with availability and reason;
 `defaultProviderId` is native when available. An explicit `providerId` uses
 that source or returns a conflict if it is unavailable. Every job retains its

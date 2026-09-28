@@ -113,6 +113,46 @@ test('XR concept gallery draws authenticated previews and selects the visible ve
   }
 });
 
+test('Quest in-world panorama gallery previews, chooses, and applies only in Creator VR',()=>{
+  const drawn=[];const images=[];
+  const context={fillRect(){},strokeRect(){},
+    drawImage(image){drawn.push(image);},fillText(){},
+    measureText(value){return {width:String(value).length*12};}};
+  const previousDocument=globalThis.document;
+  globalThis.document={createElement:kind=>{
+    assert.equal(kind,'canvas');return {width:0,height:0,getContext:()=>context};
+  }};
+  try{
+    const panel=operatorPanel({createImage:()=>{
+      const image={naturalWidth:1024,naturalHeight:512,onload:null,onerror:null};
+      images.push(image);return image;
+    }});
+    const hit=(x,y)=>panel.hit({x:x/1024,y:1-y/768});
+    panel.setPanoramaGallery([{conceptId:'pano',version:2,selected:false,
+      prompt:'Moonlit forest',sourceLabel:'Codex GPT Image',
+      previewStatus:'ready',previewObjectUrl:'blob:pano',applyAvailable:true}]);
+    panel.toggleAgent();
+    assert.equal(hit(400,290),'open-panoramas');
+    panel.togglePanoramas();
+    assert.equal(panel.isAgentMode(),true);
+    assert.equal(hit(700,596),null,'a panorama preview must be decoded first');
+    images[0].onload();
+    assert.ok(drawn.includes(images[0]));
+    assert.equal(hit(700,596),'panorama-select-2');
+    panel.setPanoramaGallery([{conceptId:'pano',version:2,selected:true,
+      prompt:'Moonlit forest',sourceLabel:'Codex GPT Image',
+      previewStatus:'ready',previewObjectUrl:'blob:pano',applyAvailable:true}]);
+    assert.equal(hit(700,596),'panorama-apply-2');
+    panel.setPanoramaGallery([{conceptId:'pano',version:2,selected:true,
+      prompt:'Moonlit forest',sourceLabel:'Codex GPT Image',
+      previewStatus:'ready',previewObjectUrl:'blob:pano',applyAvailable:false}]);
+    assert.equal(hit(700,596),null,'AR and Play/Test cannot apply a panorama');
+  }finally{
+    if(previousDocument===undefined)delete globalThis.document;
+    else globalThis.document=previousDocument;
+  }
+});
+
 test('Codex panel shows voice phases and returns to the first page for new feedback',()=>{
   const drawn=[];
   const context={

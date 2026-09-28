@@ -12,13 +12,16 @@ from matrix_tool_bridge import (animation_status, bind_animation, bind_game,
                                 update_game,
                                 component_action, component_status,
                                 interaction_action, interaction_status,
-                                list_assets, list_components,
+                                list_assets, list_components, list_environments,
                                 list_procedural_generators, procedural_action, procedural_status,
-                                move_object, move_status, publish_component, read_scene, record_concept_build,
-                                register_glb,
+                                move_object, move_status, move_with_room_constraint,
+                                publish_component, read_scene, room_spatial_context,
+                                record_concept_build,
+                                register_glb, register_panorama,
+                                environment_action, environment_status,
                                 physics_action, physics_status, scale_block, scale_status,
                                 rigid_action, rigid_status,
-                                spawn_asset, spawn_builtin, spawn_status,
+                                spawn_asset, spawn_builtin, spawn_status, spawn_surface,
                                 world_archive_action, world_archive_status)
 
 
@@ -38,6 +41,21 @@ def matrix_scene_summary() -> dict:
     url = os.environ["MATRIX_CONTROL_URL"]
     token = os.environ["MATRIX_CONTROL_TOKEN"]
     return read_scene(url, token)
+
+
+@server.tool(annotations=ToolAnnotations(readOnlyHint=True))
+def matrix_room_spatial_context() -> dict:
+    """Recapture current bounded WebXR room planes and placement readiness.
+
+    Use this immediately before a room-aware action and after each VR/AR mode,
+    tracking, or origin change. The spatialToken is an opaque current-context
+    guard, not an anchor or proof that a physical room is aligned. Check usable,
+    alignmentVerified, coordinateFrame, planeAgeMs, and the target plane's
+    measured support boundary. If unusable, explain the reason and do not claim
+    that an unanchored virtual-floor edit fits the physical room.
+    """
+    return room_spatial_context(os.environ["MATRIX_CONTROL_URL"],
+                                os.environ["MATRIX_CONTROL_TOKEN"])
 
 
 @server.tool(annotations=ToolAnnotations(readOnlyHint=False, destructiveHint=False,
@@ -67,6 +85,36 @@ def matrix_move_object(room_id: str, scene_revision: int, object_id: str,
         value["scale"] = scale
     return move_object(os.environ["MATRIX_CONTROL_URL"], os.environ["MATRIX_CONTROL_TOKEN"],
                        value)
+
+
+@server.tool(annotations=ToolAnnotations(readOnlyHint=False, destructiveHint=False,
+                                         idempotentHint=False, openWorldHint=False))
+def matrix_move_with_room_constraint(room_id: str, scene_revision: int, spatial_token: str,
+                                     anchor_id: str, object_id: str, expected_asset_id: str,
+                                     position: dict[str, float],
+                                     rotation: dict[str, float] | None = None,
+                                     scale: dict[str, float] | None = None) -> dict:
+    """Reposition one persistent virtual-floor object within a measured AR support.
+
+    Refresh matrix_room_spatial_context immediately before this call. The target
+    position is in web-floor digital coordinates, while anchor_id identifies
+    the measured WebXR support that must contain the object's physical footprint
+    after mapping through the current web-floor pose. Optional rotation and
+    scale replace the complete current values. Matrix checks the fresh room
+    token and support availability before queueing; the browser checks the final
+    footprint and tracking epoch. Inspect matrix_move_status and the observed scene before
+    claiming success. The object keeps its virtual-floor anchor and stable ID.
+    """
+    value = {"room_id": room_id, "scene_revision": scene_revision,
+             "spatial_token": spatial_token, "anchor_id": anchor_id,
+             "object_id": object_id, "expected_asset_id": expected_asset_id,
+             "position": position}
+    if rotation is not None:
+        value["rotation"] = rotation
+    if scale is not None:
+        value["scale"] = scale
+    return move_with_room_constraint(os.environ["MATRIX_CONTROL_URL"],
+                                     os.environ["MATRIX_CONTROL_TOKEN"], value)
 
 
 @server.tool(annotations=ToolAnnotations(readOnlyHint=True))
@@ -132,9 +180,30 @@ def matrix_spawn_asset(room_id: str, scene_revision: int, asset_id: str,
                         "asset_id": asset_id, "transform": transform})
 
 
+@server.tool(annotations=ToolAnnotations(readOnlyHint=False, destructiveHint=False,
+                                         idempotentHint=False, openWorldHint=False))
+def matrix_spawn_on_surface(room_id: str, scene_revision: int, spatial_token: str,
+                            asset_id: str, anchor_id: str, transform: dict) -> dict:
+    """Place one Matrix asset on a fresh, verified WebXR support surface.
+
+    Read matrix_room_spatial_context immediately beforehand. Choose a measured
+    support anchor and a transform expressed in that anchor's local coordinates;
+    position.y is clearance above its polygon. Matrix rechecks room identity,
+    origin/tracking and the token before queueing, then validates the asset's
+    footprint again when the browser executes. Inspect matrix_spawn_status and
+    the live scene before claiming success. Physical-plane objects are scoped
+    to the current AR session and do not survive leaving AR as world entities.
+    """
+    return spawn_surface(os.environ["MATRIX_CONTROL_URL"],
+                         os.environ["MATRIX_CONTROL_TOKEN"],
+                         {"room_id": room_id, "scene_revision": scene_revision,
+                          "spatial_token": spatial_token, "asset_id": asset_id,
+                          "anchor_id": anchor_id, "transform": transform})
+
+
 @server.tool(annotations=ToolAnnotations(readOnlyHint=True))
 def matrix_spawn_status(request_id: str) -> dict:
-    """Read a runtime receipt and observed object ID for a Matrix GLB spawn."""
+    """Read a runtime receipt and observed object ID for a Matrix asset spawn."""
     return spawn_status(os.environ["MATRIX_CONTROL_URL"], os.environ["MATRIX_CONTROL_TOKEN"], request_id)
 
 
@@ -655,6 +724,76 @@ def matrix_list_assets(offset: int = 0, limit: int = 24) -> dict:
     """List a bounded page of validated Matrix WebXR GLB catalog assets."""
     return list_assets(os.environ["MATRIX_CONTROL_URL"], os.environ["MATRIX_CONTROL_TOKEN"],
                        offset, limit)
+
+
+@server.tool(annotations=ToolAnnotations(readOnlyHint=True))
+def matrix_list_environments(offset: int = 0, limit: int = 24) -> dict:
+    """List validated, immutable 2:1 PNG panoramas registered on the PC."""
+    return list_environments(os.environ["MATRIX_CONTROL_URL"],
+                             os.environ["MATRIX_CONTROL_TOKEN"], offset, limit)
+
+
+@server.tool(annotations=ToolAnnotations(readOnlyHint=False, destructiveHint=False,
+                                         idempotentHint=True, openWorldHint=False))
+def matrix_register_panorama(source_path: str, expected_sha256: str, name: str) -> dict:
+    """Register a local PNG panorama after native approval; this does not change a world.
+
+    The file must be a 2:1, non-interlaced RGB/RGBA PNG at most 4096x2048.
+    Supply the SHA-256 of its exact bytes; inspect the returned asset ID before
+    applying it to the world.
+    """
+    return register_panorama(os.environ["MATRIX_CONTROL_URL"],
+                             os.environ["MATRIX_CONTROL_TOKEN"],
+                             {"source_path": source_path, "expected_sha256": expected_sha256,
+                              "name": name})
+
+
+@server.tool(annotations=ToolAnnotations(readOnlyHint=True))
+def matrix_get_environment(room_id: str, scene_revision: int) -> dict:
+    """Request a fresh typed observation of the current world environment.
+
+    Read matrix_scene_summary first and check matrix_environment_status for
+    the matching receipt. AR passthrough does not display an opaque panorama.
+    """
+    return environment_action(os.environ["MATRIX_CONTROL_URL"],
+                              os.environ["MATRIX_CONTROL_TOKEN"],
+                              {"action": "get", "room_id": room_id,
+                               "scene_revision": scene_revision})
+
+
+@server.tool(annotations=ToolAnnotations(readOnlyHint=False, destructiveHint=False,
+                                         idempotentHint=False, openWorldHint=False))
+def matrix_set_environment(room_id: str, scene_revision: int, asset_id: str,
+                           yaw_degrees: float = 0) -> dict:
+    """Set/change the world panorama through a reviewed Matrix command.
+
+    Use a registered panorama ID from matrix_list_environments and current
+    room/revision from matrix_scene_summary. This keeps ordinary scene objects
+    untouched. Check matrix_environment_status and post-state before claiming
+    success. The panorama surrounds desktop/VR views and is hidden in AR.
+    """
+    return environment_action(os.environ["MATRIX_CONTROL_URL"],
+                              os.environ["MATRIX_CONTROL_TOKEN"],
+                              {"action": "set", "room_id": room_id,
+                               "scene_revision": scene_revision, "asset_id": asset_id,
+                               "yaw_degrees": yaw_degrees})
+
+
+@server.tool(annotations=ToolAnnotations(readOnlyHint=False, destructiveHint=False,
+                                         idempotentHint=False, openWorldHint=False))
+def matrix_remove_environment(room_id: str, scene_revision: int) -> dict:
+    """Remove the current world panorama without changing scene objects."""
+    return environment_action(os.environ["MATRIX_CONTROL_URL"],
+                              os.environ["MATRIX_CONTROL_TOKEN"],
+                              {"action": "remove", "room_id": room_id,
+                               "scene_revision": scene_revision})
+
+
+@server.tool(annotations=ToolAnnotations(readOnlyHint=True))
+def matrix_environment_status(request_id: str) -> dict:
+    """Read the typed browser receipt and observed world environment state."""
+    return environment_status(os.environ["MATRIX_CONTROL_URL"],
+                              os.environ["MATRIX_CONTROL_TOKEN"], request_id)
 
 
 @server.tool(annotations=ToolAnnotations(readOnlyHint=False, destructiveHint=False,

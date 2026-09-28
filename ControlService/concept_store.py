@@ -18,6 +18,7 @@ import time
 import uuid
 
 from content_catalog import ContentError, atomic_json
+from web_environments import WebEnvironmentError, inspect_panorama
 
 
 MAX_CONCEPTS = 100
@@ -31,6 +32,11 @@ ACTIVE = {"queued", "generating"}
 TERMINAL = {"ready", "failed", "cancelled"}
 NATIVE_PROVIDER = "codex-native"
 COMFY_PROVIDER = "comfyui"
+PURPOSES = {"concept", "panorama"}
+PANORAMA_GUIDANCE = (
+    "Create a seamless 360-degree equirectangular panorama as a 2:1 PNG image. "
+    "Show the full surroundings with a level horizon; the left and right edges "
+    "must join naturally. No borders, captions, or split panels. Scene: ")
 
 
 def require(ok, message, status=400):
@@ -88,11 +94,16 @@ class ConceptStore:
                         isinstance(entry.get("jobs"), list) and
                         isinstance(entry.get("builds", []), list),
                         "Saved concepts require PC repair", 503)
+                if "selectedPanoramaId" not in entry:
+                    entry["selectedPanoramaId"] = None
+                    recovered = True
                 # Native image events are not replayed after process restart.
                 # A ComfyUI prompt ID can still be polled from its history.
                 for job in entry["jobs"]:
                     require(isinstance(job, dict) and isinstance(job.get("conceptId"), str),
                             "Saved concepts require PC repair", 503)
+                    require(job.get("purpose", "concept") in PURPOSES,
+                            "Saved concept purpose requires PC repair", 503)
                     if job.get("providerId") not in (None, COMFY_PROVIDER, NATIVE_PROVIDER):
                         job["connectorProviderId"] = job["providerId"]
                         job["providerId"] = COMFY_PROVIDER
@@ -110,6 +121,7 @@ class ConceptStore:
     def _session(self, data, session_id):
         checked_id(session_id, "Agent session ID", SESSION_ID)
         return data["sessions"].setdefault(session_id, {"selectedConceptId": None,
+                                                          "selectedPanoramaId": None,
                                                           "jobs": [], "builds": []})
 
     def _change(self, mutate):
@@ -181,8 +193,9 @@ class ConceptStore:
                                       COMFY_PROVIDER if comfy["available"] else None)}
 
     def create(self, session_id, prompt, *, source_concept_id=None, negative_prompt=None,
-               provider_id=None):
+               provider_id=None, purpose="concept"):
         checked_id(session_id, "Agent session ID", SESSION_ID)
+        require(type(purpose) is str and purpose in PURPOSES, "Unknown concept purpose")
         if source_concept_id is not None:
             checked_id(source_concept_id, "source concept ID")
         if prompt is not None:
@@ -194,8 +207,8 @@ class ConceptStore:
                 "Unknown concept image provider")
         available = self.providers(session_id)
         chosen = provider_id or available["defaultProviderId"] or COMFY_PROVIDER
-        if provider_id is not None:
-            selected_provider = next(item for item in available["providers"] if item["id"] == provider_id)
+        if provider_id is not None or purpose == "panorama":
+            selected_provider = next(item for item in available["providers"] if item["id"] == chosen)
             require(selected_provider["available"], selected_provider["reason"] or
                     "Concept image provider is unavailable", 409)
         concept_id = uuid.uuid4().hex
@@ -212,17 +225,27 @@ class ConceptStore:
             parent = self._find(entry, source_concept_id) if source_concept_id else None
             require(source_concept_id is None or parent is not None,
                     "Source concept is not in this Agent session", 404)
+            require(parent is None or parent.get("purpose", "concept") == purpose,
+                    "A panorama variation must use a panorama source", 409)
             actual_prompt = prompt if prompt is not None else parent["prompt"] if parent else None
             require(actual_prompt is not None, "Concept prompt is required")
             actual_negative = (negative_prompt if negative_prompt is not None else
                                parent.get("negativePrompt", "") if parent else "")
+            if purpose == "panorama":
+                require(len(PANORAMA_GUIDANCE) + len(actual_prompt) +
+                        (8 + len(actual_negative) if chosen == NATIVE_PROVIDER and
+                         actual_negative else 0) <= 4096,
+                        "Panorama description exceeds the generation limit")
             if chosen == NATIVE_PROVIDER:
                 require(len(actual_prompt) + (8 + len(actual_negative) if actual_negative else 0) <= 4096,
                         "Native image prompt is too long", 400)
-            job = {"conceptId": concept_id, "version": len(entry["jobs"]) + 1,
+            job = {"conceptId": concept_id,
+                   "version": 1 + sum(item.get("purpose", "concept") == purpose
+                                      for item in entry["jobs"]),
                    "parentConceptId": source_concept_id, "prompt": actual_prompt,
                    "negativePrompt": actual_negative, "designNotes": "", "seed": seed,
-                   "providerId": chosen, "generationMode": "text-to-image", "status": "queued",
+                   "providerId": chosen, "purpose": purpose,
+                   "generationMode": "text-to-image", "status": "queued",
                    "message": "Submitting the image request.",
                    "createdAt": time.time()}
             entry["jobs"].append(job)
@@ -233,7 +256,8 @@ class ConceptStore:
             try:
                 # The same persistent Agent Portal Codex thread owns this turn.
                 # Matrix mutation is blocked by the portal for image-only turns.
-                native_prompt = job["prompt"]
+                native_prompt = ((PANORAMA_GUIDANCE if purpose == "panorama" else "") +
+                                 job["prompt"])
                 if job["negativePrompt"]:
                     native_prompt += "\nAvoid: " + job["negativePrompt"]
                 submitted = self.native_factory().start_native_image(session_id, native_prompt)
@@ -246,10 +270,13 @@ class ConceptStore:
                                                 message="Native image submission could not be confirmed; request another version.")}
         try:
             catalog, provider_id, workflow_id = self._choose_workflow()
-            submitted = catalog.submit_workflow(provider_id, workflow_id, job["prompt"],
+            generation_prompt = ((PANORAMA_GUIDANCE if purpose == "panorama" else "") +
+                                 job["prompt"])
+            submitted = catalog.submit_workflow(provider_id, workflow_id, generation_prompt,
                                                 approved=True, seed=job["seed"],
                                                 negative_prompt=job["negativePrompt"],
-                                                validate_image=True)
+                                                validate_image=True,
+                                                panorama=purpose == "panorama")
         except ContentError as error:
             return {"job": self._set_fields(session_id, concept_id,
                                             status="failed", message=str(error))}
@@ -263,6 +290,7 @@ class ConceptStore:
                                         catalogJobId=submitted["id"],
                                         connectorProviderId=provider_id, workflowId=workflow_id,
                                         workflowSha256=submitted.get("workflowSha256"),
+                                        submittedGraphSha256=submitted.get("submittedGraphSha256"),
                                         model=submitted.get("model", []),
                                         status="queued", message="ComfyUI accepted the image job.")}
 
@@ -331,10 +359,20 @@ class ConceptStore:
                 checksum = hashlib.sha256(source.read_bytes()).hexdigest()
                 require(checksum == result.get("sha256"),
                         "Native image checksum failed", 422)
+                panorama_info = None
+                if job.get("purpose") == "panorama":
+                    require(extension == "png", "Generated panorama must be a PNG", 422)
+                    try:
+                        panorama_info = inspect_panorama(source)
+                    except WebEnvironmentError as error:
+                        raise ContentError(422, f"Generated panorama is unusable: {error}") from None
                 image_file = self._copy_image(source, checksum, extension)
                 fields = {"status": "ready", "message": "Image ready.",
                           "sha256": checksum, "imageFile": image_file,
                           "mimeType": mime, "byteLength": size}
+                if panorama_info is not None:
+                    fields.update(width=panorama_info["width"],
+                                  height=panorama_info["height"])
                 revised = result.get("revisedPrompt")
                 if type(revised) is str and revised.strip():
                     fields["revisedPrompt"] = revised.strip()[:4096]
@@ -373,10 +411,19 @@ class ConceptStore:
                         artifact = catalog.prepare_generation_output(job["catalogJobId"], 0)
                         source = catalog.cached_file(artifact["sha256"])
                         mime, extension = image_type(source, artifact["filename"])
+                        panorama_info = None
+                        if job.get("purpose") == "panorama":
+                            try:
+                                panorama_info = inspect_panorama(source)
+                            except WebEnvironmentError as error:
+                                raise ContentError(422, f"Generated panorama is unusable: {error}") from None
                         image_file = self._copy_image(source, artifact["sha256"], extension)
                         fields = {"status": "ready", "message": "Image ready.",
                                   "sha256": artifact["sha256"], "imageFile": image_file,
                                   "mimeType": mime, "byteLength": artifact["byteLength"]}
+                        if panorama_info is not None:
+                            fields.update(width=panorama_info["width"],
+                                          height=panorama_info["height"])
                     elif generation["status"] == "failed":
                         fields = {"status": "failed", "message": "ComfyUI reported an image generation failure."}
                     elif generation["status"] == "cancelled":
@@ -415,27 +462,38 @@ class ConceptStore:
             self.refresh(session_id)
         with self.lock:
             entry = self.data["sessions"].get(session_id, {"selectedConceptId": None,
+                                                            "selectedPanoramaId": None,
                                                             "jobs": [], "builds": []})
             jobs = [self._public(job) for job in entry["jobs"]]
-            return {"jobs": jobs, "concepts": [job for job in jobs if job["status"] == "ready"],
+            concepts = [job for job in jobs if job.get("purpose", "concept") == "concept"]
+            panoramas = [job for job in jobs if job.get("purpose") == "panorama"]
+            return {"jobs": concepts,
+                    "concepts": [job for job in concepts if job["status"] == "ready"],
                     "selectedConceptId": entry["selectedConceptId"],
+                    "panoramaJobs": panoramas,
+                    "panoramas": [job for job in panoramas if job["status"] == "ready"],
+                    "selectedPanoramaId": entry.get("selectedPanoramaId"),
                     "builds": [self._public_build(build) for build in entry.get("builds", [])],
                     **self.providers(session_id)}
 
-    def select(self, session_id, concept_id, design_notes=None):
+    def select(self, session_id, concept_id, design_notes=None, *, purpose="concept"):
         checked_id(session_id, "Agent session ID", SESSION_ID)
         checked_id(concept_id, "concept ID")
+        require(type(purpose) is str and purpose in PURPOSES, "Unknown concept purpose")
         if design_notes is not None:
             design_notes = checked_text(design_notes, "concept design notes", 2048, empty=True)
         def update(data):
             entry = self._session(data, session_id)
             job = self._find(entry, concept_id)
-            require(job is not None and job["status"] == "ready",
-                    "Select a ready concept in this Agent session", 409)
-            entry["selectedConceptId"] = concept_id
+            require(job is not None and job["status"] == "ready" and
+                    job.get("purpose", "concept") == purpose,
+                    "Select a ready image of the requested purpose in this Agent session", 409)
+            selected_key = "selectedPanoramaId" if purpose == "panorama" else "selectedConceptId"
+            entry[selected_key] = concept_id
             if design_notes is not None:
                 job["designNotes"] = design_notes
-            return {"selectedConceptId": concept_id, "concept": self._public(job)}
+            image_key = "panorama" if purpose == "panorama" else "concept"
+            return {selected_key: concept_id, image_key: self._public(job)}
         return self._change(update)
 
     def selected(self, session_id):
@@ -445,11 +503,52 @@ class ConceptStore:
             if not entry or not entry["selectedConceptId"]:
                 return None
             job = self._find(entry, entry["selectedConceptId"])
-            require(job is not None and job["status"] == "ready", "Selected concept is unavailable", 409)
+            require(job is not None and job["status"] == "ready" and
+                    job.get("purpose", "concept") == "concept",
+                    "Selected concept is unavailable", 409)
             result = copy.deepcopy(job)
         path = self._image_file(result)
         result["imagePath"] = str(path.resolve())
         return result
+
+    def selected_panorama(self, session_id, concept_id):
+        """Return only the explicitly selected, ready panorama in this session."""
+        checked_id(session_id, "Agent session ID", SESSION_ID)
+        checked_id(concept_id, "panorama concept ID")
+        with self.lock:
+            entry = self.data["sessions"].get(session_id)
+            require(entry is not None and entry.get("selectedPanoramaId") == concept_id,
+                    "Select this panorama version first", 409)
+            job = self._find(entry, concept_id)
+            require(job is not None and job.get("purpose") == "panorama" and
+                    job["status"] == "ready", "Selected panorama is unavailable", 409)
+            result = copy.deepcopy(job)
+        path = self._image_file(result)
+        require(path.suffix.lower() == ".png", "Selected panorama must be a PNG", 409)
+        try:
+            inspect_panorama(path)
+        except WebEnvironmentError as error:
+            raise ContentError(422, f"Selected panorama is unusable: {error}") from None
+        result["imagePath"] = str(path.resolve())
+        return result
+
+    def record_panorama_registration(self, session_id, concept_id, asset):
+        checked_id(session_id, "Agent session ID", SESSION_ID)
+        checked_id(concept_id, "panorama concept ID")
+        def update(data):
+            entry = self._session(data, session_id)
+            require(entry.get("selectedPanoramaId") == concept_id,
+                    "Panorama selection changed during registration", 409)
+            job = self._find(entry, concept_id)
+            require(job is not None and job.get("purpose") == "panorama" and
+                    job.get("status") == "ready" and job.get("sha256") == asset["sha256"],
+                    "Panorama image changed during registration", 409)
+            job["registeredPanorama"] = {
+                "assetId": asset["assetId"], "sha256": asset["sha256"],
+                "width": asset["width"], "height": asset["height"],
+                "registeredAt": time.time()}
+            return self._public(job)
+        return self._change(update)
 
     def _image_file(self, job):
         require(job.get("status") == "ready" and isinstance(job.get("sha256"), str) and

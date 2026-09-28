@@ -1,7 +1,52 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {parseConceptIntent,isSelectedConceptBuildRequest,
+import {parsePanoramaIntent,parseConceptIntent,isSelectedConceptBuildRequest,
   stopPlannerConceptFallback,plannerVoiceFallbackAllowed} from '../src/concept_intent.js';
+
+test('panorama language routes generation and explicit version actions separately',async()=>{
+  assert.equal(parsePanoramaIntent('Operator, make the world a sunset alien desert'),null,
+    'ambiguous world creation still reaches the Agent');
+  assert.deepEqual(parsePanoramaIntent('Change the sky to a stormy mountain panorama'),
+    {kind:'generate',prompt:'stormy mountain'});
+  assert.deepEqual(parsePanoramaIntent('Create a panorama of a moonlit forest with distant mountains'),
+    {kind:'generate',prompt:'a moonlit forest with distant mountains'});
+  for(const request of ['Create a sci-fi panorama',
+    'Codex, create a sci-fi panorama',
+    'Hey Codex, please create a sci-fi panorama.',
+    'Codex, can you create a sci-fi panorama?',
+    'Create a sci-fi panorama in VR'])
+    assert.deepEqual(parsePanoramaIntent(request),
+      {kind:'generate',prompt:'sci-fi'},request);
+  assert.deepEqual(parsePanoramaIntent('Make me a dreamy space panorama'),
+    {kind:'generate',prompt:'dreamy space'});
+  assert.deepEqual(parsePanoramaIntent('Create a sci-fi panorama and set it as my background'),
+    {kind:'generate',prompt:'sci-fi',deferredApply:true});
+  for(const request of ['Create a panorama','Codex, create a panorama.',
+    'Generate a 360 panorama','Can you make a panorama in VR?'])
+    assert.deepEqual(parsePanoramaIntent(request),{kind:'describe'},request);
+  assert.deepEqual(parsePanoramaIntent('Generate three cyberpunk skyline panoramas and use version 2'),
+    {kind:'generateMany',count:3,prompt:'cyberpunk skyline',requestedVersion:2});
+  assert.deepEqual(parsePanoramaIntent('Use panorama version 2'),
+    {kind:'select',version:2});
+  assert.deepEqual(parsePanoramaIntent('Apply panorama version 2'),
+    {kind:'applyVersion',version:2});
+  assert.deepEqual(parsePanoramaIntent('Apply selected panorama'),{kind:'apply'});
+  assert.deepEqual(parsePanoramaIntent('Create a panorama of a moonlit forest and set it as my background'),
+    {kind:'generate',prompt:'a moonlit forest',deferredApply:true});
+  for(const named of ['Load a panorama of Azimuth B','Change the background to Azimuth B',
+    'Set the world background to Azimuth B','Make the world into a medieval castle',
+    'Create a sci-fi panorama bridge','Create a panorama gallery in the world',
+    'Make the world a sci-fi desert in VR'])
+    assert.equal(parsePanoramaIntent(named),null,named);
+  assert.equal(parsePanoramaIntent('Make a physics playground'),null);
+  assert.equal(parseConceptIntent('Create a panorama of a moonlit forest'),null);
+  assert.equal(await stopPlannerConceptFallback('Create a panorama of a moonlit forest',
+    async()=>{}),true);
+  let cancelled=false;
+  assert.equal(await stopPlannerConceptFallback('Codex, create a sci-fi panorama',
+    async()=>{cancelled=true;}),true);
+  assert.equal(cancelled,true);
+});
 
 test('explicit concept generation, variation and version selection are recognized',()=>{
   assert.deepEqual(parseConceptIntent('Operator, create an image of a futuristic forest temple.'),
