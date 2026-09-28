@@ -92,9 +92,11 @@ def _overlap(first, second):
     if any(_inside(point, second) for point in first) or any(
             _inside(point, first) for point in second):
         return True
-    centers = [tuple(sum(point[axis] for point in polygon) / len(polygon)
-                     for axis in (0, 1)) for polygon in (first, second)]
-    if _inside(centers[0], second) or _inside(centers[1], first):
+    # The first polygon is the convex box section. A concave measured polygon
+    # can have its arithmetic vertex center in an empty notch.
+    center = tuple(sum(point[axis] for point in first) / len(first)
+                   for axis in (0, 1))
+    if _inside(center, second):
         return True
     return any(_proper_cross(a, first[(i + 1) % len(first)], b,
                              second[(j + 1) % len(second)])

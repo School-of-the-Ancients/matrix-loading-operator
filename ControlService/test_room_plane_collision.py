@@ -74,6 +74,20 @@ class RoomPlaneCollisionTests(unittest.TestCase):
                                                  1, pose(), self.wall),
                          "an infinite wall plane is not room occupancy")
 
+    def test_concave_shelf_notch_is_clear(self):
+        shelf = plane("u-shelf", "support", pose(y=.1), 1)
+        shelf["surface"]["boundary"] = [
+            {"x": x, "y": 0, "z": z} for x, z in
+            ((-1, -1), (1, -1), (1, 1), (.5, 1),
+             (.5, -.5), (-.5, -.5), (-.5, 1), (-1, 1))]
+        small = pose(z=.3)
+        small["scale"] = {"x": .2, "y": .2, "z": .2}
+        self.assertFalse(volume_intersects_plane(
+            small, self.block["localBounds"], 1, pose(), shelf))
+        small["position"]["x"] = -.75
+        self.assertTrue(volume_intersects_plane(
+            small, self.block["localBounds"], 1, pose(), shelf))
+
     def test_agent_preflight_rejects_crossing_without_queuing_and_keeps_tabletop(self):
         spatial = self.state.agent_room_spatial("floor")
         request = {"room_id": spatial["roomId"],

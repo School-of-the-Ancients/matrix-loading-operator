@@ -170,7 +170,9 @@ function polygonsOverlap(a,b){
      b.some(point=>strictlyInside(point,a)))return true;
   const center=polygon=>({x:polygon.reduce((sum,p)=>sum+p.x,0)/polygon.length,
     z:polygon.reduce((sum,p)=>sum+p.z,0)/polygon.length});
-  if(strictlyInside(center(a),b)||strictlyInside(center(b),a))return true;
+  // a is the convex box section. A measured polygon may be concave, with its
+  // arithmetic vertex center in empty space outside that polygon.
+  if(strictlyInside(center(a),b))return true;
   return a.some((point,index)=>b.some((other,edge)=>
     properCross(point,a[(index+1)%a.length],other,b[(edge+1)%b.length])));
 }

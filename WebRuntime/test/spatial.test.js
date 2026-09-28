@@ -260,6 +260,22 @@ test('room-constrained edits reject intersected shelf and wall polygons, but all
   assert.equal(world.requireObject(movable.objectId).transform.position.x,.9);
 });
 
+test('a concave measured shelf does not occupy its open notch',()=>{
+  const origin={position:{x:0,y:0,z:0},rotation:{x:0,y:0,z:0},
+    scale:{x:1,y:1,z:1}};
+  const shelf={...structuredClone(anchor),anchorId:'u-shelf',
+    roomPose:{...origin,position:{x:0,y:.1,z:0}},
+    surface:{kind:'support',boundary:[
+      {x:-1,z:-1},{x:1,z:-1},{x:1,z:1},{x:.5,z:1},
+      {x:.5,z:-.5},{x:-.5,z:-.5},{x:-.5,z:1},{x:-1,z:1}]}};
+  const bounds={center:{x:0,y:.5,z:0},size:{x:1,y:1,z:1}};
+  const inNotch={...transform,position:{x:0,y:0,z:.3},
+    scale:{x:.2,y:.2,z:.2}};
+  const inArm={...inNotch,position:{x:-.75,y:0,z:.3}};
+  assert.equal(volumeIntersectsMeasuredPlane(inNotch,bounds,1,origin,shelf),false);
+  assert.equal(volumeIntersectsMeasuredPlane(inArm,bounds,1,origin,shelf),true);
+});
+
 test('WebXR viewer and plane coordinates are read from the XR frame',()=>{
   const pose={transform:{position:{x:1,y:1.6,z:-2},orientation:{x:0,y:0,z:0,w:1}}};
   const frame={getViewerPose:()=>pose,getPose:()=>pose};
