@@ -148,3 +148,76 @@ test('panorama preflight still executes a queued load when its world stays curre
       assert.deepEqual(world.scene.environment,target);
     }finally{globalThis.sessionStorage=previousStorage;}
   });
+
+test('two slow panorama dependencies get separate receipt heartbeats in order',
+  {timeout:5000},async()=>{
+    const previousStorage=globalThis.sessionStorage;
+    globalThis.sessionStorage={getItem:()=>null,setItem:()=>{}};
+    const deferred=()=>{
+      let resolve;
+      const promise=new Promise(done=>{resolve=done;});
+      return {promise,resolve};
+    };
+    const entered=[deferred(),deferred()],release=[deferred(),deferred()];
+    try{
+      const otherDigest='b'.repeat(64);
+      const otherAsset={...asset,assetId:`panorama:second:${otherDigest.slice(0,12)}`,
+        sha256:otherDigest,url:`/api/web/environments/${otherDigest}.png`};
+      const world=new MatrixWorld();
+      world.registerEnvironmentAssets([asset,otherAsset]);
+      const firstEnvironment=panorama(15);
+      const secondEnvironment={...firstEnvironment,assetId:otherAsset.assetId,
+        sha256:otherDigest,yawDegrees:75};
+      const first=command('slow-panorama-a','set_environment',
+        {expectedEnvironment:null,environment:firstEnvironment});
+      const second=command('slow-panorama-b','set_environment',
+        {expectedEnvironment:firstEnvironment,environment:secondEnvironment,
+          requiresSuccessOf:first.requestId});
+      const pending=[first,second],exchanges=[],preflights=[];
+      const bridge=new MatrixBridge(world,()=>'',()=>{});
+      bridge.running=true;
+      bridge.getViewer=()=>null;
+      bridge.prepareEnvironment=async environment=>{
+        const index=preflights.length;
+        preflights.push(environment.assetId);
+        entered[index].resolve();
+        await release[index].promise;
+      };
+      bridge.request=async(_path,body)=>{
+        exchanges.push(body);
+        for(const result of body.results){
+          const index=pending.findIndex(item=>item.requestId===result.requestId);
+          if(index>=0)pending.splice(index,1);
+        }
+        return {commands:pending.map(item=>structuredClone(item))};
+      };
+      const firstTick=bridge.tick(true);
+      await entered[0].promise;
+      await bridge.tick(true);
+      assert.equal(exchanges.length,1,'in-flight guard prevents a concurrent exchange');
+      release[0].resolve();
+      await firstTick;
+      assert.equal(exchanges.length,1,'second dependency waits for a new heartbeat');
+      assert.deepEqual(preflights,[firstEnvironment.assetId]);
+      const firstReceipt=bridge.receipts.get(first.requestId);
+      assert.equal(firstReceipt.ok,true);
+
+      const secondTick=bridge.tick(true);
+      await entered[1].promise;
+      assert.deepEqual(exchanges[1].results,[firstReceipt],
+        'the first success receipt reaches the PC before the next dependency');
+      assert.deepEqual(preflights,[firstEnvironment.assetId,secondEnvironment.assetId]);
+      release[1].resolve();
+      await secondTick;
+      const secondReceipt=bridge.receipts.get(second.requestId);
+      assert.equal(secondReceipt.ok,true);
+      assert.deepEqual(world.scene.environment,secondEnvironment);
+      await bridge.tick(true);
+      assert.deepEqual(exchanges[2].results,[secondReceipt]);
+      assert.equal(pending.length,0);
+      bridge.running=false;
+    }finally{
+      release.forEach(item=>item.resolve());
+      globalThis.sessionStorage=previousStorage;
+    }
+  });

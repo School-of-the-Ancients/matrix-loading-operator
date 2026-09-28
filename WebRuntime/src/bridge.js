@@ -47,6 +47,7 @@ export class MatrixBridge {
     if(this.captureReceipt===sentCapture)this.captureReceipt=null;
     let changed=false;
     let worldSwitched=false;
+    let dependencyPreflightUsed=false;
     const completed=new Map(sent.map(result=>[result.requestId,result]));
     const apply=async operation=>{
       const guard=()=>{
@@ -63,6 +64,7 @@ export class MatrixBridge {
             operation.op==='undo'?this.world.undo.at(-1)?.scene.environment:
             operation.op==='redo'?this.world.redo.at(-1)?.scene.environment:null;
           if(environment){
+            dependencyPreflightUsed=true;
             // Local desktop/XR edits can execute while uncached panorama bytes
             // are fetched. Never replay a different history entry or replace a
             // newer authored scene after that wait. Citizens motion is not an
@@ -89,6 +91,7 @@ export class MatrixBridge {
       }
       try{
         if(!this.onWorldSlotCommand)throw Error('Browser world archive controls are unavailable');
+        if(operation.op==='restore_world_archive')dependencyPreflightUsed=true;
         const outcome=await this.onWorldSlotCommand(operation);
         return {requestId:operation.requestId,ok:true,error:'',objectId:'',outcome};
       }catch(error){
@@ -97,6 +100,10 @@ export class MatrixBridge {
       }
     };
     for(const command of data.commands||[]) {
+      // A panorama fetch/decode can use most of the runtime's 15-second lease.
+      // Send its receipt on the next exchange before starting another such
+      // dependency. The PC retains unacknowledged commands in order.
+      if(dependencyPreflightUsed)break;
       if(this.receipts.has(command.requestId))continue;
       let result;
       if(rejectPending||worldSwitched)
