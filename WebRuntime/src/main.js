@@ -716,7 +716,8 @@ function operatorRoute(text){
   if(isSelectedConceptBuildRequest(text))
     return {destination:'agent',reason:'selected-concept-build'};
   return routeOperatorRequest(text,{assets:world.snapshot().assets,
-    savedScenes:[...$('saved-scenes').options].map(option=>option.value).filter(Boolean)});
+    savedScenes:[...$('saved-scenes').options].map(option=>option.value).filter(Boolean),
+    presentation:world.runtimePresentation});
 }
 async function sendToAgentFromChat(text,context){
   view.showOperatorAgentMode();

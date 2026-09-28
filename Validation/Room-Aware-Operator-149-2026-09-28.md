@@ -35,6 +35,12 @@ Rebase validation below is separate from Quest wearer proof.
   this read is available to the owner Agent on any turn. No raw room image,
   private credential, or unrestricted room scan is written to a public review
   artifact.
+- In AR, CHAT and transcribed Quest voice route requests about the wearer's
+  room or a pointed physical surface to the Agent with current selection,
+  pointing, presentation, and tracking context. This includes "reorganize this
+  based on my room," "move the orb to the center of this table," and "put that
+  there." Ordinary catalog placement and digital moves retain their planner
+  route. The direct Agent text panel's context checkbox remains explicit.
 
 ## Wearer review sequence
 
@@ -85,6 +91,7 @@ and camera pixels out of this record.
 | --- | --- |
 | ControlService full suite | Original branch: `python -m unittest discover -v`: 865 passed, 0 failed. Rebased on #159 and again on #162: `python -m unittest discover`: 879 passed, 0 failed each time. |
 | WebRuntime full suite and production build | Original branch: `npm test`: 642 passed, 0 failed. Rebased on #159: 674 passed, 0 failed. Rebased on #162: 675 passed, 0 failed; `npm run build`: passed. |
+| Natural AR request routing | AR-specific room phrases now route to the Agent; ordinary digital and non-AR routes remain covered. `npm test`: 677 passed, 0 failed; `npm run build` and `git diff --check`: passed. This is source-level evidence only. |
 | Isolated desktop review | `http://127.0.0.1:18966/web/` served the final build with separate scene and asset directories; the PC checkpoint list contained `quest91-agent-strong-beacon-six-objects`, and UI restore displayed six original objects. The Agent Portal connected and read the six IDs/transforms at scene revision 3; it reported desktop mode, zero measured planes, and no physical fit claim. |
 | Agent composition / typed receipts | After service restart, Agent recaptured all six original IDs/transforms at source scene revision 1, then created two pedestal/orb pairs and one curved bench with five individually approved, succeeded typed receipts. Final live revision 11 had 11 objects. |
 | PC checkpoint and desktop reopen | Saved `quest149-lantern-garden-eleven-objects`, then reloaded the page and explicitly restored it through the PC checkpoint picker; UI reported 11 objects. Comparing checkpoint payloads found all six original IDs and transforms unchanged and exactly five new IDs. Saved checkpoint SHA-256: `C8E2D4BB4631C9AFC20E4BC14045E5C40FE09646E7BE28C154255C3BAB88FA84`. |
