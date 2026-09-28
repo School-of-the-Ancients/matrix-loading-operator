@@ -650,7 +650,8 @@ export class MatrixView {
     this.operatorPanel.group.visible=false;this.operatorMount={kind:'head'};
     this.operatorThumbstickHeld=false;
     this.operatorPanel.setPinLabel('PIN TO WALL');this.operatorPanel.setOriginLabel('ROOM ORIGIN UNKNOWN');
-    if(this.grab)this.releaseGrab(this.grab.controller);
+    if(this.grab)this.cancelGrab(this.grab.controller,this.grab.inputSource,
+      'XR session ended; the held edit was cancelled.');
     for(const ray of this.controllerRays)ray.visible=false;
     this.hitSource?.cancel();this.hitSource=null;this.reticle.visible=false;this.reticleVisible=false;this.reticleAnchorId='';
     this.xrViewer=null;this.xrViewerCapturedAt=0;this.planeIds=new WeakMap();this.nextPlaneId=0;this.clearPlanes();this.isAR=false;
@@ -1183,7 +1184,7 @@ export class MatrixView {
       this.cancelGrab(this.grab.controller,this.grab.inputSource);return;
     }
     const tracked=this.grab.controller.visible!==false&&(!presenting||
-      !!frame&&!!session&&(!this.grab.inputSource||
+      !!frame&&!!session&&this.hasFreshXrViewer()&&(!this.grab.inputSource||
         Array.from(session.inputSources||[]).includes(this.grab.inputSource)));
     const roomReady=!this.world.digitalWorldVisit&&!this.world.spatial?.stale&&
       !this.world.spatial?.originUnavailable;
@@ -1246,6 +1247,7 @@ export class MatrixView {
     if(!this.grab||this.grab.controller!==controller)return;
     const grab=this.grab;this.grab=null;this.setGrabFeedback(null);
     if(this.readOnly||this.world.spatial?.stale||this.world.spatial?.originUnavailable||
+       this.renderer?.xr?.isPresenting&&!this.hasFreshXrViewer()||
        this.world.digitalWorldVisit||grab.rigid&&!canPlayWorld(this.world.creatorMode)){
       if(grab.rigid)this.world.releaseRigidGrab?.(grab.objectId);
       else this.world.resumePhysics?.(grab.objectId);
@@ -1260,14 +1262,14 @@ export class MatrixView {
     if(!transform){this.world.resumePhysics?.(grab.objectId);return;}
     this.commitMove(grab.objectId,transform);
   }
-  cancelGrab(controller,inputSource){
+  cancelGrab(controller,inputSource,message='Controller disconnected; the held edit was cancelled.'){
     const grab=this.grab;
     if(!grab||grab.controller!==controller||grab.inputSource!==inputSource)return;
     this.grab=null;this.setGrabFeedback(null);
     if(grab.rigid)this.world.releaseRigidGrab?.(grab.objectId);
     else this.world.resumePhysics?.(grab.objectId);
     this.sync();
-    this.onAssetError('Controller disconnected; the held edit was cancelled.');
+    this.onAssetError(message);
   }
   releaseOperatorVoice(controller){
     if(this.operatorVoiceController!==controller)return;

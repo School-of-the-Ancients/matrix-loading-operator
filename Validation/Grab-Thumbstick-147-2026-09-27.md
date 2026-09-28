@@ -19,18 +19,19 @@ The radial dead zone is 0.18. Input moves at most 0.75 metres per second, each
 frame contributes at most 0.1 seconds, and the stick offset is capped at 3
 metres from the original controller-held pose. The offset is applied in world
 space and converted into the object's current anchor frame before committing.
-Missing/non-finite axes, lost controller tracking, missing XR frames, a stale
+Missing/non-finite axes, lost controller or headset tracking, missing XR frames, a stale
 AR origin, and a mode that no longer permits the grab suspend held motion. A
-disconnected input source cancels its grab and releases paused physics so a
+disconnected input source or ending XR session cancels its grab and releases paused physics so a
 new selection is possible. Releasing after the AR origin becomes unavailable discards
 the transient edit. Creator release uses the existing `set_transform` path and
 Undo; Play/Test only moves a running dynamic body and returns it to simulation.
 
 ## Validation on this candidate
 
-- WebRuntime: **589/589** Node tests passed. Focused coverage exercises the
+- WebRuntime: **591/591** Node tests passed. Focused coverage exercises the
   dead zone, frame rate, 3 m cap, rotated/moving AR parent, local bounds under
-  an offset world origin, tracking and origin loss, source binding and removal,
+  an offset world origin, controller/headset tracking and origin loss, source binding and removal,
+  session-exit cancellation,
   failed rigid-move cleanup, click/panel behavior, Play/Test rigid-body path,
   same-ID transform, Undo, and browser scene save/reopen.
 - ControlService: **798/798** Python tests passed.

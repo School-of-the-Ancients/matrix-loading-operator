@@ -185,6 +185,68 @@ test('tracking or AR origin loss suspends both held pose and Play rigid updates'
   assert.equal(root.position.x,x);assert.equal(rigidMoves,1);
 });
 
+test('a missing headset pose suspends held motion and discards release',()=>{
+  const {view,controller,root}=selectableFirefly();
+  const source={gamepad:{mapping:'xr-standard',axes:[0,0,1,0],buttons:[]}};
+  view.renderer={xr:{isPresenting:true,getSession:()=>({inputSources:[source]})}};
+  view.xrViewer={direction:new THREE.Vector3(0,0,-1)};
+  view.xrViewerCapturedAt=performance.now();
+  view.selectFromController(controller,source);
+  let rigidMoves=0,resumed=0,synced=0;
+  view.moveHeldRigid=()=>rigidMoves++;
+  view.world.resumePhysics=()=>resumed++;
+  view.sync=()=>synced++;
+  view.commitMove=()=>{throw Error('A grab without a viewer pose must not be saved');};
+  view.captureXrViewer({getViewerPose:()=>null},{});
+  assert.equal(view.hasFreshXrViewer(),false);
+  controller.position.x=.5;
+  view.updateHeldGrab({},.1);
+  assert.equal(root.position.x,0);
+  assert.equal(rigidMoves,0);
+  view.releaseGrab(controller);
+  assert.equal(root.position.x,0);
+  assert.equal(view.grab,null);
+  assert.equal(resumed,1);
+  assert.equal(synced,1);
+});
+
+test('XR session exit cancels a held edit and restores the authored pose',t=>{
+  const {view,controller,root}=selectableFirefly();
+  const authored=root.position.clone();
+  const source={gamepad:{mapping:'xr-standard',axes:[0,0,0,0],buttons:[]}};
+  const xr={isPresenting:true,getSession:()=>({inputSources:[source]})};
+  view.renderer={xr};view.xrViewer={direction:new THREE.Vector3(0,0,-1)};
+  view.hasFreshXrViewer=()=>true;
+  let paused=0,resumed=0,synced=0,notice='';
+  view.world.pausePhysics=()=>paused++;
+  view.world.resumePhysics=()=>resumed++;
+  view.world.leaveAR=()=>{};
+  view.onAssetError=message=>notice=message;
+  view.commitMove=()=>{throw Error('Session exit must not author a transform');};
+  view.selectFromController(controller,source);
+  controller.position.x=.5;
+  view.updateHeldGrab({},.1);
+  assert.equal(root.position.x,.5);
+  view.sync=()=>{synced++;root.position.copy(authored);};
+  view.onRuntimeChange=()=>{};view.clearPlanes=()=>{};
+  view.operatorPanel.setPinLabel=()=>{};view.operatorPanel.setOriginLabel=()=>{};
+  view.controllerRays=[];view.reticle={visible:false};
+  view.virtualFloorRoot={visible:true,position:{set(){}},quaternion:{identity(){}}};
+  view.floor={visible:true};view.grid={visible:true};view.scene=root.parent;
+  const previousDocument=Object.getOwnPropertyDescriptor(globalThis,'document');
+  Object.defineProperty(globalThis,'document',{configurable:true,value:{
+    getElementById:()=>({style:{},textContent:''})}});
+  t.after(()=>{if(previousDocument)Object.defineProperty(globalThis,'document',previousDocument);
+    else delete globalThis.document;});
+  xr.isPresenting=false;
+  view.onSessionEnd();
+  assert.equal(view.grab,null);
+  assert.ok(root.position.equals(authored));
+  assert.equal(paused,1);assert.equal(resumed,1);
+  assert.equal(synced,2);
+  assert.match(notice,/XR session ended/);
+});
+
 test('release after AR origin loss discards the held edit',()=>{
   const {view,controller}=selectableFirefly();
   let resumed=0,synced=0;
