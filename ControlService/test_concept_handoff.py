@@ -4,6 +4,7 @@ from __future__ import annotations
 import copy
 import hashlib
 from pathlib import Path
+import subprocess
 import struct
 import tempfile
 import threading
@@ -16,7 +17,9 @@ from agent_portal import AgentPortal, AgentPortalError
 from content_catalog import ContentError
 from matrix_tool_bridge import MatrixToolBridge, record_concept_build, scale_block, spawn_builtin
 from procedural_contract import new_recipe
-from server import APIError, State, agent_portal_action, concept_build_request
+from blender_authoring import BlenderAuthoringError, blender_executable
+from server import (APIError, State, agent_portal_action, concept_build_request,
+                    readable_blend_source)
 from test_matrix_procedural import GENERATOR
 from test_web_assets import glb
 
@@ -274,6 +277,47 @@ class ConceptHandoffTests(unittest.TestCase):
         recorded = self.state.agent_record_concept_build(value)
         self.assertEqual(recorded["status"], "completed")
         self.assertEqual(recorded["creationMode"], "blender")
+
+    def test_blender_mode_accepts_tracked_compressed_source(self):
+        try:
+            blender_executable()
+        except BlenderAuthoringError:
+            self.skipTest("Blender is unavailable for compressed-source validation")
+        art = Path(__file__).resolve().parent.parent / "WebRuntime" / "art"
+        blend = art / "concept-v4-garden-bridge-animated.blend"
+        source_glb = art / "concept-v4-garden-bridge-animated.glb"
+        self.assertEqual(blend.read_bytes()[:4], b"\x28\xb5\x2f\xfd")
+        build = self.build("Create this", creationMode="blender")
+        asset = self.state.web_assets.register(source_glb, "Animated Blender bridge")
+        self.room["assets"].append({"assetId": asset["assetId"],
+                                    "displayName": asset["displayName"]})
+        self.exchange()
+        receipt_id = self.observed_spawn(asset["assetId"], "blender-zstd-1")
+        value = self.build_result(build, receipt_id, "blender-zstd-1", asset["assetId"])
+        value["source_paths"] = [str(blend), str(source_glb)]
+        recorded = self.state.agent_record_concept_build(value)
+        self.assertEqual(recorded["status"], "completed")
+        self.assertEqual(recorded["creationMode"], "blender")
+
+    def test_compressed_blend_requires_exact_loaded_source_and_size_bound(self):
+        self.state.directory.mkdir(parents=True, exist_ok=True)
+        blend = self.state.directory / "source.blend"
+        other = self.state.directory / "other.blend"
+        blend.write_bytes(b"\x28\xb5\x2f\xfd" + b"invalid zstd frame")
+        other.write_bytes(b"BLENDER-v300")
+        completed = subprocess.CompletedProcess([], 0,
+            b"MATRIX_BLEND_SOURCE=" + str(other).encode() + b"\n", b"")
+        with patch("server.blender_executable", return_value="blender.exe"), \
+             patch("server.subprocess.run", return_value=completed) as run:
+            self.assertFalse(readable_blend_source(blend))
+        command = run.call_args.args[0]
+        self.assertIn("--disable-autoexec", command)
+        self.assertIn(str(blend), command)
+        self.assertEqual(run.call_args.kwargs["timeout"], 60)
+        with patch("server.MAX_COMPRESSED_BLEND_BYTES", 8), \
+             patch("server.subprocess.run") as run:
+            self.assertFalse(readable_blend_source(blend))
+            run.assert_not_called()
 
     def test_explicit_version_must_match_persisted_selection(self):
         with self.assertRaisesRegex(APIError, "not selected"):

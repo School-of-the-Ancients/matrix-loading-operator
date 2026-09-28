@@ -13,6 +13,7 @@ import math
 import os
 from pathlib import Path
 import re
+import subprocess
 import tempfile
 import threading
 import time
@@ -39,7 +40,7 @@ from web_assets import WebAssetCatalog, WebAssetError, MAX_BYTES as MAX_GLB_BYTE
 from web_components import ComponentError, validate_attachment, validate_package, COMPONENT_ID
 from web_component_catalog import WebComponentCatalog
 from web_authoring import WebAuthoringJobs, WebAuthoringError
-from blender_authoring import BlenderAuthoringJobs, BlenderAuthoringError
+from blender_authoring import BlenderAuthoringJobs, BlenderAuthoringError, blender_executable
 from citizen_asset_profile import PROFILE_ID as CITIZEN_ASSET_PROFILE_ID
 from web_game import GamePlanError, design_game, wants_game, validate_game_plan, validate_saved_game
 from content_service import ContentBridge, runtime_capabilities
@@ -54,6 +55,7 @@ from procedural_contract import (ProceduralError, GENERATOR_ID, VERSION,
 
 MAX_BODY = 1024 * 1024
 MAX_EXCHANGE_BODY = 3 * 1024 * 1024  # two bounded snapshots plus a base64 JPEG
+MAX_COMPRESSED_BLEND_BYTES = 64 * 1024 * 1024
 MAX_OBJECTS = 100
 MAX_PHYSICS_BODIES = 16
 MAX_RIGID_BODIES = 32
@@ -3549,6 +3551,41 @@ def require_physics_eligible(obj, assets, registered_assets, pose=None):
     # the model bottom even when the raw export pivot starts elsewhere.
 
 
+def readable_blend_source(path):
+    """Accept a raw Blender header or ask Blender to open a bounded zstd save."""
+    try:
+        with path.open("rb") as source:
+            header = source.read(7)
+        if header == b"BLENDER":
+            return True
+        if header[:4] != b"\x28\xb5\x2f\xfd" or path.stat().st_size > MAX_COMPRESSED_BLEND_BYTES:
+            return False
+    except OSError:
+        return False
+    try:
+        executable = blender_executable()
+    except BlenderAuthoringError:
+        raise APIError(503, "Blender is needed to verify a compressed .blend source") from None
+    # The source path is an argv value, never executable code. Disable file
+    # scripts and require the loaded Blender filepath to identify this file.
+    command = [executable, "--background", "--factory-startup", "--disable-autoexec",
+               str(path), "--python-expr",
+               "import bpy; print('MATRIX_BLEND_SOURCE=' + bpy.data.filepath)"]
+    try:
+        process = subprocess.run(command, cwd=path.parent, capture_output=True, timeout=60)
+    except (OSError, subprocess.TimeoutExpired):
+        return False
+    if process.returncode != 0:
+        return False
+    marker = "MATRIX_BLEND_SOURCE="
+    lines = process.stdout.decode("utf-8", errors="replace").splitlines()
+    loaded = [line[len(marker):] for line in lines if line.startswith(marker)]
+    try:
+        return len(loaded) == 1 and Path(loaded[0]).samefile(path)
+    except OSError:
+        return False
+
+
 class State:
     def __init__(self, directory, clock=time.monotonic, learning=None,
                  web_assets_directory=None, citizen_capability_budget=1,
@@ -3756,15 +3793,7 @@ class State:
                                if Path(path).suffix.lower() == ".glb"]
                 require(blend_sources and glb_sources,
                         "Blender creation mode needs an editable .blend source and exported .glb", 409)
-                try:
-                    valid_blend = False
-                    for path in blend_sources:
-                        with path.open("rb") as source:
-                            if source.read(7) == b"BLENDER":
-                                valid_blend = True
-                                break
-                except OSError:
-                    valid_blend = False
+                valid_blend = any(readable_blend_source(path) for path in blend_sources)
                 require(valid_blend, "Blender source is not a readable .blend file", 409)
                 try:
                     registered = {item["assetId"]: item for item in self.web_assets.list()}
