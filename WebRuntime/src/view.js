@@ -155,9 +155,11 @@ export function operatorPanel({createImage=()=>new Image()}={}){
   let worldNotice={text:'',tone:'idle'};
   let cameraStatus='Camera not tested',cameraActive=false;
   let concepts=[],conceptIndex=0,conceptKey='[]';
+  let panoramas=[],panoramaIndex=0,panoramaKey='[]';
   const conceptImages=new Map();
   let buttons=[];
   const currentConcept=()=>concepts[conceptIndex]||null;
+  const currentPanorama=()=>panoramas[panoramaIndex]||null;
   const loadConceptImage=(url)=>{
     if(!url||conceptImages.has(url))return;
     const image=createImage(),entry={image,state:'loading'};
@@ -165,11 +167,11 @@ export function operatorPanel({createImage=()=>new Image()}={}){
     image.onload=()=>{
       if(conceptImages.get(url)!==entry)return;
       entry.state=image.naturalWidth>0&&image.naturalHeight>0?'ready':'error';
-      if(mode==='concepts')paint();
+      if(mode==='concepts'||mode==='panoramas')paint();
     };
     image.onerror=()=>{
       if(conceptImages.get(url)!==entry)return;
-      entry.state='error';if(mode==='concepts')paint();
+      entry.state='error';if(mode==='concepts'||mode==='panoramas')paint();
     };
     image.src=url;
   };
@@ -187,7 +189,7 @@ export function operatorPanel({createImage=()=>new Image()}={}){
     if(mode==='world'&&xrMode)button('exit-xr',xrMode==='ar'?'EXIT AR':'EXIT VR',35,35,240,72);
     else {ctx.fillStyle='#75f4df';ctx.font='bold 30px sans-serif';ctx.fillText('◈  OPERATOR',55,83);}
     button('toggle-agent',mode==='agent'?'CHAT':'CODEX',290,35,103,72,
-      mode==='agent'||mode==='concepts');
+      mode==='agent'||mode==='concepts'||mode==='panoramas');
     button('toggle-world',mode==='world'?'CHAT':'WORLD',404,35,120,72,
       mode==='world'||mode==='archives');
     button('toggle-mode',mode==='modes'?'CHAT':creatorMode.mode==='play'?'PLAY':'CREATE',535,35,124,72,mode==='modes');
@@ -278,16 +280,21 @@ export function operatorPanel({createImage=()=>new Image()}={}){
           'Recover the saved room origin before switching.':
           'Return to paused Creator Mode or finish recovery first.',55,560,910);
       }
-    }else if(mode==='concepts'){
+    }else if(mode==='concepts'||mode==='panoramas'){
+      const panoramaMode=mode==='panoramas';
+      const gallery=panoramaMode?panoramas:concepts;
+      const index=panoramaMode?panoramaIndex:conceptIndex;
+      const prefix=panoramaMode?'panorama':'concept';
       ctx.fillStyle='#dff7f8';ctx.font='bold 32px sans-serif';
-      ctx.fillText('IMAGE CONCEPTS',55,177);
-      const concept=currentConcept();
+      ctx.fillText(panoramaMode?'PANORAMA BACKGROUNDS':'IMAGE CONCEPTS',55,177);
+      const concept=panoramaMode?currentPanorama():currentConcept();
       if(!concept){
         ctx.font='26px sans-serif';ctx.fillStyle='#8bb8c2';
-        ctx.fillText('No ready images yet. Ask Codex to generate one.',55,260,910);
+        ctx.fillText(panoramaMode?'No ready panoramas. Ask Codex to generate one.':
+          'No ready images yet. Ask Codex to generate one.',55,260,910);
       }else{
         ctx.font='bold 26px sans-serif';ctx.fillStyle='#75f4df';
-        ctx.fillText(`VERSION ${concept.version} · ${conceptIndex+1}/${concepts.length}${concept.selected?' · SELECTED':''}`,
+        ctx.fillText(`VERSION ${concept.version} · ${index+1}/${gallery.length}${concept.selected?' · SELECTED':''}`,
           55,209,900);
         ctx.fillStyle='#112e3b';ctx.fillRect(55,225,595,335);
         ctx.strokeStyle='#245568';ctx.lineWidth=3;ctx.strokeRect(55,225,595,335);
@@ -316,17 +323,21 @@ export function operatorPanel({createImage=()=>new Image()}={}){
         }
         if(line&&lineNumber<6)ctx.fillText(line,680,307+lineNumber*31,285);
         const previewFailed=concept.previewStatus==='error'||preview?.state==='error';
-        if(previewFailed)button(`concept-retry-${concept.version}`,'RETRY PREVIEW',680,495,285,60);
+        if(previewFailed)button(`${prefix}-retry-${concept.version}`,'RETRY PREVIEW',680,495,285,60);
         else if(agent.pending){ctx.fillStyle='#ffad8d';ctx.font='20px sans-serif';
           ctx.fillText('Codex review waiting · return to CODEX',680,535,285);}
-        button('concept-prev','PREVIOUS',55,566,205,63);
-        button('concept-next','NEXT IMAGE',275,566,205,63);
-        if(!concept.selected&&preview?.state==='ready')button(`concept-select-${concept.version}`,
-          `USE VERSION ${concept.version}`,495,566,475,63,true);
+        button(`${prefix}-prev`,'PREVIOUS',55,566,205,63);
+        button(`${prefix}-next`,panoramaMode?'NEXT PANORAMA':'NEXT IMAGE',275,566,205,63);
+        if(!concept.selected&&preview?.state==='ready')button(`${prefix}-select-${concept.version}`,
+          `${panoramaMode?'CHOOSE':'USE'} VERSION ${concept.version}`,495,566,475,63,true);
+        else if(panoramaMode&&concept.selected&&concept.applyAvailable&&preview?.state==='ready')
+          button(`panorama-apply-${concept.version}`,'APPLY TO WORLD',495,566,475,63,true);
         else {ctx.fillStyle=concept.selected?'#53dcc5':'#245568';ctx.fillRect(495,566,475,63);
           ctx.fillStyle=concept.selected?'#062b34':'#e9f9fa';ctx.font='bold 25px sans-serif';
           ctx.textAlign='center';ctx.textBaseline='middle';
-          ctx.fillText(concept.selected?'SELECTED':previewFailed?'PREVIEW REQUIRED':'WAIT FOR IMAGE',732,597);
+          ctx.fillText(panoramaMode&&concept.selected&&!concept.applyAvailable?
+            'LEAVE AR / PAUSE':concept.selected?'SELECTED':
+            previewFailed?'PREVIEW REQUIRED':'WAIT FOR IMAGE',732,597);
           ctx.textAlign='left';ctx.textBaseline='alphabetic';}
       }
     }else{
@@ -342,6 +353,9 @@ export function operatorPanel({createImage=()=>new Image()}={}){
       if(mode==='agent'&&concepts.length)
         button('open-concepts',`IMAGE PREVIEWS · ${concepts.length} VERSION${concepts.length===1?'':'S'}`,
           55,258,914,61,true);
+      if(mode==='agent'&&panoramas.length)
+        button('open-panoramas',`PANORAMAS · ${panoramas.length} VERSION${panoramas.length===1?'':'S'}`,
+          55,concepts.length?326:258,914,61,true);
       const content=mode==='agent'?`CODEX AGENT · ${agent.activity}\n\n${agent.content}`:mode==='proposal'&&proposal?
         `REVIEW BEFORE APPLY\n${proposal.summary||''}\n\n${proposal.kind==='game'?
           `GAME: ${proposal.gamePlan?.title||''}\nROLES\n${proposal.gamePlan?.roles?.map(role=>`${role.count} × ${role.assetId} as ${role.roleId} (${role.kind})`).join('\n')||''}\nRULES\n${proposal.gamePlan?.rules?.map(rule=>`${rule.actorRoleId} → ${rule.targetRoleId}: ${rule.event} within ${rule.distanceMeters} m, +${rule.scorePoints}`).join('\n')||''}\nOBJECTIVES\n${proposal.gamePlan?.objectives?.map(objective=>objective.kind==='score-at-least'?`At least ${objective.targetPoints} points`:`${objective.roleId}: ${objective.targetCount} delivered`).join('\n')||''}`:
@@ -356,11 +370,12 @@ export function operatorPanel({createImage=()=>new Image()}={}){
         }
         lines.push(line);
       }
-      const perPage=mode==='agent'?concepts.length?7:content.length>500?10:9:
+      const previewRows=Number(concepts.length>0)+Number(panoramas.length>0);
+      const perPage=mode==='agent'?previewRows===2?5:previewRows===1?7:content.length>500?10:9:
         content.length>500?14:12;
       const pages=Math.max(1,Math.ceil(lines.length/perPage));page%=pages;
       const step=mode==='agent'?content.length>500?28:34:content.length>500?30:37;
-      const contentTop=mode==='agent'?concepts.length?355:286:160;
+      const contentTop=mode==='agent'?previewRows===2?425:previewRows===1?355:286:160;
       lines.slice(page*perPage,(page+1)*perPage).forEach((line,index)=>
         ctx.fillText(line,55,contentTop+index*step));
       ctx.fillStyle='#8bb8c2';ctx.font='24px sans-serif';ctx.fillText(`Page ${page+1}/${pages}`,55,596);
@@ -380,8 +395,8 @@ export function operatorPanel({createImage=()=>new Image()}={}){
         button('pin',pinLabel,519,636,210,90);
         button('next','NEXT',741,636,248,90);
       }
-    }else if(mode==='concepts'){
-      button('concept-back','BACK TO CODEX',35,636,472,90,true);
+    }else if(mode==='concepts'||mode==='panoramas'){
+      button(mode==='panoramas'?'panorama-back':'concept-back','BACK TO CODEX',35,636,472,90,true);
       button('pin',pinLabel,519,636,210,90);
       button('voice',voiceInputLabel,741,636,248,90);
     }else if(mode==='proposal'&&proposal){
@@ -426,14 +441,14 @@ export function operatorPanel({createImage=()=>new Image()}={}){
   const setCameraStatus=(next,active)=>{if(cameraStatus!==next||cameraActive!==active){cameraStatus=next;cameraActive=active;paint();}};
   const setAgentStatus=next=>{if(JSON.stringify(agent)!==JSON.stringify(next)){
     if(agent.pending!==next.pending||agent.voiceStatus!==next.voiceStatus||agent.latestTurnId!==next.latestTurnId)page=0;
-    agent=next;if(mode==='agent'||mode==='concepts')paint();
+    agent=next;if(mode==='agent'||mode==='concepts'||mode==='panoramas')paint();
   }};
   const setConceptGallery=next=>{
     const key=JSON.stringify(next||[]);
     if(key===conceptKey)return;
     const previousVersion=currentConcept()?.version;
     conceptKey=key;concepts=Array.isArray(next)?next:[];
-    const urls=new Set(concepts.map(concept=>concept.previewObjectUrl).filter(Boolean));
+    const urls=new Set([...concepts,...panoramas].map(item=>item.previewObjectUrl).filter(Boolean));
     for(const [url,entry] of conceptImages){
       if(urls.has(url))continue;
       entry.image.onload=null;entry.image.onerror=null;conceptImages.delete(url);
@@ -444,6 +459,22 @@ export function operatorPanel({createImage=()=>new Image()}={}){
       Math.max(0,concepts.length-1);
     if(mode==='agent'||mode==='concepts')paint();
   };
+  const setPanoramaGallery=next=>{
+    const key=JSON.stringify(next||[]);
+    if(key===panoramaKey)return;
+    const previousVersion=currentPanorama()?.version;
+    panoramaKey=key;panoramas=Array.isArray(next)?next:[];
+    const urls=new Set([...concepts,...panoramas].map(item=>item.previewObjectUrl).filter(Boolean));
+    for(const [url,entry] of conceptImages){
+      if(urls.has(url))continue;
+      entry.image.onload=null;entry.image.onerror=null;conceptImages.delete(url);
+    }
+    const previousIndex=panoramas.findIndex(item=>item.version===previousVersion);
+    const selectedIndex=panoramas.findIndex(item=>item.selected);
+    panoramaIndex=previousIndex>=0?previousIndex:selectedIndex>=0?selectedIndex:
+      Math.max(0,panoramas.length-1);
+    if(mode==='agent'||mode==='panoramas')paint();
+  };
   const setCreationMode=next=>{
     if(!['auto','procedural','blender'].includes(next))throw Error('Invalid creation mode');
     if(creationMode!==next){creationMode=next;if(mode==='agent')paint();}
@@ -451,12 +482,15 @@ export function operatorPanel({createImage=()=>new Image()}={}){
   const toggleWorld=()=>{mode=mode==='world'?'chat':'world';page=0;paint();};
   const toggleArchives=()=>{mode=mode==='archives'?'world':'archives';page=0;paint();};
   const toggleModePage=()=>{mode=mode==='modes'?'chat':'modes';page=0;paint();};
-  const toggleAgent=()=>{if(mode==='concepts'){mode='agent';paint();return;}
+  const toggleAgent=()=>{if(mode==='concepts'||mode==='panoramas'){mode='agent';paint();return;}
     mode=mode==='agent'?'chat':'agent';page=0;paint();};
   const toggleConcepts=()=>{mode=mode==='concepts'?'agent':'concepts';paint();};
+  const togglePanoramas=()=>{mode=mode==='panoramas'?'agent':'panoramas';paint();};
   const previousConcept=()=>{if(concepts.length){conceptIndex=(conceptIndex+concepts.length-1)%concepts.length;paint();}};
   const nextConcept=()=>{if(concepts.length){conceptIndex=(conceptIndex+1)%concepts.length;paint();}};
-  const isAgentMode=()=>mode==='agent'||mode==='concepts';
+  const previousPanorama=()=>{if(panoramas.length){panoramaIndex=(panoramaIndex+panoramas.length-1)%panoramas.length;paint();}};
+  const nextPanorama=()=>{if(panoramas.length){panoramaIndex=(panoramaIndex+1)%panoramas.length;paint();}};
+  const isAgentMode=()=>mode==='agent'||mode==='concepts'||mode==='panoramas';
   const openProposal=()=>{if(proposal){mode='proposal';page=0;paint();}};
   const hit=uv=>{
     if(!uv)return null;const x=uv.x*1024,y=(1-uv.y)*768;
@@ -466,8 +500,9 @@ export function operatorPanel({createImage=()=>new Image()}={}){
   paint();
   return {group,mesh,setMessage,setPinLabel,setXRMode,setVoiceLabel,setOriginLabel,setConversationCount,
     setProposal,setWorldInfo,setWorldNotice,setGameStatus,setCreatorMode,setWarning,setCameraStatus,
-    setAgentStatus,setConceptGallery,setCreationMode,setVoiceInputLabel,toggleWorld,toggleArchives,
-    toggleModePage,toggleAgent,toggleConcepts,previousConcept,nextConcept,isAgentMode,openProposal,hit,nextPage};
+    setAgentStatus,setConceptGallery,setPanoramaGallery,setCreationMode,setVoiceInputLabel,toggleWorld,toggleArchives,
+    toggleModePage,toggleAgent,toggleConcepts,togglePanoramas,previousConcept,nextConcept,
+    previousPanorama,nextPanorama,isAgentMode,openProposal,hit,nextPage};
 }
 const v3=v=>new THREE.Vector3(v.x,v.y,v.z);
 const plain=v=>({x:Number(v.x.toFixed(3)),y:Number(v.y.toFixed(3)),z:Number(v.z.toFixed(3))});
@@ -809,6 +844,7 @@ export class MatrixView {
   setOperatorCameraStatus(status,active){this.operatorPanel.setCameraStatus(status,active);}
   setOperatorAgentStatus(status){this.operatorPanel.setAgentStatus(status);}
   setOperatorConceptGallery(concepts){this.operatorPanel.setConceptGallery(concepts);}
+  setOperatorPanoramaGallery(panoramas){this.operatorPanel.setPanoramaGallery(panoramas);}
   setOperatorCreationMode(mode){this.operatorPanel.setCreationMode(mode);}
   setCreationMode(mode){this.setOperatorCreationMode(mode);}
   setOperatorVoiceInputLabel(label){this.operatorPanel.setVoiceInputLabel(label);}
@@ -1091,7 +1127,9 @@ export class MatrixView {
         byte=>byte.toString(16).padStart(2,'0')).join('');
       if(controller.signal.aborted)throw Error('Panorama loading timed out');
       if(digest!==asset.sha256)throw Error('Panorama checksum differs from its registered asset');
-      const image=await createImageBitmap(new Blob([bytes],{type:'image/png'}));
+      // ImageBitmap ignores Texture.flipY; decode with Three.js's texture orientation.
+      const image=await createImageBitmap(new Blob([bytes],{type:'image/png'}),
+        {imageOrientation:'flipY'});
       if(controller.signal.aborted){image.close?.();throw Error('Panorama loading timed out');}
       if(image.width!==asset.width||image.height!==asset.height){
         image.close?.();throw Error('Panorama dimensions differ from its registered asset');
@@ -1503,6 +1541,9 @@ export class MatrixView {
       else if(action==='open-concepts'||action==='concept-back')this.operatorPanel.toggleConcepts();
       else if(action==='concept-prev')this.operatorPanel.previousConcept();
       else if(action==='concept-next')this.operatorPanel.nextConcept();
+      else if(action==='open-panoramas'||action==='panorama-back')this.operatorPanel.togglePanoramas();
+      else if(action==='panorama-prev')this.operatorPanel.previousPanorama();
+      else if(action==='panorama-next')this.operatorPanel.nextPanorama();
       else if(action==='open-proposal')this.operatorPanel.openProposal();
       else if(action==='next')this.operatorPanel.nextPage();
       else if(action==='voice-output')this.onVoiceOutputToggle();

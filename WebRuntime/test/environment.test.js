@@ -238,18 +238,21 @@ test('bearer fetch verifies panorama bytes and dimensions before a texture is ca
   view.environmentTextures=new Map();view.environmentLoads=new Map();
   view.environmentFailures=new Map();
   const oldFetch=globalThis.fetch,oldBitmap=globalThis.createImageBitmap;
-  let sentHeaders=null,closed=0;
+  let sentHeaders=null,closed=0,bitmapOptions=null;
   try{
     globalThis.fetch=async(_url,options)=>{sentHeaders=options.headers;
       const copy=new Uint8Array(bytes);copy[0]^=1;
       return new Response(copy);};
-    globalThis.createImageBitmap=async()=>({width:4,height:2,close(){closed++;}});
+    globalThis.createImageBitmap=async(_blob,options)=>{
+      bitmapOptions=options;return {width:4,height:2,close(){closed++;}};
+    };
     await assert.rejects(view.prepareEnvironment(environment(entry)),/checksum/);
     assert.equal(view.environmentTextures.size,0);
     globalThis.fetch=async(_url,options)=>{sentHeaders=options.headers;
       return new Response(bytes);};
     const texture=await view.prepareEnvironment(environment(entry));
     assert.equal(sentHeaders.Authorization,'Bearer owner-token');
+    assert.deepEqual(bitmapOptions,{imageOrientation:'flipY'});
     assert.equal(texture.mapping,THREE.EquirectangularReflectionMapping);
     assert.equal(texture.colorSpace,THREE.SRGBColorSpace);
     texture.dispose();texture.image.close();

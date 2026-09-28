@@ -774,7 +774,7 @@ class ContentCatalog:
         return self.import_queue()
 
     def submit_workflow(self, provider_id, workflow_id, prompt="", approved=False, *, seed=None,
-                        negative_prompt=None, validate_image=False):
+                        negative_prompt=None, validate_image=False, panorama=False):
         provider = self._provider(provider_id)
         require(provider["type"] == "comfyui", "Provider cannot execute a local ComfyUI workflow", 409)
         require(approved is True, "Review and approve the configured workflow before submitting", 409)
@@ -809,6 +809,22 @@ class ContentCatalog:
                 node["inputs"][workflow["negativePromptInput"]] = negative_prompt
             else:
                 require(not negative_prompt, "Configured image workflow does not support a negative prompt", 409)
+        if panorama:
+            require(validate_image, "Panorama generation requires image validation")
+            latents = [node for node in graph.values()
+                       if node["class_type"] == "EmptyLatentImage"]
+            outputs = [node for node in graph.values()
+                       if node["class_type"] == "SaveImage"]
+            require(len(latents) == 1 and len(outputs) == 1 and
+                    {"width", "height", "batch_size"} <= set(latents[0]["inputs"]) and
+                    latents[0]["inputs"]["batch_size"] == 1,
+                    "Reviewed panorama workflow needs one image output and one single-image latent", 409)
+            # Render at 2:1 in the latent graph. Resizing a 4:3 output would
+            # distort it and would not create a panoramic source image.
+            latents[0]["inputs"].update(width=1024, height=512)
+        submitted_graph_sha256 = hashlib.sha256(json.dumps(
+            graph, ensure_ascii=False, allow_nan=False, sort_keys=True,
+            separators=(",", ":")).encode("utf-8")).hexdigest()
         model_names = sorted({value for node in graph.values() for value in node["inputs"].values()
                               if isinstance(value, str) and value.lower().endswith((".safetensors", ".ckpt"))})
         if validate_image:
@@ -839,6 +855,11 @@ class ContentCatalog:
             if seed is not None:
                 job["seed"] = seed
             job["workflowSha256"] = workflow_sha256
+            job["submittedGraphSha256"] = submitted_graph_sha256
+            if panorama:
+                job["outputPurpose"] = "panorama"
+                job["outputWidth"] = 1024
+                job["outputHeight"] = 512
             job["model"] = model_names
             with self.lock:
                 # Transfer the slot to history atomically so it is never counted twice.

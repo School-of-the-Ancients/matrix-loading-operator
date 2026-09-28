@@ -6,9 +6,11 @@ import {VoiceRecorder} from './voice.js';
 import {CameraStream} from './camera_stream.js';
 import {AgentClient,agentActivityLabel} from './agent_client.js';
 import {ConceptUI} from './concept_ui.js';
+import {PanoramaUI} from './panorama_ui.js';
 import {loadCreationMode,saveCreationMode,creationModeFromPanelAction} from './creation_mode.js';
-import {parseConceptIntent,isSelectedConceptBuildRequest,
+import {parsePanoramaIntent,parseConceptIntent,isSelectedConceptBuildRequest,
   stopPlannerConceptFallback,plannerVoiceFallbackAllowed} from './concept_intent.js';
+import {validEnvironmentAsset,sameEnvironment} from './environment.js';
 import {captureAgentContext} from './agent_context.js';
 import {bindBlenderRequestContext,captureBlenderPlacement,
   captureBlenderRequestContext,queueBlenderPlacement,
@@ -62,7 +64,7 @@ let persistenceWarning='',restoreWarning='';
 let cameraBusy=false;
 const recorder=new VoiceRecorder();let voiceStarting=false,voiceRecording=false,voiceStopRequested=false,voiceJob=null,voiceSnapshot=null,voiceDestination='planner',voiceAgentContext=null,voiceBlenderPlacement=null;
 let replyContext=null,replySource=null;
-let agentClient=null,conceptUI=null,agentActionBusy=false,agentVoiceStatus='';
+let agentClient=null,conceptUI=null,panoramaUI=null,agentActionBusy=false,agentVoiceStatus='';
 let creationMode=loadCreationMode(sessionStorage);
 const pendingBlenderReceiptIds=new Set();
 function unlockReplyAudio(){
@@ -175,6 +177,7 @@ function updateWorldControls(){
   $('environment-status').textContent=environment?
     `Panorama: ${environmentLabel}${view.isAR?' · hidden in AR to preserve passthrough':''}`:
     'Panorama: none. Desktop and VR use the neutral background.';
+  panoramaUI?.updateAvailability();
   $('creator-mode-status').textContent=`${creator.mode==='creator'?'Creator Mode':'Play/Test Mode'} · simulation ${creator.simulation} · revision ${creator.revision}`;
   $('enter-play').disabled=!!pendingWorld||world.digitalWorldVisit||creator.mode==='play';
   $('enter-creator').disabled=!!pendingWorld||world.digitalWorldVisit||creator.mode==='creator';
@@ -475,12 +478,15 @@ function renderAgent(){
   const inWorld=latest?`You: ${latest.user.slice(0,180)}${latest.user.length>180?'…':''}\n\nCodex: ${(latest.assistant||'…').slice(-900)}`:
     status?'Ready. Hold the trigger or grip to speak to Codex.':'Connect to Codex on the PC.';
   const conceptStatus=conceptUI?.statusForWorld()||'';
-  view.setOperatorAgentStatus({activity,content:[accessLabel,conceptStatus,agentVoiceStatus,agentApprovalText(pending),
+  const panoramaStatus=panoramaUI?.statusForWorld()||'';
+  view.setOperatorAgentStatus({activity,content:[accessLabel,conceptStatus,panoramaStatus,agentVoiceStatus,agentApprovalText(pending),
     agentClient?.error?`Connection: ${agentClient.error}`:'',inWorld].filter(Boolean).join('\n\n'),
     pending:!!pending,approvalReviewable:pending?.reviewable===true,
     active:!!status?.activeTurnId,connected:!!status&&!agentClient.error,
     voiceStatus:agentVoiceStatus,latestTurnId:latest?.turnId||''});
   view.setOperatorConceptGallery(conceptUI?.galleryForWorld()||[]);
+  view.setOperatorPanoramaGallery(panoramaUI?.galleryForWorld()||[]);
+  panoramaUI?.render();
 }
 agentClient=new AgentClient((path,body)=>bridge.request(path,body),localStorage,renderAgent);
 conceptUI=new ConceptUI({request:(path,body)=>bridge.request(path,body),
@@ -489,10 +495,81 @@ conceptUI=new ConceptUI({request:(path,body)=>bridge.request(path,body),
     return agentClient.sessionId;
   },getSession:()=>agentClient.sessionId,getToken:()=>$('token').value.trim(),onChange:renderAgent});
 conceptUI.bind();
+function panoramaActionBlocker(){
+  if(pendingWorld)return 'Finish saved-world recovery before applying a panorama.';
+  if(pcWorldBusy||worldSwitchBusy)return 'Wait for the current world save or restore.';
+  if(view.isAR||world.spatial)return 'Leave AR to apply a panorama; passthrough stays visible there.';
+  if(world.digitalWorldVisit)return 'Return to the editable digital world to apply a panorama.';
+  if(world.scene.roomId!=='web-virtual-room-v1')return 'Open the editable virtual world to apply a panorama.';
+  if(world.creatorMode.mode!=='creator'||world.creatorMode.simulation!=='paused')
+    return 'Pause Play/Test and return to Creator Mode before applying a panorama.';
+  if(world.agentGrab)return 'Release the held object before applying a panorama.';
+  return '';
+}
+async function waitForPanoramaStatus(requestId,target,objectIds){
+  if(!/^[0-9a-f]{32}$/.test(requestId||''))throw Error('Panorama action returned no valid request ID.');
+  for(let attempt=0;attempt<70;attempt++){
+    await bridge.tick(true);
+    const result=await bridge.request(`/api/agent/environments/actions/${requestId}`);
+    if(result?.requestId!==requestId)throw Error(`Panorama receipt ${requestId} changed; inspect the world.`);
+    if(result.status==='succeeded'){
+      if(!sameEnvironment(world.scene.environment??null,target)||
+        JSON.stringify(world.scene.objects.map(item=>item.objectId))!==JSON.stringify(objectIds))
+        throw Error(`Panorama receipt ${requestId} succeeded but the local world changed; inspect it before another action.`);
+      renderScene();
+      return result;
+    }
+    if(result.status==='failed')throw Error(`Panorama request ${requestId} failed: ${result.error||'inspect the exact receipt'}`);
+    if(result.status==='unconfirmed')throw Error(`Panorama request ${requestId} is unconfirmed; inspect its status and the world before retrying.`);
+    if(result.status!=='queued')throw Error(`Panorama request ${requestId} has an unknown status; inspect it before retrying.`);
+    await new Promise(resolve=>setTimeout(resolve,400));
+  }
+  throw Error(`Panorama request ${requestId} has no confirmed result yet; inspect its status before retrying.`);
+}
+async function changeWorldPanorama(action,asset=null,yawDegrees=0){
+  const blocker=panoramaActionBlocker();if(blocker)throw Error(blocker);
+  let target=null;
+  const generation=world.authoredGeneration;
+  if(action==='set'){
+    if(!validEnvironmentAsset(asset))throw Error('Generated panorama registration is invalid.');
+    await refreshAssets(true,{strict:true});
+    const loaded=world.environmentAsset(asset.assetId);
+    if(!loaded||loaded.sha256!==asset.sha256)
+      throw Error('Registered panorama is missing from the refreshed browser catalog.');
+    target={schemaVersion:1,kind:'equirectangular',assetId:asset.assetId,
+      sha256:asset.sha256,yawDegrees};
+    await view.prepareEnvironment(target);
+  }
+  if(world.authoredGeneration!==generation||panoramaActionBlocker())
+    throw Error('World changed while preparing the panorama; inspect it before applying.');
+  await bridge.sync();
+  const state=await bridge.request('/api/state');
+  if(!state?.online||state.clientId!==bridge.clientId||
+    state.snapshot?.scene?.roomId!==world.scene.roomId||
+    !sameEnvironment(state.snapshot.scene.environment??null,world.scene.environment??null)||
+    panoramaActionBlocker())
+    throw Error('Connected world changed; inspect its current scene before applying a panorama.');
+  const objectIds=world.scene.objects.map(item=>item.objectId);
+  const queued=await bridge.request('/api/agent/environments/action',{
+    action,room_id:world.scene.roomId,scene_revision:state.revision,
+    ...(action==='set'?{asset_id:asset.assetId,yaw_degrees:yawDegrees}:{})});
+  if(!queued?.requestId)throw Error('Panorama action has no request ID; inspect the world before retrying.');
+  return waitForPanoramaStatus(queued.requestId,target,objectIds);
+}
+panoramaUI=new PanoramaUI({client:conceptUI.client,
+  ensureSession:async()=>{
+    if(!agentClient.status||agentClient.error)await agentClient.connect();
+    return agentClient.sessionId;
+  },getSession:()=>agentClient.sessionId,getToken:()=>$('token').value.trim(),
+  canApply:panoramaActionBlocker,removeAvailable:()=>!!world.scene.environment,
+  apply:(asset,yaw)=>changeWorldPanorama('set',asset,yaw),
+  remove:()=>changeWorldPanorama('remove'),onChange:renderAgent});
+panoramaUI.bind();
 renderAgent();
 if(agentClient.sessionId)agentClient.restore().then(()=>conceptUI.refresh()).catch(()=>{});
 setInterval(()=>{if(agentClient.sessionId&&!agentClient.error&&!agentActionBusy)agentClient.poll().catch(()=>{});},800);
-setInterval(()=>{if(agentClient.sessionId&&!conceptUI.busy)conceptUI.refresh().catch(()=>{});},2400);
+setInterval(()=>{if(agentClient.sessionId&&!conceptUI.busy)
+  conceptUI.refresh().then(()=>panoramaUI.advanceQueue()).catch(()=>{});},2400);
 async function agentAction(action){
   if(agentActionBusy)return;
   agentActionBusy=true;renderAgent();
@@ -503,6 +580,11 @@ async function agentAction(action){
 function sendAgent(){
   const text=$('agent-input').value.trim();
   if(!text){feedback('Enter a message for Codex first.',true);return;}
+  if(parsePanoramaIntent(text)){
+    agentAction(async()=>{const message=await panoramaUI.handleText(text);
+      $('agent-input').value='';feedback(message);view.setOperatorStatus(message);});
+    return;
+  }
   if(parseConceptIntent(text)){
     agentAction(async()=>{const message=await conceptUI.handleText(text);
       $('agent-input').value='';feedback(message);view.setOperatorStatus(message);});
@@ -607,7 +689,7 @@ setInterval(()=>persistCurrentWorld({periodic:true,
 addEventListener('beforeunload',()=>{
   if(canPlayWorld(world.creatorMode)&&world.scene.objects.some(object=>
     object.rigidBody?.type==='dynamic'))persistCurrentWorld({quiet:true});
-  conceptUI?.destroy();cameraStream.stop();bridge.stop();
+  conceptUI?.destroy();panoramaUI?.destroy();cameraStream.stop();bridge.stop();
 });
 
 async function call(path,body,success){
@@ -627,6 +709,7 @@ async function refreshPCWorlds(){
   select.value=current;
 }
 function operatorRoute(text){
+  if(parsePanoramaIntent(text))return {destination:'panorama',reason:'generated-panorama'};
   if(parseConceptIntent(text))return {destination:'concept',reason:'image-concept'};
   if(isSelectedConceptBuildRequest(text))
     return {destination:'agent',reason:'selected-concept-build'};
@@ -647,6 +730,15 @@ async function sendToAgentFromChat(text,context){
 async function propose(){
   const text=$('prompt').value.trim();if(!text){feedback('Enter a request first.',true);return;}
   const route=operatorRoute(text);
+  if(route.destination==='panorama'){
+    $('propose').disabled=true;
+    try{const message=await panoramaUI.handleText(text);
+      feedback(message);view.setOperatorStatus(message);}
+    catch(error){feedback(`Panorama: ${error.message}`,true);
+      view.setOperatorStatus(`Panorama: ${error.message}`,'error');}
+    finally{$('propose').disabled=false;}
+    return;
+  }
   if(route.destination==='concept'){
     $('propose').disabled=true;
     try{const message=await conceptUI.handleText(text);
@@ -1133,6 +1225,23 @@ function changeCreatorMode(action){
 }
 
 function panelAction(action){
+  const panoramaRetry=/^panorama-retry-([1-9]\d*)$/.exec(action);
+  if(panoramaRetry){
+    agentAction(()=>panoramaUI._run(()=>panoramaUI.retryPreviewVersion(Number(panoramaRetry[1]))));
+    return;
+  }
+  const panoramaSelect=/^panorama-select-([1-9]\d*)$/.exec(action);
+  if(panoramaSelect){
+    agentAction(()=>panoramaUI._run(()=>panoramaUI.selectVersion(Number(panoramaSelect[1]))));
+    return;
+  }
+  const panoramaApply=/^panorama-apply-([1-9]\d*)$/.exec(action);
+  if(panoramaApply){
+    const chosen=panoramaUI.client.selectedPanorama;
+    const expected={conceptId:chosen?.conceptId,version:Number(panoramaApply[1])};
+    agentAction(()=>panoramaUI._run(()=>panoramaUI.applySelected(expected)));
+    return;
+  }
   const conceptRetry=/^concept-retry-([1-9]\d*)$/.exec(action);
   if(conceptRetry){
     const version=Number(conceptRetry[1]);
@@ -1243,6 +1352,10 @@ async function endVoice(){
       voiceJob='agent-transcribe';voiceButtons();
       const transcript=await agentClient.transcribe(audioBase64);
       voiceStatus(`Heard: ${transcript}`);
+      if(parsePanoramaIntent(transcript)){
+        const message=await panoramaUI.handleText(transcript);
+        voiceStatus(message);return;
+      }
       if(parseConceptIntent(transcript)){
         const message=await conceptUI.handleText(transcript);
         voiceStatus(message);return;
@@ -1265,6 +1378,11 @@ async function endVoice(){
         voiceJob='agent-transcribe';voiceButtons();
         const transcript=await agentClient.transcribe(audioBase64);
         voiceStatus(`Heard: ${transcript}`);
+        if(parsePanoramaIntent(transcript)){
+          $('prompt').value=transcript;
+          const message=await panoramaUI.handleText(transcript);
+          voiceStatus(message);return;
+        }
         if(parseConceptIntent(transcript)){
           $('prompt').value=transcript;
           const message=await conceptUI.handleText(transcript);
@@ -1294,7 +1412,7 @@ async function pollVoice(jobId){
     if(job.transcript&&await stopPlannerConceptFallback(job.transcript,()=>
       bridge.request('/api/voice/cancel',{clientId:bridge.clientId,jobId}))){
       $('prompt').value=job.transcript;
-      voiceStatus('Image or selected design request needs Codex. Reconnect Codex and speak again; no concept or build was started.',true);
+      voiceStatus('Panorama, image, or selected design requests need Codex. Reconnect Codex and speak again; no generation or build was started.',true);
       return;
     }
     if(job.phase==='error'){voiceStatus(job.error||'Voice request failed',true);return;}

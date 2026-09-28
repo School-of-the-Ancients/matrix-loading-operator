@@ -6642,6 +6642,17 @@ class State:
             if staged is not None:
                 staged.unlink(missing_ok=True)
 
+    def register_selected_panorama(self, session_id, concept_id, name):
+        """Register an explicitly selected generated panorama without a world edit."""
+        with self.concepts.lock:
+            concept = self.concepts.selected_panorama(session_id, concept_id)
+            try:
+                entry = self.web_environments.register(concept["imagePath"], name)
+            except WebEnvironmentError as error:
+                raise APIError(422, str(error)) from None
+            self.concepts.record_panorama_registration(session_id, concept_id, entry)
+        return {"status": "registered", **copy.deepcopy(entry)}
+
     def agent_environment_action(self, value):
         """Queue one typed world-environment action on the current Matrix world."""
         require(type(value) is dict and value.get("action") in ("get", "set", "remove"),
@@ -7945,6 +7956,8 @@ class Handler(BaseHTTPRequestHandler):
                 session_id = query["sessionId"][0]
                 self.server.state.agent_portal_status(session_id)
                 data = self.server.state.concepts.status(session_id)
+            elif re.fullmatch(r"/api/agent/environments/actions/[0-9a-f]{32}", path):
+                data = self.server.state.agent_environment_status(path.rsplit("/", 1)[1])
             elif re.fullmatch(r"/api/agent/concepts/[0-9a-f]{32}/preview", path):
                 concept_id = path.split("/")[4]
                 asset, mime_type = self.server.state.concepts.preview(concept_id)
@@ -8071,34 +8084,45 @@ class Handler(BaseHTTPRequestHandler):
                 data = state.content.post(path, body)
             elif path == "/api/agent/concepts":
                 require({"sessionId", "prompt"} <= set(body) <=
-                        {"sessionId", "prompt", "negativePrompt", "providerId"},
+                        {"sessionId", "prompt", "negativePrompt", "providerId", "purpose"},
                         "Invalid concept generation request")
                 state.agent_portal_status(body["sessionId"])
                 data = state.concepts.create(body["sessionId"], body["prompt"],
                                              negative_prompt=body.get("negativePrompt"),
-                                             provider_id=body.get("providerId"))
+                                             provider_id=body.get("providerId"),
+                                             purpose=body.get("purpose", "concept"))
             elif path == "/api/agent/concepts/variation":
                 require({"sessionId", "sourceConceptId"} <= set(body) <=
                         {"sessionId", "sourceConceptId", "prompt", "negativePrompt",
-                         "providerId"},
+                         "providerId", "purpose"},
                         "Invalid concept variation request")
                 state.agent_portal_status(body["sessionId"])
                 data = state.concepts.create(body["sessionId"], body.get("prompt"),
                                              source_concept_id=body["sourceConceptId"],
                                              negative_prompt=body.get("negativePrompt"),
-                                             provider_id=body.get("providerId"))
+                                             provider_id=body.get("providerId"),
+                                             purpose=body.get("purpose", "concept"))
             elif path == "/api/agent/concepts/select":
                 require({"sessionId", "conceptId"} <= set(body) <=
-                        {"sessionId", "conceptId", "designNotes"},
+                        {"sessionId", "conceptId", "designNotes", "purpose"},
                         "Invalid concept selection request")
                 state.agent_portal_status(body["sessionId"])
                 data = state.concepts.select(body["sessionId"], body["conceptId"],
-                                             body.get("designNotes"))
+                                             body.get("designNotes"),
+                                             purpose=body.get("purpose", "concept"))
+            elif path == "/api/agent/concepts/register-panorama":
+                require(set(body) == {"sessionId", "conceptId", "name"},
+                        "Panorama registration needs a selected version and name")
+                state.agent_portal_status(body["sessionId"])
+                data = state.register_selected_panorama(body["sessionId"],
+                                                        body["conceptId"], body["name"])
             elif path == "/api/agent/concepts/cancel":
                 require(set(body) == {"sessionId", "conceptId"},
                         "Invalid concept cancellation request")
                 state.agent_portal_status(body["sessionId"])
                 data = state.concepts.cancel(body["sessionId"], body["conceptId"])
+            elif path == "/api/agent/environments/action":
+                data = state.agent_environment_action(body)
             elif path == "/api/web/authoring":
                 data = state.web_authoring.submit(body)
             elif path == "/api/web/blender":

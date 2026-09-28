@@ -230,6 +230,39 @@ class MatrixEnvironmentTests(unittest.TestCase):
         self.assertIn(self.a["assetId"], summary)
         self.assertIn("90 degrees", summary)
 
+    def test_authenticated_browser_action_route_exposes_exact_typed_receipt(self):
+        server = Server(("127.0.0.1", 0), self.state, "panorama-test-token")
+        thread = threading.Thread(target=server.serve_forever, daemon=True)
+        thread.start()
+        self.addCleanup(thread.join)
+        self.addCleanup(server.server_close)
+        self.addCleanup(server.shutdown)
+        base = f"http://127.0.0.1:{server.server_port}"
+        body = {"action": "set", "room_id": "web-virtual-room-v1",
+                "scene_revision": self.state.revision,
+                "asset_id": self.a["assetId"], "yaw_degrees": 40}
+        request = urllib.request.Request(base + "/api/agent/environments/action",
+                                         data=json.dumps(body).encode(),
+                                         headers={"Content-Type": "application/json",
+                                                  "Authorization": "Bearer panorama-test-token"})
+        with urllib.request.urlopen(request, timeout=3) as response:
+            queued = json.load(response)
+        self.assertEqual(queued["status"], "queued")
+        target = self.descriptor(self.a, 40)
+        self.exchange(target, queued["requestId"], outcome={
+            "kind": "environment-set", "environment": target,
+            "previousEnvironment": None})
+        status_request = urllib.request.Request(
+            base + "/api/agent/environments/actions/" + queued["requestId"],
+            headers={"Authorization": "Bearer panorama-test-token"})
+        with urllib.request.urlopen(status_request, timeout=3) as response:
+            observed = json.load(response)
+        self.assertEqual(observed["status"], "succeeded")
+        self.assertEqual(observed["requestId"], queued["requestId"])
+        self.assertEqual(observed["environment"], target)
+        self.assertEqual(observed["outcome"]["kind"], "environment-set")
+        self.assertEqual(self.state.latest["scene"]["objects"], [self.object])
+
 
 if __name__ == "__main__":
     unittest.main()
