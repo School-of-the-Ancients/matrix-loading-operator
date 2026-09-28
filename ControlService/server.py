@@ -56,6 +56,7 @@ from procedural_contract import (ProceduralError, GENERATOR_ID, VERSION,
                                  CURVED_BENCH_PARAMETERS,
                                  checked_recipe, checked_generators, available_recipe,
                                  interaction_bounds, new_recipe, revised_recipe)
+from room_plane_collision import overlapping_room_plane
 
 MAX_BODY = 1024 * 1024
 MAX_EXCHANGE_BODY = 3 * 1024 * 1024  # two bounded snapshots plus a base64 JPEG
@@ -4575,6 +4576,19 @@ class State:
                                 result["outcome"], issued["op"], issued, current)
                         else:
                             result.pop("outcome", None)
+                    elif issued["op"] == "spawn" and "roomConstraint" in issued:
+                        if result["ok"]:
+                            outcome = result.get("outcome")
+                            require(type(outcome) is dict and
+                                    set(outcome) == {"kind", "supportAnchorId", "anchorId", "transform"} and
+                                    outcome["kind"] == "room-surface-spawn" and
+                                    outcome["supportAnchorId"] == issued["anchorId"] and
+                                    outcome["anchorId"] == "web-floor",
+                                    "Surface spawn receipt lacks its durable placement")
+                            result["outcome"] = {**outcome,
+                                                 "transform": transform(outcome["transform"])}
+                        else:
+                            result.pop("outcome", None)
                     else:
                         result.pop("outcome", None)
                     del self.pending[result["requestId"]]
@@ -5501,6 +5515,10 @@ class State:
             require(abs(transform["rotation"]["x"]) <= .01 and
                     abs(transform["rotation"]["z"]) <= .01,
                     "Room-constrained support fit requires an upright object", 409)
+            require(overlapping_room_plane(transform, asset,
+                                           spatial["webFloorPose"],
+                                           current["anchors"], anchor_id) is None,
+                    "Object volume intersects another measured room surface", 409)
             queued = self.queue([{"op": "set_transform", "objectId": object_id,
                                   "transform": transform,
                                   "expectedTransform": copy.deepcopy(item["transform"]),
@@ -5742,6 +5760,9 @@ class State:
                 expected["position"]["y"] -= ((bounds["center"]["y"] -
                                                    bounds["size"]["y"] / 2) *
                                                   pose["scale"]["y"] * factor)
+            require(overlapping_room_plane(expected, asset, anchor["roomPose"],
+                                           current["anchors"], anchor_id) is None,
+                    "Object volume intersects another measured room surface", 409)
             queued = self.queue([{"op": "spawn", "assetId": asset_id,
                                   "anchorId": anchor_id, "transform": pose,
                                   "placement": "surface",
@@ -5750,7 +5771,10 @@ class State:
             request_id = queued["requestId"]
             self.agent_spawn_ids[request_id] = {
                 "roomId": room_id, "assetId": asset_id, "anchorId": anchor_id,
-                "transform": expected, "requestSceneRevision": revision,
+                "transform": expected, "durableSurface": True,
+                "clientId": self.client_id,
+                "runtimeGeneration": self.runtime_generation,
+                "requestSceneRevision": revision,
                 "issuedAt": time.time(),
                 "existingObjectIds": {item["objectId"] for item in
                                       current["scene"]["objects"]}}
@@ -5768,6 +5792,9 @@ class State:
             receipt = next((item for item in reversed(self.results) if item["requestId"] == request_id), None)
             result = {"requestId": request_id, "roomId": issued["roomId"],
                       "assetId": issued["assetId"], "sceneRevision": self.revision}
+            if issued.get("durableSurface"):
+                result["supportAnchorId"] = issued["anchorId"]
+                result["anchorId"] = "web-floor"
             if receipt is None:
                 result["status"] = "queued" if request_id in self.pending else "unconfirmed"
             elif not receipt["ok"]:
@@ -5776,16 +5803,40 @@ class State:
                     result["error"] = receipt["error"][:200]
             else:
                 object_id = receipt.get("objectId")
-                observed = (self.latest and self.latest["scene"]["roomId"] == issued["roomId"] and
+                durable = issued.get("durableSurface", False)
+                outcome = receipt.get("outcome")
+                surface_outcome = (durable and type(outcome) is dict and
+                                   set(outcome) == {"kind", "supportAnchorId", "anchorId", "transform"} and
+                                   outcome["kind"] == "room-surface-spawn" and
+                                   outcome["supportAnchorId"] == issued["anchorId"] and
+                                   outcome["anchorId"] == "web-floor")
+                same_runtime = (self.client_id == issued.get("clientId") and
+                                self.runtime_generation == issued.get("runtimeGeneration"))
+                current_room = self.latest["scene"]["roomId"] if self.latest else None
+                carried_to_desktop = (durable and same_runtime and
+                                      issued["roomId"].startswith("webxr-session-") and
+                                      current_room == "web-virtual-room-v1" and
+                                      (self.latest.get("runtimeDescriptor") or {}).get("client") == "matrix-web" and
+                                      (self.latest.get("runtimeDescriptor") or {}).get("presentation") == "desktop")
+                room_observed = ((current_room == issued["roomId"] and
+                                  (not durable or same_runtime)) or carried_to_desktop)
+                expected_anchor = "web-floor" if durable else issued.get("anchorId", "web-floor")
+                expected_transform = outcome["transform"] if surface_outcome else issued["transform"]
+                observed = (self.latest and room_observed and
+                            (not durable or surface_outcome) and
                             isinstance(object_id, str) and
                             object_id not in issued.get("existingObjectIds", ()) and
                             next((item for item in self.latest["scene"]["objects"]
                             if item["objectId"] == object_id and item["assetId"] == issued["assetId"] and
-                             item["anchorId"] == issued.get("anchorId", "web-floor") and
-                             item["transform"] == issued["transform"]), None))
+                             item["anchorId"] == expected_anchor and
+                             item["transform"] == expected_transform), None))
                 result["status"] = "succeeded" if observed else "unconfirmed"
                 if observed:
                     result["objectId"] = object_id
+                    if durable:
+                        result["transform"] = copy.deepcopy(expected_transform)
+                        if carried_to_desktop:
+                            result["observedRoomId"] = current_room
             return result
 
     def agent_list_procedural_generators(self):

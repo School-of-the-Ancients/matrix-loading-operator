@@ -102,11 +102,54 @@ and camera pixels out of this record.
 | PC checkpoint and desktop reopen | Saved `quest149-lantern-garden-eleven-objects`, then reloaded the page and explicitly restored it through the PC checkpoint picker; UI reported 11 objects. Comparing checkpoint payloads found all six original IDs and transforms unchanged and exactly five new IDs. Saved checkpoint SHA-256: `C8E2D4BB4631C9AFC20E4BC14045E5C40FE09646E7BE28C154255C3BAB88FA84`. |
 | Combined #150 + #149 desktop staging | `http://127.0.0.1:18970/web/` was restarted from `dcdfef7` with separate private review state. A desktop tab had restored `quest150-codex-moonlit-forest-garden-v1` and observed the eleven-object garden and expected generated panorama; the tab was closed before Quest review. |
 | Quest 18970 AR attempt | Service observed the eleven-object world, AR ready/aligned, 38 measured planes, and a selected existing orb. The wearer reported an error and “PC review needed.” The Agent's two guarded moves returned 409 before a request ID; no Agent move receipt or pending edit exists. A separate PC command request was denied because its effect could not be reviewed in XR. The Agent turn was stopped. The orb had an X/Z tilt, which violates the support-fit guard; same-revision room reads also produced different global tokens while the chosen support stayed stable. The bridge hid the exact 409 reason, so neither guard can be identified as the first rejection. |
-| Guarded-move repair | The private bridge now preserves concise 409 reasons; the Agent is told to upright a tilted object explicitly and use the chosen plane's support-specific spatial token. A targeted fresh read and corresponding queue checks keep that support in a bounded context even when many floor planes precede it. The server still checks room identity, revision, alignment, target support and origin, while the browser still checks final footprint and tracking epoch. Targeted tests and the full ControlService suite (879/879) passed; exact-head Quest retest is pending. |
-| Quest VR save/reopen composition | Pending explicit wearer confirmation on the combined guarded-move build; desktop restore and earlier 18968/18969 wearer observations do not establish this exact build's VR result. |
-| Quest AR measured move and alignment | Alignment was observed on 18970; succeeded receipt, same ID, wearer-confirmed fit, stale-token rejection and save/reopen are pending on the repaired build. |
+| Guarded-move repair | The private bridge preserves concise 409 reasons; the Agent is told to upright a tilted object explicitly and use the chosen plane's support-specific spatial token. A targeted fresh read and corresponding queue checks keep that support in a bounded context even when many floor planes precede it. Targeted tests and the full ControlService suite (879/879) passed. The repaired source at `c41de1f` has now produced succeeded same-ID measured moves on Quest, detailed below. |
+| Quest VR save/reopen composition | The 18973 Quest service restored the named eleven-object PC checkpoint before entering AR, and a live ID comparison found all eleven checkpoint IDs plus the same panorama asset. An explicit exact-build wearer VR visual report and save/reopen check remain pending. |
+| Quest AR measured move and alignment | On 18973, the wearer explicitly archived and placed the PC-restored world at a new physical origin, then confirmed aligned outlines. The service observed 38 planes, ready/aligned room context, and succeeded same-ID moves. The wearer said the first orb placement works. Stale-token rejection, final layout assessment, and save/reopen remain pending. |
 
 Automated and desktop checks are not Quest wearer evidence.
+
+## Repaired Quest 18973 live review
+
+The isolated service at `http://127.0.0.1:18973/web/` serves source
+`c41de1f` on Quest 3 Browser `152.0.0.44.30.1069357998` (Android 14,
+build `UP1A.231005.007.A1`). It restored the PC checkpoint
+`quest150-codex-moonlit-forest-garden-v1`, payload SHA-256
+`2f0c9c0ec40868a4c867312877b2c8932d3c47f290b7318241c6c34db6b039fd`.
+Comparing checkpoint and live scene IDs found the same eleven objects and
+panorama asset. The source checkpoint has no AR origin binding. Entering AR
+correctly hid its old world and reported an unavailable origin rather than
+claiming a physical fit. The wearer selected **Archive and place world here**
+and confirmed the local recovery archive, preserving all eleven objects; the
+new room reached ready/aligned with 38 WebXR planes. This placement step must
+be included in future PC-checkpoint review instructions.
+
+The selected existing orb `0a12383fe11d485984362445458f27c5` began with
+an X/Z tilt. Agent reviewed a measured-support move and explicitly made the
+orb upright. Succeeded Matrix receipts `a198b1accad446c39f3377a763abbd2b`
+and `05d9052eb7b941c7aa5b5730149d94fb` moved that same ID to its final
+support-fit position; the wearer reported **“it works.”** The live scene still
+had eleven objects and the original panorama. This is wearer evidence for one
+measured placement, without recording private surface geometry.
+
+For the wearer's room-aware reorganization request, an initial Agent turn was
+cancelled before any new world edit so the wearer could add a design clause.
+The revised turn used fresh aligned AR context. Reviewed, succeeded guarded
+receipts moved the other orb `b495e5e4ae2f46d3a6048e1b813bc488` onto a
+measured TABLE (`88d3acb7c6ac414eaee60d4e2fbb0452`) and the two existing
+pedestals `7df21d354bdc458cacea85cf40b5cc11` and
+`aa0d3620632a46328fe81358c74c42af` onto a measured FLOOR
+(`2a4f77db6f1a47cbaecfea7171b26e1` and
+`8e1cc4e1b1d543caa1e6fd5988c9a1a0`). Each retained its object ID;
+the scene stayed at eleven objects. The Agent also proposed moving the curved
+bench, but the room-move tool rejected it before a request ID because this
+procedural asset has no measured bounds; the bench remained at its original
+transform. The wearer has not yet assessed the complete composition.
+
+Still required on this live build: verify stale room context rejects without
+an edit; exit AR, save, reopen, and compare IDs, transforms, panorama and
+physical-alignment status; obtain the wearer's VR composition and final AR
+layout observations. No Quest save/reopen or stale-context result is inferred
+from the successful move receipts.
 
 ## Rebase integration review
 
