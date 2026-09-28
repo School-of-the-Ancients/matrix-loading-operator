@@ -1333,6 +1333,10 @@ $('mode').addEventListener('change',()=>{modeTouched=true;discardProposal();});
 for(const action of ['enter-play','enter-creator','stop-play','resume-play'])
   $(action).addEventListener('click',()=>changeCreatorMode(action));
 $('refresh-assets').addEventListener('click',()=>refreshAssets());
-$('token').addEventListener('change',()=>refreshAssets());
+$('token').addEventListener('change',()=>{
+  refreshAssets();
+  refreshScenes();
+  refreshPCWorlds();
+});
 refreshScenes();
 refreshPCWorlds();

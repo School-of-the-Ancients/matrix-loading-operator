@@ -952,6 +952,12 @@ export class MatrixWorld {
         throw Error('Room tracking is stale; editing is paused until the room is recovered');
       if(this.spatial&&['set_environment','remove_environment'].includes(op))
         throw Error('Leave AR to edit the panorama; passthrough remains visible in AR');
+      if(this.spatial&&['load','undo','redo'].includes(op)){
+        const target=op==='load'?command.scene:
+          op==='undo'?this.undo.at(-1)?.scene:this.redo.at(-1)?.scene;
+        if(target&&!sameEnvironment(target.environment??null,this.scene.environment??null))
+          throw Error('Leave AR to edit the panorama; passthrough remains visible in AR');
+      }
       if(['get_environment','set_environment','remove_environment'].includes(op)&&
          command.roomId!==this.scene.roomId)
         throw Error('Environment room changed since command was queued');
@@ -1619,7 +1625,8 @@ export class MatrixWorld {
         case 'clear':
           if(this.game)throw Error('Clear would discard an active game; migrate or reset it explicitly');
           rigidMutationStarted=true;
-          this.scene.objects=[]; delete this.scene.environment;
+          this.scene.objects=[];
+          if(!this.spatial)delete this.scene.environment;
           this.selection.objectId='';
           this.physicsBodies.clear();this.physicsVerification.clear();
           this.renderedVerification.clear();this.controlStates=Object.create(null);break;

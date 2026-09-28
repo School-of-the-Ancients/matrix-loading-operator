@@ -168,6 +168,47 @@ test('AR hides the panorama without changing its saved descriptor or VR yaw',()=
   texture.dispose();
 });
 
+test('AR clear preserves the hidden panorama through save and desktop return',()=>{
+  const world=new MatrixWorld();world.registerEnvironmentAssets([asset()]);
+  const current=environment(asset(),90);
+  assert.equal(world.execute(command('set-before-ar','set_environment',
+    {expectedEnvironment:null,environment:current})).ok,true);
+  assert.equal(world.execute({requestId:'spawn-before-ar',op:'spawn',assetId:'block',
+    anchorId:'web-floor',transform:{position:{x:0,y:0,z:-2},
+      rotation:{x:0,y:0,z:0},scale:{x:1,y:1,z:1}}}).ok,true);
+  world.enterAR({visitDigitalWorld:false});
+  const cleared=world.execute({requestId:'clear-in-ar',op:'clear'});
+  assert.equal(cleared.ok,true,cleared.error);
+  assert.equal(world.scene.objects.length,0);
+  assert.deepEqual(world.scene.environment,current);
+  assert.equal(storedBrowserWorld(world).scene.objects.length,0);
+  assert.deepEqual(storedBrowserWorld(world).scene.environment,current);
+  assert.equal(world.execute({requestId:'undo-clear-in-ar',op:'undo'}).ok,true);
+  assert.deepEqual(storedBrowserWorld(world).scene.environment,current);
+  assert.equal(world.execute({requestId:'redo-clear-in-ar',op:'redo'}).ok,true);
+  assert.deepEqual(storedBrowserWorld(world).scene.environment,current);
+  world.leaveAR();
+  assert.deepEqual(world.scene.environment,current);
+  assert.equal(world.execute({requestId:'clear-on-desktop',op:'clear'}).ok,true);
+  assert.equal(world.scene.environment,undefined);
+});
+
+test('AR scene load cannot indirectly change the saved panorama',()=>{
+  const world=new MatrixWorld();world.registerEnvironmentAssets([asset()]);
+  const current=environment(asset(),90);
+  assert.equal(world.execute(command('set-before-load','set_environment',
+    {expectedEnvironment:null,environment:current})).ok,true);
+  world.enterAR({visitDigitalWorld:false});
+  const withoutPanorama=structuredClone(world.scene);
+  delete withoutPanorama.environment;
+  const result=world.execute({requestId:'load-without-panorama-in-ar',op:'load',
+    scene:withoutPanorama});
+  assert.equal(result.ok,false);
+  assert.match(result.error,/Leave AR to edit the panorama/);
+  assert.deepEqual(world.scene.environment,current);
+  assert.deepEqual(storedBrowserWorld(world).scene.environment,current);
+});
+
 test('a mismatched cached panorama reports one render failure during repeated syncs',async()=>{
   const world=new MatrixWorld();world.registerEnvironmentAssets([asset()]);
   world.scene.environment=environment();
