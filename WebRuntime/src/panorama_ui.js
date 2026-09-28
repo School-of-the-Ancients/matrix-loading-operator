@@ -221,7 +221,10 @@ export class PanoramaUI {
     const intent=parsePanoramaIntent(text);
     if(!intent)return null;
     return this._run(async()=>{
-      if(intent.kind==='generate')await this.generate(intent.prompt);
+      if(intent.kind==='describe'){
+        this.notice='Describe the scene for the panorama, for example: “Create a panorama of a moonlit forest with distant mountains.”';
+        this.noticeError=false;this.render();this.onChange();
+      }else if(intent.kind==='generate')await this.generate(intent.prompt);
       else if(intent.kind==='generateMany')
         await this.generateMany(intent.prompt,intent.count,intent.requestedVersion);
       else if(intent.kind==='vary')await this.vary(intent.prompt||this.els.prompt.value);

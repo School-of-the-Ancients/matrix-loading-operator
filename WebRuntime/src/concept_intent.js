@@ -3,11 +3,18 @@
 const clean=text=>String(text||'').trim()
   .replace(/^(?:please\s+)?(?:hey\s+)?operator[,;:\s]+/i,'')
   .replace(/^please\s+/i,'').trim();
+const cleanPanorama=text=>clean(clean(text)
+  .replace(/^(?:hey\s+)?codex[,;:\s]+/i,'')
+  .replace(/^(?:can|could|would) you\s+(?:please\s+)?/i,''));
 
 // Panorama creation is separate from #91 concept art. A selected panorama
 // version never becomes the selected 3D-build concept by accident.
 export function parsePanoramaIntent(text){
-  const request=clean(text);
+  const utterance=cleanPanorama(text).replace(/\?\s*$/,'').trim();
+  // "in VR" describes the viewing mode only when a panorama is explicitly
+  // named. It does not turn a general 3D world request into image generation.
+  const request=/\b(?:panorama|skybox|background scene)\b/i.test(utterance)?
+    utterance.replace(/\s+in\s+(?:VR|virtual reality)\s*\.?$/i,'').trim():utterance;
   if(!request)return null;
   const many=request.match(/^(?:create|generate|make)\s+(two|three|2|3)\s+(.+?)\s+panoramas?(?:\s+and\s+(?:use|apply|select)\s+version\s+(\d{1,3}))?\s*\.?$/i);
   if(many)return {kind:'generateMany',count:/^(two|2)$/i.test(many[1])?2:3,
@@ -24,6 +31,12 @@ export function parsePanoramaIntent(text){
   if(variation)return generation({kind:'vary',prompt:variation[1]?.trim()||''});
   const create=draft.match(/^(?:create|generate|make|show|draw)\s+(?:me\s+)?(?:an?\s+)?(?:360(?:\s*-?\s*degree)?\s+)?(?:panorama|skybox|background(?:\s+scene)?)(?:\s+(?:of|for|showing|depicting|with)\s+(.+))$/i);
   if(create)return generation({kind:'generate',prompt:create[1].trim()});
+  if(/^(?:create|generate|make|show|draw)\s+(?:me\s+)?(?:an?\s+)?(?:360(?:\s*-?\s*degree)?\s+)?(?:panorama|skybox|background(?:\s+scene)?)\s*\.?$/i.test(draft))
+    return {kind:'describe'};
+  // A scene adjective may precede "panorama" in a spoken request. Keep the
+  // final noun mandatory so ordinary world and object creation reaches Agent.
+  const described=draft.match(/^(?:create|generate|make|show|draw)\s+(?:me\s+)?(?:an?\s+)?(.+?)\s+(?:360(?:\s*-?\s*degree)?\s+)?(?:panorama|skybox|background(?:\s+scene)?)\s*\.?$/i);
+  if(described)return generation({kind:'generate',prompt:described[1].trim()});
   const change=draft.match(/^(?:change|set|make)\s+(?:the\s+)?(?:sky|world\s+background|background)\s+(?:to|into)\s+(?:an?\s+)?(.+?)\s+panorama\s*\.?$/i);
   if(change)return generation({kind:'generate',prompt:change[1].trim()});
   return null;
