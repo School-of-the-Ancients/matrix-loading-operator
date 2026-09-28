@@ -1,7 +1,7 @@
 import * as THREE from 'three';
 import {GLTFLoader} from 'three/addons/loaders/GLTFLoader.js';
 import {XRSessionController} from './xr_session.js';
-import {beginGrab,moveGrab,finishGrab,beginPointerGrab,movePointerGrab,movePointerGrabVertical,finishPointerGrab,moveDesktopCamera} from './grab.js';
+import {beginGrab,moveGrab,moveGrabThumbstick,rotateGrabThumbstick,sampleHeldMotion,heldReleaseMotion,finishGrab,beginPointerGrab,movePointerGrab,movePointerGrabVertical,finishPointerGrab,moveDesktopCamera} from './grab.js';
 import {viewerPose,planeData,insideBoundary,matchPlaneAnchor,samePlaneShape,measuredFloorHeight} from './spatial.js';
 import {ROOM_ANCHOR_KEY,hasWorldToProtect} from './room_origin.js';
 import {componentFrame} from './components.js';
@@ -10,6 +10,7 @@ import {generateProcedural} from './procedural.js';
 import {canPlayWorld} from './creator_mode.js';
 import {gameStatus,isGameExitUnlocked} from './game.js';
 import {displayHeadline,displayObservation,validDisplay} from './display.js';
+import {MAX_RIGID_RELEASE_LINEAR_SPEED,MAX_RIGID_RELEASE_ANGULAR_SPEED} from './physics_rigid.js';
 
 const wood=()=>new THREE.MeshStandardMaterial({color:0xa56f45,roughness:.78});
 const metal=()=>new THREE.MeshStandardMaterial({color:0x738995,roughness:.45,metalness:.45});
@@ -386,12 +387,16 @@ export class MatrixView {
       const ray=new THREE.Line(new THREE.BufferGeometry().setFromPoints([new THREE.Vector3(),new THREE.Vector3(0,0,-4)]),
         new THREE.LineBasicMaterial({color:0x5ef7d7,transparent:true,opacity:.7}));
       ray.visible=false;controller.add(ray);this.controllerRays.push(ray);
-      controller.addEventListener('selectstart',()=>{if(this.readOnly)return;this.lastPointingController=controller;this.selectFromController(controller);});
+      controller.addEventListener('connected',event=>{controller.userData.inputSource=event.data;});
+      controller.addEventListener('selectstart',event=>{if(this.readOnly)return;controller.userData.inputSource=event.data;
+        this.lastPointingController=controller;this.selectFromController(controller,event.data);});
       controller.addEventListener('selectend',()=>{this.releaseOperatorVoice(controller);this.releaseGrab(controller);});
+      controller.addEventListener('disconnected',event=>{if(controller.userData.inputSource===event.data)
+        delete controller.userData.inputSource;this.cancelGrab(controller,event.data);});
       controller.addEventListener('squeezestart',()=>{if(this.readOnly)return;this.lastPointingController=controller;this.onVoiceStart();});
       controller.addEventListener('squeezeend',()=>{if(!this.readOnly)this.onVoiceEnd();});
     }
-    this.grab=null;this.pointerGrab=null;this.pointerLook=null;
+    this.grab=null;this.pointerGrab=null;this.pointerLook=null;this.heldOutline=null;
     this.renderer.xr.addEventListener('sessionstart',()=>this.onSessionStart());
     this.renderer.xr.addEventListener('sessionend',()=>this.onSessionEnd());
     this.renderer.domElement.addEventListener('pointerdown',e=>this.pointerDown(e));
@@ -649,7 +654,8 @@ export class MatrixView {
     this.operatorPanel.group.visible=false;this.operatorMount={kind:'head'};
     this.operatorThumbstickHeld=false;
     this.operatorPanel.setPinLabel('PIN TO WALL');this.operatorPanel.setOriginLabel('ROOM ORIGIN UNKNOWN');
-    if(this.grab)this.releaseGrab(this.grab.controller);
+    if(this.grab)this.cancelGrab(this.grab.controller,this.grab.inputSource,
+      'XR session ended; the held edit was cancelled.');
     for(const ray of this.controllerRays)ray.visible=false;
     this.hitSource?.cancel();this.hitSource=null;this.reticle.visible=false;this.reticleVisible=false;this.reticleAnchorId='';
     this.xrViewer=null;this.xrViewerCapturedAt=0;this.planeIds=new WeakMap();this.nextPlaneId=0;this.clearPlanes();this.isAR=false;
@@ -737,7 +743,7 @@ export class MatrixView {
     const sources=this.renderer.xr.getSession()?.inputSources||[];
     // The xr-standard mapping reserves button 3 for the thumbstick click.
     const pressed=Array.from(sources).some(source=>source.gamepad?.mapping==='xr-standard'&&source.gamepad.buttons?.[3]?.pressed);
-    if(pressed&&!this.operatorThumbstickHeld)this.toggleOperatorPanel();
+    if(pressed&&!this.operatorThumbstickHeld&&!this.grab)this.toggleOperatorPanel();
     this.operatorThumbstickHeld=pressed;
   }
   clearPlanes(){for(const group of this.planeOutlines.values()){this.scene.remove(group);disposeGroup(group);}this.planeOutlines.clear();}
@@ -803,7 +809,7 @@ export class MatrixView {
     if(this.pointerGrab?.rigid)this.world.releaseRigidGrab?.(this.pointerGrab.objectId);
     if(this.grab)this.world.resumePhysics?.(this.grab.objectId);
     if(this.pointerGrab)this.world.resumePhysics?.(this.pointerGrab.objectId);
-    this.grab=null;this.pointerGrab=null;
+    this.grab=null;this.pointerGrab=null;this.setGrabFeedback(null);
     const currentObjects=new Map(this.world.scene.objects.map(object=>
       [object.objectId,object]));
     const retainedProcedural=new Map();
@@ -1047,16 +1053,23 @@ export class MatrixView {
   moveHeldRigid(grab){
     if(!grab?.rigid)return;
     try{this.world.moveRigidGrab(grab.objectId,this.heldTransform(grab.root,
-      this.world.requireObject(grab.objectId)));}
+      this.world.requireObject(grab.objectId)));
+      if(grab===this.grab&&grab.inputSource&&this.renderer?.xr?.isPresenting)
+        sampleHeldMotion(grab,performance.now());}
     catch(error){this.world.releaseRigidGrab?.(grab.objectId);this.onAssetError(error.message);
-      if(this.grab===grab)this.grab=null;
+      if(this.grab===grab){this.grab=null;this.setGrabFeedback(null);}
       if(this.pointerGrab===grab)this.pointerGrab=null;}
   }
   finishPlayGrab(grab,transform){
     if(!grab.rigid)return false;
     try{
       if(transform)this.world.moveRigidGrab(grab.objectId,transform);
-      const released=this.world.releaseRigidGrab(grab.objectId);
+      const motion=grab.inputSource&&this.renderer?.xr?.isPresenting&&
+        grab.motionEpoch===this.roomTrackingEpoch&&
+        grab.controller?.visible!==false?
+        heldReleaseMotion(grab,performance.now(),MAX_RIGID_RELEASE_LINEAR_SPEED,
+          MAX_RIGID_RELEASE_ANGULAR_SPEED):null;
+      const released=this.world.releaseRigidGrab(grab.objectId,motion??undefined);
       if(released)this.onPlayInteraction({kind:'release',objectId:grab.objectId,
         position:released.position||grab.root.position});
       return true;
@@ -1135,7 +1148,82 @@ export class MatrixView {
       else this.world.resumePhysics?.(this.pointerGrab.objectId);
       this.pointerGrab=null;this.sync();}
   }
-  selectFromController(controller){
+  setGrabFeedback(grab){
+    if(this.heldOutline){this.heldOutline.parent?.remove(this.heldOutline);
+      disposeGroup(this.heldOutline);this.heldOutline=null;}
+    if(!grab||!this.scene)return;
+    grab.root.updateMatrixWorld(true);
+    const bounds=new THREE.Box3().setFromObject(grab.root);
+    if(!bounds.isEmpty()){
+      const corners=[];
+      for(const x of [bounds.min.x,bounds.max.x])for(const y of [bounds.min.y,bounds.max.y])
+        for(const z of [bounds.min.z,bounds.max.z])corners.push(grab.root.worldToLocal(new THREE.Vector3(x,y,z)));
+      const local=new THREE.Box3().setFromPoints(corners),size=local.getSize(new THREE.Vector3());
+      const box=new THREE.BoxGeometry(Math.max(size.x,.04),Math.max(size.y,.04),Math.max(size.z,.04));
+      this.heldOutline=new THREE.LineSegments(new THREE.EdgesGeometry(box),
+        new THREE.LineBasicMaterial({color:0xffd166,depthTest:false}));
+      box.dispose();this.heldOutline.position.copy(local.getCenter(new THREE.Vector3()));
+      this.heldOutline.renderOrder=101;grab.root.add(this.heldOutline);
+    }
+  }
+  updateGrabThumbstick(frame,delta){
+    const grab=this.grab,session=this.renderer.xr.getSession?.();
+    if(!grab||!frame||!this.renderer.xr.isPresenting||!session||this.readOnly||
+       this.world.digitalWorldVisit||this.world.spatial?.stale||this.world.spatial?.originUnavailable||
+       !grab.controller.visible||this.objectRoots.get(grab.objectId)!==grab.root||
+       !grab.inputSource||!Array.from(session.inputSources||[]).includes(grab.inputSource)||
+       !this.hasFreshXrViewer())return false;
+    const gamepad=grab.inputSource.gamepad;
+    if(gamepad?.mapping!=='xr-standard')return false;
+    return moveGrabThumbstick(grab,gamepad.axes,gamepad.buttons?.[3]?.pressed===true,
+      this.xrViewer.direction,delta);
+  }
+  updateGrabRotationThumbstick(frame,delta){
+    const grab=this.grab,session=this.renderer.xr.getSession?.();
+    if(!grab||!frame||!this.renderer.xr.isPresenting||!session||this.readOnly||
+       this.world.digitalWorldVisit||this.world.spatial?.stale||this.world.spatial?.originUnavailable||
+       !grab.controller.visible||this.objectRoots.get(grab.objectId)!==grab.root||
+       !grab.inputSource||!Array.from(session.inputSources||[]).includes(grab.inputSource)||
+       !this.hasFreshXrViewer())return false;
+    const hand=grab.inputSource.handedness;
+    if(hand!=='left'&&hand!=='right')return false;
+    const otherHand=hand==='left'?'right':'left';
+    const sources=Array.from(session.inputSources||[]).filter(source=>
+      source!==grab.inputSource&&source.handedness===otherHand&&
+      source.gamepad?.mapping==='xr-standard');
+    if(sources.length!==1)return false;
+    const source=sources[0];
+    const controller=this.controllers?.find(item=>item!==grab.controller&&
+      item.userData?.inputSource===source&&item.visible!==false);
+    if(!controller)return false;
+    return rotateGrabThumbstick(grab,source.gamepad.axes,this.xrViewer.direction,delta);
+  }
+  updateHeldGrab(frame,delta){
+    if(!this.grab)return;
+    if(this.grab.rigid&&this.grab.motionEpoch!==this.roomTrackingEpoch){
+      this.grab.motionSamples=[];this.grab.motionEpoch=this.roomTrackingEpoch;
+    }
+    const session=this.renderer.xr.getSession?.(),presenting=this.renderer.xr.isPresenting;
+    if(presenting&&this.grab.inputSource&&session&&
+       !Array.from(session.inputSources||[]).includes(this.grab.inputSource)){
+      this.cancelGrab(this.grab.controller,this.grab.inputSource);return;
+    }
+    const tracked=this.grab.controller.visible!==false&&(!presenting||
+      !!frame&&!!session&&this.hasFreshXrViewer()&&(!this.grab.inputSource||
+        Array.from(session.inputSources||[]).includes(this.grab.inputSource)));
+    const roomReady=!this.world.digitalWorldVisit&&!this.world.spatial?.stale&&
+      !this.world.spatial?.originUnavailable;
+    const modeReady=this.grab.rigid?this.isPlayMode()&&canPlayWorld(this.world.creatorMode):
+      !this.isPlayMode();
+    if(!tracked||!roomReady||!modeReady||this.readOnly){
+      if(this.grab.rigid)this.grab.motionSamples=[];
+      return;
+    }
+    this.updateGrabThumbstick(frame,delta);
+    this.updateGrabRotationThumbstick(frame,delta);
+    if(moveGrab(this.grab))this.moveHeldRigid(this.grab);
+  }
+  selectFromController(controller,inputSource=null){
     if(this.readOnly)return;
     if(this.grab)return;
     controller.updateMatrixWorld(true);const origin=new THREE.Vector3().setFromMatrixPosition(controller.matrixWorld);
@@ -1180,13 +1268,25 @@ export class MatrixView {
       if(rigid&&!this.world.beginRigidGrab?.(id)){
         this.onAssetError('This dynamic body is unavailable to grab.');return;
       }
-      this.grab={...beginGrab(controller,this.objectRoots.get(id)),objectId:id,rigid};
+      this.grab={...beginGrab(controller,this.objectRoots.get(id)),objectId:id,rigid,inputSource,
+        motionEpoch:this.roomTrackingEpoch};
+      if(rigid&&inputSource&&this.renderer?.xr?.isPresenting)
+        sampleHeldMotion(this.grab,performance.now());
+      this.setGrabFeedback(this.grab);
       if(!rigid)this.world.pausePhysics?.(id);
     }
   }
   releaseGrab(controller){
     if(!this.grab||this.grab.controller!==controller)return;
-    const grab=this.grab;this.grab=null;
+    if(this.renderer?.xr?.getSession?.())this.updateOperatorShortcut();
+    const grab=this.grab;this.grab=null;this.setGrabFeedback(null);
+    if(this.readOnly||this.world.spatial?.stale||this.world.spatial?.originUnavailable||
+       this.renderer?.xr?.isPresenting&&!this.hasFreshXrViewer()||
+       this.world.digitalWorldVisit||grab.rigid&&!canPlayWorld(this.world.creatorMode)){
+      if(grab.rigid)this.world.releaseRigidGrab?.(grab.objectId);
+      else this.world.resumePhysics?.(grab.objectId);
+      this.sync();this.onAssetError('Grab ended because editing or room tracking is unavailable.');return;
+    }
     if(this.objectRoots.get(grab.objectId)!==grab.root){
       if(grab.rigid)this.world.releaseRigidGrab?.(grab.objectId);
       else this.world.resumePhysics?.(grab.objectId);return;}
@@ -1195,6 +1295,16 @@ export class MatrixView {
     if(grab.rigid){this.finishPlayGrab(grab,transform);return;}
     if(!transform){this.world.resumePhysics?.(grab.objectId);return;}
     this.commitMove(grab.objectId,transform);
+  }
+  cancelGrab(controller,inputSource,message='Controller disconnected; the held edit was cancelled.'){
+    const grab=this.grab;
+    if(!grab||grab.controller!==controller||grab.inputSource!==inputSource)return;
+    if(this.renderer?.xr?.getSession?.())this.updateOperatorShortcut();
+    this.grab=null;this.setGrabFeedback(null);
+    if(grab.rigid)this.world.releaseRigidGrab?.(grab.objectId);
+    else this.world.resumePhysics?.(grab.objectId);
+    this.sync();
+    this.onAssetError(message);
   }
   releaseOperatorVoice(controller){
     if(this.operatorVoiceController!==controller)return;
@@ -1427,7 +1537,7 @@ export class MatrixView {
         for(const anchor of this.world.spatial?.anchors||[]){if(anchor.surface.kind!=='support')continue;const root=this.planeOutlines.get(anchor.anchorId);if(!root)continue;
           const local=root.worldToLocal(this.reticle.position.clone());if(Math.abs(local.y)<.12&&insideBoundary(local,anchor.surface.boundary)){this.reticleAnchorId=anchor.anchorId;break;}}
       }}
-    if(this.grab){moveGrab(this.grab);this.moveHeldRigid(this.grab);}
+    this.updateHeldGrab(frame,delta);
     if(this.renderer.xr.isPresenting)for(let index=0;index<this.controllers.length;index++)
       updateControllerRayForPanel(this.controllerRays[index],this.controllers[index],this.operatorPanel);
     for(const root of this.objectRoots.values()){

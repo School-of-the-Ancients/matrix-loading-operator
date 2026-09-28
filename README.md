@@ -45,6 +45,7 @@ The original Unity Matrix/White Room implementation is preserved in [Archive/Uni
 - [ROADMAP.md](ROADMAP.md) — Now / Next / Later.
 - [RESOURCES.md](RESOURCES.md) — references for creation and AI citizens.
 - [AGENTS.md](AGENTS.md) — rules for coding agents.
+- [WebRuntime/README.md](WebRuntime/README.md#quest-controls-faq) — Quest controls and Operator screen FAQ.
 - [#122 Immersive Creator Mode](https://github.com/School-of-the-Ancients/matrix-loading-operator/issues/122) — current implementation focus.
 
 Detailed technical runbooks and evidence live under `Docs/` and `Validation/`.

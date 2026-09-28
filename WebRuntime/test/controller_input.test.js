@@ -2,6 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import * as THREE from 'three';
 import {MatrixView,updateControllerRayForPanel} from '../src/view.js';
+import {moveGrab,sampleHeldMotion} from '../src/grab.js';
 
 function controllerAndPanel(){
   const scene=new THREE.Scene();
@@ -59,6 +60,23 @@ test('thumbstick click recalls a pinned Operator, then hides and shows it once p
   assert.equal(positioned,2);
 });
 
+test('a stick click during a grab cannot recall the Operator panel',()=>{
+  const view=Object.create(MatrixView.prototype);
+  const buttons=Array.from({length:4},()=>({pressed:false}));
+  const source={gamepad:{mapping:'xr-standard',axes:[0,0,0,-1],buttons}};
+  view.renderer={xr:{getSession:()=>({inputSources:[source]}),isPresenting:true}};
+  view.operatorPanel={group:{visible:false}};view.operatorMount={kind:'head'};
+  view.operatorThumbstickHeld=false;view.grab={inputSource:source};view.isAR=false;
+  let recalled=0;view.toggleOperatorPanel=()=>recalled++;
+  buttons[3].pressed=true;view.updateOperatorShortcut();
+  assert.equal(recalled,0);
+  view.grab=null;view.updateOperatorShortcut();
+  assert.equal(recalled,0,'release while click remains held must not open the panel');
+  buttons[3].pressed=false;view.updateOperatorShortcut();
+  buttons[3].pressed=true;view.updateOperatorShortcut();
+  assert.equal(recalled,1,'a fresh click outside grab still recalls the panel');
+});
+
 test('unsupported XR inputs do not accidentally toggle the Operator',()=>{
   const view=Object.create(MatrixView.prototype);
   const pressed={pressed:true};
@@ -103,6 +121,31 @@ function selectableFirefly(){
   return {view,controller,root,glowCount:()=>glowCount};
 }
 
+test('a stick click between frames cannot recall the panel after grab release or cancellation',()=>{
+  const {view,controller}=selectableFirefly();
+  const buttons=Array.from({length:4},()=>({pressed:false}));
+  const source={gamepad:{mapping:'xr-standard',axes:[0,0,0,0],buttons}};
+  view.renderer={xr:{isPresenting:true,getSession:()=>({inputSources:[source]})}};
+  view.hasFreshXrViewer=()=>true;
+  view.operatorThumbstickHeld=false;
+  view.sync=()=>{};
+  let recalled=0;view.toggleOperatorPanel=()=>recalled++;
+  view.selectFromController(controller,source);
+  buttons[3].pressed=true;
+  view.releaseGrab(controller);
+  view.updateOperatorShortcut();
+  assert.equal(recalled,0,'release must capture a click before the next XR frame');
+  buttons[3].pressed=false;view.updateOperatorShortcut();
+  view.selectFromController(controller,source);
+  buttons[3].pressed=true;
+  view.cancelGrab(controller,source);
+  view.updateOperatorShortcut();
+  assert.equal(recalled,0,'cancellation must capture a click before the next XR frame');
+  buttons[3].pressed=false;view.updateOperatorShortcut();
+  buttons[3].pressed=true;view.updateOperatorShortcut();
+  assert.equal(recalled,1,'a new click outside a grab still recalls the panel');
+});
+
 test('XR select animates a Firefly and starts a grab on the same press',()=>{
   const {view,controller,glowCount}=selectableFirefly();
   let committed=null;
@@ -118,8 +161,266 @@ test('XR select animates a Firefly and starts a grab on the same press',()=>{
   assert.equal(committed?.transform.position.x,.5);
 });
 
+test('a held object uses a small outline without controller text',()=>{
+  const {view,controller,root}=selectableFirefly();
+  view.scene=root.parent;
+  const controllerChildCount=controller.children.length;
+  view.selectFromController(controller);
+  assert.equal(view.heldOutline?.parent,root);
+  assert.equal(view.heldOutline.material.color.getHex(),0xffd166);
+  assert.equal(controller.children.length,controllerChildCount,
+    'grabbing must not add a text panel to the controller');
+  view.releaseGrab(controller);
+  assert.equal(view.heldOutline,null);
+  assert.equal(controller.children.length,controllerChildCount);
+});
+
+test('grab hand translates while the opposite hand spins and flips the held object',()=>{
+  const {view,controller,root}=selectableFirefly();
+  const source={handedness:'left',gamepad:{mapping:'xr-standard',axes:[0,0,1,0],
+    buttons:[{},{},{},{pressed:false}]}};
+  const other={handedness:'right',gamepad:{mapping:'xr-standard',axes:[0,0,0,0],buttons:[]}};
+  const session={inputSources:[source,other]};
+  view.renderer={xr:{isPresenting:true,getSession:()=>session}};
+  view.xrViewer={direction:new THREE.Vector3(0,0,-1)};
+  view.hasFreshXrViewer=()=>true;
+  const freeController=new THREE.Group();freeController.userData.inputSource=other;
+  view.controllers=[controller,freeController];
+  view.selectFromController(controller,source);
+  assert.equal(view.grab.inputSource,source);
+  view.updateHeldGrab({},.1);
+  assert.ok(Math.abs(root.position.x-.075)<1e-9,
+    'grab-hand stick X retains lateral translation');
+  assert.ok(root.quaternion.equals(new THREE.Quaternion()),
+    'grab-hand stick does not spin the held object');
+  source.gamepad.axes=[0,0,0,0];other.gamepad.axes=[0,0,1,0];
+  view.updateHeldGrab({},.1);
+  assert.ok(Math.abs(root.rotation.y)>0,'free-hand stick X turns the held object');
+  assert.ok(Math.abs(root.position.x-.075)<1e-9,
+    'free-hand stick X does not translate the held object');
+  const yaw=root.quaternion.clone();
+  other.gamepad.axes=[0,0,0,-1];
+  view.updateHeldGrab({},.1);
+  assert.ok(root.quaternion.angleTo(yaw)>0,'free-hand stick Y flips the held object');
+  assert.ok(Math.abs(root.position.x-.075)<1e-9&&Math.abs(root.position.y-1)<1e-9,
+    'free-hand stick Y does not translate the held object');
+  const turned=root.quaternion.clone();
+  other.gamepad.axes=[0,0,0,0];
+  source.gamepad.axes=[0,0,0,-1];source.gamepad.buttons[3].pressed=true;
+  view.updateHeldGrab({},.1);
+  assert.ok(Math.abs(root.position.y-1.075)<1e-9,
+    'grab-hand click and Y retain height translation');
+  assert.ok(root.quaternion.equals(turned));
+  controller.position.x=.5;
+  view.updateHeldGrab({},.1);
+  assert.ok(Math.abs(root.position.x-.575)<1e-9,
+    'tracked controller movement remains available');
+  const beforeInvalid=root.quaternion.clone();
+  source.gamepad.axes=[0,0,NaN,0];
+  assert.equal(view.updateGrabThumbstick({},.1),false);
+  assert.ok(root.quaternion.equals(beforeInvalid));
+  let cancelled=0,resumed=0;
+  view.sync=()=>cancelled++;
+  view.world.resumePhysics=()=>resumed++;
+  session.inputSources=[];
+  const x=root.position.x;view.updateHeldGrab({},.1);
+  assert.equal(root.position.x,x);
+  assert.equal(view.grab,null);
+  assert.equal(cancelled,1);assert.equal(resumed,1);
+});
+
+test('either hand may grab; only a uniquely connected visible opposite hand rotates',()=>{
+  const {view,controller,root}=selectableFirefly();
+  const source={handedness:'right',gamepad:{mapping:'xr-standard',axes:[0,0,0,0],buttons:[]}};
+  const opposite={handedness:'left',gamepad:{mapping:'xr-standard',axes:[0,0,1,0],buttons:[]}};
+  const session={inputSources:[source,opposite]};
+  const freeController=new THREE.Group();freeController.userData.inputSource=opposite;
+  view.controllers=[freeController,controller];
+  view.renderer={xr:{isPresenting:true,getSession:()=>session}};
+  view.xrViewer={direction:new THREE.Vector3(0,0,-1)};
+  view.hasFreshXrViewer=()=>true;
+  view.selectFromController(controller,source);
+  view.updateHeldGrab({},.1);
+  assert.ok(root.quaternion.angleTo(new THREE.Quaternion())>0);
+  const turned=root.quaternion.clone();
+  let recalled=0;view.toggleOperatorPanel=()=>recalled++;
+  view.operatorThumbstickHeld=false;
+  opposite.gamepad.buttons=[{},{},{},{pressed:true}];
+  view.updateOperatorShortcut();
+  assert.equal(recalled,0,'free-hand stick click remains suppressed during a grab');
+  freeController.visible=false;
+  assert.equal(view.updateGrabRotationThumbstick({},.1),false);
+  assert.ok(root.quaternion.equals(turned));
+  freeController.visible=true;delete freeController.userData.inputSource;
+  assert.equal(view.updateGrabRotationThumbstick({},.1),false);
+  freeController.userData.inputSource=opposite;
+  session.inputSources=[source,opposite,{...opposite}];
+  assert.equal(view.updateGrabRotationThumbstick({},.1),false,
+    'ambiguous sources must not rotate a held object');
+  session.inputSources=[source];
+  assert.equal(view.updateGrabRotationThumbstick({},.1),false,
+    'missing opposite source must not rotate a held object');
+  const wrong={handedness:'right',gamepad:{mapping:'xr-standard',axes:[0,0,1,0]}};
+  freeController.userData.inputSource=wrong;session.inputSources=[source,wrong];
+  assert.equal(view.updateGrabRotationThumbstick({},.1),false,
+    'another right-hand source cannot rotate a right-hand grab');
+  const unsupported={handedness:'left',gamepad:{mapping:'',axes:[0,0,1,0]}};
+  freeController.userData.inputSource=unsupported;session.inputSources=[source,unsupported];
+  assert.equal(view.updateGrabRotationThumbstick({},.1),false,
+    'an unrecognized gamepad mapping cannot rotate a held object');
+  assert.ok(root.quaternion.equals(turned));
+  freeController.userData.inputSource=opposite;session.inputSources=[source,opposite];
+  opposite.gamepad.buttons[3].pressed=false;
+  let authored=null;view.commitMove=(id,transform)=>{authored={id,transform};};
+  view.releaseGrab(controller);
+  assert.equal(authored?.id,'firefly-1');
+  assert.ok(Math.abs(authored.transform.rotation.y)>0,
+    'release authors the free-hand spin on the grabbed object');
+});
+
+test('stick input outside a grab never moves or rotates the selected object',()=>{
+  const {view,controller,root}=selectableFirefly();
+  const source={gamepad:{mapping:'xr-standard',axes:[0,0,1,-1],buttons:[]}};
+  view.renderer={xr:{isPresenting:true,getSession:()=>({inputSources:[source]})}};
+  view.xrViewer={direction:new THREE.Vector3(0,0,-1)};
+  view.hasFreshXrViewer=()=>true;
+  const startPosition=root.position.clone(),startQuaternion=root.quaternion.clone();
+  view.updateHeldGrab({},.1);
+  assert.ok(root.position.equals(startPosition));
+  assert.ok(root.quaternion.equals(startQuaternion));
+  view.selectFromController(controller,source);
+  view.releaseGrab(controller);
+  const afterRelease=root.quaternion.clone();
+  view.updateHeldGrab({},.1);
+  assert.ok(root.position.equals(startPosition));
+  assert.ok(root.quaternion.equals(afterRelease));
+});
+
+test('tracking or AR origin loss suspends both held pose and Play rigid updates',()=>{
+  const {view,controller,root}=selectableFirefly();
+  const source={gamepad:{mapping:'xr-standard',axes:[0,0,1,0],buttons:[]}};
+  const session={inputSources:[source]};
+  view.renderer={xr:{isPresenting:true,getSession:()=>session}};
+  view.xrViewer={direction:new THREE.Vector3(0,0,-1)};
+  view.hasFreshXrViewer=()=>true;
+  view.selectFromController(controller,source);
+  let rigidMoves=0;view.moveHeldRigid=()=>rigidMoves++;
+  view.updateHeldGrab({},.1);
+  assert.equal(rigidMoves,1);
+  const x=root.position.x;
+  controller.visible=false;controller.position.x=2;
+  view.updateHeldGrab({},.1);
+  assert.equal(root.position.x,x);assert.equal(rigidMoves,1);
+  controller.visible=true;view.world.spatial.originUnavailable=true;
+  view.updateHeldGrab({},.1);
+  assert.equal(root.position.x,x);assert.equal(rigidMoves,1);
+  view.world.spatial.originUnavailable=false;view.world.spatial.stale=true;
+  view.updateHeldGrab({},.1);
+  assert.equal(root.position.x,x);assert.equal(rigidMoves,1);
+});
+
+test('a missing headset pose suspends held motion and discards release',()=>{
+  const {view,controller,root}=selectableFirefly();
+  const source={gamepad:{mapping:'xr-standard',axes:[0,0,1,0],buttons:[]}};
+  view.renderer={xr:{isPresenting:true,getSession:()=>({inputSources:[source]})}};
+  view.xrViewer={direction:new THREE.Vector3(0,0,-1)};
+  view.xrViewerCapturedAt=performance.now();
+  view.selectFromController(controller,source);
+  let rigidMoves=0,resumed=0,synced=0;
+  view.moveHeldRigid=()=>rigidMoves++;
+  view.world.resumePhysics=()=>resumed++;
+  view.sync=()=>synced++;
+  view.commitMove=()=>{throw Error('A grab without a viewer pose must not be saved');};
+  view.captureXrViewer({getViewerPose:()=>null},{});
+  assert.equal(view.hasFreshXrViewer(),false);
+  controller.position.x=.5;
+  view.updateHeldGrab({},.1);
+  assert.equal(root.position.x,0);
+  assert.equal(rigidMoves,0);
+  view.releaseGrab(controller);
+  assert.equal(root.position.x,0);
+  assert.equal(view.grab,null);
+  assert.equal(resumed,1);
+  assert.equal(synced,1);
+});
+
+test('XR session exit cancels a held edit and restores the authored pose',t=>{
+  const {view,controller,root}=selectableFirefly();
+  const authored=root.position.clone();
+  const source={gamepad:{mapping:'xr-standard',axes:[0,0,0,0],buttons:[]}};
+  const xr={isPresenting:true,getSession:()=>({inputSources:[source]})};
+  view.renderer={xr};view.xrViewer={direction:new THREE.Vector3(0,0,-1)};
+  view.hasFreshXrViewer=()=>true;
+  let paused=0,resumed=0,synced=0,notice='';
+  view.world.pausePhysics=()=>paused++;
+  view.world.resumePhysics=()=>resumed++;
+  view.world.leaveAR=()=>{};
+  view.onAssetError=message=>notice=message;
+  view.commitMove=()=>{throw Error('Session exit must not author a transform');};
+  view.selectFromController(controller,source);
+  controller.position.x=.5;
+  view.updateHeldGrab({},.1);
+  assert.equal(root.position.x,.5);
+  view.sync=()=>{synced++;root.position.copy(authored);};
+  view.onRuntimeChange=()=>{};view.clearPlanes=()=>{};
+  view.operatorPanel.setPinLabel=()=>{};view.operatorPanel.setOriginLabel=()=>{};
+  view.controllerRays=[];view.reticle={visible:false};
+  view.virtualFloorRoot={visible:true,position:{set(){}},quaternion:{identity(){}}};
+  view.floor={visible:true};view.grid={visible:true};view.scene=root.parent;
+  const previousDocument=Object.getOwnPropertyDescriptor(globalThis,'document');
+  Object.defineProperty(globalThis,'document',{configurable:true,value:{
+    getElementById:()=>({style:{},textContent:''})}});
+  t.after(()=>{if(previousDocument)Object.defineProperty(globalThis,'document',previousDocument);
+    else delete globalThis.document;});
+  xr.isPresenting=false;
+  view.onSessionEnd();
+  assert.equal(view.grab,null);
+  assert.ok(root.position.equals(authored));
+  assert.equal(paused,1);assert.equal(resumed,1);
+  assert.equal(synced,2);
+  assert.match(notice,/XR session ended/);
+});
+
+test('release after AR origin loss discards the held edit',()=>{
+  const {view,controller}=selectableFirefly();
+  let resumed=0,synced=0;
+  view.world.resumePhysics=()=>resumed++;
+  view.sync=()=>synced++;
+  view.commitMove=()=>{throw Error('A stale AR grab must not author a transform');};
+  view.selectFromController(controller);
+  view.world.spatial.originUnavailable=true;
+  view.releaseGrab(controller);
+  assert.equal(view.grab,null);
+  assert.equal(resumed,1);
+  assert.equal(synced,1);
+});
+
+test('a failed Play/Test rigid move clears the held outline',()=>{
+  const {view,controller,root}=selectableFirefly();
+  view.scene=root.parent;
+  view.selectFromController(controller);
+  const grab=view.grab;grab.rigid=true;
+  const outline=view.heldOutline;
+  assert.ok(outline&&outline.parent===root);
+  let released=0;
+  view.world.moveRigidGrab=()=>{throw Error('Rigid grab lost');};
+  view.world.releaseRigidGrab=()=>released++;
+  view.moveHeldRigid(grab);
+  assert.equal(view.grab,null);
+  assert.equal(view.heldOutline,null);
+  assert.equal(outline.parent,null);
+  assert.equal(released,1);
+});
+
 test('Play/Test XR grab uses a dynamic body and never authors set_transform',()=>{
   const {view,controller}=selectableFirefly();
+  const source={handedness:'left',gamepad:{mapping:'xr-standard',axes:[0,0,1,0],buttons:[]}};
+  const opposite={handedness:'right',gamepad:{mapping:'xr-standard',axes:[0,0,1,0],buttons:[]}};
+  view.renderer={xr:{isPresenting:true,getSession:()=>({inputSources:[source,opposite]})}};
+  view.xrViewer={direction:new THREE.Vector3(0,0,-1)};
+  view.hasFreshXrViewer=()=>true;
+  const freeController=new THREE.Group();freeController.userData.inputSource=opposite;
+  view.controllers=[controller,freeController];
   const object=view.world.requireObject();object.rigidBody={type:'dynamic'};
   view.world.creatorMode={schemaVersion:1,mode:'play',simulation:'running',revision:1};
   const calls=[];
@@ -129,12 +430,74 @@ test('Play/Test XR grab uses a dynamic body and never authors set_transform',()=
   view.world.execute=()=>{throw Error('Play cannot author a scene transform');};
   view.onPlayInteraction=event=>calls.push(['interaction',event]);
   view.commitMove=()=>{throw Error('Play release must not call authored move');};
-  view.selectFromController(controller);
+  view.selectFromController(controller,source);
   assert.equal(view.grab?.rigid,true);
+  view.updateHeldGrab({},.1);
+  assert.ok(Math.abs(calls.at(-1)[2].position.x-.075)<1e-9,
+    'Play keeps grab-hand translation');
+  assert.ok(Math.abs(calls.at(-1)[2].rotation.y)>0,
+    'Play sends the spun pose to its dynamic body');
   controller.position.x=.5;
   view.releaseGrab(controller);
-  assert.deepEqual(calls.map(item=>item[0]),['begin','move','release','interaction']);
+  assert.deepEqual(calls.map(item=>item[0]),['begin','move','move','release','interaction']);
   assert.equal(calls.at(-1)[1].objectId,'firefly-1');
+});
+
+test('tracked Play/Test XR release passes recent throw motion but cancellation does not',()=>{
+  const {view,controller}=selectableFirefly();
+  const source={handedness:'left',gamepad:{mapping:'xr-standard',axes:[0,0,0,0],buttons:[]}};
+  view.renderer={xr:{isPresenting:true,getSession:()=>({inputSources:[source]})}};
+  view.hasFreshXrViewer=()=>true;
+  view.world.requireObject().rigidBody={type:'dynamic'};
+  view.world.creatorMode={schemaVersion:1,mode:'play',simulation:'running',revision:1};
+  view.world.beginRigidGrab=()=>true;
+  view.world.moveRigidGrab=()=>true;
+  const releases=[];
+  view.world.releaseRigidGrab=(id,motion)=>{releases.push({id,motion});
+    return {objectId:id,position:{x:0,y:1,z:-2}};};
+  view.onPlayInteraction=()=>{};view.sync=()=>{};
+  view.selectFromController(controller,source);
+  const grab=view.grab,now=performance.now();
+  grab.motionSamples=[];
+  sampleHeldMotion(grab,now-45);
+  controller.position.x=.2;controller.rotation.y=.1;moveGrab(grab);
+  sampleHeldMotion(grab,now-20);
+  controller.position.x=.3;controller.rotation.y=.15;
+  view.releaseGrab(controller);
+  assert.equal(releases.length,1);
+  assert.equal(releases[0].id,'firefly-1');
+  assert.ok(Math.hypot(...Object.values(releases[0].motion.linearVelocity))>.1);
+  assert.ok(Math.hypot(...Object.values(releases[0].motion.angularVelocity))>.2);
+  view.selectFromController(controller,source);
+  view.cancelGrab(controller,source);
+  assert.equal(releases.length,2);
+  assert.equal(releases[1].motion,undefined,
+    'tracking loss and cancellation resume physics without a throw');
+});
+
+test('a missed tracking frame cannot turn recovery into a Play/Test throw',()=>{
+  const {view,controller}=selectableFirefly();
+  const source={handedness:'left',gamepad:{mapping:'xr-standard',axes:[0,0,0,0],buttons:[]}};
+  view.renderer={xr:{isPresenting:true,getSession:()=>({inputSources:[source]})}};
+  view.hasFreshXrViewer=()=>true;
+  view.updateGrabThumbstick=()=>false;view.updateGrabRotationThumbstick=()=>false;
+  view.world.requireObject().rigidBody={type:'dynamic'};
+  view.world.creatorMode={schemaVersion:1,mode:'play',simulation:'running',revision:1};
+  view.world.beginRigidGrab=()=>true;view.world.moveRigidGrab=()=>true;
+  let releaseMotion='not released';
+  view.world.releaseRigidGrab=(_id,motion)=>{releaseMotion=motion;
+    return {position:{x:0,y:1,z:-2}};};
+  view.onPlayInteraction=()=>{};
+  view.selectFromController(controller,source);
+  assert.ok(view.grab.motionSamples.length);
+  view.updateHeldGrab(null,.016);
+  assert.equal(view.grab.motionSamples.length,0,
+    'one invalid XR frame must discard motion history');
+  controller.position.x=.5;
+  view.updateHeldGrab({},.016);
+  assert.equal(view.grab.motionSamples.length,1);
+  view.releaseGrab(controller);
+  assert.equal(releaseMotion,undefined);
 });
 
 test('Play/Test refuses a non-physical or paused XR grab',()=>{

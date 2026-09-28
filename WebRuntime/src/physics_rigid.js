@@ -4,6 +4,8 @@ import RAPIER from '@dimforge/rapier3d-compat';
 
 export const RIGID_STEP_SECONDS = 1 / 60;
 export const MAX_RIGID_FRAME_SECONDS = .1;
+export const MAX_RIGID_RELEASE_LINEAR_SPEED = 6;
+export const MAX_RIGID_RELEASE_ANGULAR_SPEED = 12;
 export const MAX_RIGID_BODIES = 100;
 export const MAX_RIGID_MESH_PARTS = 32;
 export const MAX_RIGID_MESH_VERTICES = 4096;
@@ -22,6 +24,18 @@ const quaternion = value => value && ['x', 'y', 'z', 'w'].every(axis => finite(v
   Math.abs(Math.hypot(value.x, value.y, value.z, value.w) - 1) < .001;
 const copyVector = value => ({x: value.x, y: value.y, z: value.z});
 const copyQuaternion = value => ({x: value.x, y: value.y, z: value.z, w: value.w});
+function checkedReleaseVelocity(value) {
+  if (!value || typeof value !== 'object' || Array.isArray(value) ||
+      Object.keys(value).sort().join(',') !== 'angularVelocity,linearVelocity' ||
+      !vector(value.linearVelocity) || !vector(value.angularVelocity) ||
+      Math.hypot(value.linearVelocity.x, value.linearVelocity.y, value.linearVelocity.z) >
+        MAX_RIGID_RELEASE_LINEAR_SPEED ||
+      Math.hypot(value.angularVelocity.x, value.angularVelocity.y, value.angularVelocity.z) >
+        MAX_RIGID_RELEASE_ANGULAR_SPEED)
+    throw Error('Invalid rigid release velocity');
+  return {linearVelocity: copyVector(value.linearVelocity),
+    angularVelocity: copyVector(value.angularVelocity)};
+}
 
 // Matrix scene rotations are degrees in Three.js's XYZ Euler order. Keep the
 // conversion here so MatrixWorld does not need a renderer dependency.
@@ -295,16 +309,20 @@ export class RigidPhysics {
     return this.state(objectId);
   }
 
-  releaseGrab(objectId) {
+  releaseGrab(objectId, velocity) {
     const entry = this.requireBody(objectId);
     if (!entry.held) return false;
+    // Validate before touching the held body so rejected velocities leave the
+    // grab and its last target available for a safe retry or cancellation.
+    const release = velocity === undefined ?
+      {linearVelocity: ZERO, angularVelocity: ZERO} : checkedReleaseVelocity(velocity);
     // The last controller pose may arrive between fixed steps. Commit it before
     // switching back to dynamics so release never snaps to an older pose.
     entry.body.setTranslation(entry.heldTarget.position, true);
     entry.body.setRotation(entry.heldTarget.rotation, true);
     entry.body.setBodyType(RAPIER.RigidBodyType.Dynamic, true);
-    entry.body.setLinvel(ZERO, true);
-    entry.body.setAngvel(ZERO, true);
+    entry.body.setLinvel(release.linearVelocity, true);
+    entry.body.setAngvel(release.angularVelocity, true);
     entry.held = false;
     entry.heldTarget = null;
     return this.state(objectId);
