@@ -147,7 +147,7 @@ export function operatorPanel({createImage=()=>new Image()}={}){
   let message='Aim here, hold trigger, and ask for a scene.',tone='idle',page=0,mode='chat',proposal=null;
   let agent={activity:'Not connected',content:'Connect to Codex on the PC.',pending:false,approvalReviewable:false,active:false,connected:false,voiceStatus:'',latestTurnId:''};
   let creationMode='auto';
-  let pinLabel='PIN TO WALL',voiceLabel='VOICE ON',originLabel='ROOM ORIGIN UNKNOWN',conversationCount=0;
+  let pinLabel='PIN TO WALL',voiceLabel='VOICE ON',originLabel='ROOM ORIGIN UNKNOWN',conversationCount=0,xrMode=null;
   let voiceInputLabel='HOLD TO SPEAK';
   let gameStatus='No game running.',worldInfo={objects:0,canConfirm:false,alignment:'No room scan'},worldWarning='';
   let creatorMode={mode:'creator',simulation:'paused',revision:0};
@@ -175,7 +175,6 @@ export function operatorPanel({createImage=()=>new Image()}={}){
   const paint=()=>{
     const ctx=canvas.getContext('2d');ctx.fillStyle='#071923';ctx.fillRect(0,0,1024,768);
     ctx.strokeStyle=tone==='error'?'#ffad8d':'#55e9d2';ctx.lineWidth=9;ctx.strokeRect(10,10,1004,748);
-    ctx.fillStyle='#75f4df';ctx.font='bold 30px sans-serif';ctx.fillText('◈  OPERATOR',55,83);
     buttons=[];
     const button=(id,label,x,y,w,h,active=false)=>{
       ctx.fillStyle=active?'#53dcc5':'#245568';ctx.fillRect(x,y,w,h);
@@ -184,6 +183,8 @@ export function operatorPanel({createImage=()=>new Image()}={}){
       ctx.textAlign='left';ctx.textBaseline='alphabetic';
       buttons.push({id,x,y,w,h});
     };
+    if(mode==='world'&&xrMode)button('exit-xr',xrMode==='ar'?'EXIT AR':'EXIT VR',35,35,240,72);
+    else {ctx.fillStyle='#75f4df';ctx.font='bold 30px sans-serif';ctx.fillText('◈  OPERATOR',55,83);}
     button('toggle-agent',mode==='agent'?'CHAT':'CODEX',290,35,103,72,
       mode==='agent'||mode==='concepts');
     button('toggle-world',mode==='world'?'CHAT':'WORLD',404,35,120,72,
@@ -400,6 +401,7 @@ export function operatorPanel({createImage=()=>new Image()}={}){
     paint();
   };
   const setPinLabel=next=>{pinLabel=next;paint();};
+  const setXRMode=next=>{xrMode=next;if(mode==='world')paint();};
   const setVoiceLabel=next=>{voiceLabel=next;paint();};
   const setVoiceInputLabel=next=>{if(voiceInputLabel!==next){voiceInputLabel=next;paint();}};
   const setOriginLabel=next=>{if(originLabel!==next){originLabel=next;paint();}};
@@ -458,7 +460,7 @@ export function operatorPanel({createImage=()=>new Image()}={}){
   };
   const nextPage=()=>{page++;paint();};
   paint();
-  return {group,mesh,setMessage,setPinLabel,setVoiceLabel,setOriginLabel,setConversationCount,
+  return {group,mesh,setMessage,setPinLabel,setXRMode,setVoiceLabel,setOriginLabel,setConversationCount,
     setProposal,setWorldInfo,setWorldNotice,setGameStatus,setCreatorMode,setWarning,setCameraStatus,
     setAgentStatus,setConceptGallery,setCreationMode,setVoiceInputLabel,toggleWorld,toggleArchives,
     toggleModePage,toggleAgent,toggleConcepts,previousConcept,nextConcept,isAgentMode,openProposal,hit,nextPage};
@@ -573,6 +575,7 @@ export class MatrixView {
     this.world.runtimePresentation=this.isAR?'ar':'vr';
     document.getElementById('xr-exit').textContent=this.isAR?'Exit AR':'Exit VR';
     if(session.domOverlayState)document.getElementById('xr-overlay').style.display='';
+    this.operatorPanel.setXRMode(this.isAR?'ar':'vr');
     this.operatorPanel.group.visible=!this.readOnly;
     this.operatorMount={kind:'head'};this.operatorPanel.setPinLabel(this.isAR?'PIN TO WALL':'PIN HERE');
     this.operatorThumbstickHeld=false;
@@ -771,6 +774,7 @@ export class MatrixView {
     if(this.operatorVoiceController)this.releaseOperatorVoice(this.operatorVoiceController);
     this.operatorPanel.group.visible=false;this.operatorMount={kind:'head'};
     this.operatorThumbstickHeld=false;
+    this.operatorPanel.setXRMode(null);
     this.operatorPanel.setPinLabel('PIN TO WALL');this.operatorPanel.setOriginLabel('ROOM ORIGIN UNKNOWN');
     if(this.grab)this.cancelGrab(this.grab.controller,this.grab.inputSource,
       'XR session ended; the held edit was cancelled.');
@@ -1354,6 +1358,7 @@ export class MatrixView {
     if(panelHit){
       const action=this.operatorPanel.hit(panelHit.uv);
       if(action==='review-view')this.onVisualReview();
+      else if(action==='exit-xr')void this.exitXR();
       else if(action==='toggle-world')this.operatorPanel.toggleWorld();
       else if(action==='toggle-archives')this.operatorPanel.toggleArchives();
       else if(action==='toggle-mode')this.operatorPanel.toggleModePage();
