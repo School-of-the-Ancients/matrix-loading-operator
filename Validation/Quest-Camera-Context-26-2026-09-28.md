@@ -1,0 +1,67 @@
+# Quest 3 camera context for WebXR — #26 validation record
+
+Date: 2026-09-28. Scope: [issue #26](https://github.com/School-of-the-Ancients/matrix-loading-operator/issues/26), Matrix v1.0 milestone 5. This record describes the current `/web/` candidate and the checks needed before calling its physical-camera path accepted. The older Unity candidate, its protocol tests, and Quest Pro observations are historical evidence; they do not establish Quest Browser camera access. Automated and desktop evidence is recorded below; Quest wearer evidence is still pending.
+
+## Capability and source boundary
+
+The current candidate asks for a **separate, permissioned `navigator.mediaDevices.getUserMedia()` video stream** in AR, verifies an environment-facing device, copies a video frame to a canvas, and puts it beside a separate Matrix virtual render. The image is labeled as a camera panel and a virtual panel. It has `source: webxr_camera_pair`, `mode: mixed`, `includesPhysicalCamera: true`, `includesPassthrough: false`, and `layout.calibrated: false`. The app requests the capture only after the user selects **Share camera + virtual view with Codex**. If the camera cannot be identified, the button explicitly offers virtual-only review. If a mixed capture fails after sharing was requested, the review path reports the failure and retries with a virtual-only image. Code: `WebRuntime/src/camera_stream.js`, `WebRuntime/src/view.js`, `WebRuntime/src/main.js`.
+
+This is distinct from the **WebXR `immersive-ar` passthrough image** the headset compositor shows behind transparent virtual content. Meta's [Mixed Reality Support in Browser](https://developers.meta.com/horizon/documentation/web/webxr-mixed-reality/) says a page cannot read pixels of that passthrough content. That statement does not forbid a separately authorized MediaDevices stream: Meta's [Camera Access guide](https://developers.meta.com/horizon/documentation/iwsdk/guides/13-camera-access/) (updated September 4, 2026) describes browser MediaDevices streams in visible browser-only and immersive XR worlds. Neither source establishes that this Quest Browser version exposes a usable environment-facing stream to this site; the device test must decide that.
+
+The [W3C Media Capture and Streams specification](https://www.w3.org/TR/mediacapture-streams/) defines the permissioned `getUserMedia()` device path, constraints including `facingMode`, and settings such as resolution and frame rate. A requested `facingMode: {exact: 'environment'}` can fail when no matching device is available. Device labels can be unavailable before permission. The current candidate may retry with an enumerated rear device or a user-initiated generic stream, but it must not label an unknown or front camera as a physical environment view. Permission denial is a separate outcome and is not retried automatically.
+
+The [WebXR Raw Camera Access Module](https://immersive-web.github.io/raw-camera-access/) specifies an optional `camera-access` session feature with `XRView.camera` and `XRWebGLBinding.getCameraImage()`, including alignment conditions. This candidate does **not** request or use that feature. The module's existence is not evidence of implementation in Quest Browser. Native Meta [Passthrough Camera API guidance for Unity](https://developers.meta.com/horizon/documentation/unity/unity-pca-documentation/) describes intrinsics, extrinsics, pose and image timestamps for that different platform path; none can be inferred for this browser MediaDevices stream.
+
+| Data in this candidate | Meaning | Limit |
+| --- | --- | --- |
+| `cameraFrameCapturedAtUtc` | Wall-clock time just after JavaScript `drawImage()` copies the current video element into a canvas | **Application copy time**, not the sensor exposure time or a synchronized XR frame timestamp |
+| `cameraToPairMs` | Monotonic elapsed time from that copy to completion of the labeled pair | Measures in-app pairing delay, not sensor-to-display or end-to-end latency |
+| Virtual view camera/projection | Matrix's separately rendered virtual viewpoint | Not the pose or intrinsics of the MediaDevices camera |
+| Room planes/hit tests | WebXR spatial geometry when available and verified | Geometry source for metric placement; camera pixels alone do not create precise anchors |
+
+The panels have no established pixel alignment, physical depth, physical occlusion, calibrated camera pose, camera intrinsics, or reprojection under head motion. `XRView` transform/projection in the [WebXR Device API](https://www.w3.org/TR/webxr/) applies to the XR view; it does not calibrate an independently selected MediaDevices video track. A physical detail visible in the left panel can support a qualitative description, but cannot establish its metric location relative to a virtual object in the right panel. A claim of aligned overlay requires a separate measured implementation and acceptance pass.
+
+## Review and privacy contract to verify
+
+- Starting AR or seeing passthrough does not itself share physical pixels. **Enable environment camera for AI review** requests camera permission; **Stop environment camera** stops the track. Hiding the page, leaving AR, or unloading it also stops an active or pending stream. Record the browser's permission decision, selected device evidence and status text.
+- **Share camera + virtual view with Codex** is the separate user action that sends one labeled pair through the existing Review View/Agent turn. The app checks mixed versus virtual source flags before sending. Capture transfer remains bounded to a JPEG of at most 512 KiB. The service binds the capture to client, room, scene revision, runtime generation and presentation, allows one use, and stages the image only for its turn. Verify cleanup on completion, cancellation, error and restart. Code: `ControlService/scene_capture.py`, `ControlService/server.py`, `ControlService/agent_portal.py`.
+- A denied, missing or unidentified environment device must give an explicit status and preserve virtual-only review. Record whether an OS/browser permission prompt appeared. Do not silently treat the composited AR view, virtual render, or a self-facing camera as a physical environment image.
+- If the browser hides the page or XR session, if the user stops the camera, or if AR ends, verify that the stream and pending requests end and a later share is virtual-only unless the wearer enables the camera again.
+
+## Evidence gates
+
+| Gate | Reproducible check | Result for this branch |
+| --- | --- | --- |
+| Automated | Run WebRuntime tests/build and focused ControlService capture/Agent Portal tests. Check environment selection, denial/no-device fallback, cancellation, bounded JPEG, source/provenance validation, one-use turn binding and cleanup. Record commands, totals and commit. | At source commit `104b2f46b392b2ff6b967f7ad060ef8ac77c9ceb`: `python -m unittest discover -p 'test_*.py' -q` in `ControlService`: **870/870**; focused capture/Agent Portal tests: **63/63**; `npm test` in `WebRuntime`: **645/645**; `npm run build`: passed; `git diff --check`: passed. |
+| Desktop/browser | Open the reviewed `/web/` build. Check button wording and virtual-only capture provenance; exercise a test or mock camera where possible. A desktop camera cannot establish Quest camera routing or wearer-visible quality. | On Chrome at `http://127.0.0.1:18967/web/`, **Share virtual view with Codex** captured an 11,911-byte JPEG with `source: webxr_virtual_center_eye`, `mode: virtual`, `includesPhysicalCamera: false`, and `includesPassthrough: false`. The actual Agent Portal turn completed, described the grid and zero objects, explicitly said it had no physical pixels or verified room planes, and made no world edit. The temporary image existed only while the turn was active; the turn-captures directory held zero files after completion. The persisted session JSON contained neither the capture ID nor base64 pixels. After restarting the service from `104b2f4`, a second Chrome turn completed with the same virtual-only provenance (capture `f04276d18e94481b94884e1d3fceadbd`); Agent again identified the grid, zero objects and missing physical/plane evidence, with no world edit. The temporary directory again held zero files and the persisted Portal JSON contained no capture ID or base64 pixels. Desktop testing did not exercise an environment camera. |
+| Quest 3 wearer | Use the steps below on the actual headset, with explicit user approval to share a controlled scene. Preserve the exact permission outcome and source metadata. | **Pending — no wearer acceptance claimed.** |
+
+Connected ADB reported Quest Browser package version **`152.0.0.44.30.1069357998`** for this review. Record the headset model, OS/build and Browser version again alongside the wearer result, because availability and permission behavior are version-specific. This version observation by itself is not evidence that a camera stream or Agent image worked.
+
+## Quest wearer acceptance procedure
+
+1. On the Quest 3, open the reviewed HTTPS or device-loopback `/web/` URL in Quest Browser and record the exact URL/build commit, headset model, OS/build and Browser version. Use a controlled physical scene with one distinctive object visible to the forward camera that is absent from the Matrix world. Obtain consent from anyone whose surroundings could enter the frame.
+2. Enter **AR**. Confirm the wearer sees physical passthrough behind Matrix content. Before camera enablement, request **Share virtual view with Codex** and verify the receipt/image metadata says `webxr_virtual_center_eye`, `includesPhysicalCamera: false`, `includesPassthrough: false`. This establishes the baseline without claiming pixel access to compositor passthrough.
+3. Select **Enable environment camera for AI review**. Record whether Quest Browser asks for camera permission, whether the wearer grants or denies it, the app's status/error, selected device label or `getSettings().facingMode` if exposed, actual frame dimensions and whether an identifiable rear/environment image appears. A granted permission alone does not prove the correct device or usable pixels.
+4. If an environment stream becomes available, select **Share camera + virtual view with Codex** once. Inspect the exact captured pair and Agent turn/receipt. Confirm that the distinctive physical object appears only in the left labeled camera panel, Matrix content appears in the right labeled virtual panel, the response distinguishes them, and metadata says `webxr_camera_pair`, `includesPhysicalCamera: true`, `includesPassthrough: false`, `layout.calibrated: false`. Record `cameraFrameCapturedAtUtc`, `cameraToPairMs`, JPEG size, render/encode timings, and user-perceived wait. Do not interpret these timings as sensor exposure or full camera latency.
+5. While stationary, then with gentle head motion, observe the panels for orientation, cropping, stale frames and obvious delay. Record qualitative quality and any failure. Do not score pixel overlay or pose calibration: this pair is uncalibrated. For metric placement, inspect separately verified WebXR planes/hit tests and #149 room-aware receipts.
+6. Stop the camera, then share again and verify virtual-only provenance. Repeat once after leaving/re-entering AR or hiding/reopening the tab to confirm track cleanup. Separately test denial or an unavailable environment device if feasible; record the explicit error and virtual-only fallback. Avoid changing OS permissions through ADB as a substitute for the normal user permission path.
+7. Record wearer wording, screenshots or artifact IDs only with consent. Mark each outcome as **passed**, **failed**, or **unavailable**, with the exact observed message. Keep automated, desktop, connected-runtime and wearer evidence separate.
+
+### Results to fill after execution
+
+| Item | Observation |
+| --- | --- |
+| Commit, reviewed URL and service/Agent configuration | `104b2f46b392b2ff6b967f7ad060ef8ac77c9ceb`; isolated port 18967, PC Agent read-only with reviewed approvals, separate `review-26` state; Quest `adb reverse tcp:18967 tcp:18967` present |
+| Automated commands and results | ControlService 870/870; focused capture/Portal 63/63; WebRuntime 645/645; production Vite build passed |
+| Desktop URL, browser and behavior | `http://127.0.0.1:18967/web/` in Chrome; completed virtual-only Agent turn and temporary-file cleanup as detailed above |
+| Quest model, OS/build and repeated Browser version | Pending; connected ADB version above is the only version evidence currently recorded here |
+| Camera permission prompt/decision and selected device evidence | Pending |
+| Physical-only detail and captured pair/source/receipt | Pending |
+| Copy-to-pair and render/encode timing; perceived delay | Pending |
+| Stop, AR exit, denial/unavailable fallback and cleanup | Pending |
+| Wearer assessment and artifact references | Pending |
+
+## Source status
+
+The Meta browser passthrough page predates this review and describes the compositor boundary. The Meta Camera Access guide was updated September 4, 2026. The W3C Media Capture and Streams and WebXR Device API documents are specifications, while Raw Camera Access is a separate draft feature; none is a Quest 3 Browser 152 hardware acceptance report. [Issue #26](https://github.com/School-of-the-Ancients/matrix-loading-operator/issues/26) explicitly requires this versioned hardware check and treats qualitative physical-camera context and aligned overlay as different capability levels.
