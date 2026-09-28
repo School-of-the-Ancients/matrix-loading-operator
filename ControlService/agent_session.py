@@ -275,7 +275,8 @@ def _new_matrix_approval_summary(tool, arguments):
                 return (f"Place {arguments['asset_id']} on measured AR surface "
                         f"{arguments['anchor_id']} in {arguments['room_id']} "
                         f"rev {arguments['scene_revision']}: "
-                        f"{_xr_pose_summary(arguments['transform'])}. Session-only surface object.")
+                        f"{_xr_pose_summary(arguments['transform'])}. "
+                        "Store as a persistent web-floor world object.")
         elif tool == "matrix_spawn_builtin":
             if (_xr_context(arguments, {"asset_id", "transform"}) and
                     type(arguments["asset_id"]) is str and

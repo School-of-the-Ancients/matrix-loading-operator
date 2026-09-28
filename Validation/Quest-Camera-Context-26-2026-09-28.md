@@ -1,6 +1,6 @@
 # Quest 3 camera context for WebXR — #26 validation record
 
-Date: 2026-09-28. Scope: [issue #26](https://github.com/School-of-the-Ancients/matrix-loading-operator/issues/26), Matrix v1.0 milestone 5. This record describes the current `/web/` candidate and the checks needed before calling its physical-camera path accepted. The older Unity candidate, its protocol tests, and Quest Pro observations are historical evidence; they do not establish Quest Browser camera access. Automated and desktop evidence is recorded below; Quest wearer evidence is partial and the recovery check remains pending.
+Date: 2026-09-28. Scope: [issue #26](https://github.com/School-of-the-Ancients/matrix-loading-operator/issues/26), Matrix v1.0 milestone 5. This record describes the current `/web/` candidate and the checks needed before calling its physical-camera path accepted. The older Unity candidate, its protocol tests, and Quest Pro observations are historical evidence; they do not establish Quest Browser camera access. Automated and desktop evidence is recorded below; Quest wearer evidence remains partial. The later exact-head 18974 check confirmed sharing and responsive Stop camera/Exit AR, while the remaining recovery steps are still open.
 
 ## Capability and source boundary
 
@@ -34,7 +34,7 @@ The panels have no established pixel alignment, physical depth, physical occlusi
 | --- | --- | --- |
 | Automated | Run WebRuntime tests/build and focused ControlService capture/Agent Portal tests. Check environment selection, denial/no-device fallback, cancellation, bounded JPEG, source/provenance validation, one-use turn binding and cleanup. Record commands, totals and commit. | At source commit `104b2f46b392b2ff6b967f7ad060ef8ac77c9ceb`: `python -m unittest discover -p 'test_*.py' -q` in `ControlService`: **870/870**; focused capture/Agent Portal tests: **63/63**; `npm test` in `WebRuntime`: **645/645**; `npm run build`: passed; `git diff --check`: passed. |
 | Desktop/browser | Open the reviewed `/web/` build. Check button wording and virtual-only capture provenance; exercise a test or mock camera where possible. A desktop camera cannot establish Quest camera routing or wearer-visible quality. | On Chrome at `http://127.0.0.1:18967/web/`, **Share virtual view with Codex** captured an 11,911-byte JPEG with `source: webxr_virtual_center_eye`, `mode: virtual`, `includesPhysicalCamera: false`, and `includesPassthrough: false`. The actual Agent Portal turn completed, described the grid and zero objects, explicitly said it had no physical pixels or verified room planes, and made no world edit. The temporary image existed only while the turn was active; the turn-captures directory held zero files after completion. The persisted session JSON contained neither the capture ID nor base64 pixels. After restarting the service from `104b2f4`, a second Chrome turn completed with the same virtual-only provenance (capture `f04276d18e94481b94884e1d3fceadbd`); Agent again identified the grid, zero objects and missing physical/plane evidence, with no world edit. The temporary directory again held zero files and the persisted Portal JSON contained no capture ID or base64 pixels. Desktop testing did not exercise an environment camera. |
-| Quest 3 wearer | Use the steps below on the actual headset, with explicit user approval to share a controlled scene. Preserve the exact permission outcome and source metadata. | **Partial, with an AR recovery failure.** The wearer reported the environment camera available in AR. A real mixed capture reached Agent and it distinguished physical room details from virtual outlines. After switching attention to the PC and returning to the headset, Matrix content was absent over AR passthrough; Quest menu exit left a Browser page showing an unresponsive **Exit AR** control. The wearer says this intermittent freeze has happened before and reopening Quest Browser restores it; causality with this camera change is unproven. Track-stop/re-entry behavior and a clean wearer acceptance remain unverified. |
+| Quest 3 wearer | Use the steps below on the actual headset, with explicit user approval to share a controlled scene. Preserve the exact permission outcome and source metadata. | **Partial.** On the earlier 18967 build, the wearer reported the environment camera available in AR and a real mixed capture reached Agent, but later saw an AR recovery failure after switching attention away and back. On the exact-head 18974 build, the wearer reported sharing and normal Stop camera/Exit AR behavior. The server recorded a mixed pair and a completed Agent turn, as detailed below. Hide/return, re-entry and virtual-only sharing after stop remain unverified on this build. |
 
 Connected ADB reported Quest Browser package version **`152.0.0.44.30.1069357998`** before and after this review. The connected device is Quest 3; record the OS/build before final acceptance. The version and the service capture are separate from a completed wearer recovery test.
 
@@ -101,14 +101,54 @@ production Vite build and `git diff --check` passed. The combined ControlService
 Python source was unchanged since the earlier **888/888** staging run. These
 tests do not measure Quest capture duration or prove recovery on the device.
 
-The next wearer check must use the current 18974 build after #149's measured
-move gate: enable and explicitly share a physical camera frame, verify the
-Agent separates physical and virtual details, stop the camera and share a
-virtual-only frame, then repeat after hiding/returning and exiting/re-entering
-AR. Record camera permission/denial status, receipt/source, capture timing,
-temporary-image cleanup, and whether Matrix content and Exit AR remain
-responsive. The earlier 18967 frozen-page report remains unresolved until
-this exact build is observed on Quest.
+The next wearer check should complete the 18974 sequence: share a virtual-only
+frame after Stop camera, then repeat after hiding/returning and
+exiting/re-entering AR. Record camera permission/denial status, receipt/source,
+camera-track cleanup, and whether Matrix content and controls remain
+responsive. Full journey acceptance still depends on #149's measured move
+gate. The earlier 18967 frozen-page report remains unresolved for the
+hide/return and re-entry paths until they are repeated on this build.
+
+## Exact-head 18974 Quest follow-up
+
+The isolated 18974 service remained running from clean combined PR #161 commit
+`3189d7e7d1d145e1b8480ffc5e00613d1188c1fc` during this check. The
+wearer reported: **“Shared; Stop and Exit AR work.”** This confirms that the
+wearer used the share action and found the Stop camera and Exit AR controls
+responsive in this attempt. The reply did not specify whether a browser camera
+permission prompt appeared, whether the wearer personally inspected the pair,
+or the exact status text shown in the headset.
+
+Read-only inspection of `/api/state` after that attempt found one mixed
+`webxr_camera_pair` capture, ID `2288c6dfe8a841d2922b002c4f220a7f`,
+at `2026-09-28T22:54:06.646Z`: 1280×480, 58,497-byte JPEG,
+`includesPhysicalCamera: true`, `includesPassthrough: false`, and
+`layout.calibrated: false`. The reported camera copy time was
+`2026-09-28T22:54:06.577Z`; `cameraToPairMs` was 69.1, `renderMs` was 44.1,
+`encodeMs` was 27.8, and `captureDurationMs` was 71.9. These measure
+application work, not sensor exposure or end-to-end headset latency. The
+capture subsequently became `stale` when the runtime went offline, with the
+service status **“Runtime, scene, or selection changed. Capture the current
+view again.”** At inspection, the service had zero pending operations. This
+stale status is post-exit state, not the status displayed during sharing.
+
+The Agent Portal persisted one completed turn,
+`01a0ea39-b9f3-7d11-b402-45720a9f55a4`. Its answer named physical room
+items in the left camera panel separately from the Matrix virtual view in the
+right panel and cautioned against metric alignment claims. It did not name a
+TV. The wearer did not independently report which object Codex identified.
+Only the text response and capture metadata were inspected for this record;
+the private room JPEG is not included. After completion, the temporary
+`turn-captures` directory held zero files, and persisted Portal JSON contained
+neither this capture ID nor base64 image pixels.
+
+This attempt supports a working explicit physical-camera share and responsive
+Stop camera/Exit AR controls on the current commit. It does not yet establish
+virtual-only provenance after Stop, camera-track termination, hide/return
+recovery, AR re-entry, permission-denied fallback, wearer-perceived wait, or
+Quest OS/build. The earlier 18967 recovery failure remains a separate observed
+failure; this narrower successful exit does not establish that all recovery
+paths are fixed.
 
 ## Source status
 

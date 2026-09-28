@@ -44,6 +44,31 @@ before making or retrying a change.
   checks include captured turn identity and the voice/Stop controls.
 - `npm run build`: passed (Vite 7.3.6). The existing large-chunk warning remains.
 
+## Stacked review validation
+
+The steer branch was merged with the expandable-controls PR #165 head
+`8a091bb97d5898ec3b17628cd839864564099039`, which includes the current
+Quest camera PR #161 head `d91058b9e42095779ba6199a3b0ab487e16481a0`
+and room-aware PR #160 head `e152aa9`. The two overlapping WebRuntime files
+were resolved so the Agent section remains expandable, opens when a turn or
+approval needs attention, and offers **Add to current turn** while active.
+The resulting diff against #165 contains only the steer feature and this
+validation record.
+
+- Full ControlService suite: **894/894 passed** (one non-failing socket
+  `ResourceWarning`).
+- Full WebRuntime suite: **708/708 passed**.
+- Production Vite build: passed with the existing large-chunk warning.
+- `git diff --check` against #165: passed.
+
+The combined source has not been loaded into a live Matrix service or tested
+by a Quest wearer. The remaining live same-turn gate is to start a real Agent
+turn on the combined build, add a text or XR voice instruction while it is
+active, and confirm the addition stays on that turn in the Portal/native
+events without starting a replacement turn. Then verify Stop and the retained
+draft behavior after a stale or failed steer. Record the exact service,
+browser, and headset result before claiming wearer acceptance.
+
 The automated tests use fake app-server responses and isolated HTTP state.
 The native probe exercised Codex delivery but no Matrix tools. No live Matrix
 service, world, Quest headset, or wearer result was exercised here. A

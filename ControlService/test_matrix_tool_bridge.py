@@ -201,14 +201,28 @@ class MatrixToolBridgeTests(unittest.TestCase):
         with patch("matrix_tool_bridge.MOVE_WAIT", .05):
             queued = spawn_surface(self.bridge.url, self.bridge.token, request)
         self.assertEqual(queued["status"], "queued")
+        self.assertEqual(queued["anchorId"], "web-floor")
+        self.assertEqual(queued["supportAnchorId"], "webxr-plane-1")
         self.assertEqual(self.state.pending[queued["requestId"]]["anchorId"], "webxr-plane-1")
-        room["scene"]["objects"].append({"objectId": "chair-1", "assetId": "chair",
-                                         "anchorId": "webxr-plane-1", "transform": pose})
+        canonical_pose = copy.deepcopy(pose)
+        canonical_pose["position"]["x"] = .75
         self.state.exchange({"clientId": "web-client", "snapshot": room,
                              "results": [{"requestId": queued["requestId"], "ok": True,
-                                          "objectId": "chair-1", "error": ""}]})
+                                          "objectId": "chair-1", "error": "",
+                                          "outcome": {"kind": "room-surface-spawn",
+                                                      "supportAnchorId": "webxr-plane-1",
+                                                      "anchorId": "web-floor",
+                                                      "transform": canonical_pose}}]})
         self.assertEqual(spawn_status(self.bridge.url, self.bridge.token,
-                                      queued["requestId"])["status"], "succeeded")
+                                      queued["requestId"])["status"], "unconfirmed",
+                         "the receipt alone cannot prove a durable scene object")
+        room["scene"]["objects"].append({"objectId": "chair-1", "assetId": "chair",
+                                         "anchorId": "web-floor", "transform": canonical_pose})
+        self.state.exchange({"clientId": "web-client", "snapshot": room, "results": []})
+        spawned = spawn_status(self.bridge.url, self.bridge.token, queued["requestId"])
+        self.assertEqual(spawned["status"], "succeeded")
+        self.assertEqual(spawned["objectId"], "chair-1")
+        self.assertEqual(spawned["transform"], canonical_pose)
 
         spatial = room_spatial_context(self.bridge.url, self.bridge.token)
         move = {"room_id": spatial["roomId"], "scene_revision": spatial["sceneRevision"],
@@ -254,6 +268,18 @@ class MatrixToolBridgeTests(unittest.TestCase):
         self.assertEqual(receipt["status"], "succeeded")
         self.assertEqual(receipt["constraintAnchorId"], "webxr-plane-1")
         self.assertEqual(receipt["transform"]["position"], move["position"])
+
+        desktop = copy.deepcopy(room)
+        desktop["scene"]["roomId"] = "web-virtual-room-v1"
+        desktop["runtimeDescriptor"]["presentation"] = "desktop"
+        desktop["roomContext"] = {"mode": "white-room", "state": "ready",
+                                  "message": "Virtual room", "alignmentVerified": False}
+        desktop["anchors"] = [{"anchorId": "web-floor", "displayName": "Virtual floor"}]
+        desktop.pop("spatialObservation")
+        self.state.exchange({"clientId": "web-client", "snapshot": desktop, "results": []})
+        carried = spawn_status(self.bridge.url, self.bridge.token, queued["requestId"])
+        self.assertEqual(carried["status"], "succeeded")
+        self.assertEqual(carried["observedRoomId"], "web-virtual-room-v1")
 
     def test_native_image_turn_blocks_matrix_mutations_at_private_bridge(self):
         self.state.agent_portal._native_starting = True

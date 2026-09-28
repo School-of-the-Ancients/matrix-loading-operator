@@ -472,7 +472,7 @@ class AgentPortalHTTPTests(unittest.TestCase):
                           "objects": [{"objectId": "tower-1", "assetId": "tower",
                                        "anchorId": "web-floor", "transform": pose()}]},
                 "assets": [{"assetId": "tower", "displayName": "Tower",
-                            "localBounds": {"center": point(), "size": point(1, 2, 1)}}],
+                            "localBounds": {"center": point(0, 1, 0), "size": point(1, 2, 1)}}],
                 "anchors": [{"anchorId": "web-floor", "displayName": "Virtual floor"},
                             {"anchorId": "floor-1", "displayName": "Measured floor",
                              "source": "webxr", "semanticLabels": ["FLOOR"],
@@ -588,7 +588,8 @@ class AgentPortalHTTPTests(unittest.TestCase):
         table_token = targeted["planes"][0]["spatialToken"]
         table_move = {**move, "anchor_id": "table-1",
                       "scene_revision": targeted["sceneRevision"],
-                      "spatial_token": table_token}
+                      "spatial_token": table_token,
+                      "position": point(1, .7, 0)}
         targeted_move = self.state.agent_move_room(table_move)
         self.assertEqual(targeted_move["status"], "queued")
         self.state.pending.clear()

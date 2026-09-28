@@ -197,9 +197,10 @@ def matrix_spawn_on_surface(room_id: str, scene_revision: int, spatial_token: st
     expressed in that anchor's local coordinates;
     position.y is clearance above its polygon. Matrix rechecks room identity,
     origin/tracking and the token before queueing, then validates the asset's
-    footprint again when the browser executes. Inspect matrix_spawn_status and
-    the live scene before claiming success. Physical-plane objects are scoped
-    to the current AR session and do not survive leaving AR as world entities.
+    footprint and nearby measured planes when the browser executes. A successful
+    room-constrained placement becomes a web-floor object in the same saved
+    digital world; the support ID remains session-local. Inspect
+    matrix_spawn_status and the live scene before claiming success.
     """
     return spawn_surface(os.environ["MATRIX_CONTROL_URL"],
                          os.environ["MATRIX_CONTROL_TOKEN"],

@@ -34,8 +34,10 @@ import {archiveAndClearRoom,archiveAndRebaseRoom,roomArchives,
 import {BlockScaleUI} from './block_scale_ui.js';
 import {CitizensPanel} from './citizens_panel.js';
 import {citizensFurnitureReadiness} from './citizens.js';
+import {initializePanelSections,revealPanelSection} from './panel_sections.js';
 
 const $=id=>document.getElementById(id);
+initializePanelSections($('world-operator-panel'),sessionStorage);
 const sidebarToggle=$('toggle-sidebar');
 sidebarToggle.addEventListener('click',()=>{
   const expanded=sidebarToggle.getAttribute('aria-expanded')==='true';
@@ -65,7 +67,7 @@ let persistenceWarning='',restoreWarning='';
 let cameraBusy=false;
 const recorder=new VoiceRecorder();let voiceStarting=false,voiceRecording=false,voiceStopRequested=false,voiceJob=null,voiceSnapshot=null,voiceDestination='planner',voiceAgentContext=null,voiceBlenderPlacement=null;
 let replyContext=null,replySource=null;
-let agentClient=null,conceptUI=null,panoramaUI=null,agentActionBusy=false,agentVoiceStatus='',voiceSteerTurnId=null;
+let agentClient=null,conceptUI=null,panoramaUI=null,agentActionBusy=false,agentVoiceStatus='',voiceSteerTurnId=null,agentNeedsAttention=false;
 let creationMode=loadCreationMode(sessionStorage);
 const pendingBlenderReceiptIds=new Set();
 function unlockReplyAudio(){
@@ -481,6 +483,9 @@ function renderAgent(){
   $('agent-connect').textContent=status?'Reconnect Codex':'Start or resume Codex';
   $('agent-approval').classList.toggle('hidden',!pending);
   $('agent-approval-summary').textContent=agentApprovalText(pending);
+  const needsAttention=!!pending||!!status?.activeTurnId;
+  if(needsAttention&&!agentNeedsAttention)revealPanelSection($('section-agent'));
+  agentNeedsAttention=needsAttention;
   $('agent-connect').disabled=agentActionBusy;
   $('agent-send').textContent=status?.activeTurnId?'Add to current turn':'Send to Codex';
   $('agent-send-hint').textContent=status?.activeTurnId?
@@ -939,6 +944,7 @@ async function showProposal(data,requestText='',blenderPlacement=null){
   if(proposal&&$('auto-apply-safe').checked&&proposal.commands?.length&&proposal.commands.every(command=>SAFE_AUTO_OPS.has(command.op))){
     await applyProposal();return;
   }
+  if(pending)revealPanelSection($('section-planner'));
   feedback(pending?'Review the proposal, then Apply in the world or browser.':data.message||'No scene edits proposed.');
 }
 async function applyProposal(){
