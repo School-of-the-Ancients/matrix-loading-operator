@@ -6,6 +6,7 @@ const rotation = value => ({x:Number(THREE.MathUtils.radToDeg(value.x).toFixed(2
 const STICK_DEAD_ZONE=.18;
 const STICK_SPEED=.75;
 const STICK_TRAVEL_LIMIT=3;
+const STICK_ANGULAR_SPEED=THREE.MathUtils.degToRad(120);
 
 export function beginGrab(controller,root){
   controller.updateMatrixWorld(true);
@@ -14,6 +15,7 @@ export function beginGrab(controller,root){
   return {controller,root,
     offset:new THREE.Matrix4().copy(controller.matrixWorld).invert().multiply(root.matrixWorld),
     stickOffset:new THREE.Vector3(),
+    stickRotation:new THREE.Quaternion(),
     startPosition:root.getWorldPosition(new THREE.Vector3()),
     startQuaternion:root.getWorldQuaternion(new THREE.Quaternion())};
 }
@@ -40,6 +42,23 @@ export function moveGrabThumbstick(grab,axes,vertical,viewerDirection,seconds){
   return true;
 }
 
+export function rotateGrabThumbstick(grab,axes,viewerDirection,seconds){
+  if(!grab||!axes||axes.length<4||!viewerDirection||!Number.isFinite(seconds)||seconds<=0)return false;
+  const x=axes[2],y=axes[3];
+  if(!Number.isFinite(x)||!Number.isFinite(y)||Math.abs(x)>1||Math.abs(y)>1)return false;
+  const magnitude=Math.hypot(x,y);
+  if(magnitude<=STICK_DEAD_ZONE)return false;
+  const forward=new THREE.Vector3(viewerDirection.x,0,viewerDirection.z);
+  if(!Number.isFinite(forward.x)||!Number.isFinite(forward.z)||forward.lengthSq()<1e-6)return false;
+  forward.normalize();
+  const right=new THREE.Vector3().crossVectors(forward,new THREE.Vector3(0,1,0));
+  const axis=new THREE.Vector3(0,x/magnitude,0).addScaledVector(right,-y/magnitude).normalize();
+  const angle=Math.min(1,(Math.min(magnitude,1)-STICK_DEAD_ZONE)/(1-STICK_DEAD_ZONE))*
+    STICK_ANGULAR_SPEED*Math.min(seconds,.1);
+  grab.stickRotation.premultiply(new THREE.Quaternion().setFromAxisAngle(axis,angle)).normalize();
+  return true;
+}
+
 export function moveGrab(grab){
   if(grab.controller.visible===false)return false;
   grab.controller.updateMatrixWorld(true);
@@ -47,6 +66,13 @@ export function moveGrab(grab){
   world.elements[12]+=grab.stickOffset?.x||0;
   world.elements[13]+=grab.stickOffset?.y||0;
   world.elements[14]+=grab.stickOffset?.z||0;
+  if(grab.stickRotation &&
+      (Math.abs(grab.stickRotation.x)>1e-12||Math.abs(grab.stickRotation.y)>1e-12||
+        Math.abs(grab.stickRotation.z)>1e-12)){
+    const worldPosition=new THREE.Vector3(),worldQuaternion=new THREE.Quaternion(),worldScale=new THREE.Vector3();
+    world.decompose(worldPosition,worldQuaternion,worldScale);
+    world.compose(worldPosition,grab.stickRotation.clone().multiply(worldQuaternion),worldScale);
+  }
   grab.root.parent?.updateMatrixWorld(true);
   const parentInverse=grab.root.parent ? new THREE.Matrix4().copy(grab.root.parent.matrixWorld).invert() : new THREE.Matrix4();
   const local=parentInverse.multiply(world);

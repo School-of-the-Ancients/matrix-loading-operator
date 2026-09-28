@@ -1,7 +1,7 @@
 import * as THREE from 'three';
 import {GLTFLoader} from 'three/addons/loaders/GLTFLoader.js';
 import {XRSessionController} from './xr_session.js';
-import {beginGrab,moveGrab,moveGrabThumbstick,finishGrab,beginPointerGrab,movePointerGrab,movePointerGrabVertical,finishPointerGrab,moveDesktopCamera} from './grab.js';
+import {beginGrab,moveGrab,moveGrabThumbstick,rotateGrabThumbstick,finishGrab,beginPointerGrab,movePointerGrab,movePointerGrabVertical,finishPointerGrab,moveDesktopCamera} from './grab.js';
 import {viewerPose,planeData,insideBoundary,matchPlaneAnchor,samePlaneShape,measuredFloorHeight} from './spatial.js';
 import {ROOM_ANCHOR_KEY,hasWorldToProtect} from './room_origin.js';
 import {componentFrame} from './components.js';
@@ -386,13 +386,16 @@ export class MatrixView {
       const ray=new THREE.Line(new THREE.BufferGeometry().setFromPoints([new THREE.Vector3(),new THREE.Vector3(0,0,-4)]),
         new THREE.LineBasicMaterial({color:0x5ef7d7,transparent:true,opacity:.7}));
       ray.visible=false;controller.add(ray);this.controllerRays.push(ray);
-      controller.addEventListener('selectstart',event=>{if(this.readOnly)return;this.lastPointingController=controller;this.selectFromController(controller,event.data);});
+      controller.addEventListener('connected',event=>{controller.userData.inputSource=event.data;});
+      controller.addEventListener('selectstart',event=>{if(this.readOnly)return;controller.userData.inputSource=event.data;
+        this.lastPointingController=controller;this.selectFromController(controller,event.data);});
       controller.addEventListener('selectend',()=>{this.releaseOperatorVoice(controller);this.releaseGrab(controller);});
-      controller.addEventListener('disconnected',event=>this.cancelGrab(controller,event.data));
+      controller.addEventListener('disconnected',event=>{if(controller.userData.inputSource===event.data)
+        delete controller.userData.inputSource;this.cancelGrab(controller,event.data);});
       controller.addEventListener('squeezestart',()=>{if(this.readOnly)return;this.lastPointingController=controller;this.onVoiceStart();});
       controller.addEventListener('squeezeend',()=>{if(!this.readOnly)this.onVoiceEnd();});
     }
-    this.grab=null;this.pointerGrab=null;this.pointerLook=null;this.heldOutline=null;this.heldHintGroup=null;
+    this.grab=null;this.pointerGrab=null;this.pointerLook=null;this.heldOutline=null;
     this.renderer.xr.addEventListener('sessionstart',()=>this.onSessionStart());
     this.renderer.xr.addEventListener('sessionend',()=>this.onSessionEnd());
     this.renderer.domElement.addEventListener('pointerdown',e=>this.pointerDown(e));
@@ -1140,8 +1143,6 @@ export class MatrixView {
   setGrabFeedback(grab){
     if(this.heldOutline){this.heldOutline.parent?.remove(this.heldOutline);
       disposeGroup(this.heldOutline);this.heldOutline=null;}
-    if(this.heldHintGroup){this.heldHintGroup.parent?.remove(this.heldHintGroup);
-      disposeGroup(this.heldHintGroup);this.heldHintGroup=null;}
     if(!grab||!this.scene)return;
     grab.root.updateMatrixWorld(true);
     const bounds=new THREE.Box3().setFromObject(grab.root);
@@ -1156,13 +1157,6 @@ export class MatrixView {
       box.dispose();this.heldOutline.position.copy(local.getCenter(new THREE.Vector3()));
       this.heldOutline.renderOrder=101;grab.root.add(this.heldOutline);
     }
-    if(typeof document!=='undefined'){
-      this.heldHintGroup=new THREE.Group();
-      for(const [label,y] of [[`HELD ${grab.objectId}`,.18],['STICK: SIDE / DEPTH'],['CLICK + Y: HEIGHT',-.18]]){
-        const hint=planeLabel(label);hint.position.set(0,y||0,-.38);this.heldHintGroup.add(hint);
-      }
-      grab.controller.add(this.heldHintGroup);
-    }
   }
   updateGrabThumbstick(frame,delta){
     const grab=this.grab,session=this.renderer.xr.getSession?.();
@@ -1175,6 +1169,26 @@ export class MatrixView {
     if(gamepad?.mapping!=='xr-standard')return false;
     return moveGrabThumbstick(grab,gamepad.axes,gamepad.buttons?.[3]?.pressed===true,
       this.xrViewer.direction,delta);
+  }
+  updateGrabRotationThumbstick(frame,delta){
+    const grab=this.grab,session=this.renderer.xr.getSession?.();
+    if(!grab||!frame||!this.renderer.xr.isPresenting||!session||this.readOnly||
+       this.world.digitalWorldVisit||this.world.spatial?.stale||this.world.spatial?.originUnavailable||
+       !grab.controller.visible||this.objectRoots.get(grab.objectId)!==grab.root||
+       !grab.inputSource||!Array.from(session.inputSources||[]).includes(grab.inputSource)||
+       !this.hasFreshXrViewer())return false;
+    const hand=grab.inputSource.handedness;
+    if(hand!=='left'&&hand!=='right')return false;
+    const otherHand=hand==='left'?'right':'left';
+    const sources=Array.from(session.inputSources||[]).filter(source=>
+      source!==grab.inputSource&&source.handedness===otherHand&&
+      source.gamepad?.mapping==='xr-standard');
+    if(sources.length!==1)return false;
+    const source=sources[0];
+    const controller=this.controllers?.find(item=>item!==grab.controller&&
+      item.userData?.inputSource===source&&item.visible!==false);
+    if(!controller)return false;
+    return rotateGrabThumbstick(grab,source.gamepad.axes,this.xrViewer.direction,delta);
   }
   updateHeldGrab(frame,delta){
     if(!this.grab)return;
@@ -1191,6 +1205,7 @@ export class MatrixView {
     const modeReady=this.grab.rigid?this.isPlayMode()&&canPlayWorld(this.world.creatorMode):
       !this.isPlayMode();
     if(tracked&&roomReady&&modeReady&&!this.readOnly){this.updateGrabThumbstick(frame,delta);
+      this.updateGrabRotationThumbstick(frame,delta);
       if(moveGrab(this.grab))this.moveHeldRigid(this.grab);}
   }
   selectFromController(controller,inputSource=null){

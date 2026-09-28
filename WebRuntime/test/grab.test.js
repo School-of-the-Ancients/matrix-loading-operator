@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import * as THREE from 'three';
-import {beginGrab,moveGrab,moveGrabThumbstick,finishGrab,beginPointerGrab,movePointerGrab,movePointerGrabVertical,finishPointerGrab,moveDesktopCamera} from '../src/grab.js';
+import {beginGrab,moveGrab,moveGrabThumbstick,rotateGrabThumbstick,finishGrab,beginPointerGrab,movePointerGrab,movePointerGrabVertical,finishPointerGrab,moveDesktopCamera} from '../src/grab.js';
 import {MatrixWorld,ANCHOR_ID} from '../src/protocol.js';
 import {loadStoredScene,saveStoredScene,restoreStoredScene} from '../src/scene_store.js';
 
@@ -35,7 +35,7 @@ test('controller grab preserves offset, commits a scene transform and remains un
   assert.deepEqual(world.scene.objects[0].transform,original);
 });
 
-test('thumbstick uses a dead zone, frame time, and bounded travel',()=>{
+test('grabbing-hand thumbstick retains its dead zone, frame time, and bounded translation',()=>{
   const scene=new THREE.Scene(),controller=new THREE.Group(),root=new THREE.Group();
   scene.add(controller,root);root.position.z=-2;
   const grab=beginGrab(controller,root),forward=new THREE.Vector3(0,0,-1);
@@ -74,6 +74,89 @@ test('viewer-relative stick translation preserves a rotated AR parent and click 
   assert.deepEqual(transform.scale,{x:2,y:1,z:3});
   const expectedLocal=anchor.worldToLocal(start.clone().add(new THREE.Vector3(.075,.075,0)));
   assert.ok(Math.abs(transform.position.z-expectedLocal.z)<.001);
+});
+
+test('free-hand thumbstick spins and flips the held object in place with a dead zone and bounded angular rate',()=>{
+  const scene=new THREE.Scene(),controller=new THREE.Group(),root=new THREE.Group();
+  scene.add(controller,root);root.position.z=-2;
+  const grab=beginGrab(controller,root),forward=new THREE.Vector3(0,0,-1);
+  assert.equal(rotateGrabThumbstick(grab,[0,0,.17,0],forward,.1),false);
+  assert.equal(rotateGrabThumbstick(grab,[0,0,NaN,0],forward,.1),false);
+  assert.equal(rotateGrabThumbstick(grab,[0,0,1,0],forward,0),false);
+  assert.equal(rotateGrabThumbstick(grab,[0,0,1,0],forward,5),true);
+  const twelveDegrees=THREE.MathUtils.degToRad(12);
+  assert.ok(Math.abs(grab.stickRotation.angleTo(new THREE.Quaternion())-twelveDegrees)<1e-9,
+    'a long frame must be capped at a tenth of a second');
+  moveGrab(grab);
+  assert.ok(root.position.distanceTo(new THREE.Vector3(0,0,-2))<1e-9,
+    'stick rotation must not move the object center');
+  assert.ok(root.quaternion.angleTo(new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(0,1,0),twelveDegrees))<1e-7);
+  assert.equal(rotateGrabThumbstick(grab,[0,0,-1,0],forward,.1),true);
+  moveGrab(grab);
+  assert.ok(root.quaternion.angleTo(new THREE.Quaternion())<1e-7,'opposite stick input reverses the spin');
+  const flip=beginGrab(controller,root);
+  assert.equal(rotateGrabThumbstick(flip,[0,0,0,-1],forward,.1),true);
+  moveGrab(flip);
+  assert.ok(root.quaternion.angleTo(new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(1,0,0),twelveDegrees))<1e-7,
+    'stick up flips about the viewer horizontal right axis');
+  const small=beginGrab(controller,new THREE.Group());
+  for(let index=0;index<10;index++)rotateGrabThumbstick(small,[0,0,1,0],forward,.01);
+  assert.ok(Math.abs(small.stickRotation.angleTo(new THREE.Quaternion())-twelveDegrees)<1e-9,
+    'ten short frames rotate as far as one capped tenth-second frame');
+  const lookingEast=beginGrab(controller,new THREE.Group());
+  assert.equal(rotateGrabThumbstick(lookingEast,[0,0,0,-1],new THREE.Vector3(1,0,0),.1),true);
+  assert.ok(lookingEast.stickRotation.angleTo(new THREE.Quaternion().setFromAxisAngle(
+    new THREE.Vector3(0,0,1),twelveDegrees))<1e-7,
+  'flip axis follows the viewer horizontal right as the viewer turns');
+  const somersaultRoot=new THREE.Group();somersaultRoot.position.z=-2;scene.add(somersaultRoot);
+  const somersault=beginGrab(controller,somersaultRoot);
+  for(let index=0;index<15;index++)rotateGrabThumbstick(somersault,[0,0,0,-1],forward,.1);
+  moveGrab(somersault);
+  assert.ok(somersaultRoot.quaternion.angleTo(new THREE.Quaternion().setFromAxisAngle(
+    new THREE.Vector3(1,0,0),Math.PI))<1e-7,'the stick can turn the object upside down');
+  for(let index=0;index<15;index++)rotateGrabThumbstick(somersault,[0,0,0,-1],forward,.1);
+  moveGrab(somersault);
+  assert.ok(somersaultRoot.quaternion.angleTo(new THREE.Quaternion())<1e-7,
+    'continued stick input completes the flip without a travel limit');
+  assert.ok(somersaultRoot.position.distanceTo(new THREE.Vector3(0,0,-2))<1e-9);
+});
+
+test('viewer-relative spin and flip compose with translation, a moving AR parent, and saved transform',()=>{
+  const scene=new THREE.Scene(),controller=new THREE.Group(),anchor=new THREE.Group();
+  anchor.rotation.y=Math.PI/2;scene.add(controller,anchor);
+  const root=new THREE.Group();root.position.set(0,.5,-2);root.scale.set(2,1,3);anchor.add(root);
+  scene.updateMatrixWorld(true);
+  const grab=beginGrab(controller,root),forward=new THREE.Vector3(0,0,-1);
+  anchor.position.x=.25;anchor.rotation.y+=Math.PI/4;
+  controller.position.x=.4;controller.rotation.y=Math.PI/6;
+  controller.updateMatrixWorld(true);
+  const controllerWorld=new THREE.Matrix4().multiplyMatrices(controller.matrixWorld,grab.offset);
+  const expectedPosition=new THREE.Vector3(),physicalRotation=new THREE.Quaternion(),expectedScale=new THREE.Vector3();
+  controllerWorld.decompose(expectedPosition,physicalRotation,expectedScale);
+  assert.equal(moveGrabThumbstick(grab,[0,0,0,-1],false,forward,.1),true);
+  expectedPosition.add(grab.stickOffset);
+  assert.equal(rotateGrabThumbstick(grab,[0,0,1,0],forward,.1),true);
+  assert.equal(rotateGrabThumbstick(grab,[0,0,0,-1],forward,.1),true);
+  moveGrab(grab);
+  assert.ok(root.getWorldPosition(new THREE.Vector3()).distanceTo(expectedPosition)<1e-9,
+    'stick rotation must retain the controller-derived world position');
+  assert.ok(root.getWorldQuaternion(new THREE.Quaternion()).angleTo(grab.stickRotation.clone().multiply(physicalRotation))<1e-9,
+    'stick rotation composes with physical controller rotation in world space');
+  assert.ok(root.scale.distanceTo(expectedScale)<1e-9);
+  const original={position:{x:0,y:.5,z:-2},rotation:{x:0,y:0,z:0},scale:{x:2,y:1,z:3}};
+  const transform=finishGrab(grab,original);
+  assert.deepEqual(transform.scale,{x:2,y:1,z:3});
+  assert.ok(Math.abs(transform.rotation.x)>1&&Math.abs(transform.rotation.y)>1);
+  const world=new MatrixWorld(()=> 'held-object');
+  assert.equal(world.execute({requestId:'spawn',op:'spawn',assetId:'block',anchorId:ANCHOR_ID,transform:original}).ok,true);
+  assert.equal(world.execute({requestId:'spin',op:'set_transform',objectId:'held-object',transform}).ok,true);
+  const values=new Map(),storage={getItem:key=>values.get(key)||null,
+    setItem:(key,value)=>values.set(key,value),removeItem:key=>values.delete(key)};
+  assert.equal(saveStoredScene(world.scene,storage,storage),'');
+  const reopened=new MatrixWorld();restoreStoredScene(reopened,loadStoredScene(storage,storage));
+  assert.deepEqual(reopened.requireObject('held-object').transform,transform);
+  assert.equal(world.execute({requestId:'undo',op:'undo'}).ok,true);
+  assert.deepEqual(world.requireObject('held-object').transform,original);
 });
 
 test('lost controller tracking suspends a grab at its last valid transform',()=>{
