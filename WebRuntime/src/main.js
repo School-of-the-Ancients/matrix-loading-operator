@@ -6,20 +6,23 @@ import {VoiceRecorder} from './voice.js';
 import {CameraStream} from './camera_stream.js';
 import {AgentClient,agentActivityLabel} from './agent_client.js';
 import {ConceptUI} from './concept_ui.js';
+import {PanoramaUI} from './panorama_ui.js';
 import {loadCreationMode,saveCreationMode,creationModeFromPanelAction} from './creation_mode.js';
-import {parseConceptIntent,isSelectedConceptBuildRequest,
+import {parsePanoramaIntent,parseConceptIntent,isSelectedConceptBuildRequest,
   stopPlannerConceptFallback,plannerVoiceFallbackAllowed} from './concept_intent.js';
+import {validEnvironmentAsset,sameEnvironment} from './environment.js';
 import {captureAgentContext} from './agent_context.js';
 import {bindBlenderRequestContext,captureBlenderPlacement,
   captureBlenderRequestContext,queueBlenderPlacement,
   registeredBlenderAsset} from './blender_placement.js';
 import {routeOperatorRequest} from './operator_route.js';
-import {loadStoredWorld,restoreStoredWorld,restoreBestStoredWorld,storedWorld,storedBrowserWorld,
+import {loadStoredWorld,restoreStoredWorld,restoreBestStoredWorldWithEnvironment,storedWorld,storedBrowserWorld,
   saveCheckpoint,loadCheckpoint,loadCitizensDeletionRecovery,clearCitizensDeletionRecovery,
   WORLD_KEY} from './scene_store.js';
-import {applyPCWorld} from './world_checkpoint.js';
-import {startNewWorld,restoreWorldArchive,worldArchiveSummaries,
+import {applyPCWorld,applyBrowserCheckpoint,captureWorldRestoreGuard} from './world_checkpoint.js';
+import {startNewWorld,restoreWorldArchive,worldArchives,worldArchiveSummaries,
   executeWorldSlotCommand} from './world_slots.js';
+import {refreshAssetCatalogs} from './catalog_refresh.js';
 import {loadConversation,rememberTurn,clearConversation} from './conversation.js';
 import {startGame,deliverMovedObject,recordGameEvent,gameStatus} from './game.js';
 import {transitionCreatorMode,canPlayWorld} from './creator_mode.js';
@@ -61,7 +64,7 @@ let persistenceWarning='',restoreWarning='';
 let cameraBusy=false;
 const recorder=new VoiceRecorder();let voiceStarting=false,voiceRecording=false,voiceStopRequested=false,voiceJob=null,voiceSnapshot=null,voiceDestination='planner',voiceAgentContext=null,voiceBlenderPlacement=null;
 let replyContext=null,replySource=null;
-let agentClient=null,conceptUI=null,agentActionBusy=false,agentVoiceStatus='';
+let agentClient=null,conceptUI=null,panoramaUI=null,agentActionBusy=false,agentVoiceStatus='';
 let creationMode=loadCreationMode(sessionStorage);
 const pendingBlenderReceiptIds=new Set();
 function unlockReplyAudio(){
@@ -78,6 +81,8 @@ const feedback=(message,isError=false)=>{
 };
 const view=new MatrixView($('view'),world,()=>{discardProposal();scaleUI?.refreshTargets();citizensPanel?.render();feedback(`Selected ${world.selection.objectId||'placement point'} at ${Object.values(world.selection.position).join(', ')} m.`);},()=>$('token').value.trim(),message=>feedback(message,true),(id,position)=>{discardProposal();const delivered=deliverMovedObject(world,id);if(delivered)speakReply(delivered);renderScene();feedback(delivered||`Moved ${id.slice(0,8)} to ${Object.values(position).join(', ')} m. Undo and Save are available.`);},()=>{if(!view.isAR)cameraStream.stop();if(!view.isAR||!world.spatial?.originUnavailable){roomResetArmedUntil=0;roomRecoveryChoice='';}updateCameraControls();discardProposal();renderScene();},beginVoice,endVoice,()=>{$('speak-replies').checked=!$('speak-replies').checked;view.setVoiceOutputEnabled($('speak-replies').checked);unlockReplyAudio();},reviewView,newChat);
 view.onPanelAction=panelAction;
+view.xrEntryBlocker=()=>pendingWorld||pcWorldBusy||worldSwitchBusy?
+  'Finish world recovery or checkpoint restore before entering XR.':'';
 function setConceptCreationMode(mode){
   creationMode=saveCreationMode(sessionStorage,mode);
   $('concept-creation-mode').value=creationMode;
@@ -164,6 +169,15 @@ function discardProposal(){
 
 function updateWorldControls(){
   const creator=world.creatorMode;
+  const environment=world.scene.environment;
+  const environmentAsset=environment&&world.environmentAsset(environment.assetId);
+  const environmentLabel=environment?
+    `${environmentAsset?.displayName||environment.assetId} · yaw ${environment.yawDegrees}°`:
+    'No panorama selected';
+  $('environment-status').textContent=environment?
+    `Panorama: ${environmentLabel}${view.isAR?' · hidden in AR to preserve passthrough':''}`:
+    'Panorama: none. Desktop and VR use the neutral background.';
+  panoramaUI?.updateAvailability();
   $('creator-mode-status').textContent=`${creator.mode==='creator'?'Creator Mode':'Play/Test Mode'} · simulation ${creator.simulation} · revision ${creator.revision}`;
   $('enter-play').disabled=!!pendingWorld||world.digitalWorldVisit||creator.mode==='play';
   $('enter-creator').disabled=!!pendingWorld||world.digitalWorldVisit||creator.mode==='creator';
@@ -183,6 +197,7 @@ function updateWorldControls(){
     creator.simulation==='running';
   $('restore-pc-world').disabled=!!world.spatial||!!pendingWorld||pcWorldBusy||worldSwitchBusy||
     creator.mode!=='creator';
+  $('apply').disabled=!!pendingWorld||pcWorldBusy||worldSwitchBusy;
   $('restore-pc-world').textContent=performance.now()<pcRestoreArmedUntil&&
     $('pc-worlds').value===pcRestoreName?'Confirm restore':'Restore world';
   let archives=[];
@@ -211,6 +226,8 @@ function updateWorldControls(){
   const archiveIndex=archives.findIndex(item=>item.archiveId===selectedArchiveId);
   const selectedArchive=archives[archiveIndex];
   view.setOperatorWorldInfo({objects:world.scene.objects.length,canConfirm,restoreArmed:performance.now()<restoreArmedUntil,
+    environmentLabel:environment?`Panorama: ${environmentLabel}${view.isAR?' · AR hidden':''}`:
+      'Panorama: none',
     originUnavailable,resetAvailable,canRetryOrigin,
     recoveryArmed:performance.now()<roomResetArmedUntil?roomRecoveryChoice:'',
     archiveCount:archives.length,archiveIndex:Math.max(0,archiveIndex),
@@ -358,11 +375,18 @@ const bridge=new MatrixBridge(world,()=>$('token').value.trim(),event=>{
     feedback(message,!event.result.ok);lastOperatorReply=lastOperatorReply?`${lastOperatorReply}\n\n${message}`:message;operatorMessageUntil=Infinity;view.setOperatorStatus(lastOperatorReply,event.result.ok?'idle':'error');
   }
 });
-bridge.onWorldSlotCommand=command=>{
+bridge.prepareEnvironment=environment=>view.prepareEnvironment(environment);
+bridge.onWorldSlotCommand=async command=>{
   if(command.op==='list_world_archives')
     return executeWorldSlotCommand(world,command,sessionStorage,localStorage);
   const blocker=worldSwitchBlocker({fromAgent:true});
   if(blocker)throw Error(blocker);
+  if(command.op==='restore_world_archive'){
+    const target=worldArchives(localStorage).find(item=>
+      item.archiveId===command.archiveId);
+    if(target?.world?.scene?.environment)
+      await view.prepareEnvironment(target.world.scene.environment);
+  }
   // This command is executing inside the exchange, so it cannot wait for an
   // exclusive exchange. The archive transaction itself is synchronous.
   worldSwitchBusy=true;
@@ -454,12 +478,15 @@ function renderAgent(){
   const inWorld=latest?`You: ${latest.user.slice(0,180)}${latest.user.length>180?'…':''}\n\nCodex: ${(latest.assistant||'…').slice(-900)}`:
     status?'Ready. Hold the trigger or grip to speak to Codex.':'Connect to Codex on the PC.';
   const conceptStatus=conceptUI?.statusForWorld()||'';
-  view.setOperatorAgentStatus({activity,content:[accessLabel,conceptStatus,agentVoiceStatus,agentApprovalText(pending),
+  const panoramaStatus=panoramaUI?.statusForWorld()||'';
+  view.setOperatorAgentStatus({activity,content:[accessLabel,conceptStatus,panoramaStatus,agentVoiceStatus,agentApprovalText(pending),
     agentClient?.error?`Connection: ${agentClient.error}`:'',inWorld].filter(Boolean).join('\n\n'),
     pending:!!pending,approvalReviewable:pending?.reviewable===true,
     active:!!status?.activeTurnId,connected:!!status&&!agentClient.error,
     voiceStatus:agentVoiceStatus,latestTurnId:latest?.turnId||''});
   view.setOperatorConceptGallery(conceptUI?.galleryForWorld()||[]);
+  view.setOperatorPanoramaGallery(panoramaUI?.galleryForWorld()||[]);
+  panoramaUI?.render();
 }
 agentClient=new AgentClient((path,body)=>bridge.request(path,body),localStorage,renderAgent);
 conceptUI=new ConceptUI({request:(path,body)=>bridge.request(path,body),
@@ -468,10 +495,81 @@ conceptUI=new ConceptUI({request:(path,body)=>bridge.request(path,body),
     return agentClient.sessionId;
   },getSession:()=>agentClient.sessionId,getToken:()=>$('token').value.trim(),onChange:renderAgent});
 conceptUI.bind();
+function panoramaActionBlocker(){
+  if(pendingWorld)return 'Finish saved-world recovery before applying a panorama.';
+  if(pcWorldBusy||worldSwitchBusy)return 'Wait for the current world save or restore.';
+  if(view.isAR||world.spatial)return 'Leave AR to apply a panorama; passthrough stays visible there.';
+  if(world.digitalWorldVisit)return 'Return to the editable digital world to apply a panorama.';
+  if(world.scene.roomId!=='web-virtual-room-v1')return 'Open the editable virtual world to apply a panorama.';
+  if(world.creatorMode.mode!=='creator'||world.creatorMode.simulation!=='paused')
+    return 'Pause Play/Test and return to Creator Mode before applying a panorama.';
+  if(world.agentGrab)return 'Release the held object before applying a panorama.';
+  return '';
+}
+async function waitForPanoramaStatus(requestId,target,objectIds){
+  if(!/^[0-9a-f]{32}$/.test(requestId||''))throw Error('Panorama action returned no valid request ID.');
+  for(let attempt=0;attempt<70;attempt++){
+    await bridge.tick(true);
+    const result=await bridge.request(`/api/agent/environments/actions/${requestId}`);
+    if(result?.requestId!==requestId)throw Error(`Panorama receipt ${requestId} changed; inspect the world.`);
+    if(result.status==='succeeded'){
+      if(!sameEnvironment(world.scene.environment??null,target)||
+        JSON.stringify(world.scene.objects.map(item=>item.objectId))!==JSON.stringify(objectIds))
+        throw Error(`Panorama receipt ${requestId} succeeded but the local world changed; inspect it before another action.`);
+      renderScene();
+      return result;
+    }
+    if(result.status==='failed')throw Error(`Panorama request ${requestId} failed: ${result.error||'inspect the exact receipt'}`);
+    if(result.status==='unconfirmed')throw Error(`Panorama request ${requestId} is unconfirmed; inspect its status and the world before retrying.`);
+    if(result.status!=='queued')throw Error(`Panorama request ${requestId} has an unknown status; inspect it before retrying.`);
+    await new Promise(resolve=>setTimeout(resolve,400));
+  }
+  throw Error(`Panorama request ${requestId} has no confirmed result yet; inspect its status before retrying.`);
+}
+async function changeWorldPanorama(action,asset=null,yawDegrees=0){
+  const blocker=panoramaActionBlocker();if(blocker)throw Error(blocker);
+  let target=null;
+  const generation=world.authoredGeneration;
+  if(action==='set'){
+    if(!validEnvironmentAsset(asset))throw Error('Generated panorama registration is invalid.');
+    await refreshAssets(true,{strict:true});
+    const loaded=world.environmentAsset(asset.assetId);
+    if(!loaded||loaded.sha256!==asset.sha256)
+      throw Error('Registered panorama is missing from the refreshed browser catalog.');
+    target={schemaVersion:1,kind:'equirectangular',assetId:asset.assetId,
+      sha256:asset.sha256,yawDegrees};
+    await view.prepareEnvironment(target);
+  }
+  if(world.authoredGeneration!==generation||panoramaActionBlocker())
+    throw Error('World changed while preparing the panorama; inspect it before applying.');
+  await bridge.sync();
+  const state=await bridge.request('/api/state');
+  if(!state?.online||state.clientId!==bridge.clientId||
+    state.snapshot?.scene?.roomId!==world.scene.roomId||
+    !sameEnvironment(state.snapshot.scene.environment??null,world.scene.environment??null)||
+    panoramaActionBlocker())
+    throw Error('Connected world changed; inspect its current scene before applying a panorama.');
+  const objectIds=world.scene.objects.map(item=>item.objectId);
+  const queued=await bridge.request('/api/agent/environments/action',{
+    action,room_id:world.scene.roomId,scene_revision:state.revision,
+    ...(action==='set'?{asset_id:asset.assetId,yaw_degrees:yawDegrees}:{})});
+  if(!queued?.requestId)throw Error('Panorama action has no request ID; inspect the world before retrying.');
+  return waitForPanoramaStatus(queued.requestId,target,objectIds);
+}
+panoramaUI=new PanoramaUI({client:conceptUI.client,
+  ensureSession:async()=>{
+    if(!agentClient.status||agentClient.error)await agentClient.connect();
+    return agentClient.sessionId;
+  },getSession:()=>agentClient.sessionId,getToken:()=>$('token').value.trim(),
+  canApply:panoramaActionBlocker,removeAvailable:()=>!!world.scene.environment,
+  apply:(asset,yaw)=>changeWorldPanorama('set',asset,yaw),
+  remove:()=>changeWorldPanorama('remove'),onChange:renderAgent});
+panoramaUI.bind();
 renderAgent();
 if(agentClient.sessionId)agentClient.restore().then(()=>conceptUI.refresh()).catch(()=>{});
 setInterval(()=>{if(agentClient.sessionId&&!agentClient.error&&!agentActionBusy)agentClient.poll().catch(()=>{});},800);
-setInterval(()=>{if(agentClient.sessionId&&!conceptUI.busy)conceptUI.refresh().catch(()=>{});},2400);
+setInterval(()=>{if(agentClient.sessionId&&!conceptUI.busy)
+  conceptUI.refresh().then(()=>panoramaUI.advanceQueue()).catch(()=>{});},2400);
 async function agentAction(action){
   if(agentActionBusy)return;
   agentActionBusy=true;renderAgent();
@@ -482,6 +580,11 @@ async function agentAction(action){
 function sendAgent(){
   const text=$('agent-input').value.trim();
   if(!text){feedback('Enter a message for Codex first.',true);return;}
+  if(parsePanoramaIntent(text)){
+    agentAction(async()=>{const message=await panoramaUI.handleText(text);
+      $('agent-input').value='';feedback(message);view.setOperatorStatus(message);});
+    return;
+  }
   if(parseConceptIntent(text)){
     agentAction(async()=>{const message=await conceptUI.handleText(text);
       $('agent-input').value='';feedback(message);view.setOperatorStatus(message);});
@@ -510,22 +613,30 @@ $('agent-input').addEventListener('keydown',event=>{if(event.key==='Enter'&&(eve
 $('token').addEventListener('change',()=>{if(agentClient.sessionId)agentClient.restore().catch(()=>{});});
 async function refreshAssets(silent=false,{strict=false}={}){
   try{
-    const data=await bridge.request('/api/web/assets');
-    const changed=world.registerAssets(data.assets||[]);
-    view.refreshAssets(changed);
-    $('asset-count').textContent=`${7+world.externalAssets.length} available`;
+    const {data,environmentError}=await refreshAssetCatalogs(world,
+      path=>bridge.request(path),changed=>view.refreshAssets(changed));
+    view.syncEnvironment();
+    $('asset-count').textContent=`${7+world.externalAssets.length} objects · ${world.environmentAssets.length} panoramas`;
     if(pendingWorld){
-      const restored=restoreBestStoredWorld(world,pendingWorld,localStorage);
+      const restored=await restoreBestStoredWorldWithEnvironment(world,pendingWorld,
+        localStorage,environment=>{
+          if(environmentError)throw Error(`Panorama catalog unavailable: ${environmentError.message}`);
+          return view.prepareEnvironment(environment);
+        });
       if(restored.state==='waiting'){
         const dependencies=restored.missingAssets||restored.missingGenerators||[];
         const missing=dependencies.slice(0,3).join(', ');
         const more=dependencies.length>3?
           ` and ${dependencies.length-3} more`:'';
-        restoreWarning=restored.missingGenerators?
+        restoreWarning=restored.reason?.startsWith('Saved panorama could not be verified:')?
+          `${restored.reason}. Browser copies remain untouched. Restore the registered image and choose Refresh assets.`:
+          restored.missingGenerators?
           `Saved world needs reviewed generator source ${missing}${more}. Browser copies remain untouched. Restore that code version and reload.`:
-          `Saved world is waiting for registered web assets: ${missing}${more}. Browser copies remain untouched. Restore the catalog and choose Refresh assets.`;
+          `Saved world is waiting for registered assets or panoramas: ${missing}${more}. Browser copies remain untouched. Restore the catalog and choose Refresh assets.`;
         view.setOperatorWarning(restored.missingGenerators?
-          'SAVED WORLD WAITING FOR GENERATOR SOURCE':'SAVED WORLD WAITING FOR WEB ASSETS');
+          'SAVED WORLD WAITING FOR GENERATOR SOURCE':
+          restored.reason?.startsWith('Saved panorama could not be verified:')?
+            'SAVED WORLD WAITING FOR PANORAMA':'SAVED WORLD WAITING FOR WEB ASSETS');
         updateWorldControls();
         feedback('World recovery is waiting for required assets.',true);
         return;
@@ -549,11 +660,13 @@ async function refreshAssets(silent=false,{strict=false}={}){
       if(restored.rejected.length)feedback('World recovery needs attention.',true);
     }
     initXRIfReady();
-    if(!silent)feedback(`Catalog updated: ${world.externalAssets.length} web assets.`);
+    if(!silent)feedback(environmentError?
+      `Object catalog updated; panorama catalog unavailable: ${environmentError.message}`:
+      `Catalog updated: ${world.externalAssets.length} web assets.`,!!environmentError);
     return data;
   }catch(error){
     if(pendingWorld){
-      restoreWarning=`Saved world is waiting for the Web asset catalog: ${error.message}. Browser copies remain untouched; Refresh assets will retry.`;
+      restoreWarning=`Saved world is waiting for the asset catalogs: ${error.message}. Browser copies remain untouched; Refresh assets will retry.`;
       view.setOperatorWarning('SAVED WORLD WAITING FOR WEB ASSET CATALOG');
       updateWorldControls();
       feedback('World recovery is waiting for the asset catalog.',true);
@@ -576,7 +689,7 @@ setInterval(()=>persistCurrentWorld({periodic:true,
 addEventListener('beforeunload',()=>{
   if(canPlayWorld(world.creatorMode)&&world.scene.objects.some(object=>
     object.rigidBody?.type==='dynamic'))persistCurrentWorld({quiet:true});
-  conceptUI?.destroy();cameraStream.stop();bridge.stop();
+  conceptUI?.destroy();panoramaUI?.destroy();cameraStream.stop();bridge.stop();
 });
 
 async function call(path,body,success){
@@ -596,6 +709,7 @@ async function refreshPCWorlds(){
   select.value=current;
 }
 function operatorRoute(text){
+  if(parsePanoramaIntent(text))return {destination:'panorama',reason:'generated-panorama'};
   if(parseConceptIntent(text))return {destination:'concept',reason:'image-concept'};
   if(isSelectedConceptBuildRequest(text))
     return {destination:'agent',reason:'selected-concept-build'};
@@ -616,6 +730,15 @@ async function sendToAgentFromChat(text,context){
 async function propose(){
   const text=$('prompt').value.trim();if(!text){feedback('Enter a request first.',true);return;}
   const route=operatorRoute(text);
+  if(route.destination==='panorama'){
+    $('propose').disabled=true;
+    try{const message=await panoramaUI.handleText(text);
+      feedback(message);view.setOperatorStatus(message);}
+    catch(error){feedback(`Panorama: ${error.message}`,true);
+      view.setOperatorStatus(`Panorama: ${error.message}`,'error');}
+    finally{$('propose').disabled=false;}
+    return;
+  }
   if(route.destination==='concept'){
     $('propose').disabled=true;
     try{const message=await conceptUI.handleText(text);
@@ -772,7 +895,7 @@ async function showProposal(data,requestText='',blenderPlacement=null){
 }
 async function applyProposal(){
   if(world.digitalWorldVisit){feedback('Leave the AR visit before editing the digital world.',true);return;}
-  if(pendingWorld||worldSwitchBusy){feedback('Finish world recovery or switching before applying a proposal.',true);return;}
+  if(pendingWorld||pcWorldBusy||worldSwitchBusy){feedback('Finish world recovery or switching before applying a proposal.',true);return;}
   if(gameProposal){
     if(JSON.stringify(storedWorld(world))!==gameProposal.worldAtProposal){feedback('The world changed. Ask Codex to plan the game again.',true);discardProposal();return;}
     try{
@@ -819,7 +942,7 @@ async function saveWorld(){
     feedback(`World checkpoint saved in this browser. PC scene backup failed: ${error.message}`,true);
   }
 }
-function restoreWorld(){
+async function restoreWorld(){
   if(world.digitalWorldVisit){feedback('Leave the AR visit before restoring a world.',true);return;}
   if(world.creatorMode.mode!=='creator'){
     feedback('Return to Creator Mode before restoring a browser checkpoint.',true);return;
@@ -841,15 +964,26 @@ function restoreWorld(){
     view.setOperatorWorldNotice('Tap CONFIRM RESTORE within 10 seconds.','pending');return;
   }
   restoreArmedUntil=0;
+  citizensPanel?.pauseForCheckpoint();
+  worldSwitchBusy=true;updateWorldControls();
+  let restored=false;
   try{
-    restoreStoredWorld(world,checkpoint);
+    await applyBrowserCheckpoint(world,checkpoint,bridge,
+      environment=>view.prepareEnvironment(environment),()=>{
+        if(view.grab||view.pointerGrab)
+          throw Error('Release the held object before restoring a checkpoint');
+      });
     discardProposal();
-    renderScene();feedback('World checkpoint restored in this browser.');
+    restored=true;
     view.setOperatorWorldNotice('Browser world checkpoint restored.');
     view.setOperatorStatus('World checkpoint restored.');
   }catch(error){
     feedback(`Checkpoint could not be restored: ${error.message}`,true);
     view.setOperatorWorldNotice('Browser checkpoint restore failed.','error');
+  }finally{
+    worldSwitchBusy=false;
+    renderScene();
+    if(restored)feedback('World checkpoint restored in this browser.');
   }
 }
 async function savePCWorld(){
@@ -873,6 +1007,7 @@ async function savePCWorld(){
 }
 async function restorePCWorld(){
   if(pcWorldBusy||worldSwitchBusy)return;
+  if(view.xrControls?.busy){feedback('Wait for the XR session to finish starting or stopping before restoring a PC world.',true);return;}
   if(world.creatorMode.mode!=='creator'){
     feedback('Return to Creator Mode before restoring a PC world.',true);return;
   }
@@ -885,15 +1020,30 @@ async function restorePCWorld(){
   }
   pcRestoreArmedUntil=0;pcRestoreName='';updateWorldControls();
   citizensPanel?.pauseForCheckpoint();
+  const unchanged=captureWorldRestoreGuard(world);
   pcWorldBusy=true;updateWorldControls();feedback(`Checking PC world checkpoint ${name}…`);
   let restored=false,restoreError=null;
   try{
     await refreshAssets(true);
+    unchanged();
     await bridge.sync();
+    unchanged();
     const data=await bridge.request('/api/web/world/load',{name});
-    if(world.spatial||pendingWorld)throw Error('The browser left the ready desktop virtual room');
-    await bridge.withExclusiveExchange(syncExclusive=>
-      applyPCWorld(world,data.world,()=>syncExclusive(data.expectedRevision)));
+    await bridge.withExclusiveExchange(async syncExclusive=>{
+      unchanged();
+      if(world.spatial||pendingWorld)throw Error('The browser left the ready desktop virtual room');
+      if(data.world?.scene?.environment)
+        await view.prepareEnvironment(data.world.scene.environment);
+      unchanged();
+      if(view.grab||view.pointerGrab)
+        throw Error('Release the held object before restoring a PC world');
+      // applyPCWorld stages the candidate while the guarded PC exchange is
+      // pending. Keep direct pointer/controller edits off that staged world.
+      const wasReadOnly=view.readOnly;
+      view.readOnly=true;
+      try{await applyPCWorld(world,data.world,()=>syncExclusive(data.expectedRevision));}
+      finally{view.readOnly=wasReadOnly;}
+    });
     discardProposal();restored=true;
   }catch(error){restoreError=error;}
   finally{
@@ -927,14 +1077,20 @@ const worldArchiveName=()=>{
   const title=(world.game?.spec?.title||'Matrix world').slice(0,44);
   return `${title} · ${new Date().toISOString().slice(0,19).replace('T',' ')}`;
 };
-async function switchBrowserWorld(action){
+async function switchBrowserWorld(action,preflight=async()=>{}){
   const blocker=worldSwitchBlocker();
   if(blocker){feedback(blocker,true);view.setOperatorWorldNotice(blocker,'error');return;}
   citizensPanel?.pauseForCheckpoint();
+  const unchanged=captureWorldRestoreGuard(world);
   worldSwitchBusy=true;updateWorldControls();
   let switched=false;
   try{
-    const result=await bridge.withExclusiveExchange(()=>{
+    const result=await bridge.withExclusiveExchange(async()=>{
+      unchanged();
+      await preflight();
+      unchanged();
+      if(view.grab||view.pointerGrab)
+        throw Error('Release the held object before switching worlds');
       const switched=action();
       // Any PC command queued against the prior world needs fresh inspection.
       bridge.rejectPendingOnNextExchange=true;
@@ -954,8 +1110,8 @@ async function switchBrowserWorld(action){
     view.setOperatorWorldNotice(error.message,'error');
   }finally{
     worldSwitchBusy=false;
-    if(switched){renderScene();void bridge.tick(true);}
-    else{view.sync();updateWorldControls();citizensPanel?.render();}
+    renderScene();
+    if(switched)void bridge.tick(true);
   }
 }
 async function beginNewWorld(){
@@ -986,7 +1142,15 @@ async function restoreSelectedArchive(){
   }
   archiveRestoreArmedUntil=0;archiveRestoreId='';
   await switchBrowserWorld(()=>restoreWorldArchive(world,archiveId,
-    sessionStorage,localStorage,worldArchiveName()));
+    sessionStorage,localStorage,worldArchiveName()),async()=>{
+    const target=worldArchives(localStorage).find(item=>item.archiveId===archiveId);
+    if(!target)throw Error('Selected world archive no longer exists');
+    const environment=target.world.scene.environment;
+    if(environment)await view.prepareEnvironment(environment);
+    const current=worldArchives(localStorage).find(item=>item.archiveId===archiveId);
+    if(JSON.stringify(current?.world)!==JSON.stringify(target.world))
+      throw Error('Selected world archive changed during restore preparation');
+  });
 }
 function selectAdjacentArchive(direction){
   let archives;
@@ -1061,6 +1225,23 @@ function changeCreatorMode(action){
 }
 
 function panelAction(action){
+  const panoramaRetry=/^panorama-retry-([1-9]\d*)$/.exec(action);
+  if(panoramaRetry){
+    agentAction(()=>panoramaUI._run(()=>panoramaUI.retryPreviewVersion(Number(panoramaRetry[1]))));
+    return;
+  }
+  const panoramaSelect=/^panorama-select-([1-9]\d*)$/.exec(action);
+  if(panoramaSelect){
+    agentAction(()=>panoramaUI._run(()=>panoramaUI.selectVersion(Number(panoramaSelect[1]))));
+    return;
+  }
+  const panoramaApply=/^panorama-apply-([1-9]\d*)$/.exec(action);
+  if(panoramaApply){
+    const chosen=panoramaUI.client.selectedPanorama;
+    const expected={conceptId:chosen?.conceptId,version:Number(panoramaApply[1])};
+    agentAction(()=>panoramaUI._run(()=>panoramaUI.applySelected(expected)));
+    return;
+  }
   const conceptRetry=/^concept-retry-([1-9]\d*)$/.exec(action);
   if(conceptRetry){
     const version=Number(conceptRetry[1]);
@@ -1087,7 +1268,7 @@ function panelAction(action){
     'undo','redo','clear'].includes(action)){
     feedback('Finish saved-world recovery before changing the world.',true);return;
   }
-  if(pcWorldBusy&&['undo','redo','clear'].includes(action)){
+  if(pcWorldBusy&&['apply','undo','redo','clear'].includes(action)){
     feedback('Wait for the current PC world save or restore to finish.',true);return;
   }
   if(action==='agent-connect')agentAction(()=>agentClient.connect());
@@ -1171,6 +1352,10 @@ async function endVoice(){
       voiceJob='agent-transcribe';voiceButtons();
       const transcript=await agentClient.transcribe(audioBase64);
       voiceStatus(`Heard: ${transcript}`);
+      if(parsePanoramaIntent(transcript)){
+        const message=await panoramaUI.handleText(transcript);
+        voiceStatus(message);return;
+      }
       if(parseConceptIntent(transcript)){
         const message=await conceptUI.handleText(transcript);
         voiceStatus(message);return;
@@ -1193,6 +1378,11 @@ async function endVoice(){
         voiceJob='agent-transcribe';voiceButtons();
         const transcript=await agentClient.transcribe(audioBase64);
         voiceStatus(`Heard: ${transcript}`);
+        if(parsePanoramaIntent(transcript)){
+          $('prompt').value=transcript;
+          const message=await panoramaUI.handleText(transcript);
+          voiceStatus(message);return;
+        }
         if(parseConceptIntent(transcript)){
           $('prompt').value=transcript;
           const message=await conceptUI.handleText(transcript);
@@ -1222,7 +1412,7 @@ async function pollVoice(jobId){
     if(job.transcript&&await stopPlannerConceptFallback(job.transcript,()=>
       bridge.request('/api/voice/cancel',{clientId:bridge.clientId,jobId}))){
       $('prompt').value=job.transcript;
-      voiceStatus('Image or selected design request needs Codex. Reconnect Codex and speak again; no concept or build was started.',true);
+      voiceStatus('Panorama, image, or selected design requests need Codex. Reconnect Codex and speak again; no generation or build was started.',true);
       return;
     }
     if(job.phase==='error'){voiceStatus(job.error||'Voice request failed',true);return;}
@@ -1261,6 +1451,10 @@ $('mode').addEventListener('change',()=>{modeTouched=true;discardProposal();});
 for(const action of ['enter-play','enter-creator','stop-play','resume-play'])
   $(action).addEventListener('click',()=>changeCreatorMode(action));
 $('refresh-assets').addEventListener('click',()=>refreshAssets());
-$('token').addEventListener('change',()=>refreshAssets());
+$('token').addEventListener('change',()=>{
+  refreshAssets();
+  refreshScenes();
+  refreshPCWorlds();
+});
 refreshScenes();
 refreshPCWorlds();

@@ -17,6 +17,7 @@ import urllib.request
 import urllib.parse
 
 from web_assets import WebAssetError
+from web_environments import WebEnvironmentError
 from web_components import ComponentError
 
 
@@ -229,6 +230,30 @@ def list_assets(url: str, token: str, offset: int = 0, limit: int = 24) -> dict:
     return _request_json(url[:-6] + f"/assets?offset={offset}&limit={limit}", token)
 
 
+def list_environments(url: str, token: str, offset: int = 0, limit: int = 24) -> dict:
+    if not url.endswith("/scene"):
+        raise ValueError("Invalid Matrix tool bridge URL")
+    return _request_json(url[:-6] + f"/environments?offset={offset}&limit={limit}", token)
+
+
+def register_panorama(url: str, token: str, value: dict) -> dict:
+    if not url.endswith("/scene"):
+        raise ValueError("Invalid Matrix tool bridge URL")
+    return _request_json(url[:-6] + "/register-panorama", token, value)
+
+
+def environment_action(url: str, token: str, value: dict) -> dict:
+    if not url.endswith("/scene"):
+        raise ValueError("Invalid Matrix tool bridge URL")
+    return _request_json(url[:-6] + "/environment", token, value)
+
+
+def environment_status(url: str, token: str, request_id: str) -> dict:
+    if not url.endswith("/scene") or not re.fullmatch(r"[0-9a-f]{32}", request_id):
+        raise ValueError("Invalid Matrix environment receipt request")
+    return _request_json(url[:-6] + "/environments/actions/" + request_id, token)
+
+
 def register_glb(url: str, token: str, value: dict) -> dict:
     if not url.endswith("/scene"):
         raise ValueError("Invalid Matrix tool bridge URL")
@@ -294,6 +319,9 @@ def scene_summary(state) -> dict:
                 "runtimeDescriptor": snapshot.get("runtimeDescriptor") if online else None,
                 "objectCount": len(objects) if online else 0,
                 "assetCount": len(assets),
+                "environment": scene.get("environment") if online else None,
+                "environmentSchemaVersion": snapshot.get("environmentSchemaVersion") if online else None,
+                "environmentAssetCount": len(snapshot.get("environmentAssets", [])) if online else 0,
                 "assets": [{key: item[key] for key in
                             ("assetId", "displayName", "description", "spawnScale",
                              "localBounds", "sha256") if key in item}
@@ -339,13 +367,14 @@ CONCEPT_SCENE_MUTATIONS = frozenset({
     "/move", "/spawn", "/spawn-builtin", "/procedural", "/bind-game",
     "/update-game", "/display", "/control", "/rigid", "/entity-action",
     "/world-archive", "/bind-animation", "/component-action", "/physics",
-    "/interaction", "/scale"})
+    "/interaction", "/scale", "/environment"})
 
 BRIDGE_POST_PATHS = frozenset({
     "/move", "/spawn", "/spawn-builtin", "/procedural", "/bind-game", "/update-game",
     "/display", "/control", "/rigid", "/inspect-entity", "/entity-action",
     "/world-archive", "/bind-animation", "/register-glb", "/publish-component",
-    "/component-action", "/scale", "/physics", "/interaction", "/concept-build"})
+    "/component-action", "/scale", "/physics", "/interaction", "/concept-build",
+    "/register-panorama", "/environment"})
 NATIVE_IMAGE_BLOCKED_POSTS = BRIDGE_POST_PATHS - {"/inspect-entity"}
 
 
@@ -468,6 +497,13 @@ class _Handler(BaseHTTPRequestHandler):
             except Exception as error:
                 self._send_json(getattr(error, "status", 500),
                                 {"error": str(error) if hasattr(error, "status") else "Matrix tool failed"})
+        elif re.fullmatch(r"/environments/actions/[0-9a-f]{32}", self.path):
+            try:
+                self._send_json(200, self.server.state.agent_environment_status(
+                    self.path.rsplit("/", 1)[1]))
+            except Exception as error:
+                self._send_json(getattr(error, "status", 500),
+                                {"error": str(error) if hasattr(error, "status") else "Matrix tool failed"})
         elif self.path.startswith("/entities?"):
             try:
                 query = urllib.parse.parse_qs(self.path[10:], strict_parsing=True)
@@ -529,6 +565,17 @@ class _Handler(BaseHTTPRequestHandler):
             except Exception as error:
                 self._send_json(getattr(error, "status", 400 if isinstance(error, ValueError) else 500),
                                 {"error": str(error) if hasattr(error, "status") else "Invalid asset page"})
+        elif self.path.startswith("/environments?"):
+            try:
+                query = urllib.parse.parse_qs(self.path[14:], strict_parsing=True)
+                if set(query) != {"offset", "limit"} or any(len(values) != 1 for values in query.values()):
+                    raise ValueError()
+                self._send_json(200, self.server.state.agent_list_environments(
+                    int(query["offset"][0]), int(query["limit"][0])))
+            except Exception as error:
+                known = hasattr(error, "status") or isinstance(error, WebEnvironmentError)
+                self._send_json(getattr(error, "status", 400 if known or isinstance(error, ValueError) else 500),
+                                {"error": str(error) if known else "Invalid environment page"})
         else:
             self.send_error(404)
 
@@ -556,6 +603,14 @@ class _Handler(BaseHTTPRequestHandler):
                 result = self.server.state.agent_record_concept_build(value)
             elif self.path == "/register-glb":
                 result = self.server.state.agent_register_glb(value)
+            elif self.path == "/register-panorama":
+                result = self.server.state.agent_register_panorama(value)
+            elif self.path == "/environment":
+                result = self.server.state.agent_environment_action(value)
+                deadline = time.monotonic() + MOVE_WAIT
+                while result["status"] == "queued" and time.monotonic() < deadline:
+                    time.sleep(.1)
+                    result = self.server.state.agent_environment_status(result["requestId"])
             elif self.path == "/spawn-builtin":
                 result = self.server.state.agent_spawn_builtin(value)
                 deadline = time.monotonic() + MOVE_WAIT
@@ -662,7 +717,7 @@ class _Handler(BaseHTTPRequestHandler):
                 self.server.state.concept_build_first_action()
             self._send_json(200, result)
         except Exception as error:
-            known = hasattr(error, "status") or isinstance(error, (WebAssetError, ComponentError))
+            known = hasattr(error, "status") or isinstance(error, (WebAssetError, WebEnvironmentError, ComponentError))
             self._send_json(getattr(error, "status", 400 if known or isinstance(error, ValueError) else 500),
                             {"error": str(error) if known else "Invalid Matrix tool request"})
 

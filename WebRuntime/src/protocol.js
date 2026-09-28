@@ -11,6 +11,8 @@ import {eulerDegreesToQuaternion,quaternionToEulerDegrees,RIGID_FLOOR_ID} from '
 import {canPlayWorld,createCreatorMode} from './creator_mode.js';
 import {assertCompatibleGameScene,bindGame,recordGameEvent,updateGame} from './game.js';
 import {displayObservation,validDisplay} from './display.js';
+import {validEnvironment,validEnvironmentAsset,sameEnvironment,
+  matchingEnvironmentAsset} from './environment.js';
 export const ROOM_ID = 'web-virtual-room-v1';
 export const ANCHOR_ID = 'web-floor';
 // Passed only by the browser-local Citizens simulation. The bridge's command
@@ -310,6 +312,7 @@ export class MatrixWorld {
   constructor(idFactory=()=>crypto.randomUUID().replaceAll('-','')) {
     this.idFactory=idFactory;
     this.externalAssets=[];
+    this.environmentAssets=[];
     this.scene={schemaVersion:1,roomId:ROOM_ID,objects:[]};
     this.game=null;
     this.creatorMode=createCreatorMode();
@@ -356,7 +359,7 @@ export class MatrixWorld {
     const descriptor=this.runtimePresentation==='host'?
       {schemaVersion:1,client:'matrix-world-host',renderer:'none',presentation:'host'}:
       {schemaVersion:1,client:'matrix-web',renderer:'threejs-webxr',presentation:this.runtimePresentation};
-    const snapshot={scene:clone(this.scene),assets:clone([...ASSETS,proceduralAsset,...this.externalAssets].map(({assetId,displayName,description,spawnScale,localBounds,geometry,interactions,sha256})=>({assetId,displayName,description,spawnScale,...(localBounds?{localBounds}:{}),...(interactions?{interactions}:{}),...(sha256?{sha256}:{}),...(geometry?.animationClips?{animationClips:geometry.animationClips.map(clip=>clip.name)}:{})}))),anchors:clone(anchors),selection:clone(this.selection),behaviorKinds:['rotate','bob'],componentSchemaVersion:1,animationSchemaVersion:1,physicsSchemaVersion:1,interactionSchemaVersion:2,physicsStates:this.physicsStates(),rigidSchemaVersion:1,rigidGravity:clone(this.rigidGravity),rigidStates:this.rigidPhysics?.states().filter(state=>this.scene.objects.some(item=>item.objectId===state.objectId))||[],entityActionSchemaVersion:1,agentGrab:clone(this.agentGrab),controlSchemaVersion:1,controlStates:clone(this.controlStates),proceduralGenerators:listProceduralGenerators(),creatorMode:clone(this.creatorMode),game:clone(this.game),gameStatus:this.game?{phase:this.game.state.phase,score:this.game.state.score,objectiveProgress:clone(this.game.state.objectiveProgress),unlockedObjectIds:clone(this.game.state.unlockedObjectIds||[])}:null,roomContext:context,runtimeDescriptor:descriptor};
+    const snapshot={scene:clone(this.scene),assets:clone([...ASSETS,proceduralAsset,...this.externalAssets].map(({assetId,displayName,description,spawnScale,localBounds,geometry,interactions,sha256})=>({assetId,displayName,description,spawnScale,...(localBounds?{localBounds}:{}),...(interactions?{interactions}:{}),...(sha256?{sha256}:{}),...(geometry?.animationClips?{animationClips:geometry.animationClips.map(clip=>clip.name)}:{})}))),environmentSchemaVersion:1,environmentAssets:clone(this.environmentAssets),anchors:clone(anchors),selection:clone(this.selection),behaviorKinds:['rotate','bob'],componentSchemaVersion:1,animationSchemaVersion:1,physicsSchemaVersion:1,interactionSchemaVersion:2,physicsStates:this.physicsStates(),rigidSchemaVersion:1,rigidGravity:clone(this.rigidGravity),rigidStates:this.rigidPhysics?.states().filter(state=>this.scene.objects.some(item=>item.objectId===state.objectId))||[],entityActionSchemaVersion:1,agentGrab:clone(this.agentGrab),controlSchemaVersion:1,controlStates:clone(this.controlStates),proceduralGenerators:listProceduralGenerators(),creatorMode:clone(this.creatorMode),game:clone(this.game),gameStatus:this.game?{phase:this.game.state.phase,score:this.game.state.score,objectiveProgress:clone(this.game.state.objectiveProgress),unlockedObjectIds:clone(this.game.state.unlockedObjectIds||[])}:null,roomContext:context,runtimeDescriptor:descriptor};
     // The PC-local exchange uses this persisted state as an exact switch guard.
     // Agent-facing summaries must omit it; authoredGeneration alone does not
     // cover Citizens clock, appointment, or pause progress.
@@ -419,6 +422,23 @@ export class MatrixWorld {
     }
     return changed;
   }
+  registerEnvironmentAssets(entries){
+    if(!Array.isArray(entries)||entries.length>128)
+      throw Error('Invalid panorama asset catalog');
+    const ids=new Set(),digests=new Set(),checked=[];
+    for(const entry of entries){
+      if(!validEnvironmentAsset(entry)||ids.has(entry.assetId)||
+         digests.has(entry.sha256))
+        throw Error('Invalid panorama asset entry');
+      ids.add(entry.assetId);digests.add(entry.sha256);
+      checked.push(clone(entry));
+    }
+    const previous=new Map(this.environmentAssets.map(asset=>[asset.assetId,asset]));
+    this.environmentAssets=checked;
+    return checked.filter(asset=>JSON.stringify(asset)!==
+      JSON.stringify(previous.get(asset.assetId))).map(asset=>asset.assetId);
+  }
+  environmentAsset(id){return this.environmentAssets.find(asset=>asset.assetId===id);}
   asset(id){return ASSETS.find(a=>a.assetId===id)||this.externalAssets.find(a=>a.assetId===id)||
     (id===PROCEDURAL_ASSET_ID?proceduralAsset:undefined);}
   objectBounds(object){return object?.procedural?generateProcedural(object.procedural).localBounds:
@@ -911,10 +931,10 @@ export class MatrixWorld {
          op==='interact'&&visitResidentIds.has(command.actorObjectId)&&
            (visitResidentIds.has(command.targetObjectId)||visitStationIds.has(command.targetObjectId)));
       if(this.digitalWorldVisit&&!citizenVisitAction&&
-         !['get_scene','list_assets','list_targets','inspect_entity','select'].includes(op))
+         !['get_scene','get_environment','list_assets','list_targets','inspect_entity','select'].includes(op))
         throw Error('AR visit is a view of the digital world; edit it from the desktop virtual room');
       if(this.pendingRigidMotion&&!this.rigidPhysics&&
-         !['get_scene','list_assets','list_targets','inspect_entity','select'].includes(op))
+         !['get_scene','get_environment','list_assets','list_targets','inspect_entity','select'].includes(op))
         throw Error('Wait for rigid simulation to restore before editing the world');
       if(this.creatorMode.mode==='play'&&recordHistory&&
          ['spawn','create_procedural','update_procedural','duplicate','set_transform',
@@ -923,13 +943,31 @@ export class MatrixWorld {
           'set_rigid_body','remove_rigid_body','set_gravity','set_interaction',
           'remove_interaction','set_display','remove_display','set_control',
           'remove_control','bind_game','update_game',
-          'delete','clear','load','undo','redo'].includes(op))
+          'delete','clear','load','undo','redo','set_environment','remove_environment'].includes(op))
         throw Error('Return to Creator Mode before editing the world');
       if(this.spatial?.originUnavailable&&!citizenVisitAction&&
-         !['get_scene','list_assets','list_targets','inspect_entity'].includes(op))
+         !['get_scene','get_environment','list_assets','list_targets','inspect_entity'].includes(op))
         throw Error('Saved room origin is unavailable; restore it or archive the old world before editing');
-      if(this.spatial?.stale&&!citizenVisitAction&&['spawn','duplicate','set_transform','set_behavior','remove_behavior','attach_component','stop_component','remove_component','bind_animation','set_physics','remove_physics','set_interaction','remove_interaction','set_display','remove_display','set_control','remove_control','activate_control','delete','load','undo','redo','select','create_procedural','update_procedural','set_rigid_body','remove_rigid_body','set_gravity','bind_game','update_game','begin_grab','move_grab','release_grab'].includes(op))
+      if(this.spatial?.stale&&!citizenVisitAction&&['spawn','duplicate','set_transform','set_behavior','remove_behavior','attach_component','stop_component','remove_component','bind_animation','set_physics','remove_physics','set_interaction','remove_interaction','set_display','remove_display','set_control','remove_control','activate_control','delete','load','undo','redo','select','create_procedural','update_procedural','set_rigid_body','remove_rigid_body','set_gravity','bind_game','update_game','begin_grab','move_grab','release_grab','set_environment','remove_environment'].includes(op))
         throw Error('Room tracking is stale; editing is paused until the room is recovered');
+      if(this.spatial&&['set_environment','remove_environment'].includes(op))
+        throw Error('Leave AR to edit the panorama; passthrough remains visible in AR');
+      if(this.spatial&&['load','undo','redo'].includes(op)){
+        const target=op==='load'?command.scene:
+          op==='undo'?this.undo.at(-1)?.scene:this.redo.at(-1)?.scene;
+        if(target&&!sameEnvironment(target.environment??null,this.scene.environment??null))
+          throw Error('Leave AR to edit the panorama; passthrough remains visible in AR');
+      }
+      if(['get_environment','set_environment','remove_environment'].includes(op)&&
+         command.roomId!==this.scene.roomId)
+        throw Error('Environment room changed since command was queued');
+      if(['set_environment','remove_environment'].includes(op)){
+        if(!Object.hasOwn(command,'expectedEnvironment')||
+           command.expectedEnvironment!==null&&
+             !validEnvironment(command.expectedEnvironment)||
+           !sameEnvironment(command.expectedEnvironment,this.scene.environment??null))
+          throw Error('Environment changed since command was queued');
+      }
       if(Object.hasOwn(command,'expectedTransform')){
         if(!expectedTransformOps.has(op)||!validExpectedTransform(command.expectedTransform))
           throw Error('Invalid expectedTransform precondition');
@@ -959,7 +997,7 @@ export class MatrixWorld {
            command.expectedTargetTransform))
           throw Error('Component target transform changed since command was queued');
       }
-      const mutation=['spawn','duplicate','set_transform','set_behavior','remove_behavior','attach_component','stop_component','remove_component','bind_animation','set_physics','remove_physics','set_interaction','remove_interaction','set_display','remove_display','set_control','remove_control','delete','clear','load','create_procedural','update_procedural','set_rigid_body','remove_rigid_body'].includes(op);
+      const mutation=['spawn','duplicate','set_transform','set_behavior','remove_behavior','attach_component','stop_component','remove_component','bind_animation','set_physics','remove_physics','set_interaction','remove_interaction','set_display','remove_display','set_control','remove_control','delete','clear','load','create_procedural','update_procedural','set_rigid_body','remove_rigid_body','set_environment','remove_environment'].includes(op);
       // Local finite simulation steps use the same validation and receipt path
       // without filling the user's scene Undo history with each movement tick.
       const before=mutation&&recordHistory?clone(this.scene):null;
@@ -977,6 +1015,28 @@ export class MatrixWorld {
       let object,replayEntry;
       switch(op) {
         case 'get_scene': case 'list_assets': case 'list_targets': break;
+        case 'get_environment':
+          result.outcome={kind:'environment-status',
+            environment:clone(this.scene.environment??null)};break;
+        case 'set_environment': {
+          if(!validEnvironment(command.environment)||
+             !matchingEnvironmentAsset(command.environment,
+               this.environmentAsset(command.environment.assetId)))
+            throw Error('Environment panorama is not registered with matching bytes');
+          const previousEnvironment=clone(this.scene.environment??null);
+          this.scene.environment=clone(command.environment);
+          result.outcome={kind:'environment-set',
+            environment:clone(this.scene.environment),previousEnvironment};
+          break;}
+        case 'remove_environment': {
+          if(Object.hasOwn(command,'environment'))
+            throw Error('Remove environment does not take a new environment');
+          if(!this.scene.environment)throw Error('No environment to remove');
+          const previousEnvironment=clone(this.scene.environment);
+          delete this.scene.environment;
+          result.outcome={kind:'environment-removed',
+            environment:null,previousEnvironment};
+          break;}
         case 'inspect_entity':
           result.objectId=command.objectId;
           result.outcome=this.inspectEntity(command.objectId);break;
@@ -1565,7 +1625,9 @@ export class MatrixWorld {
         case 'clear':
           if(this.game)throw Error('Clear would discard an active game; migrate or reset it explicitly');
           rigidMutationStarted=true;
-          this.scene.objects=[]; this.selection.objectId='';
+          this.scene.objects=[];
+          if(!this.spatial)delete this.scene.environment;
+          this.selection.objectId='';
           this.physicsBodies.clear();this.physicsVerification.clear();
           this.renderedVerification.clear();this.controlStates=Object.create(null);break;
         case 'load':
@@ -1579,12 +1641,14 @@ export class MatrixWorld {
           this.controlStates=states;break;}
         case 'undo':
           if(!this.undo.length)throw Error('History is empty');
+          this.validateScene(this.undo.at(-1).scene);
           assertCompatibleGameScene(this,this.undo.at(-1).scene);
           {const states=reconciledControlStates(this.undo.at(-1).scene,this.controlStates);
             rigidMutationStarted=true;
             replayEntry=this.replay(this.undo,this.redo);this.controlStates=states;break;}
         case 'redo':
           if(!this.redo.length)throw Error('History is empty');
+          this.validateScene(this.redo.at(-1).scene);
           assertCompatibleGameScene(this,this.redo.at(-1).scene);
           {const states=reconciledControlStates(this.redo.at(-1).scene,this.controlStates);
             rigidMutationStarted=true;
@@ -1642,6 +1706,9 @@ export class MatrixWorld {
   }
   validateScene(scene) {
     if (!scene||scene.schemaVersion!==1||scene.roomId!==this.scene.roomId||!Array.isArray(scene.objects)||scene.objects.length>MAX_OBJECTS) throw Error('Incompatible scene');
+    if(Object.hasOwn(scene,'environment')){
+      if(!validEnvironment(scene.environment))throw Error('Invalid scene environment');
+    }
     if(scene.objects.filter(object=>object.physics).length>16)throw Error('Physics object limit reached');
     if(scene.objects.filter(object=>object.rigidBody).length>MAX_SCENE_RIGID_BODIES)
       throw Error('Rigid body limit reached');
@@ -1668,6 +1735,9 @@ export class MatrixWorld {
       }
       if(o.component){validateAttachment(o.component);if(o.anchorId!==ANCHOR_ID)throw Error('Component requires virtual-floor object');}
     }
+    if(scene.environment&&!matchingEnvironmentAsset(scene.environment,
+      this.environmentAsset(scene.environment.assetId)))
+      throw Error('Scene environment panorama is not registered with matching bytes');
     for(const o of scene.objects)if(o.component){
       const target=scene.objects.find(item=>item.objectId===o.component.targetObjectId);
       if(target&&(target.anchorId!==ANCHOR_ID||target.objectId===o.objectId))throw Error('Invalid component target');

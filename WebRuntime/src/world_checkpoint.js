@@ -1,5 +1,42 @@
 import {restoreStoredWorld} from './scene_store.js';
 
+// A restore can wait on a running exchange or an uncached panorama. Remember
+// the whole editable state, including object identity, so a successful edit
+// cannot be silently replaced while that wait is in progress.
+export function captureWorldRestoreGuard(world){
+  const scene=world.scene,undo=world.undo,redo=world.redo;
+  const state=()=>JSON.stringify({generation:world.authoredGeneration,
+    scene:world.scene,game:world.game,citizens:world.citizens,
+    selection:world.selection,creatorMode:world.creatorMode,
+    controlStates:world.controlStates,rigidGravity:world.rigidGravity,
+    undo:world.undo,redo:world.redo,
+    originBinding:world.originBinding,originAnchorHandle:world.originAnchorHandle,
+    agentGrab:world.agentGrab,pendingRigidMotion:world.pendingRigidMotion,
+    spatial:world.spatial?{originUnavailable:world.spatial.originUnavailable,
+      stale:world.spatial.stale}:null});
+  const before=state();
+  return ()=>{
+    if(world.scene!==scene||world.undo!==undo||world.redo!==redo||state()!==before||
+       world.rigidPhysics?.states().some(body=>body.held))
+      throw Error('World changed while checkpoint restore was being prepared; inspect the current world before retrying');
+  };
+}
+
+export async function applyBrowserCheckpoint(world,saved,bridge,prepareEnvironment,
+  assertReady=()=>{}){
+  const unchanged=captureWorldRestoreGuard(world);
+  const restore=async()=>{
+    unchanged();assertReady();
+    if(saved.scene?.environment)await prepareEnvironment(saved.scene.environment);
+    unchanged();assertReady();
+    restoreStoredWorld(world,saved);
+    // Commands queued against the old browser world require fresh inspection.
+    bridge.rejectPendingOnNextExchange=true;
+  };
+  if(bridge.running)return bridge.withExclusiveExchange(restore);
+  return restore();
+}
+
 // Stage a PC restore in memory. The current browser world stays in storage until
 // the service has accepted the replacement snapshot.
 export async function applyPCWorld(world,saved,sync){

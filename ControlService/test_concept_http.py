@@ -16,6 +16,8 @@ from concept_store import ConceptStore
 from server import Server, State
 from test_agent_portal import FakeBackend
 from test_concept_store import FakeConceptCatalog, PNG
+from test_concept_store import panorama_png
+from web_environments import WebEnvironmentCatalog, environment_asset_entry
 
 
 class ConceptHTTPTests(unittest.TestCase):
@@ -133,6 +135,46 @@ class ConceptHTTPTests(unittest.TestCase):
         self.assertEqual(cancelled["job"]["status"], "cancelled")
         self.assertEqual(self.json("/api/agent/concepts/cancel", {
             "sessionId": session, "conceptId": job["conceptId"]})[0], 409)
+
+    def test_selected_generated_panorama_registers_without_world_mutation(self):
+        self.state.web_environments = WebEnvironmentCatalog(Path(self.temp.name) / "panoramas")
+        session = self.json("/api/agent/session", {})[1]["sessionId"]
+        image = panorama_png()
+        self.catalog.image = self.catalog.directory / hashlib.sha256(image).hexdigest()
+        self.catalog.image.write_bytes(image)
+        request = {"sessionId": session, "prompt": "Sunset alien desert",
+                   "providerId": "comfyui", "purpose": "panorama"}
+        self.assertEqual(self.json("/api/agent/concepts", request, auth=False)[0], 401)
+        code, created = self.json("/api/agent/concepts", request)
+        self.assertEqual(code, 200)
+        concept_id = created["job"]["conceptId"]
+        self.catalog.states[self.state.concepts.data["sessions"][session]["jobs"][0]["catalogJobId"]] = "completed"
+        code, status = self.json("/api/agent/concepts?sessionId=" + session)
+        self.assertEqual(code, 200)
+        self.assertEqual(status["jobs"], [])
+        self.assertEqual(status["panoramas"][0]["conceptId"], concept_id)
+        self.assertEqual(self.json("/api/agent/concepts/register-panorama", {
+            "sessionId": session, "conceptId": concept_id, "name": "Desert"})[0], 409)
+        code, selected = self.json("/api/agent/concepts/select", {
+            "sessionId": session, "conceptId": concept_id, "purpose": "panorama"})
+        self.assertEqual(code, 200)
+        self.assertEqual(selected["selectedPanoramaId"], concept_id)
+        self.assertIn("panorama", selected)
+        self.assertEqual(self.json("/api/agent/concepts/register-panorama", {
+            "sessionId": session, "conceptId": concept_id, "name": "Desert"},
+            origin="https://other.example")[0], 403)
+        code, registered = self.json("/api/agent/concepts/register-panorama", {
+            "sessionId": session, "conceptId": concept_id, "name": "Desert"})
+        self.assertEqual(code, 200)
+        self.assertEqual(registered.pop("status"), "registered")
+        self.assertEqual(environment_asset_entry(registered), registered)
+        self.assertEqual(set(registered), {"assetId", "displayName", "sha256",
+                                           "byteLength", "width", "height", "format", "url"})
+        self.assertEqual(registered["sha256"], hashlib.sha256(image).hexdigest())
+        self.assertEqual(self.json("/api/web/environments")[1]["assets"][0]["assetId"],
+                         registered["assetId"])
+        self.assertEqual(self.request(registered["url"])[2], image)
+        self.assertEqual(self.state.status()["revision"], 0)
 
     def test_native_provider_http_ready_preview_and_explicit_selection(self):
         session = self.json("/api/agent/session", {})[1]["sessionId"]

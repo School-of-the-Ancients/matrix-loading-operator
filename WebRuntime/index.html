@@ -65,6 +65,25 @@
           <textarea id="concept-notes" rows="2" placeholder="Keep the layered roof; use a smaller entrance"></textarea>
           <button id="concept-save-notes" type="button">Save design notes</button>
         </section>
+        <section id="panorama-panel" class="concept-panel panorama-panel" aria-labelledby="panorama-heading">
+          <div class="panel-title"><span id="panorama-heading">PANORAMA BACKGROUNDS</span><span id="panorama-summary">No panorama version selected</span></div>
+          <p class="hint">Say “Create a panorama of a moonlit forest with distant mountains,” or type a surrounding scene below. Preview and choose a generated version, then apply it to this world. The panorama appears in desktop and VR; passthrough AR keeps your physical room visible.</p>
+          <label for="panorama-prompt">Surrounding scene</label>
+          <textarea id="panorama-prompt" rows="2" placeholder="A moonlit forest surrounding the garden, seamless 360° horizon"></textarea>
+          <label for="panorama-provider">Image source</label>
+          <select id="panorama-provider" aria-label="Panorama image source"><option value="codex-native">Codex GPT Image</option><option value="comfyui">ComfyUI 2:1 panorama</option></select>
+          <div class="row"><button id="panorama-generate" type="button">Generate panorama</button><button id="panorama-vary" type="button">Another panorama version</button></div>
+          <p class="hint">Keep this page open while a request for multiple versions runs; Codex makes them one at a time.</p>
+          <p id="panorama-status" class="hint" role="status" aria-live="polite">Connect to Codex to generate panoramas.</p>
+          <div id="panorama-jobs" class="concept-jobs" aria-label="Panorama generation jobs"></div>
+          <div id="panorama-versions" class="concept-list" aria-label="Generated panorama versions"></div>
+          <label for="panorama-name">Saved panorama name</label>
+          <input id="panorama-name" type="text" maxlength="80" placeholder="Use the selected version's description" />
+          <label for="panorama-yaw">Rotation in degrees</label>
+          <input id="panorama-yaw" type="number" min="0" max="359" step="1" value="0" />
+          <div class="row"><button id="panorama-apply" class="primary" type="button" disabled>Use selected panorama</button><button id="panorama-remove" type="button" disabled>Remove panorama</button></div>
+          <p id="panorama-apply-status" class="hint" role="status" aria-live="polite">Apply in paused Creator Mode on desktop or VR.</p>
+        </section>
         <div id="agent-approval" class="proposal hidden" role="alert">
           <div class="proposal-label">APPROVAL REQUIRED</div>
           <p id="agent-approval-summary"></p>
@@ -190,6 +209,7 @@
       </div>
       <div class="separator"></div>
       <div class="row"><button id="refresh-assets">Refresh assets</button><span id="asset-count" class="asset-count">7 built-in</span></div>
+      <p id="environment-status" class="hint" role="status">Panorama: none. Desktop and VR use the neutral background.</p>
       <div class="row"><button id="undo">Undo</button><button id="redo">Redo</button><button id="clear">Clear</button></div>
       <label for="world-save-name">PC world checkpoint · scene, game and Citizens progress</label>
       <div class="row"><input id="world-save-name" placeholder="World name" /><button id="save-pc-world">Save world</button></div>

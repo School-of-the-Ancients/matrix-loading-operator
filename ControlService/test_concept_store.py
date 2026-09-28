@@ -3,17 +3,30 @@ import base64
 import hashlib
 import json
 from pathlib import Path
+import struct
 import tempfile
 import unittest
 from unittest.mock import patch
+import zlib
 
 from concept_store import ConceptStore
 from content_catalog import ContentError
+from web_environments import WebEnvironmentCatalog
 
 
 PNG = base64.b64decode(
     "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+/"
     "lXcAAAAASUVORK5CYII=")
+
+
+def panorama_png():
+    def chunk(kind, payload):
+        return (struct.pack(">I", len(payload)) + kind + payload +
+                struct.pack(">I", zlib.crc32(kind + payload) & 0xffffffff))
+    pixels = b"".join(b"\x00" + bytes((15, 70, 180)) * 4 for _ in range(2))
+    return (b"\x89PNG\r\n\x1a\n" +
+            chunk(b"IHDR", struct.pack(">IIBBBBB", 4, 2, 8, 2, 0, 0, 0)) +
+            chunk(b"IDAT", zlib.compress(pixels)) + chunk(b"IEND", b""))
 
 
 class FakeConceptCatalog:
@@ -126,6 +139,65 @@ class ConceptStoreTests(unittest.TestCase):
         reopened = ConceptStore(self.directory / "concepts", lambda: self.catalog)
         self.assertEqual(reopened.status(self.session)["selectedConceptId"], first["conceptId"])
         self.assertEqual(len(reopened.status(self.session)["concepts"]), 2)
+
+    def test_panorama_versions_selection_and_catalog_lineage_are_separate(self):
+        ordinary = self.create("Bridge design")
+        self.catalog.states[self.store.data["sessions"][self.session]["jobs"][0]["catalogJobId"]] = "completed"
+        self.store.status(self.session)
+        self.store.select(self.session, ordinary["conceptId"])
+
+        data = panorama_png()
+        self.catalog.image = self.catalog.directory / hashlib.sha256(data).hexdigest()
+        self.catalog.image.write_bytes(data)
+        first = self.create("Stormy mountains", purpose="panorama")
+        self.assertEqual(first["version"], 1)
+        self.assertEqual(first["purpose"], "panorama")
+        self.assertTrue(self.catalog.requests[-1][3]["panorama"])
+        self.assertIn("equirectangular panorama", self.catalog.requests[-1][2])
+        self.catalog.states[self.store.data["sessions"][self.session]["jobs"][1]["catalogJobId"]] = "completed"
+        status = self.store.status(self.session)
+        self.assertEqual([item["conceptId"] for item in status["concepts"]],
+                         [ordinary["conceptId"]])
+        self.assertEqual([item["conceptId"] for item in status["panoramas"]],
+                         [first["conceptId"]])
+        with self.assertRaises(ContentError):
+            self.store.select(self.session, first["conceptId"])
+        selected = self.store.select(self.session, first["conceptId"], purpose="panorama")
+        self.assertEqual(selected["selectedPanoramaId"], first["conceptId"])
+        self.assertEqual(selected["panorama"]["purpose"], "panorama")
+        self.assertEqual(self.store.status(self.session)["selectedConceptId"],
+                         ordinary["conceptId"])
+        with self.assertRaises(ContentError):
+            self.create(None, source_concept_id=ordinary["conceptId"], purpose="panorama")
+
+        second = self.create(None, source_concept_id=first["conceptId"], purpose="panorama")
+        self.assertEqual(second["version"], 2)
+        self.assertEqual(second["parentConceptId"], first["conceptId"])
+        self.assertEqual(self.store.status(self.session)["selectedPanoramaId"], first["conceptId"])
+        catalog = WebEnvironmentCatalog(self.directory / "panoramas")
+        selected_image = self.store.selected_panorama(self.session, first["conceptId"])
+        asset = catalog.register(selected_image["imagePath"], "Stormy mountains")
+        self.assertEqual(catalog.register(selected_image["imagePath"], "New title"), asset)
+        self.store.record_panorama_registration(self.session, first["conceptId"], asset)
+        reopened = ConceptStore(self.directory / "concepts", lambda: self.catalog)
+        restored = reopened.status(self.session, refresh=False)
+        self.assertEqual(restored["selectedPanoramaId"], first["conceptId"])
+        self.assertEqual(restored["panoramas"][0]["registeredPanorama"]["assetId"],
+                         asset["assetId"])
+        self.assertEqual((restored["panoramas"][0]["width"],
+                          restored["panoramas"][0]["height"]), (4, 2))
+        self.assertNotIn(str(self.catalog.directory), json.dumps(restored))
+
+    def test_non_panorama_output_fails_without_changing_selected_image(self):
+        created = self.create("Distant forest", purpose="panorama")
+        self.catalog.states[self.store.data["sessions"][self.session]["jobs"][0]["catalogJobId"]] = "completed"
+        status = self.store.status(self.session)
+        self.assertEqual(status["panoramaJobs"][0]["status"], "failed")
+        self.assertIn("unusable", status["panoramaJobs"][0]["message"])
+        self.assertEqual(status["panoramas"], [])
+        self.assertIsNone(status["selectedPanoramaId"])
+        with self.assertRaises(ContentError):
+            self.store.selected_panorama(self.session, created["conceptId"])
 
     def test_unavailable_worker_preserves_uncertain_job_for_late_completion(self):
         job = self.create()
@@ -271,6 +343,41 @@ class ConceptStoreTests(unittest.TestCase):
         self.assertEqual(len(reopened.status(self.session)["concepts"]), 2)
         self.assertEqual(reopened.selected(self.session)["designNotes"], "Keep glass material")
         self.assertEqual(Path(reopened.selected(self.session)["imagePath"]).read_bytes(), PNG)
+
+    def test_native_panorama_requires_actual_two_to_one_png(self):
+        source = self.directory / "native-source.png"
+        source.write_bytes(panorama_png())
+        native = FakeNativePortal(source)
+        store = ConceptStore(self.directory / "native-panoramas", lambda: self.catalog,
+                             lambda: native)
+        first = store.create(self.session, "Moonlit forest with distant mountains",
+                             purpose="panorama", provider_id="codex-native")["job"]
+        self.assertEqual(first["providerId"], "codex-native")
+        self.assertIn("2:1 PNG", native.requests[0][1])
+        self.assertIn("Moonlit forest with distant mountains", native.requests[0][1])
+        turn_id = store.data["sessions"][self.session]["jobs"][0]["nativeTurnId"]
+        native.results[turn_id] = {"status": "ready", "imagePath": str(native.image),
+                                   "sha256": hashlib.sha256(panorama_png()).hexdigest(),
+                                   "mimeType": "image/png"}
+        ready = store.status(self.session)["panoramas"][0]
+        self.assertEqual((ready["width"], ready["height"]), (4, 2))
+        self.assertEqual(store.status(self.session)["concepts"], [])
+        store.select(self.session, ready["conceptId"], purpose="panorama")
+        self.assertEqual(store.selected_panorama(self.session, ready["conceptId"])["sha256"],
+                         ready["sha256"])
+
+        invalid = store.create(self.session, "Another mountain", purpose="panorama")["job"]
+        native.image.write_bytes(PNG)  # Square, valid image but unusable as panorama.
+        second_turn = store.data["sessions"][self.session]["jobs"][1]["nativeTurnId"]
+        native.results[second_turn] = {"status": "ready", "imagePath": str(native.image),
+                                       "sha256": hashlib.sha256(PNG).hexdigest(),
+                                       "mimeType": "image/png"}
+        status = store.status(self.session)
+        self.assertEqual(status["panoramaJobs"][1]["status"], "failed")
+        self.assertIn("unusable", status["panoramaJobs"][1]["message"])
+        self.assertEqual(status["selectedPanoramaId"], first["conceptId"])
+        with self.assertRaises(ContentError):
+            store.select(self.session, invalid["conceptId"], purpose="panorama")
 
     def test_native_uncertain_restart_and_mismatched_result_never_ready(self):
         native = FakeNativePortal(self.catalog.image)

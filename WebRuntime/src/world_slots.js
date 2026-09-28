@@ -166,6 +166,7 @@ function appendArchive(world,storage,name){
   const snapshot=storedBrowserWorld(world);
   const staged=new MatrixWorld();
   staged.externalAssets=world.externalAssets;
+  staged.environmentAssets=world.environmentAssets;
   restoreStoredWorld(staged,snapshot);
   const archive={schemaVersion:1,archiveId,name:archiveName(name),
     createdAtUtc:new Date().toISOString(),world:snapshot};

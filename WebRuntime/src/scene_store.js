@@ -5,6 +5,7 @@ import {listProceduralGenerators} from './procedural.js';
 import {createCreatorMode,restoredCreatorMode} from './creator_mode.js';
 import {validateControlStates} from './protocol.js';
 import {RigidPhysics,eulerDegreesToQuaternion} from './physics_rigid.js';
+import {matchingEnvironmentAsset} from './environment.js';
 export const TAB_SCENE_KEY='matrix-web-scene';
 export const DURABLE_SCENE_KEY='matrix-web-scene-v1';
 export const WORLD_KEY='matrix-web-world-v2';
@@ -133,6 +134,10 @@ export function storedWorld(world){
   const scene=world.spatial&&!world.digitalWorldVisit?{...world.virtualScene.scene,
     objects:world.scene.objects.filter(object=>object.anchorId==='web-floor')}:world.scene;
   const savedScene=structuredClone(scene),game=structuredClone(world.game);
+  if(Object.hasOwn(savedScene,'environment')&&
+     !matchingEnvironmentAsset(savedScene.environment,
+       world.environmentAsset(savedScene.environment.assetId)))
+    throw Error('Panorama dependency is unavailable; the previous browser world copy was kept');
   const rigidMotion=capturedRigidMotion(world,savedScene);
   const additions={
     ...(rigidMotion?{rigidMotion}:{}),
@@ -244,9 +249,14 @@ export function quarantineStoredWorld(pending,storage,index=0){
 function missingExternalAssets(world,value){
   const sceneObjects=Array.isArray(value?.scene?.objects)?value.scene.objects:[];
   const gameRoles=Array.isArray(value?.game?.spec?.roles)?value.game.spec.roles:[];
-  return [...new Set([...sceneObjects,...gameRoles]
+  const missing=[...sceneObjects,...gameRoles]
     .map(item=>item?.assetId)
-    .filter(id=>typeof id==='string'&&id.startsWith('web:')&&!world.asset(id)))].sort();
+    .filter(id=>typeof id==='string'&&id.startsWith('web:')&&!world.asset(id));
+  const environment=value?.scene?.environment;
+  if(environment?.assetId&&(!world.environmentAsset(environment.assetId)||
+     world.environmentAsset(environment.assetId)?.sha256!==environment.sha256))
+    missing.push(environment.assetId);
+  return [...new Set(missing)].sort();
 }
 
 class MissingWebAssetsError extends Error {
@@ -285,6 +295,12 @@ function validateSavedScene(world,scene,value){
       throw new MissingWebAssetsError(missingExternalAssets(world,value));
     return asset;
   };
+  validationWorld.environmentAsset=id=>{
+    const asset=world.environmentAsset(id);
+    if(!asset||asset.sha256!==scene.environment?.sha256)
+      throw new MissingWebAssetsError(missingExternalAssets(world,value));
+    return asset;
+  };
   world.validateScene.call(validationWorld,scene);
 }
 
@@ -310,7 +326,41 @@ export function restoreBestStoredWorld(world,pending,storage){
   return {state:'invalid',rejected};
 }
 
-export function restoreStoredWorld(world,value,{waitForWebAssets=false}={}){
+// Validate the saved envelope before fetching image bytes or replacing the
+// active world. Invalid newest copies can then be quarantined and an older
+// valid copy recovered, even when the newest copy names a missing panorama.
+export async function restoreBestStoredWorldWithEnvironment(world,pending,storage,
+    prepareEnvironment){
+  const rejected=[];
+  for(const candidate of [pending,...(pending.alternates||[])]){
+    try{
+      const {scene}=restoreStoredWorld(world,candidate.value,
+        {waitForWebAssets:true,validateOnly:true});
+      if(scene.environment){
+        try{await prepareEnvironment(scene.environment);}
+        catch(error){return {state:'waiting',source:candidate.source,
+          missingAssets:[scene.environment.assetId],
+          reason:`Saved panorama could not be verified: ${error.message}`,rejected};}
+      }
+      restoreStoredWorld(world,candidate.value,{waitForWebAssets:true});
+      return {state:'restored',source:candidate.source,rejected};
+    }catch(error){
+      if(error instanceof MissingWebAssetsError)
+        return {state:'waiting',source:candidate.source,
+          missingAssets:error.missingAssets,reason:error.message,rejected};
+      if(error instanceof MissingProceduralGeneratorError)
+        return {state:'waiting',source:candidate.source,
+          missingGenerators:error.missingGenerators,reason:error.message,rejected};
+      if(!quarantineStoredWorld(candidate,storage,rejected.length))
+        return {state:'blocked',reason:`Could not preserve rejected ${candidate.source} before recovery: ${error.message}`,
+          rejected};
+      rejected.push({source:candidate.source,error:error.message});
+    }
+  }
+  return {state:'invalid',rejected};
+}
+
+export function restoreStoredWorld(world,value,{waitForWebAssets=false,validateOnly=false}={}){
   if(world.digitalWorldVisit)
     throw Error('Leave the digital world AR visit before restoring a world');
   if(world.spatial?.originUnavailable)
@@ -372,6 +422,7 @@ export function restoreStoredWorld(world,value,{waitForWebAssets=false}={}){
       rigidSnapshot=staged.rigidPhysics.snapshot();
     }finally{staged.rigidPhysics.dispose();}
   }
+  if(validateOnly)return {scene};
   const previous={scene:world.scene,virtualScene:world.virtualScene?.scene,
     virtualSelection:world.virtualScene?.selection,
     selection:world.selection,game:world.game,citizens:world.citizens,
@@ -421,7 +472,8 @@ export function restoreStoredWorld(world,value,{waitForWebAssets=false}={}){
   }
 }
 
-const hasSavedWorldContent=value=>value.scene.objects?.length>0||value.game!==null||
+const hasSavedWorldContent=value=>value.scene.objects?.length>0||
+  value.scene.environment!==undefined||value.game!==null||
   value.citizens!=null;
 
 export function saveCheckpoint(scene,game,storage,originBinding,originAnchorHandle,
