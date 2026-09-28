@@ -1,5 +1,6 @@
 // Separate environment-camera stream. This never reads WebXR compositor pixels.
 const videoConstraints={width:{ideal:1280},height:{ideal:960},frameRate:{ideal:30}};
+const CAMERA_ENABLE_TIMEOUT_MS=45000;
 const isEnvironmentLabel=label=>/(back|rear|environment|passthrough)/i.test(label||'')&&
   !/(front|selfie|user)/i.test(label||'');
 const stopStream=stream=>stream?.getTracks?.().forEach(track=>track.stop());
@@ -25,6 +26,7 @@ export class CameraStream {
     this.stream=null;this.video=null;this.route='';
     this._generation=0;this._enabling=false;this._pendingStream=null;this._pendingVideo=null;
     this._cancelRequest=null;this._cancelMetadata=null;
+    this.enableTimeoutMs=CAMERA_ENABLE_TIMEOUT_MS;
     this.status=mediaDevices?.getUserMedia?'permission_required':'unsupported';
     this.reason=mediaDevices?.getUserMedia?
       'Camera access has not been tested. Enable the environment camera in AR to try mixed visual review.':
@@ -84,18 +86,26 @@ export class CameraStream {
     let rejectRequest;
     const cancelledRequest=new Promise((resolve,reject)=>{rejectRequest=reject;});
     this._cancelRequest=()=>rejectRequest(cancelled());
+    let timeoutId;
+    const deadline=new Promise((_,reject)=>{timeoutId=setTimeout(()=>{
+      const error=Error('Camera permission or playback did not respond in time; try again');
+      error.name='TimeoutError';
+      reject(error);
+      this.stop();
+    },this.enableTimeoutMs);});
+    const waitFor=promise=>Promise.race([promise,cancelledRequest,deadline]);
     this._enabling=true;
     this.status='permission_required';this.reason='Requesting environment camera permission…';
     let stream,video;
     try{
-      const requested=await Promise.race([this.requestEnvironmentStream(isCurrent),cancelledRequest]);
+      const requested=await waitFor(this.requestEnvironmentStream(isCurrent));
       stream=requested.stream;
       if(!isCurrent())throw cancelled();
       const track=stream.getVideoTracks?.()[0];
       const settings=track?.getSettings?.()||{};
       let identified=requested.identified||settings.facingMode==='environment'||isEnvironmentLabel(track?.label);
       if(!identified&&settings.deviceId&&this.mediaDevices.enumerateDevices){
-        try{const devices=await Promise.race([this.mediaDevices.enumerateDevices(),cancelledRequest]);
+        try{const devices=await waitFor(this.mediaDevices.enumerateDevices());
           if(!isCurrent())throw cancelled();
           identified=devices.some(item=>item.kind==='videoinput'&&item.deviceId===settings.deviceId&&
             isEnvironmentLabel(item.label));}
@@ -106,10 +116,10 @@ export class CameraStream {
         throw Error('Selected camera is not an environment camera');
       video=this.createVideo();this._pendingVideo=video;
       video.muted=true;video.playsInline=true;video.srcObject=stream;
-      await Promise.race([video.play(),cancelledRequest]);
+      await waitFor(video.play());
       if(!isCurrent())throw cancelled();
       if(!video.videoWidth||!video.videoHeight){
-        await Promise.race([new Promise((resolve,reject)=>{
+        await waitFor(new Promise((resolve,reject)=>{
           const cleanup=()=>{clearTimeout(timeout);video.removeEventListener('loadedmetadata',check);
             video.removeEventListener('resize',check);
             if(this._cancelMetadata===abort)this._cancelMetadata=null;};
@@ -120,7 +130,7 @@ export class CameraStream {
           video.addEventListener('loadedmetadata',check);
           video.addEventListener('resize',check);
           check();
-        }),cancelledRequest]);
+        }));
       }
       if(!isCurrent())throw cancelled();
       this.stream=stream;this.video=video;this.route=requested.route;this.status='available';this.reason='';
@@ -128,11 +138,12 @@ export class CameraStream {
     }catch(error){
       stopStream(stream);
       if(video)video.srcObject=null;
-      if(!isCurrent())throw cancelled();
+      if(!isCurrent()&&error?.name!=='TimeoutError')throw cancelled();
       this.status=error?.name==='NotAllowedError'||error?.name==='PermissionDeniedError'?'denied':'error';
       this.reason=`Environment camera unavailable: ${error?.message||String(error)}`.slice(0,800);
       throw Error(this.reason);
     }finally{
+      clearTimeout(timeoutId);
       if(isCurrent()){
         this._enabling=false;this._pendingStream=null;this._pendingVideo=null;
         this._cancelRequest=null;this._cancelMetadata=null;

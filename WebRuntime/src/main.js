@@ -80,10 +80,10 @@ const feedback=(message,isError=false)=>{
   $('feedback').textContent=[message,warning].filter(Boolean).join('\n');
   $('feedback').classList.toggle('error',isError||!!warning);
 };
-const view=new MatrixView($('view'),world,()=>{discardProposal();scaleUI?.refreshTargets();citizensPanel?.render();feedback(`Selected ${world.selection.objectId||'placement point'} at ${Object.values(world.selection.position).join(', ')} m.`);},()=>$('token').value.trim(),message=>feedback(message,true),(id,position)=>{discardProposal();const delivered=deliverMovedObject(world,id);if(delivered)speakReply(delivered);renderScene();feedback(delivered||`Moved ${id.slice(0,8)} to ${Object.values(position).join(', ')} m. Undo and Save are available.`);},()=>{if(!view.isAR)cameraStream.stop();if(!view.isAR||!world.spatial?.originUnavailable){roomResetArmedUntil=0;roomRecoveryChoice='';}updateCameraControls();discardProposal();renderScene();},beginVoice,endVoice,()=>{$('speak-replies').checked=!$('speak-replies').checked;view.setVoiceOutputEnabled($('speak-replies').checked);unlockReplyAudio();},reviewView,newChat);
+const view=new MatrixView($('view'),world,()=>{discardProposal();scaleUI?.refreshTargets();citizensPanel?.render();feedback(`Selected ${world.selection.objectId||'placement point'} at ${Object.values(world.selection.position).join(', ')} m.`);},()=>$('token').value.trim(),message=>feedback(message,true),(id,position)=>{discardProposal();const delivered=deliverMovedObject(world,id);if(delivered)speakReply(delivered);renderScene();feedback(delivered||`Moved ${id.slice(0,8)} to ${Object.values(position).join(', ')} m. Undo and Save are available.`);},()=>{if(!view.isAR){cameraStream.stop();bridge.cancelCapture();}if(!view.isAR||!world.spatial?.originUnavailable){roomResetArmedUntil=0;roomRecoveryChoice='';}updateCameraControls();discardProposal();renderScene();},beginVoice,endVoice,()=>{$('speak-replies').checked=!$('speak-replies').checked;view.setVoiceOutputEnabled($('speak-replies').checked);unlockReplyAudio();},reviewView,newChat);
 view.onPanelAction=panelAction;
-view.onXRHidden=()=>{cameraStream.stop();updateCameraControls();};
-bindCameraPageLifecycle(cameraStream,document,window,updateCameraControls);
+view.onXRHidden=()=>{cameraStream.stop();bridge.cancelCapture();updateCameraControls();};
+bindCameraPageLifecycle(cameraStream,document,window,()=>{bridge.cancelCapture();updateCameraControls();});
 bindXRPageLifecycle(()=>view.xrControls,document,window);
 view.xrEntryBlocker=()=>pendingWorld||pcWorldBusy||worldSwitchBusy?
   'Finish world recovery or checkpoint restore before entering XR.':'';
@@ -287,7 +287,7 @@ function updateCameraControls(){
 }
 async function toggleCamera(){
   if(cameraBusy)return;
-  if(cameraStream.active){cameraStream.stop();updateCameraControls();feedback('Environment camera stopped. Visual review is virtual only.');return;}
+  if(cameraStream.active){cameraStream.stop();bridge.cancelCapture();updateCameraControls();feedback('Environment camera stopped. Visual review is virtual only.');return;}
   if(!view.isAR){feedback('Enter AR before testing the environment camera.',true);return;}
   cameraBusy=true;updateCameraControls();
   try{

@@ -2,6 +2,47 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import {CameraStream,bindCameraPageLifecycle} from '../src/camera_stream.js';
 
+test('stalled camera permission times out and stops a stream granted later',async()=>{
+  let resolvePermission;
+  const track={readyState:'live',getSettings:()=>({facingMode:'environment'}),
+    stop(){this.readyState='ended';}};
+  const stream={getVideoTracks:()=>[track],getTracks:()=>[track]};
+  const camera=new CameraStream({getUserMedia:()=>new Promise(resolve=>{resolvePermission=resolve;})});
+  camera.enableTimeoutMs=20;
+  await assert.rejects(camera.enable(),/did not respond in time/);
+  assert.equal(camera._enabling,false);
+  assert.equal(camera.capabilities().mixedStatus,'error');
+  resolvePermission(stream);
+  await new Promise(resolve=>setTimeout(resolve,0));
+  assert.equal(track.readyState,'ended');
+  assert.equal(camera.active,false);
+});
+
+test('stalled video playback times out, releases the stream, and permits retry',async()=>{
+  const tracks=[];
+  const mediaDevices={getUserMedia:async()=>{
+    const track={readyState:'live',getSettings:()=>({facingMode:'environment'}),
+      stop(){this.readyState='ended';}};
+    tracks.push(track);
+    return {getVideoTracks:()=>[track],getTracks:()=>[track]};
+  }};
+  let calls=0,firstVideo;
+  const camera=new CameraStream(mediaDevices,()=>{
+    const video={videoWidth:1280,videoHeight:960,srcObject:null,
+      play:()=>++calls===1?new Promise(()=>{}):Promise.resolve()};
+    if(!firstVideo)firstVideo=video;
+    return video;
+  });
+  camera.enableTimeoutMs=20;
+  await assert.rejects(camera.enable(),/did not respond in time/);
+  assert.equal(tracks[0].readyState,'ended');
+  assert.equal(firstVideo.srcObject,null);
+  assert.equal(camera._enabling,false);
+  await camera.enable();
+  assert.equal(camera.active,true);
+  camera.stop();
+});
+
 test('hidden page stops the active camera and refreshes sharing controls',async()=>{
   const track={readyState:'live',getSettings:()=>({facingMode:'environment'}),
     stop(){this.readyState='ended';}};

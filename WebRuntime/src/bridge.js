@@ -3,6 +3,8 @@ const validRequestId=value=>typeof value==='string'&&value.length>0&&
 const READ_ONLY_OPS=new Set(['get_scene','get_environment','list_assets','list_targets','inspect_entity',
   'list_world_archives']);
 const WORLD_SLOT_OPS=new Set(['list_world_archives','start_new_world','restore_world_archive']);
+const EXCHANGE_TIMEOUT_MS=12000;
+const CAPTURE_TIMEOUT_MS=12000;
 
 export class MatrixBridge {
   constructor(world, getToken, onUpdate) {
@@ -12,18 +14,20 @@ export class MatrixBridge {
     this.receipts=new Map();this.recentReceipts=new Map();this.receiptWaiters=new Map();
     this.commandGuards=new Map();
     this.running=false; this.timer=null;this.inFlight=false;this.exchangePaused=false;this.rejectPendingOnNextExchange=false;this.lastExchange=0;this.getViewer=()=>null;
+    this.exchangeTimeoutMs=EXCHANGE_TIMEOUT_MS;
     this.getCapture=null;this.captureInFlight=false;this.captureReceipt=null;
+    this.captureJob=null;this.captureTimeoutMs=CAPTURE_TIMEOUT_MS;
     this.onWorldSlotCommand=null;
     this.prepareEnvironment=async()=>{};
     this.getCaptureCapabilities=()=>({modes:['virtual'],device:'Matrix WebXR',
       mixedStatus:'permission_required',reason:'Environment camera has not been tested in this browser.',
       depthOcclusion:false});
   }
-  async request(path, body) {
+  async request(path, body, {signal}={}) {
     const headers={}; const token=this.getToken();
     if(token)headers.Authorization=`Bearer ${token}`;
     if(body!==undefined)headers['Content-Type']='application/json';
-    const response=await fetch(path,{method:body===undefined?'GET':'POST',headers,body:body===undefined?undefined:JSON.stringify(body),cache:'no-store'});
+    const response=await fetch(path,{method:body===undefined?'GET':'POST',headers,body:body===undefined?undefined:JSON.stringify(body),cache:'no-store',signal});
     const data=await response.json();
     if(!response.ok)throw Error(data.error||`HTTP ${response.status}`);
     return data;
@@ -31,12 +35,20 @@ export class MatrixBridge {
   async exchange(viewer,worldRestoreExpectedRevision=null) {
     const sent=[...this.receipts.values()];
     const sentCapture=this.captureReceipt;
-    const data=await this.request('/api/exchange',{clientId:this.clientId,snapshot:this.world.snapshot(viewer),results:sent,
+    const controller=new AbortController();
+    let timeoutId;
+    const timeout=new Promise((_,reject)=>{timeoutId=setTimeout(()=>{
+      reject(Error('Operator exchange timed out; pending receipts will be reconciled on reconnect'));
+      controller.abort();
+    },this.exchangeTimeoutMs);});
+    let data;
+    try{data=await Promise.race([this.request('/api/exchange',{clientId:this.clientId,snapshot:this.world.snapshot(viewer),results:sent,
       captureSupported:!!this.getCapture,
       captureCapabilities:this.getCapture?this.getCaptureCapabilities():
         {modes:[],device:'Matrix WebXR',mixedStatus:'unsupported',reason:'No capture renderer',depthOcclusion:false},
       ...(sentCapture?{capture:sentCapture}:{}),
-      ...(worldRestoreExpectedRevision===null?{}:{worldRestoreExpectedRevision})});
+      ...(worldRestoreExpectedRevision===null?{}:{worldRestoreExpectedRevision})},{signal:controller.signal}),timeout]);}
+    finally{clearTimeout(timeoutId);}
     if(worldRestoreExpectedRevision!==null&&data.commands?.length)
       throw Error('A command arrived during PC world restore; retry after the command finishes');
     // After a saved-world reload, an old command may already be reflected in
@@ -139,13 +151,27 @@ export class MatrixBridge {
     if(worldSwitched)this.rejectPendingOnNextExchange=true;
     if(changed)this.onUpdate({type:'scene'});
     if(data.capture&&this.getCapture&&!this.captureInFlight&&!this.captureReceipt){
+      const request=data.capture;
+      const job={cancel:null};
+      this.captureJob=job;
       this.captureInFlight=true;
-      Promise.resolve().then(()=>this.getCapture(data.capture,this.clientId)).then(result=>{
-        this.captureReceipt=result;
+      let timeoutId;
+      const cancelled=new Promise((_,reject)=>{job.cancel=reason=>reject(Error(reason));});
+      const timeout=new Promise((_,reject)=>{timeoutId=setTimeout(()=>
+        reject(Error('Rendered view capture timed out; try sharing the view again')),
+      this.captureTimeoutMs);});
+      Promise.race([Promise.resolve().then(()=>{
+        if(this.captureJob!==job)throw Error('Rendered view capture was cancelled');
+        return this.getCapture(request,this.clientId);
+      }),cancelled,timeout]).then(result=>{
+        if(this.captureJob===job)this.captureReceipt=result;
       }).catch(error=>{
-        this.captureReceipt={captureId:data.capture.captureId,revision:data.capture.revision,clientId:this.clientId,
+        if(this.captureJob===job)this.captureReceipt={captureId:request.captureId,revision:request.revision,clientId:this.clientId,
           ok:false,error:String(error.message||error).slice(0,1000)};
-      }).finally(()=>{this.captureInFlight=false;this.tick(true);});
+      }).finally(()=>{
+        clearTimeout(timeoutId);
+        if(this.captureJob===job){this.captureJob=null;this.captureInFlight=false;this.tick(true);}
+      });
     }
     this.onUpdate({type:'connection',online:true});
   }
@@ -190,6 +216,9 @@ export class MatrixBridge {
     if(!validRequestId(requestId)||typeof guard!=='function')throw Error('Invalid Matrix command guard');
     this.commandGuards.set(requestId,guard);
   }
+  cancelCapture(reason='Rendered view capture was cancelled when XR or the page became hidden'){
+    this.captureJob?.cancel(reason);
+  }
   async withExclusiveExchange(action){
     if(!this.running||this.exchangePaused)throw Error('Operator exchange is unavailable for PC world restore');
     this.exchangePaused=true;
@@ -202,5 +231,5 @@ export class MatrixBridge {
     this.getViewer=getViewer;this.getCapture=getCapture;this.running=true;this.tick(true);
     this.timer=setInterval(()=>this.tick(),650);
   }
-  stop(){this.running=false;if(this.timer)clearInterval(this.timer);}
+  stop(){this.running=false;if(this.timer)clearInterval(this.timer);this.cancelCapture();}
 }
