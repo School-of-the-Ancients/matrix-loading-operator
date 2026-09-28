@@ -127,14 +127,16 @@ Blender on desktop. The shared in-world CODEX navigation panel carries the same
 mode state and selection actions for immersive VR and AR, and its voice route
 can explicitly select an image version. Mode and expected selected concept
 identity are sent with the build request; the PC stores the mode in immutable
-build provenance and rejects a stale selected ID/version. The in-world panel
-currently reports concepts as text rather than image thumbnails. This run does
-not claim Quest wearer readability or input testing.
+build provenance and rejects a stale selected ID/version. At this desktop run,
+the in-world panel reported concepts as text. The later
+[XR gallery validation](Concept-91-XR-Gallery-2026-09-27.md) verifies actual
+image previews and selection with a Quest wearer.
 
 - Full ControlService suite: **843 passed** in 151.073 seconds. WebRuntime:
   **602 passed**. Vite production build and `git diff --check` passed.
 - The desktop microphone path routes speech to the same intent, but this live
   image-to-build run used text.
 - #150 skybox runtime, #149 room-aware composition, #26 physical camera
-  context, #148 hosted Operator integration, and #147 thumbstick work remain
-  outside this PR.
+  context, and #148 hosted Operator integration remain separate. #147 was
+  validated separately in PR #157, then its branch was merged into #155;
+  #155 is stacked on #157 for review.
