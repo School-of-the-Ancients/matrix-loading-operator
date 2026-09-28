@@ -1,6 +1,6 @@
 const validRequestId=value=>typeof value==='string'&&value.length>0&&
   value.length<=128&&!/[\x00-\x1f]/.test(value);
-const READ_ONLY_OPS=new Set(['get_scene','list_assets','list_targets','inspect_entity',
+const READ_ONLY_OPS=new Set(['get_scene','get_environment','list_assets','list_targets','inspect_entity',
   'list_world_archives']);
 const WORLD_SLOT_OPS=new Set(['list_world_archives','start_new_world','restore_world_archive']);
 
@@ -14,6 +14,7 @@ export class MatrixBridge {
     this.running=false; this.timer=null;this.inFlight=false;this.exchangePaused=false;this.rejectPendingOnNextExchange=false;this.lastExchange=0;this.getViewer=()=>null;
     this.getCapture=null;this.captureInFlight=false;this.captureReceipt=null;
     this.onWorldSlotCommand=null;
+    this.prepareEnvironment=async()=>{};
     this.getCaptureCapabilities=()=>({modes:['virtual'],device:'Matrix WebXR',
       mixedStatus:'permission_required',reason:'Environment camera has not been tested in this browser.',
       depthOcclusion:false});
@@ -51,7 +52,18 @@ export class MatrixBridge {
       try{this.commandGuards.get(operation.requestId)?.(operation);}
       catch(error){return {requestId:operation.requestId,ok:false,
         error:String(error?.message||error).slice(0,1000),objectId:''};}
-      if(!WORLD_SLOT_OPS.has(operation.op))return this.world.execute(operation);
+      if(!WORLD_SLOT_OPS.has(operation.op)){
+        try{
+          const environment=operation.op==='set_environment'?operation.environment:
+            operation.op==='load'?operation.scene?.environment:
+            operation.op==='undo'?this.world.undo.at(-1)?.scene.environment:
+            operation.op==='redo'?this.world.redo.at(-1)?.scene.environment:null;
+          if(environment)await this.prepareEnvironment(environment);
+        }catch(error){return {requestId:operation.requestId,ok:false,
+          error:`Panorama dependency unavailable: ${String(error?.message||error).slice(0,900)}`,
+          objectId:''};}
+        return this.world.execute(operation);
+      }
       try{
         if(!this.onWorldSlotCommand)throw Error('Browser world archive controls are unavailable');
         const outcome=await this.onWorldSlotCommand(operation);

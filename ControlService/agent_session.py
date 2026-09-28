@@ -336,6 +336,29 @@ def _new_matrix_approval_summary(tool, arguments):
                     return (f"Archive the complete current world as {json.dumps(name, ensure_ascii=False)} "
                             f"and restore browser archive {arguments['archive_id']} "
                             f"in {arguments['room_id']} at revision {arguments['scene_revision']}.")
+        elif tool == "matrix_set_environment":
+            if (type(arguments) is dict and
+                    {"room_id", "scene_revision", "asset_id"} <= set(arguments) <=
+                    {"room_id", "scene_revision", "asset_id", "yaw_degrees"} and
+                    _xr_entity_id(arguments["room_id"]) and
+                    arguments["room_id"] == "web-virtual-room-v1" and
+                    type(arguments["scene_revision"]) is int and
+                    0 <= arguments["scene_revision"] <= 9007199254740991 and
+                    type(arguments["asset_id"]) is str and
+                    re.fullmatch(r"panorama:[a-z0-9]+(?:-[a-z0-9]+)*:[0-9a-f]{12}",
+                                 arguments["asset_id"]) and
+                    type(arguments.get("yaw_degrees", 0)) in (int, float) and
+                    math.isfinite(arguments.get("yaw_degrees", 0)) and
+                    0 <= arguments.get("yaw_degrees", 0) < 360):
+                return (f"Set world panorama {arguments['asset_id']} at "
+                        f"{arguments.get('yaw_degrees', 0)} degrees in "
+                        f"{arguments['room_id']} revision {arguments['scene_revision']}. "
+                        "Scene objects stay in place; passthrough AR stays visible.")
+        elif tool == "matrix_remove_environment":
+            if (_xr_context(arguments, set()) and
+                    arguments["room_id"] == "web-virtual-room-v1"):
+                return (f"Remove the world panorama in {arguments['room_id']} "
+                        f"revision {arguments['scene_revision']}; scene objects stay in place.")
     except (APIError, KeyError, TypeError, ValueError, OverflowError):
         return None
     return None
@@ -433,6 +456,22 @@ def _mcp_approval_description(params: dict) -> tuple[str, bool]:
                 type(scale) in (int, float) and scale == 1):
             summary = f"Register {Path(source).name} as {name} (GLB SHA-256 {digest[:12]}…) in the Matrix asset catalog."
             if len(summary) <= 200:
+                return summary, True
+    if (params.get("message") == 'Allow the matrix_webxr MCP server to run tool "matrix_register_panorama"?' and
+            type(arguments) is dict and set(arguments) ==
+            {"source_path", "expected_sha256", "name"}):
+        source, name, digest = (arguments[key] for key in
+                                ("source_path", "name", "expected_sha256"))
+        if (type(source) is str and 1 <= len(source) <= 1024 and
+                source.isprintable() and Path(source).is_absolute() and
+                not str(Path(source).drive).startswith("\\\\") and
+                Path(source).suffix.lower() == ".png" and
+                type(name) is str and 1 <= len(name) <= 80 and name.isprintable() and
+                type(digest) is str and re.fullmatch(r"[0-9a-f]{64}", digest)):
+            summary = (f"Register {Path(source).name} as {name} "
+                       f"(2:1 PNG SHA-256 {digest[:12]}…) in the Matrix panorama catalog. "
+                       "This does not change the world.")
+            if len(summary) <= 230:
                 return summary, True
     if (params.get("message") == 'Allow the matrix_webxr MCP server to run tool "matrix_publish_component"?' and
             isinstance(arguments, dict) and set(arguments) == {"package"}):
@@ -680,6 +719,9 @@ class LocalCodexAgentBackend:
                         "enabled_tools": ["matrix_scene_summary", "matrix_move_object", "matrix_move_status",
                                           "matrix_scale_block", "matrix_reset_block_scale", "matrix_scale_status",
                                           "matrix_list_assets", "matrix_register_glb",
+                                          "matrix_list_environments", "matrix_register_panorama",
+                                          "matrix_get_environment", "matrix_set_environment",
+                                          "matrix_remove_environment", "matrix_environment_status",
                                           "matrix_spawn_asset", "matrix_spawn_builtin", "matrix_spawn_status",
                                           "matrix_list_procedural_generators",
                                           "matrix_create_procedural", "matrix_update_procedural",
@@ -711,6 +753,8 @@ class LocalCodexAgentBackend:
             if config.agent_approval_policy == "on-request":
                 for name in ("matrix_move_object", "matrix_scale_block", "matrix_reset_block_scale",
                              "matrix_register_glb", "matrix_spawn_asset", "matrix_spawn_builtin",
+                             "matrix_register_panorama", "matrix_set_environment",
+                             "matrix_remove_environment",
                              "matrix_create_procedural", "matrix_update_procedural",
                              "matrix_bind_game", "matrix_update_game",
                              "matrix_set_display", "matrix_remove_display",

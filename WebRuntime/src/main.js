@@ -14,12 +14,13 @@ import {bindBlenderRequestContext,captureBlenderPlacement,
   captureBlenderRequestContext,queueBlenderPlacement,
   registeredBlenderAsset} from './blender_placement.js';
 import {routeOperatorRequest} from './operator_route.js';
-import {loadStoredWorld,restoreStoredWorld,restoreBestStoredWorld,storedWorld,storedBrowserWorld,
+import {loadStoredWorld,restoreStoredWorld,restoreBestStoredWorldWithEnvironment,storedWorld,storedBrowserWorld,
   saveCheckpoint,loadCheckpoint,loadCitizensDeletionRecovery,clearCitizensDeletionRecovery,
   WORLD_KEY} from './scene_store.js';
 import {applyPCWorld} from './world_checkpoint.js';
-import {startNewWorld,restoreWorldArchive,worldArchiveSummaries,
+import {startNewWorld,restoreWorldArchive,worldArchives,worldArchiveSummaries,
   executeWorldSlotCommand} from './world_slots.js';
+import {refreshAssetCatalogs} from './catalog_refresh.js';
 import {loadConversation,rememberTurn,clearConversation} from './conversation.js';
 import {startGame,deliverMovedObject,recordGameEvent,gameStatus} from './game.js';
 import {transitionCreatorMode,canPlayWorld} from './creator_mode.js';
@@ -164,6 +165,14 @@ function discardProposal(){
 
 function updateWorldControls(){
   const creator=world.creatorMode;
+  const environment=world.scene.environment;
+  const environmentAsset=environment&&world.environmentAsset(environment.assetId);
+  const environmentLabel=environment?
+    `${environmentAsset?.displayName||environment.assetId} · yaw ${environment.yawDegrees}°`:
+    'No panorama selected';
+  $('environment-status').textContent=environment?
+    `Panorama: ${environmentLabel}${view.isAR?' · hidden in AR to preserve passthrough':''}`:
+    'Panorama: none. Desktop and VR use the neutral background.';
   $('creator-mode-status').textContent=`${creator.mode==='creator'?'Creator Mode':'Play/Test Mode'} · simulation ${creator.simulation} · revision ${creator.revision}`;
   $('enter-play').disabled=!!pendingWorld||world.digitalWorldVisit||creator.mode==='play';
   $('enter-creator').disabled=!!pendingWorld||world.digitalWorldVisit||creator.mode==='creator';
@@ -211,6 +220,8 @@ function updateWorldControls(){
   const archiveIndex=archives.findIndex(item=>item.archiveId===selectedArchiveId);
   const selectedArchive=archives[archiveIndex];
   view.setOperatorWorldInfo({objects:world.scene.objects.length,canConfirm,restoreArmed:performance.now()<restoreArmedUntil,
+    environmentLabel:environment?`Panorama: ${environmentLabel}${view.isAR?' · AR hidden':''}`:
+      'Panorama: none',
     originUnavailable,resetAvailable,canRetryOrigin,
     recoveryArmed:performance.now()<roomResetArmedUntil?roomRecoveryChoice:'',
     archiveCount:archives.length,archiveIndex:Math.max(0,archiveIndex),
@@ -358,11 +369,18 @@ const bridge=new MatrixBridge(world,()=>$('token').value.trim(),event=>{
     feedback(message,!event.result.ok);lastOperatorReply=lastOperatorReply?`${lastOperatorReply}\n\n${message}`:message;operatorMessageUntil=Infinity;view.setOperatorStatus(lastOperatorReply,event.result.ok?'idle':'error');
   }
 });
-bridge.onWorldSlotCommand=command=>{
+bridge.prepareEnvironment=environment=>view.prepareEnvironment(environment);
+bridge.onWorldSlotCommand=async command=>{
   if(command.op==='list_world_archives')
     return executeWorldSlotCommand(world,command,sessionStorage,localStorage);
   const blocker=worldSwitchBlocker({fromAgent:true});
   if(blocker)throw Error(blocker);
+  if(command.op==='restore_world_archive'){
+    const target=worldArchives(localStorage).find(item=>
+      item.archiveId===command.archiveId);
+    if(target?.world?.scene?.environment)
+      await view.prepareEnvironment(target.world.scene.environment);
+  }
   // This command is executing inside the exchange, so it cannot wait for an
   // exclusive exchange. The archive transaction itself is synchronous.
   worldSwitchBusy=true;
@@ -510,22 +528,30 @@ $('agent-input').addEventListener('keydown',event=>{if(event.key==='Enter'&&(eve
 $('token').addEventListener('change',()=>{if(agentClient.sessionId)agentClient.restore().catch(()=>{});});
 async function refreshAssets(silent=false,{strict=false}={}){
   try{
-    const data=await bridge.request('/api/web/assets');
-    const changed=world.registerAssets(data.assets||[]);
-    view.refreshAssets(changed);
-    $('asset-count').textContent=`${7+world.externalAssets.length} available`;
+    const {data,environmentError}=await refreshAssetCatalogs(world,
+      path=>bridge.request(path),changed=>view.refreshAssets(changed));
+    view.syncEnvironment();
+    $('asset-count').textContent=`${7+world.externalAssets.length} objects · ${world.environmentAssets.length} panoramas`;
     if(pendingWorld){
-      const restored=restoreBestStoredWorld(world,pendingWorld,localStorage);
+      const restored=await restoreBestStoredWorldWithEnvironment(world,pendingWorld,
+        localStorage,environment=>{
+          if(environmentError)throw Error(`Panorama catalog unavailable: ${environmentError.message}`);
+          return view.prepareEnvironment(environment);
+        });
       if(restored.state==='waiting'){
         const dependencies=restored.missingAssets||restored.missingGenerators||[];
         const missing=dependencies.slice(0,3).join(', ');
         const more=dependencies.length>3?
           ` and ${dependencies.length-3} more`:'';
-        restoreWarning=restored.missingGenerators?
+        restoreWarning=restored.reason?.startsWith('Saved panorama could not be verified:')?
+          `${restored.reason}. Browser copies remain untouched. Restore the registered image and choose Refresh assets.`:
+          restored.missingGenerators?
           `Saved world needs reviewed generator source ${missing}${more}. Browser copies remain untouched. Restore that code version and reload.`:
-          `Saved world is waiting for registered web assets: ${missing}${more}. Browser copies remain untouched. Restore the catalog and choose Refresh assets.`;
+          `Saved world is waiting for registered assets or panoramas: ${missing}${more}. Browser copies remain untouched. Restore the catalog and choose Refresh assets.`;
         view.setOperatorWarning(restored.missingGenerators?
-          'SAVED WORLD WAITING FOR GENERATOR SOURCE':'SAVED WORLD WAITING FOR WEB ASSETS');
+          'SAVED WORLD WAITING FOR GENERATOR SOURCE':
+          restored.reason?.startsWith('Saved panorama could not be verified:')?
+            'SAVED WORLD WAITING FOR PANORAMA':'SAVED WORLD WAITING FOR WEB ASSETS');
         updateWorldControls();
         feedback('World recovery is waiting for required assets.',true);
         return;
@@ -549,11 +575,13 @@ async function refreshAssets(silent=false,{strict=false}={}){
       if(restored.rejected.length)feedback('World recovery needs attention.',true);
     }
     initXRIfReady();
-    if(!silent)feedback(`Catalog updated: ${world.externalAssets.length} web assets.`);
+    if(!silent)feedback(environmentError?
+      `Object catalog updated; panorama catalog unavailable: ${environmentError.message}`:
+      `Catalog updated: ${world.externalAssets.length} web assets.`,!!environmentError);
     return data;
   }catch(error){
     if(pendingWorld){
-      restoreWarning=`Saved world is waiting for the Web asset catalog: ${error.message}. Browser copies remain untouched; Refresh assets will retry.`;
+      restoreWarning=`Saved world is waiting for the asset catalogs: ${error.message}. Browser copies remain untouched; Refresh assets will retry.`;
       view.setOperatorWarning('SAVED WORLD WAITING FOR WEB ASSET CATALOG');
       updateWorldControls();
       feedback('World recovery is waiting for the asset catalog.',true);
@@ -819,7 +847,7 @@ async function saveWorld(){
     feedback(`World checkpoint saved in this browser. PC scene backup failed: ${error.message}`,true);
   }
 }
-function restoreWorld(){
+async function restoreWorld(){
   if(world.digitalWorldVisit){feedback('Leave the AR visit before restoring a world.',true);return;}
   if(world.creatorMode.mode!=='creator'){
     feedback('Return to Creator Mode before restoring a browser checkpoint.',true);return;
@@ -842,6 +870,8 @@ function restoreWorld(){
   }
   restoreArmedUntil=0;
   try{
+    if(checkpoint.scene?.environment)
+      await view.prepareEnvironment(checkpoint.scene.environment);
     restoreStoredWorld(world,checkpoint);
     discardProposal();
     renderScene();feedback('World checkpoint restored in this browser.');
@@ -892,6 +922,8 @@ async function restorePCWorld(){
     await bridge.sync();
     const data=await bridge.request('/api/web/world/load',{name});
     if(world.spatial||pendingWorld)throw Error('The browser left the ready desktop virtual room');
+    if(data.world?.scene?.environment)
+      await view.prepareEnvironment(data.world.scene.environment);
     await bridge.withExclusiveExchange(syncExclusive=>
       applyPCWorld(world,data.world,()=>syncExclusive(data.expectedRevision)));
     discardProposal();restored=true;
@@ -985,6 +1017,11 @@ async function restoreSelectedArchive(){
     return;
   }
   archiveRestoreArmedUntil=0;archiveRestoreId='';
+  try{
+    const target=worldArchives(localStorage).find(item=>item.archiveId===archiveId);
+    if(target?.world?.scene?.environment)
+      await view.prepareEnvironment(target.world.scene.environment);
+  }catch(error){feedback(`Panorama dependency unavailable: ${error.message}`,true);return;}
   await switchBrowserWorld(()=>restoreWorldArchive(world,archiveId,
     sessionStorage,localStorage,worldArchiveName()));
 }

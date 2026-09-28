@@ -160,6 +160,14 @@ def build_matrix_turn_message(user_text: str, context: dict,
         lines.append("This AR view visits the canonical digital world; running citizens continue. "
                      "The visit does not authorize world edits or prove physical-room alignment; "
                      "inspect the live world and use a supported Creator session for placement.")
+    if (context.get("capabilityVersions") or {}).get("environmentSchemaVersion") == 1:
+        environment = context.get("environment")
+        lines.append("World environment: " +
+                     (f"registered panorama {environment['assetId']} at {environment['yawDegrees']} degrees."
+                      if type(environment) is dict else "no panorama set.") +
+                     " A panorama is distant visual art, not geometry or a physical-room measurement. "
+                     "It is hidden in passthrough AR by default. Use the typed environment tools and "
+                     "matching receipt for changes; preserve scene objects.")
     selected_creation_mode = (selected_concept.get("creationMode", "auto")
                               if selected_concept is not None else None)
     if selected_concept is not None:
@@ -211,6 +219,12 @@ def build_matrix_turn_message(user_text: str, context: dict,
                              "verify its exact receipt before continuing.")
         if "matrix_list_assets" in tools and selected_creation_mode != "procedural":
             discovery.append("Search all matrix_list_assets offset/limit pages for named content.")
+        if ("matrix_list_environments" in tools and
+                (context.get("capabilityVersions") or {}).get("environmentSchemaVersion") == 1):
+            discovery.append("For a skybox or panoramic environment, inspect "
+                             "matrix_list_environments; use a registered 2:1 panorama through "
+                             "matrix_set_environment and verify its receipt. A concept image is "
+                             "only art direction until it is validated and registered as a panorama.")
         if ((context.get("proceduralGeneratorCount", 0) > 0 or selected_creation_mode == "procedural") and
                 "matrix_list_procedural_generators" in tools):
             discovery.append("Inspect matrix_list_procedural_generators before choosing a recipe.")

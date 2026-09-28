@@ -11,6 +11,7 @@ import {canPlayWorld} from './creator_mode.js';
 import {gameStatus,isGameExitUnlocked} from './game.js';
 import {displayHeadline,displayObservation,validDisplay} from './display.js';
 import {MAX_RIGID_RELEASE_LINEAR_SPEED,MAX_RIGID_RELEASE_ANGULAR_SPEED} from './physics_rigid.js';
+import {matchingEnvironmentAsset} from './environment.js';
 
 const wood=()=>new THREE.MeshStandardMaterial({color:0xa56f45,roughness:.78});
 const metal=()=>new THREE.MeshStandardMaterial({color:0x738995,roughness:.45,metalness:.45});
@@ -219,6 +220,9 @@ export function operatorPanel({createImage=()=>new Image()}={}){
       ctx.font='25px sans-serif';
       const label=gameStatus.length>70?gameStatus.slice(0,67)+'…':gameStatus;
       ctx.fillText(label,55,235);
+      ctx.font='21px sans-serif';ctx.fillStyle='#75f4df';
+      ctx.fillText((worldInfo.environmentLabel||'Panorama: none').slice(0,85),
+        55,265,910);
       ctx.fillStyle='#8bb8c2';ctx.fillText(`Conversation: ${conversationCount} recent turn${conversationCount===1?'':'s'}`,55,290);
       if(worldNotice.text){
         ctx.fillStyle=worldNotice.tone==='error'?'#ffad8d':worldNotice.tone==='pending'?'#dff7f8':'#75f4df';
@@ -481,8 +485,11 @@ export class MatrixView {
     this.readOnly=options.readOnly===true;
     this.observationStale=false;
     this.container=container;this.objectRoots=new Map();this.anchorRoots=new Map();this.planeOutlines=new Map();this.planeIds=new WeakMap();this.nextPlaneId=0;this.hitSource=null;this.reticleVisible=false;this.xrViewer=null;this.xrViewerCapturedAt=0;this.roomTrackingEpoch=0;this.reticleAnchorId='';this.lastPlaneTime=0;
-    this.modelCache=new Map();
-    this.scene=new THREE.Scene();this.scene.background=new THREE.Color(0x0a1b29);
+    this.modelCache=new Map();this.environmentTextures=new Map();
+    this.environmentLoads=new Map();this.environmentFailures=new Map();
+    this.environmentSyncPending=new Set();
+    this.neutralBackground=new THREE.Color(0x0a1b29);
+    this.scene=new THREE.Scene();this.scene.background=this.neutralBackground;
     this.virtualFloorRoot=new THREE.Group();this.scene.add(this.virtualFloorRoot);
     this.roomAnchor=null;this.roomAnchorPending=false;this.roomAnchorCreationFailed=false;this.roomAnchorPersistent=false;this.roomAnchorRestoredHandle=null;this.roomAnchorRestoreFailed=false;this.roomAnchorLocated=false;this.roomAnchorHandleAvailable=false;this.roomPoseMissingSince=0;
     const storedEyeHeight=Number(sessionStorage.getItem('matrix-web-eye-height'));
@@ -585,7 +592,8 @@ export class MatrixView {
     if(this.isAR)this.sync();
     this.onRuntimeChange();
     for(const ray of this.controllerRays)ray.visible=!this.readOnly;
-    this.floor.visible=!this.isAR;this.grid.visible=!this.isAR;this.scene.background=this.isAR?null:new THREE.Color(0x0a1b29);
+    this.floor.visible=!this.isAR;this.grid.visible=!this.isAR;
+    this.syncEnvironment();
     document.getElementById('view-label').textContent=this.isAR?'WEBXR AR · SCANNING ROOM PLANES':'WEBXR VR · VIRTUAL ROOM';
     if(this.isAR)await this.acquireARHitSource(session);
   }
@@ -785,7 +793,7 @@ export class MatrixView {
     setRoomContentVisible(this,true);this.virtualFloorRoot.position.set(0,0,0);this.virtualFloorRoot.quaternion.identity();this.virtualFloorCalibrated=false;
     this.world.leaveAR();this.world.runtimePresentation='desktop';this.sync();this.onRuntimeChange();
     document.getElementById('xr-overlay').style.display='none';document.getElementById('xr-exit').textContent='Exit AR';this.floor.visible=true;this.grid.visible=true;
-    this.scene.background=new THREE.Color(0x0a1b29);document.getElementById('view-label').textContent='DESKTOP · VIRTUAL ROOM';
+    this.syncEnvironment();document.getElementById('view-label').textContent='DESKTOP · VIRTUAL ROOM';
   }
   setOperatorStatus(message,tone='idle'){this.operatorPanel.setMessage(message,tone);}
   setConversationCount(count){this.operatorPanel.setConversationCount(count);}
@@ -930,6 +938,7 @@ export class MatrixView {
     }
   }
   sync(){
+    this.syncEnvironment();
     if(this.grab?.rigid)this.world.releaseRigidGrab?.(this.grab.objectId);
     if(this.pointerGrab?.rigid)this.world.releaseRigidGrab?.(this.pointerGrab.objectId);
     if(this.grab)this.world.resumePhysics?.(this.grab.objectId);
@@ -1023,6 +1032,131 @@ export class MatrixView {
     this.refreshGamePresentation();
     setRoomContentVisible(this,!this.isAR||!this.world.spatial?.originUnavailable);
     this.highlight();
+  }
+  async prepareEnvironment(environment){
+    if(!environment)return null;
+    const asset=this.world.environmentAsset(environment.assetId);
+    if(!matchingEnvironmentAsset(environment,asset))
+      throw Error('Panorama is missing from the registered environment catalog');
+    const ready=this.environmentTextures.get(asset.sha256);
+    if(ready){
+      if(ready.image?.width!==asset.width||ready.image?.height!==asset.height)
+        throw Error('Cached panorama dimensions differ from the registered asset');
+      return ready;
+    }
+    const inFlight=this.environmentLoads.get(asset.sha256);
+    if(inFlight){
+      const texture=await inFlight;
+      if(texture.image?.width!==asset.width||texture.image?.height!==asset.height)
+        throw Error('Panorama dimensions differ from the registered asset');
+      return texture;
+    }
+    const controller=new AbortController();
+    let timeoutId;
+    const timeout=new Promise((_,reject)=>{
+      timeoutId=setTimeout(()=>{
+        reject(Error('Panorama loading timed out'));controller.abort();
+      },this.environmentLoadTimeoutMs??12000);
+    });
+    const download=(async()=>{
+      const token=this.getToken();
+      const response=await fetch(asset.url,{headers:token?
+        {Authorization:`Bearer ${token}`}:{},cache:'no-store',
+        signal:controller.signal});
+      if(controller.signal.aborted)throw Error('Panorama loading timed out');
+      if(!response.ok)throw Error(`Panorama download returned HTTP ${response.status}`);
+      const declared=Number(response.headers?.get('content-length'));
+      if(Number.isFinite(declared)&&declared>asset.byteLength)
+        throw Error('Panorama response exceeds its registered byte length');
+      if(!response.body?.getReader)throw Error('Panorama response cannot be streamed safely');
+      const reader=response.body.getReader(),bytes=new Uint8Array(asset.byteLength);
+      let size=0;
+      while(true){
+        const {done,value}=await reader.read();
+        if(controller.signal.aborted)throw Error('Panorama loading timed out');
+        if(done)break;
+        if(size+value.byteLength>bytes.byteLength){
+          void reader.cancel().catch(()=>{});
+          throw Error('Panorama response exceeds its registered byte length');
+        }
+        bytes.set(value,size);size+=value.byteLength;
+      }
+      if(size!==asset.byteLength)
+        throw Error('Panorama byte length differs from its registered asset');
+      if(!crypto.subtle)throw Error('Secure panorama checksum verification is unavailable');
+      const digest=Array.from(new Uint8Array(await crypto.subtle.digest('SHA-256',bytes)),
+        byte=>byte.toString(16).padStart(2,'0')).join('');
+      if(controller.signal.aborted)throw Error('Panorama loading timed out');
+      if(digest!==asset.sha256)throw Error('Panorama checksum differs from its registered asset');
+      const image=await createImageBitmap(new Blob([bytes],{type:'image/png'}));
+      if(controller.signal.aborted){image.close?.();throw Error('Panorama loading timed out');}
+      if(image.width!==asset.width||image.height!==asset.height){
+        image.close?.();throw Error('Panorama dimensions differ from its registered asset');
+      }
+      const texture=new THREE.Texture(image);
+      texture.mapping=THREE.EquirectangularReflectionMapping;
+      texture.colorSpace=THREE.SRGBColorSpace;
+      texture.needsUpdate=true;
+      this.environmentTextures.set(asset.sha256,texture);
+      this.environmentFailures.delete(asset.sha256);
+      while(this.environmentTextures.size>3){
+        const evicted=[...this.environmentTextures].find(([sha,candidate])=>
+          sha!==asset.sha256&&candidate!==this.scene.background);
+        if(!evicted)break;
+        this.environmentTextures.delete(evicted[0]);
+        evicted[1].dispose();evicted[1].image?.close?.();
+      }
+      return texture;
+    })();
+    const promise=Promise.race([download,timeout]).finally(()=>clearTimeout(timeoutId));
+    this.environmentLoads.set(asset.sha256,promise);
+    try{return await promise;}
+    catch(error){
+      this.environmentFailures.set(asset.sha256,Date.now());
+      while(this.environmentFailures.size>8)
+        this.environmentFailures.delete(this.environmentFailures.keys().next().value);
+      throw error;
+    }
+    finally{if(this.environmentLoads.get(asset.sha256)===promise)
+      this.environmentLoads.delete(asset.sha256);}
+  }
+  syncEnvironment(){
+    const environment=this.world.scene?.environment??null;
+    this.scene.backgroundRotation?.set(0,
+      environment?THREE.MathUtils.degToRad(environment.yawDegrees):0,0);
+    if(this.isAR){this.scene.background=null;return;}
+    if(!environment){this.scene.background=this.neutralBackground||
+      new THREE.Color(0x0a1b29);return;}
+    const asset=this.world.environmentAsset(environment.assetId);
+    if(!matchingEnvironmentAsset(environment,asset)){
+      this.scene.background=this.neutralBackground||new THREE.Color(0x0a1b29);
+      const missingKey=`missing:${environment.assetId}:${environment.sha256}`;
+      if(!this.environmentFailures.has(missingKey)){
+        this.environmentFailures.set(missingKey,Date.now());
+        this.onAssetError('Panorama is missing or differs from the registered image.');
+      }
+      return;
+    }
+    const ready=this.environmentTextures.get(asset.sha256);
+    if(ready&&ready.image?.width===asset.width&&
+       ready.image?.height===asset.height){this.scene.background=ready;return;}
+    this.scene.background=this.neutralBackground||new THREE.Color(0x0a1b29);
+    this.environmentSyncPending??=new Set();
+    if(this.environmentSyncPending.has(asset.sha256))return;
+    if(Date.now()-(this.environmentFailures.get(asset.sha256)||0)<30000)return;
+    this.environmentFailures.delete(asset.sha256);
+    this.environmentSyncPending.add(asset.sha256);
+    void this.prepareEnvironment(environment).then(texture=>{
+      if(!this.isAR&&this.world.scene.environment?.assetId===environment.assetId&&
+         this.world.scene.environment?.sha256===environment.sha256){
+        this.scene.background=texture;
+        this.scene.backgroundRotation?.set(0,THREE.MathUtils.degToRad(
+          this.world.scene.environment.yawDegrees),0);
+      }
+    }).catch(error=>{
+      this.environmentFailures.set(asset.sha256,Date.now());
+      this.onAssetError(`Panorama could not render: ${error.message}`);
+    }).finally(()=>this.environmentSyncPending.delete(asset.sha256));
   }
   syncObservedTransforms(){
     // The hosted visitor fixture has fixed static assets and IDs. Move their

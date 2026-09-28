@@ -37,6 +37,9 @@ import speech
 import tts
 import scene_capture
 from web_assets import WebAssetCatalog, WebAssetError, MAX_BYTES as MAX_GLB_BYTES
+from web_environments import (WebEnvironmentCatalog, WebEnvironmentError,
+                              environment_asset_entry, environment_descriptor,
+                              MAX_BYTES as MAX_PANORAMA_BYTES)
 from web_components import ComponentError, validate_attachment, validate_package, COMPONENT_ID
 from web_component_catalog import WebComponentCatalog
 from web_authoring import WebAuthoringJobs, WebAuthoringError
@@ -71,7 +74,8 @@ OPS = {"spawn", "set_transform", "select", "duplicate", "delete", "undo", "redo"
        "set_display", "remove_display", "set_control", "remove_control", "activate_control",
        "set_rigid_body", "remove_rigid_body", "set_gravity",
        "inspect_entity", "begin_grab", "move_grab", "release_grab",
-       "list_world_archives", "start_new_world", "restore_world_archive"}
+       "list_world_archives", "start_new_world", "restore_world_archive",
+       "get_environment", "set_environment", "remove_environment"}
 INTERACTION_ID = re.compile(r"[a-z0-9](?:[a-z0-9-]{0,30}[a-z0-9])?\Z")
 GLB_SHA = re.compile(r"[0-9a-f]{64}\Z")
 
@@ -684,6 +688,30 @@ def world_archive_outcome(value, op, item, current):
     return {"kind": "world-restored", "archived": archived, "restored": restored}
 
 
+def environment_outcome(value, op, item, current):
+    fields = ({"kind", "environment"} if op == "get_environment" else
+              {"kind", "environment", "previousEnvironment"})
+    require(type(value) is dict and set(value) == fields,
+            "Invalid environment receipt")
+    expected_kind = {"get_environment": "environment-status",
+                     "set_environment": "environment-set",
+                     "remove_environment": "environment-removed"}[op]
+    require(value["kind"] == expected_kind, "Wrong environment receipt kind")
+    try:
+        prior = (None if op == "get_environment" or value["previousEnvironment"] is None else
+                 environment_descriptor(value["previousEnvironment"]))
+        observed = (None if value["environment"] is None else
+                    environment_descriptor(value["environment"]))
+    except WebEnvironmentError as error:
+        raise APIError(400, str(error)) from None
+    require((op == "get_environment" or prior == item["expectedEnvironment"]) and
+            observed == current["scene"].get("environment") and
+            (op == "get_environment" or observed == item.get("environment")),
+            "Environment receipt and connected scene disagree")
+    return {"kind": expected_kind, "environment": observed, **(
+            {"previousEnvironment": prior} if op != "get_environment" else {})}
+
+
 def interaction_descriptor(value):
     """Validate a finite GLB v1 or reviewed procedural v2 affordance."""
     common = {"schemaVersion", "interactionId", "kind", "requiredCapabilities",
@@ -1013,7 +1041,13 @@ def scene(value):
                if "control" in obj]
     require(len(targets) == len(set(targets)),
             "Only one control may own a target")
-    return {"schemaVersion": 1, "roomId": room, "objects": normalized}
+    result = {"schemaVersion": 1, "roomId": room, "objects": normalized}
+    if "environment" in value:
+        try:
+            result["environment"] = environment_descriptor(value["environment"])
+        except WebEnvironmentError as error:
+            raise APIError(400, str(error)) from None
+    return result
 
 
 def physics_states(value, authored_scene):
@@ -1332,6 +1366,26 @@ def snapshot(value):
     result = {"scene": scene(value.get("scene")),
               "assets": catalog(value.get("assets"), "assetId", 512),
               "anchors": catalog(value.get("anchors"), "anchorId", 128)}
+    if "environmentSchemaVersion" in value:
+        require(type(value["environmentSchemaVersion"]) is int and
+                value["environmentSchemaVersion"] == 1,
+                "Unsupported environment schema")
+        result["environmentSchemaVersion"] = 1
+    if "environmentAssets" in value:
+        entries = value["environmentAssets"]
+        require(type(entries) is list and len(entries) <= 128 and
+                result.get("environmentSchemaVersion") == 1,
+                "Invalid environment asset catalog")
+        try:
+            result["environmentAssets"] = [environment_asset_entry(item) for item in entries]
+        except WebEnvironmentError as error:
+            raise APIError(400, str(error)) from None
+        require(len({item["assetId"] for item in entries}) == len(entries) and
+                len({item["sha256"] for item in entries}) == len(entries),
+                "Duplicate environment asset")
+    require("environment" not in result["scene"] or
+            result.get("environmentSchemaVersion") == 1,
+            "Scene environment requires the Matrix Web environment runtime")
     if "proceduralGenerators" in value:
         try:
             result["proceduralGenerators"] = copy.deepcopy(
@@ -1632,6 +1686,9 @@ def command(value, *, allow_precondition=False):
     require(isinstance(op, str) and op in OPS, "Unknown command op")
     allowed = {"op", "requestId"}
     required = {"spawn": {"assetId", "anchorId", "transform"}, "set_transform": {"objectId", "transform"},
+                "get_environment": {"roomId"},
+                "set_environment": {"roomId", "environment", "expectedEnvironment"},
+                "remove_environment": {"roomId", "expectedEnvironment"},
                 "bind_game": {"spec", "bindings"},
                 "update_game": {"spec", "bindings", "expectedSpec", "expectedBindings"},
                 "create_procedural": {"anchorId", "transform", "procedural"},
@@ -1687,8 +1744,20 @@ def command(value, *, allow_precondition=False):
     require(not (set(value) - allowed), "Unexpected command fields")
     require(required <= set(value), "Missing command fields")
     result = {"op": op}
-    if op in {"list_world_archives", "start_new_world", "restore_world_archive"}:
+    if op in {"list_world_archives", "start_new_world", "restore_world_archive",
+              "get_environment", "set_environment", "remove_environment"}:
         result["roomId"] = text(value["roomId"], "roomId")
+    if "environment" in value:
+        try:
+            result["environment"] = environment_descriptor(value["environment"])
+        except WebEnvironmentError as error:
+            raise APIError(400, str(error)) from None
+    if "expectedEnvironment" in value:
+        try:
+            result["expectedEnvironment"] = (None if value["expectedEnvironment"] is None else
+                                             environment_descriptor(value["expectedEnvironment"]))
+        except WebEnvironmentError as error:
+            raise APIError(400, str(error)) from None
     for key in ("assetId", "objectId", "anchorId", "componentId", "targetObjectId"):
         if key in value:
             result[key] = text(value[key], key, empty=key == "anchorId")
@@ -3165,11 +3234,14 @@ def agent_capability_context(current):
                  "physicsSchemaVersion", "rigidSchemaVersion",
                  "interactionSchemaVersion", "controlSchemaVersion",
                  "entityActionSchemaVersion",
+                 "environmentSchemaVersion",
                  "worldSlotSchemaVersion")
                 if key in current}
     return {"runtimeDescriptor": current.get("runtimeDescriptor"),
             "capabilityVersions": versions,
             "assetCatalogCount": len(current["assets"]),
+            "environmentAssetCount": len(current.get("environmentAssets", [])),
+            "environment": copy.deepcopy(current["scene"].get("environment")),
             "proceduralGeneratorCount": len(current.get("proceduralGenerators", [])),
             "creatorMode": current.get("creatorMode"),
             "digitalWorldVisit": current.get("digitalWorldVisit", False)}
@@ -3552,6 +3624,25 @@ def web_virtual_floor_ready(snapshot):
             any(anchor["anchorId"] == "web-floor" for anchor in snapshot["anchors"]))
 
 
+def require_registered_environment(environment, current, registry):
+    """Prove that both PC bytes and the connected browser name the same PNG."""
+    if environment is None:
+        return None
+    require(current.get("environmentSchemaVersion") == 1,
+            "Connected Matrix runtime has no environment contract", 409)
+    try:
+        entry = next((item for item in registry.list()
+                      if item["assetId"] == environment["assetId"] and
+                      item["sha256"] == environment["sha256"]), None)
+        require(entry is not None, "Panorama is not registered in the PC catalog", 409)
+        registry.file(entry["sha256"])
+    except WebEnvironmentError as error:
+        raise APIError(409, f"Panorama is missing or corrupt: {error}") from None
+    require(entry in current.get("environmentAssets", []),
+            "Connected browser has not loaded the current panorama catalog", 409)
+    return entry
+
+
 def virtual_floor_command(snapshot, item):
     """Allow only commands proven to stay on the virtual floor before AR alignment."""
     if not web_virtual_floor_ready(snapshot):
@@ -3648,7 +3739,8 @@ def readable_blend_source(path):
 
 class State:
     def __init__(self, directory, clock=time.monotonic, learning=None,
-                 web_assets_directory=None, citizen_capability_budget=1,
+                 web_assets_directory=None, web_environments_directory=None,
+                 citizen_capability_budget=1,
                  citizen_construction_budget=None):
         if citizen_construction_budget is not None:
             require(citizen_capability_budget == 1 or
@@ -3661,6 +3753,8 @@ class State:
         self.directory = Path(directory)
         self.directory.mkdir(parents=True, exist_ok=True)
         self.web_assets = WebAssetCatalog(web_assets_directory or Path(__file__).with_name("web_assets"))
+        self.web_environments = WebEnvironmentCatalog(
+            web_environments_directory or Path(__file__).with_name("web_environments"))
         self.web_components = WebComponentCatalog(self.directory / "web_components")
         self.web_authoring = WebAuthoringJobs(self.web_assets)
         self.blender_authoring = BlenderAuthoringJobs(
@@ -3694,6 +3788,7 @@ class State:
         self.agent_rigid_ids = collections.OrderedDict()
         self.agent_entity_ids = collections.OrderedDict()
         self.agent_world_archive_ids = collections.OrderedDict()
+        self.agent_environment_ids = collections.OrderedDict()
         self.agent_animation_ids = collections.OrderedDict()
         self.agent_component_ids = collections.OrderedDict()
         self.agent_physics_ids = collections.OrderedDict()
@@ -4139,6 +4234,16 @@ class State:
                                 result["outcome"], issued["op"], issued, current)
                         else:
                             result.pop("outcome", None)
+                    elif issued["op"] in {"get_environment", "set_environment",
+                                          "remove_environment"}:
+                        require(result["objectId"] == "", "Environment receipt has an object target")
+                        if result["ok"]:
+                            require(current is not None and "outcome" in result,
+                                    "Environment receipt lacks its result")
+                            result["outcome"] = environment_outcome(
+                                result["outcome"], issued["op"], issued, current)
+                        else:
+                            result.pop("outcome", None)
                     else:
                         result.pop("outcome", None)
                     del self.pending[result["requestId"]]
@@ -4342,6 +4447,9 @@ class State:
         if any(item["op"] in {"list_world_archives", "start_new_world", "restore_world_archive"}
                for item in checked):
             require(len(checked) == 1, "Operate one browser world archive at a time", 409)
+        if any(item["op"] in {"get_environment", "set_environment", "remove_environment"}
+               for item in checked):
+            require(len(checked) == 1, "Operate one world environment at a time", 409)
         if any(item["op"] in {"set_interaction", "remove_interaction"} for item in checked):
             require(len(checked) == 1,
                     "Review one interaction change at a time", 409)
@@ -4385,6 +4493,35 @@ class State:
             room = self.runtime
             for item in checked:
                 supported = self.latest.get("behaviorKinds", [])
+                if item["op"] in {"get_environment", "set_environment", "remove_environment"}:
+                    current = self.latest
+                    require(current.get("environmentSchemaVersion") == 1 and
+                            current["scene"]["roomId"] == item["roomId"] and
+                            not self.pending,
+                            "Connected Matrix world has no ready environment contract", 409)
+                    if item["op"] != "get_environment":
+                        mode = current.get("creatorMode") or {}
+                        require(self.host_world_id is None and
+                                current["scene"]["roomId"] == "web-virtual-room-v1" and
+                                room and room["mode"] == "white-room" and
+                                room["state"] == "ready" and
+                                mode.get("mode") == "creator" and
+                                mode.get("simulation") == "paused" and
+                                current.get("agentGrab") is None and
+                                not current.get("readOnly") and
+                                not current.get("digitalWorldVisit"),
+                                "Edit the environment in paused Creator Mode on the digital world", 409)
+                        require(current["scene"].get("environment") ==
+                                item["expectedEnvironment"],
+                                "Environment changed; inspect it and retry", 409)
+                        if item["op"] == "set_environment":
+                            require(item["environment"] != item["expectedEnvironment"],
+                                    "This panorama and orientation are already active", 409)
+                            require_registered_environment(
+                                item["environment"], current, self.web_environments)
+                        else:
+                            require(item["expectedEnvironment"] is not None,
+                                    "This world has no panorama to remove", 409)
                 if item["op"] in {"list_world_archives", "start_new_world", "restore_world_archive"}:
                     current = self.latest
                     mode = current.get("creatorMode") or {}
@@ -4747,6 +4884,8 @@ class State:
                                                        self.web_assets,
                                                        self.latest.get("proceduralGenerators", []))
                 elif item["op"] == "load":
+                    require_registered_environment(item["scene"].get("environment"),
+                                                   self.latest, self.web_environments)
                     for obj in item["scene"]["objects"]:
                         if "procedural" in obj:
                             try:
@@ -4787,14 +4926,15 @@ class State:
                         for obj in physics_objects:
                             require_physics_eligible(obj, self.latest["assets"], registered)
                 if self.latest.get("readOnly"):
-                    require(item["op"] in {"clear", "get_scene", "list_assets", "list_targets"},
+                    require(item["op"] in {"clear", "get_scene", "list_assets", "list_targets",
+                                            "get_environment"},
                             "Room changed. Save the retained poses, clear objects, then reload room data and verify outlines", 409)
                 if item["op"] == "confirm_room":
                     require(room and room["mode"] == "ar" and room["state"] == "ready",
                             "Load a real room and inspect its outlines before confirming alignment", 409)
                 elif room and room["mode"] == "ar" and not room.get("alignmentVerified"):
                     require(item["op"] in {"clear", "select", "get_scene", "list_assets", "list_targets",
-                                            "inspect_entity", "list_world_archives"}
+                                            "inspect_entity", "list_world_archives", "get_environment"}
                             or virtual_floor_command(self.latest, item),
                             "Check the labeled outlines in the headset, then confirm room alignment on this panel", 409)
             configured_ids = {obj["objectId"] for obj in self.latest["scene"]["objects"]
@@ -6454,6 +6594,148 @@ class State:
                             ("assetId", "displayName", "sha256", "byteLength", "geometry", "spawnScale", "localBounds")
                             if key in item} for item in items[offset:offset + limit]]}
 
+    def agent_list_environments(self, offset=0, limit=24):
+        require(type(offset) is int and 0 <= offset <= 127 and
+                type(limit) is int and 1 <= limit <= 24,
+                "Invalid Matrix environment page")
+        items = self.web_environments.list()
+        return {"total": len(items), "offset": offset,
+                "assets": copy.deepcopy(items[offset:offset + limit])}
+
+    def agent_register_panorama(self, value):
+        """Register exact PC-local PNG bytes without changing the world."""
+        require(type(value) is dict and set(value) ==
+                {"source_path", "expected_sha256", "name"},
+                "Invalid Matrix panorama registration")
+        source_name = text(value["source_path"], "source_path", limit=1024)
+        digest = value["expected_sha256"]
+        require(type(digest) is str and GLB_SHA.fullmatch(digest),
+                "Invalid expected panorama digest")
+        source = Path(source_name)
+        require(source.is_absolute() and not str(source.drive).startswith("\\\\") and
+                source.suffix.lower() == ".png" and not source.is_symlink() and
+                source.is_file(),
+                "Use an existing local PC .png file", 400)
+        staged = None
+        try:
+            digest_reader = hashlib.sha256()
+            size = 0
+            with source.open("rb") as original, tempfile.NamedTemporaryFile(
+                    dir=self.directory, prefix=".agent-panorama-", suffix=".png",
+                    delete=False) as temporary:
+                staged = Path(temporary.name)
+                while chunk := original.read(128 * 1024):
+                    size += len(chunk)
+                    require(size <= MAX_PANORAMA_BYTES,
+                            "Panorama PNG exceeds 32 MiB", 413)
+                    digest_reader.update(chunk)
+                    temporary.write(chunk)
+                temporary.flush()
+                os.fsync(temporary.fileno())
+            require(digest_reader.hexdigest() == digest,
+                    "Panorama changed since Codex identified it; inspect and retry", 409)
+            entry = self.web_environments.register(staged, value["name"])
+            return {"status": "registered", **copy.deepcopy(entry)}
+        except OSError:
+            raise APIError(409, "Panorama source or catalog became unavailable; inspect and retry") from None
+        finally:
+            if staged is not None:
+                staged.unlink(missing_ok=True)
+
+    def agent_environment_action(self, value):
+        """Queue one typed world-environment action on the current Matrix world."""
+        require(type(value) is dict and value.get("action") in ("get", "set", "remove"),
+                "Invalid Matrix environment action")
+        action = value["action"]
+        fields = {"action", "room_id", "scene_revision"}
+        if action == "set":
+            fields |= {"asset_id", "yaw_degrees"}
+        require(set(value) == fields, "Invalid Matrix environment action fields")
+        room_id = text(value["room_id"], "room_id")
+        revision = value["scene_revision"]
+        require(type(revision) is int and 0 <= revision <= 9007199254740991,
+                "Invalid scene revision")
+        with self.lock:
+            self.expire()
+            require(self.online() and self.latest is not None,
+                    self.room_unavailable_message(), 409)
+            current = self.latest
+            require(current["scene"]["roomId"] == room_id and
+                    self.revision == revision,
+                    "Matrix scene changed; inspect the current room and retry", 409)
+            require(current.get("environmentSchemaVersion") == 1,
+                    "Connected Matrix runtime has no environment contract", 409)
+            prior = copy.deepcopy(current["scene"].get("environment"))
+            if action == "set":
+                asset_id = text(value["asset_id"], "asset_id")
+                yaw = value["yaw_degrees"]
+                require(type(yaw) in (int, float) and math.isfinite(yaw) and
+                        0 <= yaw < 360,
+                        "Panorama yaw must be 0 to less than 360 degrees")
+                try:
+                    entry = next((item for item in self.web_environments.list()
+                                  if item["assetId"] == asset_id), None)
+                except WebEnvironmentError as error:
+                    raise APIError(409, str(error)) from None
+                require(entry is not None, "Panorama is not registered", 409)
+                target = {"schemaVersion": 1, "kind": "equirectangular",
+                          "assetId": asset_id, "sha256": entry["sha256"],
+                          "yawDegrees": yaw}
+                require(target != prior, "This panorama and orientation are already active", 409)
+                raw = {"op": "set_environment", "roomId": room_id,
+                       "environment": target, "expectedEnvironment": prior}
+            elif action == "remove":
+                require(prior is not None, "This world has no panorama to remove", 409)
+                target = None
+                raw = {"op": "remove_environment", "roomId": room_id,
+                       "expectedEnvironment": prior}
+            else:
+                target = prior
+                raw = {"op": "get_environment", "roomId": room_id}
+            queued = self.queue([raw])["commands"][0]
+            request_id = queued["requestId"]
+            self.agent_environment_ids[request_id] = {
+                "action": action, "roomId": room_id, "environment": target,
+                "previousEnvironment": prior, "clientId": self.client_id,
+                "runtimeGeneration": self.runtime_generation}
+            while len(self.agent_environment_ids) > 64:
+                self.agent_environment_ids.popitem(last=False)
+            return self.agent_environment_status(request_id)
+
+    def agent_environment_status(self, request_id):
+        require(type(request_id) is str and re.fullmatch(r"[0-9a-f]{32}", request_id),
+                "Invalid Matrix environment receipt ID")
+        with self.lock:
+            self.expire()
+            issued = self.agent_environment_ids.get(request_id)
+            require(issued is not None, "Matrix environment receipt is unavailable", 404)
+            receipt = next((item for item in reversed(self.results)
+                            if item["requestId"] == request_id), None)
+            result = {"requestId": request_id, "roomId": issued["roomId"],
+                      "action": issued["action"],
+                      "environment": copy.deepcopy(issued["environment"]),
+                      "sceneRevision": self.revision}
+            if receipt is None:
+                result["status"] = "queued" if request_id in self.pending else "unconfirmed"
+            elif not receipt["ok"]:
+                result["status"] = ("unconfirmed" if "outcome unknown" in receipt["error"]
+                                    else "failed")
+                if result["status"] == "failed":
+                    result["error"] = receipt["error"][:200]
+            else:
+                observed = (self.latest is not None and
+                            self.latest["scene"]["roomId"] == issued["roomId"] and
+                            self.client_id == issued["clientId"] and
+                            self.runtime_generation == issued["runtimeGeneration"] and
+                            self.latest["scene"].get("environment") ==
+                            issued["environment"] and
+                            receipt.get("outcome", {}).get("environment") ==
+                            issued["environment"])
+                result["status"] = "succeeded" if observed else "unconfirmed"
+                if observed:
+                    result["outcome"] = copy.deepcopy(receipt["outcome"])
+            return result
+
     def agent_register_glb(self, value):
         """Stage exact PC-local bytes and use the existing GLB validator/catalog."""
         require(isinstance(value, dict) and set(value) ==
@@ -6706,6 +6988,7 @@ class State:
         capabilities = {key: current[key] for key in ("componentSchemaVersion", "animationSchemaVersion",
                                                      "physicsSchemaVersion", "rigidSchemaVersion",
                                                      "interactionSchemaVersion", "controlSchemaVersion",
+                                                     "environmentSchemaVersion", "environmentAssets",
                                                      "behaviorKinds", "proceduralGenerators")
                         if key in current}
         snapshot({"scene": checked_scene, "assets": current["assets"], "anchors": current["anchors"],
@@ -6762,6 +7045,23 @@ class State:
                                      **({"localBounds": entry["localBounds"]} if "localBounds" in entry else {})})
         except WebAssetError as error:
             raise APIError(409, f"World GLB is missing or corrupt: {error}. Restore the matching asset catalog and retry") from None
+        environment = checked_scene.get("environment")
+        if environment is not None:
+            require(current.get("environmentSchemaVersion") == 1,
+                    "Connected browser cannot restore world environments", 409)
+            try:
+                entry = next((item for item in self.web_environments.list()
+                              if item["assetId"] == environment["assetId"] and
+                              item["sha256"] == environment["sha256"]), None)
+                require(entry is not None,
+                        "World panorama is missing from the PC catalog", 409)
+                self.web_environments.file(entry["sha256"])
+            except WebEnvironmentError as error:
+                raise APIError(409, f"World panorama is missing or corrupt: {error}") from None
+            require(entry in current.get("environmentAssets", []),
+                    "Browser panorama catalog is stale; refresh and retry", 409)
+            dependencies.append({"kind": "panorama", "assetId": entry["assetId"],
+                                 "sha256": entry["sha256"]})
         return dependencies
 
     def save_world_checkpoint(self, name, world):
@@ -7657,6 +7957,11 @@ class Handler(BaseHTTPRequestHandler):
                     data = {"assets": self.server.state.web_assets.list()}
                 except WebAssetError as error:
                     raise APIError(500, str(error)) from None
+            elif path == "/api/web/environments":
+                try:
+                    data = {"assets": self.server.state.web_environments.list()}
+                except WebEnvironmentError as error:
+                    raise APIError(500, str(error)) from None
             elif path == "/api/web/authoring":
                 data = self.server.state.web_authoring.status()
             elif path.startswith("/api/web/authoring/"):
@@ -7673,6 +7978,15 @@ class Handler(BaseHTTPRequestHandler):
                 except WebAssetError as error:
                     raise APIError(404, str(error)) from None
                 self.send_data(200, asset.read_bytes(), "model/gltf-binary")
+                return
+            elif path.startswith("/api/web/environments/"):
+                name = path[len("/api/web/environments/"):]
+                require(bool(re.fullmatch(r"[0-9a-f]{64}\.png", name)), "Unknown panorama", 404)
+                try:
+                    asset = self.server.state.web_environments.file(name[:-4])
+                except WebEnvironmentError as error:
+                    raise APIError(404, str(error)) from None
+                self.send_data(200, asset.read_bytes(), "image/png")
                 return
             elif path == "/api/content":
                 data = self.server.state.content.status()
@@ -7885,6 +8199,8 @@ def main():
     parser.add_argument("--port", type=int, default=8765)
     parser.add_argument("--scenes", type=Path, default=Path(__file__).with_name("scenes"))
     parser.add_argument("--web-assets", type=Path, default=Path(__file__).with_name("web_assets"))
+    parser.add_argument("--web-environments", type=Path,
+                        default=Path(__file__).with_name("web_environments"))
     parser.add_argument("--tls-cert", type=Path, help="PEM certificate for HTTPS; use a certificate trusted by the headset")
     parser.add_argument("--tls-key", type=Path, help="PEM private key for HTTPS")
     args = parser.parse_args()
@@ -7892,7 +8208,8 @@ def main():
         parser.error("--tls-cert and --tls-key must be supplied together")
     try:
         server = Server((args.host, args.port), State(args.scenes, learning=LearningBridge(),
-                                                       web_assets_directory=args.web_assets),
+                                                       web_assets_directory=args.web_assets,
+                                                       web_environments_directory=args.web_environments),
                         os.environ.get("SANDBOX_TOKEN", ""),
                         os.environ.get("SANDBOX_WORLD_VIEW_TOKEN", ""))
         if args.tls_cert:

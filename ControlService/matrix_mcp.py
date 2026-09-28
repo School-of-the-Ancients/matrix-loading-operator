@@ -12,10 +12,11 @@ from matrix_tool_bridge import (animation_status, bind_animation, bind_game,
                                 update_game,
                                 component_action, component_status,
                                 interaction_action, interaction_status,
-                                list_assets, list_components,
+                                list_assets, list_components, list_environments,
                                 list_procedural_generators, procedural_action, procedural_status,
                                 move_object, move_status, publish_component, read_scene, record_concept_build,
-                                register_glb,
+                                register_glb, register_panorama,
+                                environment_action, environment_status,
                                 physics_action, physics_status, scale_block, scale_status,
                                 rigid_action, rigid_status,
                                 spawn_asset, spawn_builtin, spawn_status,
@@ -655,6 +656,76 @@ def matrix_list_assets(offset: int = 0, limit: int = 24) -> dict:
     """List a bounded page of validated Matrix WebXR GLB catalog assets."""
     return list_assets(os.environ["MATRIX_CONTROL_URL"], os.environ["MATRIX_CONTROL_TOKEN"],
                        offset, limit)
+
+
+@server.tool(annotations=ToolAnnotations(readOnlyHint=True))
+def matrix_list_environments(offset: int = 0, limit: int = 24) -> dict:
+    """List validated, immutable 2:1 PNG panoramas registered on the PC."""
+    return list_environments(os.environ["MATRIX_CONTROL_URL"],
+                             os.environ["MATRIX_CONTROL_TOKEN"], offset, limit)
+
+
+@server.tool(annotations=ToolAnnotations(readOnlyHint=False, destructiveHint=False,
+                                         idempotentHint=True, openWorldHint=False))
+def matrix_register_panorama(source_path: str, expected_sha256: str, name: str) -> dict:
+    """Register a local PNG panorama after native approval; this does not change a world.
+
+    The file must be a 2:1, non-interlaced RGB/RGBA PNG at most 4096x2048.
+    Supply the SHA-256 of its exact bytes; inspect the returned asset ID before
+    applying it to the world.
+    """
+    return register_panorama(os.environ["MATRIX_CONTROL_URL"],
+                             os.environ["MATRIX_CONTROL_TOKEN"],
+                             {"source_path": source_path, "expected_sha256": expected_sha256,
+                              "name": name})
+
+
+@server.tool(annotations=ToolAnnotations(readOnlyHint=True))
+def matrix_get_environment(room_id: str, scene_revision: int) -> dict:
+    """Request a fresh typed observation of the current world environment.
+
+    Read matrix_scene_summary first and check matrix_environment_status for
+    the matching receipt. AR passthrough does not display an opaque panorama.
+    """
+    return environment_action(os.environ["MATRIX_CONTROL_URL"],
+                              os.environ["MATRIX_CONTROL_TOKEN"],
+                              {"action": "get", "room_id": room_id,
+                               "scene_revision": scene_revision})
+
+
+@server.tool(annotations=ToolAnnotations(readOnlyHint=False, destructiveHint=False,
+                                         idempotentHint=False, openWorldHint=False))
+def matrix_set_environment(room_id: str, scene_revision: int, asset_id: str,
+                           yaw_degrees: float = 0) -> dict:
+    """Set/change the world panorama through a reviewed Matrix command.
+
+    Use a registered panorama ID from matrix_list_environments and current
+    room/revision from matrix_scene_summary. This keeps ordinary scene objects
+    untouched. Check matrix_environment_status and post-state before claiming
+    success. The panorama surrounds desktop/VR views and is hidden in AR.
+    """
+    return environment_action(os.environ["MATRIX_CONTROL_URL"],
+                              os.environ["MATRIX_CONTROL_TOKEN"],
+                              {"action": "set", "room_id": room_id,
+                               "scene_revision": scene_revision, "asset_id": asset_id,
+                               "yaw_degrees": yaw_degrees})
+
+
+@server.tool(annotations=ToolAnnotations(readOnlyHint=False, destructiveHint=False,
+                                         idempotentHint=False, openWorldHint=False))
+def matrix_remove_environment(room_id: str, scene_revision: int) -> dict:
+    """Remove the current world panorama without changing scene objects."""
+    return environment_action(os.environ["MATRIX_CONTROL_URL"],
+                              os.environ["MATRIX_CONTROL_TOKEN"],
+                              {"action": "remove", "room_id": room_id,
+                               "scene_revision": scene_revision})
+
+
+@server.tool(annotations=ToolAnnotations(readOnlyHint=True))
+def matrix_environment_status(request_id: str) -> dict:
+    """Read the typed browser receipt and observed world environment state."""
+    return environment_status(os.environ["MATRIX_CONTROL_URL"],
+                              os.environ["MATRIX_CONTROL_TOKEN"], request_id)
 
 
 @server.tool(annotations=ToolAnnotations(readOnlyHint=False, destructiveHint=False,
