@@ -39,11 +39,12 @@ returns it to simulation.
 
 ## Automated validation on the revised two-hand candidate
 
-- WebRuntime: **597/597** Node tests passed, including two-hand source binding,
+- WebRuntime: **602/602** Node tests passed, including two-hand source binding,
   role reversal, yaw/pitch and full-flip math, AR parent transforms, Undo, save
-  and reopen, Play/Test grab behavior, and panel click suppression during a grab.
+  and reopen, Play/Test grab behavior, bounded release momentum and safe
+  cancellation, and panel click suppression during a grab.
 - ControlService: **798/798** Python tests passed.
-- Vite production build passed with `view-sss3M221.js`; `git diff --check`
+- Vite production build passed with `view-Dyy84z0d.js`; `git diff --check`
   passed. The build has the existing large-chunk size warning.
 
 These results validate source behavior and the built bundle. They do not
@@ -143,6 +144,63 @@ decided this small quality-of-life instruction belongs in the user guide.
 The invisible cue was removed from the candidate; the FAQ now answers
 "Where did the Operator screen go?" This VR UI result does not satisfy the
 remaining full VR, Play/Test, or AR gate.
+
+## Quest VR final-bundle wearer retest — controls and Undo passed
+
+On the same isolated `http://127.0.0.1:18791/web/` origin, after the cue was
+removed and production bundle `view-sss3M221.js` was served, the wearer
+reported refreshing the Quest Browser page and re-entering VR. They confirmed
+the Dragon was present, that the grabbing hand's stick moved it, that the free
+hand's stick spun and flipped it, that the gold outline was visible, and that
+the Operator panel stayed visible during the grab. This is a wearer report for
+the final control and UI mapping; it does not establish AR behavior.
+
+At `2026-09-28T02:05:45Z`, the service reported VR Creator revision 59 with
+the same Dragon ID `1894e1a2812c4243a85393bb707621d3` at position
+`(-1.014, 1.181, -4.808)` and rotation in degrees
+`(-157.31, -12.32, -145.16)`, retaining scale `0.5` and `Flight`. After a
+deliberate further grab and release, the wearer used the Operator World page's
+Undo and reported that the Dragon returned toward its previous pose while
+Flight kept playing. At revision 86, the service still reported that same ID,
+scale, and animation at position `(-0.045, 1.769, -2.982)` and rotation
+`(-178.09, 14.48, -169.88)`. This confirms wearer-visible Undo behavior;
+the observed service poses do not identify which stick caused each movement.
+
+The wearer chose the concise FAQ answer for finding a hidden Operator panel
+after an experimental in-headset cue was invisible. The gold outline and
+direct object response provide the visible held-object feedback, while the
+README carries the detailed stick mapping the wearer found obstructive in VR.
+
+The wearer then tapped **SAVE WORLD** on the World page, closed the Quest
+Browser tab, reopened the same URL, and re-entered VR. They reported that the
+same flapping Dragon was restored at the saved pose. The browser checkpoint
+also made a scene-only PC backup named `WebWorld_20260928020807`. The new
+service client ID `390722f17c684bcfae4fff9b3224d872` and runtime generation
+2 establish a new browser runtime. At revision 93, the service reported the
+same Dragon ID at position `(-1.64, 1.209, -2.651)`, rotation
+`(177.2, -11.67, 171.75)`, scale `0.5`, and `Flight`.
+
+## Quest VR Play/Test finding and release-momentum correction
+
+In the same disposable VR world, guarded spawn request
+`22bf2326b4974bdb9d842b999712499b` created separate built-in Block
+`da7269149586473c80b337604e37bee4` at `(1.321, 1.3, -1.69)`, scale
+`0.5`. Guarded target request `64c8b68e21da46c4a1aa6bc0f6bedbae`
+attached a dynamic bounded-box rigid body to that ID; both receipts were
+`ok:true`. The Dragon remained separate with Flight bound. The wearer entered
+running Play/Test, confirmed the Block fell, could be grabbed, translated and
+spun/flipped with the two sticks, and resumed simulation on release.
+
+The wearer found a physics gap: releasing while moving made the Block drop
+straight down instead of carrying the movement as a throw. The cause was the
+pre-existing rigid release path, which set both velocities to zero when
+switching from kinematic grab to dynamic simulation. The candidate now hands
+off recent parent-local XR pose motion as at most 6 m/s linear and 12 rad/s
+angular velocity on a normal tracked release. Gaps, stillness, cancellation,
+and tracking loss use zero momentum. The lower-level API rejects invalid or
+over-limit velocities before changing a held body. Automated tests and the
+`view-Dyy84z0d.js` build pass; **the corrected throw still needs a Quest
+wearer retest**. The old Play/Test observation is not a fling pass.
 
 ## Remaining Quest acceptance
 

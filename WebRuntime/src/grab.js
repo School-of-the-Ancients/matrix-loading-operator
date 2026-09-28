@@ -7,6 +7,10 @@ const STICK_DEAD_ZONE=.18;
 const STICK_SPEED=.75;
 const STICK_TRAVEL_LIMIT=3;
 const STICK_ANGULAR_SPEED=THREE.MathUtils.degToRad(120);
+const RELEASE_MOTION_WINDOW_MS=90;
+const RELEASE_MOTION_TAIL_MS=45;
+const RELEASE_MOTION_MAX_GAP_MS=60;
+const RELEASE_MOTION_MIN_INTERVAL_MS=20;
 
 export function beginGrab(controller,root){
   controller.updateMatrixWorld(true);
@@ -82,6 +86,53 @@ export function moveGrab(grab){
   grab.root.position.copy(nextPosition);grab.root.quaternion.copy(nextQuaternion);grab.root.scale.copy(nextScale);
   grab.root.updateMatrixWorld(true);
   return true;
+}
+
+// Sample the held object's parent-local pose so Play/Test can hand its recent
+// movement to the rigid solver in the same coordinate frame. A tracking or
+// frame gap drops the old samples instead of turning a pose jump into a throw.
+export function sampleHeldMotion(grab,timeMs){
+  if(!grab?.root||!Number.isFinite(timeMs))return false;
+  const samples=grab.motionSamples??(grab.motionSamples=[]);
+  const last=samples.at(-1);
+  if(last&&timeMs<last.timeMs)return false;
+  if(last&&timeMs-last.timeMs>RELEASE_MOTION_MAX_GAP_MS)samples.length=0;
+  const sample={timeMs,position:grab.root.position.clone(),rotation:grab.root.quaternion.clone()};
+  if(samples.at(-1)?.timeMs===timeMs)samples[samples.length-1]=sample;
+  else samples.push(sample);
+  while(samples.length&&timeMs-samples[0].timeMs>RELEASE_MOTION_WINDOW_MS)samples.shift();
+  return true;
+}
+
+export function heldReleaseMotion(grab,timeMs,maxLinearSpeed,maxAngularSpeed){
+  if(!Number.isFinite(maxLinearSpeed)||maxLinearSpeed<=0||
+     !Number.isFinite(maxAngularSpeed)||maxAngularSpeed<=0||
+     !sampleHeldMotion(grab,timeMs))return null;
+  const samples=grab.motionSamples;
+  if(samples.length<2)return null;
+  const last=samples.at(-1);
+  const first=samples.find(sample=>last.timeMs-sample.timeMs<=RELEASE_MOTION_TAIL_MS);
+  const intervalMs=last.timeMs-first.timeMs;
+  if(intervalMs<RELEASE_MOTION_MIN_INTERVAL_MS)return null;
+  const seconds=intervalMs/1000;
+  const linear=last.position.clone().sub(first.position).divideScalar(seconds);
+  const delta=last.rotation.clone().multiply(first.rotation.clone().invert()).normalize();
+  if(delta.w<0)delta.set(-delta.x,-delta.y,-delta.z,-delta.w);
+  const axisLength=Math.hypot(delta.x,delta.y,delta.z);
+  const angle=2*Math.atan2(axisLength,delta.w);
+  const angular=axisLength>1e-8?
+    new THREE.Vector3(delta.x,delta.y,delta.z).multiplyScalar(angle/(axisLength*seconds)):
+    new THREE.Vector3();
+  if(![...linear,...angular].every(Number.isFinite))return null;
+  if(linear.length()<.12)linear.set(0,0,0);
+  if(angular.length()<.2)angular.set(0,0,0);
+  if(linear.lengthSq()===0&&angular.lengthSq()===0)return null;
+  // Leave a tiny margin for Math.hypot rounding in the rigid release validator.
+  const linearCap=maxLinearSpeed*(1-1e-9),angularCap=maxAngularSpeed*(1-1e-9);
+  if(linear.length()>linearCap)linear.setLength(linearCap);
+  if(angular.length()>angularCap)angular.setLength(angularCap);
+  return {linearVelocity:{x:linear.x,y:linear.y,z:linear.z},
+    angularVelocity:{x:angular.x,y:angular.y,z:angular.z}};
 }
 
 export function finishGrab(grab,previousTransform){

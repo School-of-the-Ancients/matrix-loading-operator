@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import * as THREE from 'three';
-import {beginGrab,moveGrab,moveGrabThumbstick,rotateGrabThumbstick,finishGrab,beginPointerGrab,movePointerGrab,movePointerGrabVertical,finishPointerGrab,moveDesktopCamera} from '../src/grab.js';
+import {beginGrab,moveGrab,moveGrabThumbstick,rotateGrabThumbstick,sampleHeldMotion,heldReleaseMotion,finishGrab,beginPointerGrab,movePointerGrab,movePointerGrabVertical,finishPointerGrab,moveDesktopCamera} from '../src/grab.js';
 import {MatrixWorld,ANCHOR_ID} from '../src/protocol.js';
 import {loadStoredScene,saveStoredScene,restoreStoredScene} from '../src/scene_store.js';
 
@@ -33,6 +33,52 @@ test('controller grab preserves offset, commits a scene transform and remains un
   assert.deepEqual(reopened.requireObject('held-object').transform,transform);
   assert.equal(world.execute({requestId:'undo',op:'undo'}).ok,true);
   assert.deepEqual(world.scene.objects[0].transform,original);
+});
+
+test('recent held motion becomes bounded release momentum while stillness and tracking gaps do not',()=>{
+  const root=new THREE.Group(),grab={root};
+  sampleHeldMotion(grab,0);
+  root.position.x=.16;
+  root.quaternion.setFromAxisAngle(new THREE.Vector3(0,1,0),.3);
+  sampleHeldMotion(grab,40);
+  root.position.x=.24;
+  root.quaternion.setFromAxisAngle(new THREE.Vector3(0,1,0),.45);
+  const motion=heldReleaseMotion(grab,60,6,12);
+  assert.ok(Math.abs(motion.linearVelocity.x-4)<1e-9);
+  assert.ok(Math.abs(motion.angularVelocity.y-7.5)<1e-9);
+  assert.deepEqual(motion.linearVelocity.y,0);
+  const rapid={root:new THREE.Group()};
+  sampleHeldMotion(rapid,0);
+  rapid.root.position.x=2;
+  rapid.root.quaternion.setFromAxisAngle(new THREE.Vector3(0,1,0),2);
+  const bounded=heldReleaseMotion(rapid,40,6,12);
+  assert.ok(Math.abs(bounded.linearVelocity.x-6)<1e-7);
+  assert.ok(Math.abs(bounded.angularVelocity.y-12)<1e-7);
+  const diagonal={root:new THREE.Group()};
+  sampleHeldMotion(diagonal,0);
+  diagonal.root.position.set(2,2,2);
+  diagonal.root.quaternion.setFromAxisAngle(new THREE.Vector3(1,1,1).normalize(),2);
+  const cappedDiagonal=heldReleaseMotion(diagonal,40,6,12);
+  assert.ok(Math.hypot(...Object.values(cappedDiagonal.linearVelocity))<=6);
+  assert.ok(Math.hypot(...Object.values(cappedDiagonal.angularVelocity))<=12,
+    'diagonal caps must satisfy the rigid release validator after rounding');
+  const still={root:new THREE.Group()};
+  sampleHeldMotion(still,0);
+  assert.equal(heldReleaseMotion(still,40,6,12),null);
+  const settled={root:new THREE.Group()};
+  sampleHeldMotion(settled,0);
+  settled.root.position.x=.3;
+  sampleHeldMotion(settled,30);
+  sampleHeldMotion(settled,50);
+  sampleHeldMotion(settled,70);
+  assert.equal(heldReleaseMotion(settled,90,6,12),null,
+    'a deliberate pause before release must not reuse earlier movement');
+  const stale={root:new THREE.Group()};
+  sampleHeldMotion(stale,0);
+  stale.root.position.x=.5;
+  sampleHeldMotion(stale,100);
+  assert.equal(heldReleaseMotion(stale,130,6,12),null,
+    'a tracking gap must clear the old movement before release');
 });
 
 test('grabbing-hand thumbstick retains its dead zone, frame time, and bounded translation',()=>{

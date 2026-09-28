@@ -2,6 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import * as THREE from 'three';
 import {MatrixView,updateControllerRayForPanel} from '../src/view.js';
+import {moveGrab,sampleHeldMotion} from '../src/grab.js';
 
 function controllerAndPanel(){
   const scene=new THREE.Scene();
@@ -440,6 +441,63 @@ test('Play/Test XR grab uses a dynamic body and never authors set_transform',()=
   view.releaseGrab(controller);
   assert.deepEqual(calls.map(item=>item[0]),['begin','move','move','release','interaction']);
   assert.equal(calls.at(-1)[1].objectId,'firefly-1');
+});
+
+test('tracked Play/Test XR release passes recent throw motion but cancellation does not',()=>{
+  const {view,controller}=selectableFirefly();
+  const source={handedness:'left',gamepad:{mapping:'xr-standard',axes:[0,0,0,0],buttons:[]}};
+  view.renderer={xr:{isPresenting:true,getSession:()=>({inputSources:[source]})}};
+  view.hasFreshXrViewer=()=>true;
+  view.world.requireObject().rigidBody={type:'dynamic'};
+  view.world.creatorMode={schemaVersion:1,mode:'play',simulation:'running',revision:1};
+  view.world.beginRigidGrab=()=>true;
+  view.world.moveRigidGrab=()=>true;
+  const releases=[];
+  view.world.releaseRigidGrab=(id,motion)=>{releases.push({id,motion});
+    return {objectId:id,position:{x:0,y:1,z:-2}};};
+  view.onPlayInteraction=()=>{};view.sync=()=>{};
+  view.selectFromController(controller,source);
+  const grab=view.grab,now=performance.now();
+  grab.motionSamples=[];
+  sampleHeldMotion(grab,now-45);
+  controller.position.x=.2;controller.rotation.y=.1;moveGrab(grab);
+  sampleHeldMotion(grab,now-20);
+  controller.position.x=.3;controller.rotation.y=.15;
+  view.releaseGrab(controller);
+  assert.equal(releases.length,1);
+  assert.equal(releases[0].id,'firefly-1');
+  assert.ok(Math.hypot(...Object.values(releases[0].motion.linearVelocity))>.1);
+  assert.ok(Math.hypot(...Object.values(releases[0].motion.angularVelocity))>.2);
+  view.selectFromController(controller,source);
+  view.cancelGrab(controller,source);
+  assert.equal(releases.length,2);
+  assert.equal(releases[1].motion,undefined,
+    'tracking loss and cancellation resume physics without a throw');
+});
+
+test('a missed tracking frame cannot turn recovery into a Play/Test throw',()=>{
+  const {view,controller}=selectableFirefly();
+  const source={handedness:'left',gamepad:{mapping:'xr-standard',axes:[0,0,0,0],buttons:[]}};
+  view.renderer={xr:{isPresenting:true,getSession:()=>({inputSources:[source]})}};
+  view.hasFreshXrViewer=()=>true;
+  view.updateGrabThumbstick=()=>false;view.updateGrabRotationThumbstick=()=>false;
+  view.world.requireObject().rigidBody={type:'dynamic'};
+  view.world.creatorMode={schemaVersion:1,mode:'play',simulation:'running',revision:1};
+  view.world.beginRigidGrab=()=>true;view.world.moveRigidGrab=()=>true;
+  let releaseMotion='not released';
+  view.world.releaseRigidGrab=(_id,motion)=>{releaseMotion=motion;
+    return {position:{x:0,y:1,z:-2}};};
+  view.onPlayInteraction=()=>{};
+  view.selectFromController(controller,source);
+  assert.ok(view.grab.motionSamples.length);
+  view.updateHeldGrab(null,.016);
+  assert.equal(view.grab.motionSamples.length,0,
+    'one invalid XR frame must discard motion history');
+  controller.position.x=.5;
+  view.updateHeldGrab({},.016);
+  assert.equal(view.grab.motionSamples.length,1);
+  view.releaseGrab(controller);
+  assert.equal(releaseMotion,undefined);
 });
 
 test('Play/Test refuses a non-physical or paused XR grab',()=>{

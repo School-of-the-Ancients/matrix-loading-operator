@@ -2,7 +2,8 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import * as THREE from 'three';
 import {createRigidPhysics, eulerDegreesToQuaternion, quaternionToEulerDegrees,
-  MAX_RIGID_FRAME_SECONDS} from '../src/physics_rigid.js';
+  MAX_RIGID_FRAME_SECONDS, MAX_RIGID_RELEASE_LINEAR_SPEED,
+  MAX_RIGID_RELEASE_ANGULAR_SPEED} from '../src/physics_rigid.js';
 import {createProceduralRecipe, generateProcedural} from '../src/procedural.js';
 
 const vec = (x, y, z) => ({x, y, z});
@@ -177,6 +178,56 @@ test('repeated grab, move, and release resumes gravity from each hand pose', asy
       assert.ok(physics.state('held').position.y < 2 - .2,
         'the body must fall again after release');
     }
+  });
+});
+
+test('an explicit bounded release velocity carries a grabbed body into dynamics', async () => {
+  await withPhysics(physics => {
+    physics.addBody(box('flung', vec(0, 2, 0)));
+    assert.equal(physics.beginGrab('flung'), true);
+    physics.moveGrab('flung', {position: vec(1, 2, 0), rotation: identity});
+    const released = physics.releaseGrab('flung', {
+      linearVelocity: vec(2, 1, 0), angularVelocity: vec(0, 0, 3)});
+    assert.equal(released.held, false);
+    assert.ok(Math.abs(released.position.x - 1) < 1e-6);
+    assert.ok(Math.abs(released.linearVelocity.x - 2) < 1e-6);
+    assert.ok(Math.abs(released.linearVelocity.y - 1) < 1e-6);
+    assert.ok(Math.abs(released.angularVelocity.z - 3) < 1e-6);
+    physics.step(1 / 60);
+    assert.ok(physics.state('flung').position.x > 1,
+      'released body moves laterally under its handed-off velocity');
+    assert.ok(physics.state('flung').angularVelocity.z > 0,
+      'released body retains the handed-off spin');
+  });
+});
+
+test('omitted release velocity stays zero and invalid velocity leaves the grab held', async () => {
+  await withPhysics(physics => {
+    physics.addBody(box('held', vec(0, 2, 0)));
+    assert.equal(physics.beginGrab('held'), true);
+    physics.moveGrab('held', {position: vec(.5, 2, 0), rotation: identity});
+    physics.step(1 / 60);
+    assert.ok(physics.state('held').linearVelocity.x > 0,
+      'the kinematic body has motion that must not leak into an omitted release');
+    const heldBeforeInvalidRelease = physics.state('held');
+    const bad = [null, {}, {linearVelocity: vec(0, 0, 0)},
+      {linearVelocity: vec(NaN, 0, 0), angularVelocity: vec(0, 0, 0)},
+      {linearVelocity: vec(MAX_RIGID_RELEASE_LINEAR_SPEED + .01, 0, 0),
+        angularVelocity: vec(0, 0, 0)},
+      {linearVelocity: vec(5, 5, 0), angularVelocity: vec(0, 0, 0)},
+      {linearVelocity: vec(0, 0, 0),
+        angularVelocity: vec(0, MAX_RIGID_RELEASE_ANGULAR_SPEED + .01, 0)}];
+    for (const velocity of bad) {
+      assert.throws(() => physics.releaseGrab('held', velocity), /release velocity/);
+      assert.deepEqual(physics.state('held'), heldBeforeInvalidRelease,
+        'rejected release must not change the held rigid body');
+    }
+    physics.moveGrab('held', {position: vec(.75, 2, 0), rotation: identity});
+    const released = physics.releaseGrab('held');
+    assert.equal(released.held, false);
+    assert.deepEqual(released.linearVelocity, vec(0, 0, 0));
+    assert.deepEqual(released.angularVelocity, vec(0, 0, 0));
+    assert.ok(Math.abs(released.position.x - .75) < 1e-6);
   });
 });
 

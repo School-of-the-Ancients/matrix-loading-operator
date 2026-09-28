@@ -1,7 +1,7 @@
 import * as THREE from 'three';
 import {GLTFLoader} from 'three/addons/loaders/GLTFLoader.js';
 import {XRSessionController} from './xr_session.js';
-import {beginGrab,moveGrab,moveGrabThumbstick,rotateGrabThumbstick,finishGrab,beginPointerGrab,movePointerGrab,movePointerGrabVertical,finishPointerGrab,moveDesktopCamera} from './grab.js';
+import {beginGrab,moveGrab,moveGrabThumbstick,rotateGrabThumbstick,sampleHeldMotion,heldReleaseMotion,finishGrab,beginPointerGrab,movePointerGrab,movePointerGrabVertical,finishPointerGrab,moveDesktopCamera} from './grab.js';
 import {viewerPose,planeData,insideBoundary,matchPlaneAnchor,samePlaneShape,measuredFloorHeight} from './spatial.js';
 import {ROOM_ANCHOR_KEY,hasWorldToProtect} from './room_origin.js';
 import {componentFrame} from './components.js';
@@ -10,6 +10,7 @@ import {generateProcedural} from './procedural.js';
 import {canPlayWorld} from './creator_mode.js';
 import {gameStatus,isGameExitUnlocked} from './game.js';
 import {displayHeadline,displayObservation,validDisplay} from './display.js';
+import {MAX_RIGID_RELEASE_LINEAR_SPEED,MAX_RIGID_RELEASE_ANGULAR_SPEED} from './physics_rigid.js';
 
 const wood=()=>new THREE.MeshStandardMaterial({color:0xa56f45,roughness:.78});
 const metal=()=>new THREE.MeshStandardMaterial({color:0x738995,roughness:.45,metalness:.45});
@@ -1052,7 +1053,9 @@ export class MatrixView {
   moveHeldRigid(grab){
     if(!grab?.rigid)return;
     try{this.world.moveRigidGrab(grab.objectId,this.heldTransform(grab.root,
-      this.world.requireObject(grab.objectId)));}
+      this.world.requireObject(grab.objectId)));
+      if(grab===this.grab&&grab.inputSource&&this.renderer?.xr?.isPresenting)
+        sampleHeldMotion(grab,performance.now());}
     catch(error){this.world.releaseRigidGrab?.(grab.objectId);this.onAssetError(error.message);
       if(this.grab===grab){this.grab=null;this.setGrabFeedback(null);}
       if(this.pointerGrab===grab)this.pointerGrab=null;}
@@ -1061,7 +1064,12 @@ export class MatrixView {
     if(!grab.rigid)return false;
     try{
       if(transform)this.world.moveRigidGrab(grab.objectId,transform);
-      const released=this.world.releaseRigidGrab(grab.objectId);
+      const motion=grab.inputSource&&this.renderer?.xr?.isPresenting&&
+        grab.motionEpoch===this.roomTrackingEpoch&&
+        grab.controller?.visible!==false?
+        heldReleaseMotion(grab,performance.now(),MAX_RIGID_RELEASE_LINEAR_SPEED,
+          MAX_RIGID_RELEASE_ANGULAR_SPEED):null;
+      const released=this.world.releaseRigidGrab(grab.objectId,motion??undefined);
       if(released)this.onPlayInteraction({kind:'release',objectId:grab.objectId,
         position:released.position||grab.root.position});
       return true;
@@ -1192,6 +1200,9 @@ export class MatrixView {
   }
   updateHeldGrab(frame,delta){
     if(!this.grab)return;
+    if(this.grab.rigid&&this.grab.motionEpoch!==this.roomTrackingEpoch){
+      this.grab.motionSamples=[];this.grab.motionEpoch=this.roomTrackingEpoch;
+    }
     const session=this.renderer.xr.getSession?.(),presenting=this.renderer.xr.isPresenting;
     if(presenting&&this.grab.inputSource&&session&&
        !Array.from(session.inputSources||[]).includes(this.grab.inputSource)){
@@ -1204,9 +1215,13 @@ export class MatrixView {
       !this.world.spatial?.originUnavailable;
     const modeReady=this.grab.rigid?this.isPlayMode()&&canPlayWorld(this.world.creatorMode):
       !this.isPlayMode();
-    if(tracked&&roomReady&&modeReady&&!this.readOnly){this.updateGrabThumbstick(frame,delta);
-      this.updateGrabRotationThumbstick(frame,delta);
-      if(moveGrab(this.grab))this.moveHeldRigid(this.grab);}
+    if(!tracked||!roomReady||!modeReady||this.readOnly){
+      if(this.grab.rigid)this.grab.motionSamples=[];
+      return;
+    }
+    this.updateGrabThumbstick(frame,delta);
+    this.updateGrabRotationThumbstick(frame,delta);
+    if(moveGrab(this.grab))this.moveHeldRigid(this.grab);
   }
   selectFromController(controller,inputSource=null){
     if(this.readOnly)return;
@@ -1253,7 +1268,10 @@ export class MatrixView {
       if(rigid&&!this.world.beginRigidGrab?.(id)){
         this.onAssetError('This dynamic body is unavailable to grab.');return;
       }
-      this.grab={...beginGrab(controller,this.objectRoots.get(id)),objectId:id,rigid,inputSource};
+      this.grab={...beginGrab(controller,this.objectRoots.get(id)),objectId:id,rigid,inputSource,
+        motionEpoch:this.roomTrackingEpoch};
+      if(rigid&&inputSource&&this.renderer?.xr?.isPresenting)
+        sampleHeldMotion(this.grab,performance.now());
       this.setGrabFeedback(this.grab);
       if(!rigid)this.world.pausePhysics?.(id);
     }
