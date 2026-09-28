@@ -150,9 +150,20 @@ class ReleaseBuilderTests(unittest.TestCase):
                             "MATRIX_CONTENT_CACHE", "-Scenes", "-WebAssets",
                             "-WebEnvironments", "/api/content/providers/test",
                             "CODEX → IMAGE PREVIEWS", "environment receipt",
-                            "Setup-LocalSpeech.ps1", "-SpeechRoot"):
+                            "Setup-LocalSpeech.ps1", "-SpeechRoot",
+                            "Set-Clipboard -Value $env:SANDBOX_TOKEN",
+                            "Service token", "Start or resume Codex",
+                            "VISUAL CONCEPTS → Image source",
+                            "select the option beginning **ComfyUI**",
+                            "before entering VR"):
             with self.subTest(requirement=requirement):
                 self.assertIn(requirement, readme)
+        self.assertLess(readme.index("VISUAL CONCEPTS → Image source"),
+                        readme.index("CODEX → IMAGE PREVIEWS"))
+        html = (SCRIPT.parents[1] / "WebRuntime/index.html").read_text(encoding="utf-8")
+        self.assertIn('label for="token">Service token', html)
+        self.assertIn('label for="concept-provider">Image source', html)
+        self.assertIn('id="agent-connect">Start or resume Codex', html)
         self.assertNotIn("Docs/Content-Catalogs.md", readme)
         self.assertNotIn("Start the interactive Creator", builder.release_readme(
             "v0.8.0-preview.1", "a" * 40, versions, None))

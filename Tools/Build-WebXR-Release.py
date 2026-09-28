@@ -280,11 +280,20 @@ $env:MATRIX_CONTENT_CACHE = Join-Path $data 'content-cache'
 $tokenBytes = New-Object byte[] 32
 [Security.Cryptography.RandomNumberGenerator]::Create().GetBytes($tokenBytes)
 $env:SANDBOX_TOKEN = [Convert]::ToBase64String($tokenBytes)
+Set-Clipboard -Value $env:SANDBOX_TOKEN
 .\\Start-CodexControlService.ps1 -Port 18796 `
     -Scenes (Join-Path $data 'scenes') `
     -WebAssets (Join-Path $data 'web_assets') `
     -WebEnvironments (Join-Path $data 'web_environments')
 ```
+
+The generated `SANDBOX_TOKEN` is the interactive world owner token. Before the
+foreground launcher starts, the example copies its value to the PC clipboard.
+Paste it into the PC `/web/` **Service token** field, or enter the same value in
+Quest Browser's `/web/` field. The field says "Kept only in this tab"; re-enter
+the token after a page refresh, then choose **Start or resume Codex**. Clear the
+PC clipboard after entry. This is not the separate hosted-world view token.
+Keep its value out of README files and review logs.
 
 The launcher keeps its original defaults when these three directory options are
 omitted. Sign in with the PC Codex CLI first. The example config has ComfyUI
@@ -305,6 +314,12 @@ for #150 panorama rules.
 Open `http://127.0.0.1:18796/web/` on the PC, or run
 `adb reverse tcp:18796 tcp:18796` for Quest Browser. Choose a free port and use
 the same value in the launcher, URL, and USB mapping.
+On the desktop `/web/` page, after connecting to Codex, use
+**VISUAL CONCEPTS → Image source** to select the option beginning **ComfyUI**
+before entering VR.
+The menu appears when multiple sources are available; with only ComfyUI, its
+name appears in that row instead. The default can be Codex GPT Image, so a
+configured ComfyUI worker alone does not select it for the 2D concept request.
 In **CODEX → IMAGE PREVIEWS**, generate at least two concept versions, explicitly
 select one, then ask the existing Agent to build from that image. Confirm the
 resulting Matrix action through its exact receipt and scene
