@@ -182,7 +182,10 @@ def build_matrix_turn_message(user_text: str, context: dict,
                          "virtual-floor object against a measured support while retaining "
                          "its ID. Inspect its current rotation first: a support fit must be "
                          "upright, so supply a complete rotation with x and z zero if it is "
-                         "tilted. The browser checks the final footprint. "
+                         "tilted. The browser checks the final footprint and whether the "
+                         "asset volume crosses another fresh measured support or wall "
+                         "polygon. Measured planes do not describe all occupied volume, "
+                         "so do not claim an unmeasured object is clear. "
                          "Explain which measured constraint influenced the result without "
                          "exposing private room geometry in a public artifact.")
         else:

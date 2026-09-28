@@ -140,6 +140,84 @@ export function footprintFitsRoomSupport(transform,bounds,spawnScale,webFloorPos
   return {ok:true};
 }
 
+const VOLUME_EPSILON=.005;
+const boxEdges=[[0,1],[0,2],[0,4],[1,3],[1,5],[2,3],
+  [2,6],[3,7],[4,5],[4,6],[5,7],[6,7]];
+const same2=(a,b)=>Math.hypot(a.x-b.x,a.z-b.z)<VOLUME_EPSILON;
+const onVolumeBoundary=(point,boundary)=>boundary.some((a,index)=>{
+  const b=boundary[(index+1)%boundary.length];
+  const edge={x:b.x-a.x,z:b.z-a.z};
+  const relative={x:point.x-a.x,z:point.z-a.z};
+  const lengthSquared=edge.x*edge.x+edge.z*edge.z;
+  const dot=relative.x*edge.x+relative.z*edge.z;
+  return lengthSquared>VOLUME_EPSILON*VOLUME_EPSILON&&
+    Math.abs(cross2(relative,edge))<=VOLUME_EPSILON*Math.sqrt(lengthSquared)&&
+    dot>=-VOLUME_EPSILON&&dot<=lengthSquared+VOLUME_EPSILON;
+});
+const strictlyInside=(point,boundary)=>
+  !onVolumeBoundary(point,boundary)&&insideBoundary(point,boundary);
+const properCross=(a,b,c,d)=>{
+  const ab={x:b.x-a.x,z:b.z-a.z},cd={x:d.x-c.x,z:d.z-c.z};
+  const ac={x:c.x-a.x,z:c.z-a.z},ad={x:d.x-a.x,z:d.z-a.z};
+  const ca={x:a.x-c.x,z:a.z-c.z},cb={x:b.x-c.x,z:b.z-c.z};
+  const one=cross2(ab,ac),two=cross2(ab,ad);
+  const three=cross2(cd,ca),four=cross2(cd,cb);
+  return one*two< -VOLUME_EPSILON*VOLUME_EPSILON&&
+    three*four< -VOLUME_EPSILON*VOLUME_EPSILON;
+};
+function polygonsOverlap(a,b){
+  if(a.some(point=>strictlyInside(point,b))||
+     b.some(point=>strictlyInside(point,a)))return true;
+  const center=polygon=>({x:polygon.reduce((sum,p)=>sum+p.x,0)/polygon.length,
+    z:polygon.reduce((sum,p)=>sum+p.z,0)/polygon.length});
+  if(strictlyInside(center(a),b)||strictlyInside(center(b),a))return true;
+  return a.some((point,index)=>b.some((other,edge)=>
+    properCross(point,a[(index+1)%a.length],other,b[(edge+1)%b.length])));
+}
+
+// Check the finite measured polygon, not its infinite plane or an axis-aligned
+// room box. Touching a plane at an object's top/bottom is allowed; crossing it
+// inside the polygon is not. WebXR surfaces are session observations only.
+export function volumeIntersectsMeasuredPlane(transform,bounds,spawnScale,
+  basePose,plane,{floorAligned=false}={}){
+  if(!finiteTransform(transform)||!finiteTransform(basePose)||
+     !finiteTransform(plane?.roomPose)||!finiteVector(bounds?.size)||
+     !['x','y','z'].every(axis=>bounds.size[axis]>0)||
+     !Number.isFinite(spawnScale)||spawnScale<=0||
+     plane?.source!=='webxr'||!['support','wall'].includes(plane.surface?.kind)||
+     !Array.isArray(plane.surface.boundary)||plane.surface.boundary.length<3)
+    return false;
+  const toPlane=matrixFromTransform(plane.roomPose).invert()
+    .multiply(matrixFromTransform(basePose))
+    .multiply(matrixFromTransform(transform));
+  const half={x:bounds.size.x*spawnScale/2,y:bounds.size.y*spawnScale/2,
+    z:bounds.size.z*spawnScale/2};
+  // Imported GLBs are recentered horizontally and floor aligned by loadExternal.
+  // Built-ins retain their authored vertical center.
+  const centerY=(floorAligned?bounds.size.y/2:bounds.center.y)*spawnScale;
+  const corners=[];
+  for(const x of [-half.x,half.x])for(const y of [centerY-half.y,centerY+half.y])
+    for(const z of [-half.z,half.z])
+      corners.push(new THREE.Vector3(x,y,z).applyMatrix4(toPlane));
+  const heights=corners.map(point=>point.y);
+  if(Math.min(...heights)>=-VOLUME_EPSILON||
+     Math.max(...heights)<=VOLUME_EPSILON)return false;
+  const section=[];
+  const add=point=>{if(!section.some(other=>same2(other,point)))section.push(point);};
+  for(const [i,j] of boxEdges){
+    const a=corners[i],b=corners[j];
+    if(Math.abs(a.y)<=VOLUME_EPSILON)add({x:a.x,z:a.z});
+    if(Math.abs(b.y)<=VOLUME_EPSILON)add({x:b.x,z:b.z});
+    if(a.y*b.y<0){const t=a.y/(a.y-b.y);
+      add({x:a.x+(b.x-a.x)*t,z:a.z+(b.z-a.z)*t});}
+  }
+  if(section.length<3)return false;
+  const cx=section.reduce((sum,p)=>sum+p.x,0)/section.length;
+  const cz=section.reduce((sum,p)=>sum+p.z,0)/section.length;
+  section.sort((a,b)=>Math.atan2(a.z-cz,a.x-cx)-Math.atan2(b.z-cz,b.x-cx));
+  return polygonsOverlap(section,plane.surface.boundary);
+}
+
 function extent(boundary,axis){
   const values=boundary.map(point=>point[axis]);return Math.max(...values)-Math.min(...values);
 }

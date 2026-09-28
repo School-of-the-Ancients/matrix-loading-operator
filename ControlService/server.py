@@ -55,6 +55,7 @@ from procedural_contract import (ProceduralError, GENERATOR_ID, VERSION,
                                  CURVED_BENCH_PARAMETERS,
                                  checked_recipe, checked_generators, available_recipe,
                                  interaction_bounds, new_recipe, revised_recipe)
+from room_plane_collision import overlapping_room_plane
 
 MAX_BODY = 1024 * 1024
 MAX_EXCHANGE_BODY = 3 * 1024 * 1024  # two bounded snapshots plus a base64 JPEG
@@ -5408,6 +5409,10 @@ class State:
             require(abs(transform["rotation"]["x"]) <= .01 and
                     abs(transform["rotation"]["z"]) <= .01,
                     "Room-constrained support fit requires an upright object", 409)
+            require(overlapping_room_plane(transform, asset,
+                                           spatial["webFloorPose"],
+                                           current["anchors"], anchor_id) is None,
+                    "Object volume intersects another measured room surface", 409)
             queued = self.queue([{"op": "set_transform", "objectId": object_id,
                                   "transform": transform,
                                   "expectedTransform": copy.deepcopy(item["transform"]),
@@ -5649,6 +5654,9 @@ class State:
                 expected["position"]["y"] -= ((bounds["center"]["y"] -
                                                    bounds["size"]["y"] / 2) *
                                                   pose["scale"]["y"] * factor)
+            require(overlapping_room_plane(expected, asset, anchor["roomPose"],
+                                           current["anchors"], anchor_id) is None,
+                    "Object volume intersects another measured room surface", 409)
             queued = self.queue([{"op": "spawn", "assetId": asset_id,
                                   "anchorId": anchor_id, "transform": pose,
                                   "placement": "surface",

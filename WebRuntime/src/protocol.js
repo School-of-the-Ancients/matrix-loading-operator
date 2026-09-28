@@ -2,7 +2,8 @@
 // /api/exchange command set. Keep changes to this contract coordinated with
 // ControlService/server.py and the archived native contract at
 // Archive/Unity/Assets/Sandbox/Runtime/SandboxWorld.cs.
-import {footprintInsideBoundary,footprintFitsRoomSupport} from './spatial.js';
+import {footprintInsideBoundary,footprintFitsRoomSupport,
+  volumeIntersectsMeasuredPlane} from './spatial.js';
 import {surfaceToVirtualTransform} from './room_surface_placement.js';
 import {validateAttachment,validatePackage} from './components.js';
 import {advanceFloorBody,createFloorBody,publicPhysicsState,validPhysicsConfig,validRenderedPhysicsSize} from './physics_floor.js';
@@ -985,6 +986,18 @@ export class MatrixWorld {
     const fit=footprintFitsRoomSupport(transform,bounds,
       this.asset(object.assetId)?.spawnScale||1,this.spatial.webFloorPose,anchor);
     if(!fit.ok)throw Error(fit.reason);
+    this.assertNoMeasuredPlaneOverlap(transform,object.assetId,
+      this.spatial.webFloorPose,constraint.anchorId);
+  }
+  assertNoMeasuredPlaneOverlap(transform,assetId,basePose,excludedAnchorId){
+    const asset=this.asset(assetId),bounds=asset?.localBounds;
+    if(!bounds)throw Error('Measured object bounds are unavailable');
+    for(const plane of this.spatial.observedAnchors){
+      if(plane.anchorId===excludedAnchorId)continue;
+      if(volumeIntersectsMeasuredPlane(transform,bounds,asset.spawnScale||1,
+        basePose,plane,{floorAligned:!!asset.url}))
+        throw Error('Object volume intersects another measured room surface');
+    }
   }
   resolvedTransform(command,assetId,anchorId){
     const transform=clone(command.transform);
@@ -1216,6 +1229,8 @@ export class MatrixWorld {
             observedAnchor.roomPose,this.spatial.webFloorPose):null;
           if(durable&&!validTransform(durable))
             throw Error('Measured placement cannot be stored in the digital world');
+          if(durable)this.assertNoMeasuredPlaneOverlap(durable,command.assetId,
+            this.spatial.webFloorPose,command.anchorId);
           object={objectId:this.idFactory(),assetId:command.assetId,
             anchorId:durable?ANCHOR_ID:command.anchorId,transform:durable||resolved};
           if (!validId(object.objectId)||object.objectId===RIGID_FLOOR_ID||
