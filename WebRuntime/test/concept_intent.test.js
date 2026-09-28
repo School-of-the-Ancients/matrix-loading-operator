@@ -51,6 +51,7 @@ test('reviewing or binding a completed selected build does not create another bu
     'Review the selected Version 4 build status; do not spawn a duplicate.',
     'The selected Version 4 Blender build is already completed. Do not spawn another copy.',
     'Do not build this in the Matrix.',
+    'Check the existing selected Version 4 Blender build that is already completed. This is a read-only status follow-up. Do not build, create, spawn, register, bind, save, restore, or change any file or world object. Use read-only Matrix scene and concept status tools only to report the five current object IDs, the Beacon loop binding, and the earlier failed follow-up record separately. Stop if any write approval is proposed.',
   ];
   for(const request of followups){
     assert.equal(isSelectedConceptBuildRequest(request),false,request);
@@ -62,5 +63,7 @@ test('reviewing or binding a completed selected build does not create another bu
     'Build the selected Version 4 concept in Blender and bind its animation.',
     'Review the selected design, then build this in Blender.',
     'Build this selected concept. Do not spawn a second copy.',
+    'Do not use the old asset, but build the selected Version 4 concept in Blender.',
+    'Do not spawn the old bridge, then build the selected Version 4 concept.',
   ])assert.equal(isSelectedConceptBuildRequest(request),true,request);
 });

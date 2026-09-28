@@ -70,6 +70,11 @@ client opened an extra selected-build request. That extra request failed when
 the bind-only turn ended, making the UI's latest-record message say no result
 even though the completed Beacon record survived restart. The unrelated
 ConceptStore record `62d9f9fb08ce458597c8249d7392687a` was preserved.
-#155 now filters that bind-only wording in both browser and PC classifiers,
-and the UI reports the earlier completed result alongside a failed later
-attempt. The live copied-world records were not rewritten to hide the bug.
+After the first classifier fix, an isolated read-only follow-up saying
+“Do not build, create, spawn…” exposed a comma-separated negation case and
+created failed record `d79276f33c84433eb0c3be243bb02d8e`. That turn was
+cancelled before any native approval or world command; the five-object scene
+and clip binding were unchanged. #155 now filters both wordings in browser
+and PC classifiers, with exact wording regression tests. The updated live UI
+reported the earlier completed result alongside the first failed attempt;
+the copied-world records were not rewritten to hide either bug.

@@ -21,7 +21,7 @@ export function isSelectedConceptBuildRequest(text){
   // not to create another one. Only affirmative creation language starts a
   // fresh selected-image build.
   const request=clean(text)
-    .replace(/\b(?:do not|don't|never|without|no need to)\b[^.!?;,]*?(?=\b(?:but|then)\b|[.!?;,]|$)/gi,'')
+    .replace(/\b(?:do not|don't|never|without|no need to)\b[^.!?;]*?(?=\b(?:but|then)\b|[.!?;]|$)/gi,'')
     .replace(/\bbuild\s+(?:is|was|has been)\s+(?:already\s+)?(?:complete|completed|finished|done)\b/gi,'');
   const existingResultFollowup=/^(?:(?:can|could|would) you\s+)?(?:bind|review|inspect|check|verify|show|report|describe|summarize|status|explain|tell|resume|continue|play)\b/i.test(request);
   const newBuildAfterFollowup=/(?:\b(?:and|then|now|also)\s+|[;,]\s*)(?:build|construct|model|spawn|import|place|make|create|turn)\b/i.test(request);

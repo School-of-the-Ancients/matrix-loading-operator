@@ -3313,8 +3313,8 @@ def concept_build_request(value):
     request = re.sub(r"^please\s+", "", request, flags=re.IGNORECASE)
     # Bind/review follow-ups can mention a completed build and say not to
     # spawn another one; neither phrase authorizes a new selected-image build.
-    request = re.sub(r"\b(?:do not|don't|never|without|no need to)\b[^.!?;,]*?"
-                     r"(?=\b(?:but|then)\b|[.!?;,]|$)", "", request, flags=re.IGNORECASE)
+    request = re.sub(r"\b(?:do not|don't|never|without|no need to)\b[^.!?;]*?"
+                     r"(?=\b(?:but|then)\b|[.!?;]|$)", "", request, flags=re.IGNORECASE)
     request = re.sub(r"\bbuild\s+(?:is|was|has been)\s+(?:already\s+)?"
                      r"(?:complete|completed|finished|done)\b", "", request,
                      flags=re.IGNORECASE)
