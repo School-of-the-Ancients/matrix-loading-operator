@@ -7,6 +7,27 @@ import {applyPCWorld} from '../src/world_checkpoint.js';
 import {storedWorld} from '../src/scene_store.js';
 import {executeWorldSlotCommand} from '../src/world_slots.js';
 
+test('a never-settling read-only status fetch times out and permits a later poll',async()=>{
+  const previousStorage=globalThis.sessionStorage,previousFetch=globalThis.fetch;
+  globalThis.sessionStorage={getItem:()=>null,setItem:()=>{}};
+  try{
+    const bridge=new MatrixBridge(new MatrixWorld(),()=>'',()=>{});
+    let calls=0,stalledSignal;
+    globalThis.fetch=async(_path,options)=>{
+      if(++calls===1){stalledSignal=options.signal;return new Promise(()=>{});}
+      return {ok:true,json:async()=>({capture:{status:'ready'}})};
+    };
+    await assert.rejects(bridge.request('/api/state',undefined,{timeoutMs:20}),
+      error=>error.name==='TimeoutError'&&/api\/state timed out/.test(error.message));
+    assert.equal(stalledSignal.aborted,true);
+    assert.deepEqual(await bridge.request('/api/state',undefined,{timeoutMs:20}),
+      {capture:{status:'ready'}});
+    assert.equal(calls,2);
+    await assert.rejects(bridge.request('/api/capture',{mode:'mixed'},{timeoutMs:20}),
+      /only for read-only GETs/);
+  }finally{globalThis.fetch=previousFetch;globalThis.sessionStorage=previousStorage;}
+});
+
 test('a stalled exchange times out without losing receipts or applying a late response',async()=>{
   const previousStorage=globalThis.sessionStorage;
   globalThis.sessionStorage={getItem:()=>null,setItem:()=>{}};

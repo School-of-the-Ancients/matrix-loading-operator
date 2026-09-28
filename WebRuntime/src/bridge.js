@@ -23,14 +23,29 @@ export class MatrixBridge {
       mixedStatus:'permission_required',reason:'Environment camera has not been tested in this browser.',
       depthOcclusion:false});
   }
-  async request(path, body, {signal}={}) {
+  async request(path, body, {signal,timeoutMs=0}={}) {
+    if(timeoutMs>0&&body!==undefined)throw Error('Timed requests are available only for read-only GETs');
     const headers={}; const token=this.getToken();
     if(token)headers.Authorization=`Bearer ${token}`;
     if(body!==undefined)headers['Content-Type']='application/json';
-    const response=await fetch(path,{method:body===undefined?'GET':'POST',headers,body:body===undefined?undefined:JSON.stringify(body),cache:'no-store',signal});
-    const data=await response.json();
-    if(!response.ok)throw Error(data.error||`HTTP ${response.status}`);
-    return data;
+    const controller=timeoutMs>0?new AbortController():null;
+    const abort=()=>controller?.abort();
+    if(controller&&signal){if(signal.aborted)abort();else signal.addEventListener('abort',abort,{once:true});}
+    let timeoutId;
+    const timed=controller?new Promise((_,reject)=>{timeoutId=setTimeout(()=>{
+      const error=Error(`Read-only request ${path} timed out`);error.name='TimeoutError';
+      reject(error);controller.abort();
+    },timeoutMs);}):null;
+    try{
+      const request=(async()=>{
+        const response=await fetch(path,{method:body===undefined?'GET':'POST',headers,
+          body:body===undefined?undefined:JSON.stringify(body),cache:'no-store',signal:controller?.signal||signal});
+        const data=await response.json();
+        if(!response.ok)throw Error(data.error||`HTTP ${response.status}`);
+        return data;
+      })();
+      return timed?await Promise.race([request,timed]):await request;
+    }finally{clearTimeout(timeoutId);if(controller&&signal)signal.removeEventListener('abort',abort);}
   }
   async exchange(viewer,worldRestoreExpectedRevision=null) {
     const sent=[...this.receipts.values()];

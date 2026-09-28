@@ -780,17 +780,19 @@ async function propose(){
 let reviewBusy=false;
 async function captureAndWait(mode){
     const requested=await bridge.request('/api/capture',{mode});
-    let ready=null;
-    for(let attempt=0;attempt<(mode==='mixed'?110:50);attempt++){
-      const state=await bridge.request('/api/state');
+    const deadline=performance.now()+(mode==='mixed'?44000:20000);
+    while(performance.now()<deadline){
+      let state;
+      try{state=await bridge.request('/api/state',undefined,
+        {timeoutMs:Math.max(1,Math.min(3000,Math.ceil(deadline-performance.now())))});}
+      catch(error){if(error?.name!=='TimeoutError')throw error;continue;}
       const capture=state.capture;
       if(capture?.captureId!==requested.captureId)throw Error('Capture was replaced; please retry review');
       if(capture.status==='error'||capture.status==='stale')throw Error(capture.error||'Capture failed');
-      if(capture.status==='ready'){ready=capture;break;}
-      await new Promise(resolve=>setTimeout(resolve,400));
+      if(capture.status==='ready')return capture;
+      await new Promise(resolve=>setTimeout(resolve,Math.min(400,Math.max(0,deadline-performance.now()))));
     }
-    if(!ready)throw Error('Rendered view capture timed out');
-    return ready;
+    throw Error('Rendered view capture timed out');
 }
 async function reviewView(){
   if(reviewBusy)return;
