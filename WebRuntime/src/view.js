@@ -1255,6 +1255,7 @@ export class MatrixView {
       }
       this.grab={...beginGrab(controller,this.objectRoots.get(id)),objectId:id,rigid,inputSource};
       this.setGrabFeedback(this.grab);
+      if(this.operatorMount?.kind==='head')this.hideOperatorPanel();
       if(!rigid)this.world.pausePhysics?.(id);
     }
   }
