@@ -667,8 +667,8 @@ export class MatrixWorld {
     this.syncRigidTransform(objectId,state);
     return state;
   }
-  releaseRigidGrab(objectId){
-    const state=this.rigidPhysics?.releaseGrab(objectId)||false;
+  releaseRigidGrab(objectId,velocity){
+    const state=this.rigidPhysics?.releaseGrab(objectId,velocity)||false;
     if(state)this.syncRigidTransform(objectId,state);
     if(this.agentGrab?.objectId===objectId)this.agentGrab=null;
     return state;
