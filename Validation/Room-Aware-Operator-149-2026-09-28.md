@@ -36,9 +36,12 @@ Operator context. Rebase validation below is separate from Quest wearer proof.
 
 ## Wearer review sequence
 
-The isolated service is at `http://127.0.0.1:18966/web/` over the existing
-Quest USB reverse mapping. It uses a separate scene and asset directory from
-the panorama review. Leave the service token empty on this loopback review.
+The original isolated #160 review used `http://127.0.0.1:18966/web/`. For the
+rebased branch, use a fresh combined review service and a separate scene and
+asset directory containing the generated panorama. Leave the service token
+empty on a loopback review. Record its actual URL, source commit, and restored
+checkpoint with the new wearer evidence. The earlier 18966 review predates
+the #150 merge.
 Select **PC world checkpoints → quest149-lantern-garden-eleven-objects**,
 then **Restore world → Confirm restore**. The desktop runtime tab must be
 closed before Quest takes the single writer lease.
@@ -70,8 +73,8 @@ and camera pixels out of this record.
 
 | Gate | Result |
 | --- | --- |
-| ControlService full suite | `python -m unittest discover -v`: 865 passed, 0 failed |
-| WebRuntime full suite and production build | `npm test`: 642 passed, 0 failed; `npm run build`: passed |
+| ControlService full suite | Original branch: `python -m unittest discover -v`: 865 passed, 0 failed. Rebased branch: `python -m unittest discover`: 879 passed, 0 failed. |
+| WebRuntime full suite and production build | Original branch: `npm test`: 642 passed, 0 failed. Rebased branch: `npm test`: 674 passed, 0 failed; `npm run build`: passed. |
 | Isolated desktop review | `http://127.0.0.1:18966/web/` served the final build with separate scene and asset directories; the PC checkpoint list contained `quest91-agent-strong-beacon-six-objects`, and UI restore displayed six original objects. The Agent Portal connected and read the six IDs/transforms at scene revision 3; it reported desktop mode, zero measured planes, and no physical fit claim. |
 | Agent composition / typed receipts | After service restart, Agent recaptured all six original IDs/transforms at source scene revision 1, then created two pedestal/orb pairs and one curved bench with five individually approved, succeeded typed receipts. Final live revision 11 had 11 objects. |
 | PC checkpoint and desktop reopen | Saved `quest149-lantern-garden-eleven-objects`, then reloaded the page and explicitly restored it through the PC checkpoint picker; UI reported 11 objects. Comparing checkpoint payloads found all six original IDs and transforms unchanged and exactly five new IDs. Saved checkpoint SHA-256: `C8E2D4BB4631C9AFC20E4BC14045E5C40FE09646E7BE28C154255C3BAB88FA84`. |
@@ -79,3 +82,21 @@ and camera pixels out of this record.
 | Quest AR measured move and alignment | Pending wearer check |
 
 Automated and desktop checks are not Quest wearer evidence.
+
+## Rebase integration review
+
+Rebased source commit `2563ed7` descends from the #159 merge commit
+`1ad61d0`. The seven shared-file conflicts were resolved by retaining both
+sets of capabilities: panorama catalog and Agent tools, generated panorama
+context, background rendering and AR hiding; plus room observations, measured
+support tools, tracking guards and alignment checks. The automatically merged
+Agent bridge and XR context paths were inspected. A combined WebRuntime test
+sets a panorama, enters AR, confirms a measured support, moves an existing
+virtual object with the current room constraint, and verifies the panorama and
+object ID survive AR exit. This is source-level evidence only.
+
+The focused cross-feature runs passed: 67 ControlService tests and 43
+WebRuntime tests. The rebased full suites passed 879/879 ControlService and
+674/674 WebRuntime tests, and the production Vite build succeeded. Quest
+review of the exact rebased build is still required for a measured AR move
+and wearer-confirmed physical fit.
