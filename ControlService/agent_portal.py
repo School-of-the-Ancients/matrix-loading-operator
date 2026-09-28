@@ -661,6 +661,8 @@ class AgentPortal:
     def _pump(self) -> None:
         cursor, events = self._backend.poll(self._backend_cursor)
         self._backend_cursor = cursor
+        native_to_interrupt = None
+        declined_native_approvals = set()
         for event in events:
             if event.get("conversationId") != self._conversation_id:
                 continue
@@ -669,11 +671,17 @@ class AgentPortal:
                 continue
             if (turn_id in self._native_turns and event.get("type") == "approval"):
                 # Native concept turns need only the built-in image tool. A
-                # later shell or MCP approval cannot hold the image job open.
+                # later shell or MCP approval is denied before interrupting.
+                # Drain every approval in this poll before the interrupt can
+                # resolve other queued requests.
                 if self._stopping_turn != turn_id:
                     self._stopping_turn = turn_id
+                    native_to_interrupt = turn_id
+                approval_id = event["approvalId"]
+                if approval_id not in declined_native_approvals:
+                    declined_native_approvals.add(approval_id)
                     try:
-                        self._backend.cancel(self._conversation_id, turn_id)
+                        self._backend.decide(approval_id, self._conversation_id, turn_id, False)
                     except Exception as error:
                         self.last_error = str(error)
                 continue
@@ -695,6 +703,11 @@ class AgentPortal:
                     self._active_turn = None
             elif event.get("type") == "approval":
                 self._activity = "waiting_for_approval"
+        if native_to_interrupt is not None and native_to_interrupt == self._active_turn:
+            try:
+                self._backend.cancel(self._conversation_id, native_to_interrupt)
+            except Exception as error:
+                self.last_error = str(error)
         if events:
             self._persist()
 

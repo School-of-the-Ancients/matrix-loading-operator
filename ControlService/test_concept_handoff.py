@@ -174,12 +174,19 @@ class ConceptHandoffTests(unittest.TestCase):
         for request in ("Create an image of a forest temple", "Make another version",
                         "Use version 2", "Show this image", "Place this there",
                         "Build this bridge in Matrix", "Create this spaceship in Matrix",
-                        "Build an image viewer"):
+                        "Build an image viewer", "Build a bridge, not the selected concept",
+                        "Build this, not the selected concept", "Build renderer v2",
+                        "Build app v2", "Build selected concept, not just yet",
+                        "Build selected concept, not now; build a bridge",
+                        "Build this, not just yet; then build a bridge"):
             self.assertFalse(concept_build_request(request), request)
         for request in ("Build this", "Build this in Matrix", "Build selected image",
                         "Create this", "Make this",
                         "Make this in Blender", "Create this around what's already here",
-                        "Use this design"):
+                        "Use this design", "Build not only the selected concept but also a bridge",
+                        "Build not just the selected concept but also a bridge",
+                        "Do not use v1; build v2",
+                        "The bridge is not yet built; build the selected concept now"):
             self.assertTrue(concept_build_request(request), request)
 
     def test_bind_only_completed_build_followup_does_not_start_another_build(self):
@@ -382,6 +389,64 @@ class ConceptHandoffTests(unittest.TestCase):
         self.assertEqual(self.state.concepts.status(self.session_id, refresh=False)["builds"], [])
         self.build("Build version two in the Matrix")
         self.assertEqual(len(self.backend.sent), 1)
+
+    def test_negated_selection_stays_an_ordinary_text_turn(self):
+        result = self.build("Build this, not the selected concept")
+        self.assertNotIn("buildRequestId", result)
+        self.assertIsNone(self.backend.sent[0][2])
+        self.assertEqual(self.state.concepts.status(self.session_id, refresh=False)["builds"], [])
+
+    def test_deferred_build_stays_an_ordinary_text_turn(self):
+        result = self.build("Build selected concept, not now; build a bridge")
+        self.assertNotIn("buildRequestId", result)
+        self.assertIsNone(self.backend.sent[0][2])
+        self.assertEqual(self.state.concepts.status(self.session_id, refresh=False)["builds"], [])
+
+    def test_deferred_deictic_build_stays_an_ordinary_text_turn(self):
+        result = self.build("Build this, not just yet; then build a bridge")
+        self.assertNotIn("buildRequestId", result)
+        self.assertIsNone(self.backend.sent[0][2])
+        self.assertEqual(self.state.concepts.status(self.session_id, refresh=False)["builds"], [])
+
+    def test_prior_unbuilt_state_does_not_veto_new_build(self):
+        self.build("The bridge is not yet built; build the selected concept now")
+        self.assertEqual(Path(self.backend.sent[0][2]).read_bytes(), png_pixel())
+
+    def test_abbreviated_version_must_match_persisted_selection(self):
+        with self.assertRaisesRegex(APIError, "not selected"):
+            self.build("Build concept v1 in the Matrix")
+        self.assertEqual(self.backend.sent, [])
+        self.build("Build selected concept v2 in the Matrix")
+        self.assertEqual(Path(self.backend.sent[0][2]).read_bytes(), png_pixel())
+
+    def test_negated_version_does_not_override_selected_version(self):
+        self.build("Do not use v1; build v2 in the Matrix")
+        self.assertEqual(Path(self.backend.sent[0][2]).read_bytes(), png_pixel())
+
+    def test_negated_selected_identity_rejects_contradictory_build(self):
+        def set_version_four(document):
+            document["sessions"][self.session_id]["jobs"][0]["version"] = 4
+        self.state.concepts._change(set_version_four)
+        for request in ("Build the selected concept, not version 4",
+                        "Build selected concept, but do not use v4",
+                        "Build selected concept, not concept " + self.concept_id,
+                        "Build selected concept, but don't use the image",
+                        "Build concept v4 without this image"):
+            with self.subTest(request=request), self.assertRaisesRegex(APIError, "not selected"):
+                self.build(request)
+        self.assertEqual(self.backend.sent, [])
+        self.assertEqual(self.state.concepts.status(self.session_id, refresh=False)["builds"], [])
+        result = self.build("Build version 4, not the selected image")
+        self.assertNotIn("buildRequestId", result)
+        self.assertIsNone(self.backend.sent[0][2])
+
+    def test_asset_name_version_does_not_override_selected_version(self):
+        self.build("Build selected concept using bridge-v1")
+        self.assertEqual(Path(self.backend.sent[0][2]).read_bytes(), png_pixel())
+
+    def test_image_viewer_exclusion_does_not_veto_selected_image(self):
+        self.build("Build selected concept without an image viewer")
+        self.assertEqual(Path(self.backend.sent[0][2]).read_bytes(), png_pixel())
 
     def test_explicit_version_with_no_selection_asks_to_select_first(self):
         def clear(document):

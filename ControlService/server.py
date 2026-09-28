@@ -3304,17 +3304,56 @@ def agent_turn_context(state, value, *, creation=False):
                 "sceneSummary": summary}
 
 
-def concept_build_request(value):
-    """Recognize an explicit request to use the selected design for a build."""
-    if type(value) is not str:
-        return False
+_CONCEPT_NEGATED_CLAUSE = re.compile(
+    r"\b(?:do not|don't|never|without|no need to|"
+    r"not(?!\s+(?:only|just)\b[^.!?;]*?\bbut\s+also\b))\b"
+    r"[^.!?;]*?(?=\b(?:but|then)\b|[.!?;]|$)", re.IGNORECASE)
+_CONCEPT_VERSION_REFERENCE = re.compile(
+    r"(?:\bversion\s+|(?<![\w-])v)(\d+|one|two|three|four|five|six|seven|eight|nine|ten)\b",
+    re.IGNORECASE)
+_CONCEPT_ID_REFERENCE = re.compile(r"\b(?:concept|image)\s+([0-9a-f]{32})\b", re.IGNORECASE)
+_SELECTED_CONCEPT_REFERENCE = re.compile(
+    r"\bselected\s+(?:concept|design|image|version)\b", re.IGNORECASE)
+_NEGATED_IMAGE_REFERENCE = re.compile(
+    r"\b(?:the|this)\s+image\b(?!\s+(?:viewer|preview|gallery)\b)", re.IGNORECASE)
+_DEFERRED_BUILD = re.compile(r"\bnot\s+(?:(?:just|quite)\s+)?(?:yet|now|today)\b",
+                             re.IGNORECASE)
+
+
+def concept_version_references(value):
+    words = {name: index for index, name in enumerate(
+        ("one", "two", "three", "four", "five", "six", "seven", "eight", "nine", "ten"), 1)}
+    return [int(match[1]) if match[1].isdigit() else words[match[1].lower()]
+            for match in _CONCEPT_VERSION_REFERENCE.finditer(value)]
+
+
+def concept_positive_request(value):
+    """Remove clauses that explicitly exclude a concept or build action."""
     request = re.sub(r"^(?:please\s+)?(?:hey\s+)?operator[,;:\s]+", "", value.strip(),
                      flags=re.IGNORECASE)
     request = re.sub(r"^please\s+", "", request, flags=re.IGNORECASE)
     # Bind/review follow-ups can mention a completed build and say not to
     # spawn another one; neither phrase authorizes a new selected-image build.
-    request = re.sub(r"\b(?:do not|don't|never|without|no need to)\b[^.!?;]*?"
-                     r"(?=\b(?:but|then)\b|[.!?;]|$)", "", request, flags=re.IGNORECASE)
+    return _CONCEPT_NEGATED_CLAUSE.sub("", request)
+
+
+def concept_build_request(value):
+    """Recognize an explicit request to use the selected design for a build."""
+    if type(value) is not str:
+        return False
+    for clause in re.split(r"[.!?;]", value):
+        for deferred in _DEFERRED_BUILD.finditer(clause):
+            before = clause[:deferred.start()]
+            if (re.search(r"\b(?:build|construct|model|spawn|import|place|make|create|turn)\b",
+                          before, re.IGNORECASE) and
+                    (re.search(r"\b(?:selected|concept|design|reference|version|this|that|it)\b",
+                               before, re.IGNORECASE) or
+                     _CONCEPT_VERSION_REFERENCE.search(before))):
+                return False
+    if any(_SELECTED_CONCEPT_REFERENCE.search(clause.group())
+           for clause in _CONCEPT_NEGATED_CLAUSE.finditer(value)):
+        return False
+    request = concept_positive_request(value)
     request = re.sub(r"\bbuild\s+(?:is|was|has been)\s+(?:already\s+)?"
                      r"(?:complete|completed|finished|done)\b", "", request,
                      flags=re.IGNORECASE)
@@ -3329,6 +3368,8 @@ def concept_build_request(value):
     explicit = (re.search(r"\b(?:selected|concept|design|reference|version)\b",
                           request, re.IGNORECASE) or
                 re.search(r"\b(?:this|that|the)\s+image\b|\bimage\s+[0-9a-f]{32}\b",
+                          request, re.IGNORECASE) or
+                re.search(r"\b(?:build|construct|model|spawn|import|place|make|create)\s+v\d+\b",
                           request, re.IGNORECASE))
     # "Build this bridge" names an ordinary text creation. A bare pronoun
     # refers to the selected design only when no object noun follows it.
@@ -3351,17 +3392,19 @@ def concept_build_request(value):
 
 def concept_reference_matches(value, selected):
     """An explicit version/ID may never silently resolve to another selection."""
-    version = re.search(r"\bversion\s+(\d+|one|two|three|four|five|six|seven|eight|nine|ten)\b",
-                        value, re.IGNORECASE)
-    if version:
-        words = {name: index for index, name in enumerate(
-            ("one", "two", "three", "four", "five", "six", "seven", "eight", "nine", "ten"), 1)}
-        spoken = version[1].lower()
-        requested = int(spoken) if spoken.isdigit() else words[spoken]
-        if requested != selected.get("version"):
+    for clause in _CONCEPT_NEGATED_CLAUSE.finditer(value):
+        excluded = clause.group()
+        if (_SELECTED_CONCEPT_REFERENCE.search(excluded) or
+                _NEGATED_IMAGE_REFERENCE.search(excluded) or
+                selected.get("version") in concept_version_references(excluded) or
+                any(match[1].lower() == selected.get("conceptId")
+                    for match in _CONCEPT_ID_REFERENCE.finditer(excluded))):
             return False
-    identifier = re.search(r"\b(?:concept|image)\s+([0-9a-f]{32})\b", value, re.IGNORECASE)
-    return identifier is None or identifier[1].lower() == selected.get("conceptId")
+    request = concept_positive_request(value)
+    return (all(version == selected.get("version")
+                for version in concept_version_references(request)) and
+            all(match[1].lower() == selected.get("conceptId")
+                for match in _CONCEPT_ID_REFERENCE.finditer(request)))
 
 
 def agent_portal_action(state, path, body):

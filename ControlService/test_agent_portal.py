@@ -158,13 +158,58 @@ class AgentPortalTests(unittest.TestCase):
         status = portal.status(session_id)
         self.assertEqual(status["transcript"][-1]["user"], prompt)
         self.assertNotIn("private.png", str(status))
-        backend.events.append({"sequence": 1, "type": "approval", "conversationId": "native-thread-id",
-                               "turnId": started["turnId"], "approvalId": 1,
-                               "activity": "waiting_for_approval", "action": "running_command"})
-        self.wait_for(portal, session_id, lambda value: value["activeTurnId"] is None)
+        backend.approval = {"approvalId": 1, "conversationId": "native-thread-id",
+                            "turnId": started["turnId"], "action": "running_command"}
+        with patch.object(backend, "decide", wraps=backend.decide) as decide:
+            backend.events.append({"sequence": 1, "type": "approval",
+                                   "conversationId": "native-thread-id",
+                                   "turnId": started["turnId"], "approvalId": 1,
+                                   "activity": "waiting_for_approval", "action": "running_command"})
+            self.wait_for(portal, session_id, lambda value: value["activeTurnId"] is None)
+            decide.assert_called_once_with(1, "native-thread-id", started["turnId"], False)
+        self.assertEqual(backend.pending_approvals(), [])
+        self.assertEqual(portal.status(session_id)["pendingApprovals"], [])
         self.assertFalse(portal.native_generation_active())
         self.assertEqual(portal.native_image_result(session_id, started["turnId"])["imagePath"],
                          "C:/pc/private.png")
+
+    def test_native_generation_declines_all_pending_approvals_before_one_interrupt(self):
+        backend = NativeFakeBackend(self.persisted)
+        portal = AgentPortal(self.temp.name, lambda: backend)
+        self.addCleanup(portal.close)
+        session_id = portal.open()["sessionId"]
+        turn_id = portal.start_native_image(session_id, "A blue orb")["turnId"]
+        pending = {identifier: {"approvalId": identifier, "conversationId": "native-thread-id",
+                                "turnId": turn_id, "action": "running_command"}
+                   for identifier in (1, 2)}
+        calls = []
+
+        def decide(approval_id, conversation_id, requested_turn, approve):
+            self.assertEqual((conversation_id, requested_turn, approve),
+                             ("native-thread-id", turn_id, False))
+            pending.pop(approval_id)
+            calls.append(("decline", approval_id))
+
+        def cancel(conversation_id, requested_turn):
+            self.assertEqual((conversation_id, requested_turn), ("native-thread-id", turn_id))
+            calls.append(("interrupt",))
+            backend.events.append({"sequence": len(backend.events) + 1,
+                                   "type": "activity", "conversationId": conversation_id,
+                                   "turnId": requested_turn, "activity": "cancelled"})
+
+        backend.pending_approvals = lambda: list(pending.values())
+        backend.decide = decide
+        backend.cancel = cancel
+        with portal.lock:
+            backend.events.extend({"sequence": identifier, "type": "approval",
+                                   "conversationId": "native-thread-id", "turnId": turn_id,
+                                   "approvalId": identifier, "activity": "waiting_for_approval",
+                                   "action": "running_command"}
+                                  for identifier in (1, 2))
+        status = self.wait_for(portal, session_id, lambda value: value["activeTurnId"] is None)
+        self.assertEqual(calls, [("decline", 1), ("decline", 2), ("interrupt",)])
+        self.assertEqual(pending, {})
+        self.assertEqual(status["pendingApprovals"], [])
 
     def test_persists_opaque_session_and_followup_after_restart(self):
         portal = self.portal()

@@ -38,10 +38,23 @@ test('concept parsing leaves ordinary build and world requests alone',()=>{
     assert.equal(parseConceptIntent(text),null,text);
   for(const text of ['Now build this in the Matrix','Make this in Blender',
     'Create this around what is already here','Use this design',
-    'Build version 2 in the Matrix','Build the selected image'])
+    'Build version 2 in the Matrix','Build the selected image',
+    'Build not only the selected concept but also a bridge',
+    'Build not just the selected concept but also a bridge',
+    'Build v2', 'Do not use v1; build v2',
+    'The bridge is not yet built; build the selected concept now'])
     assert.equal(isSelectedConceptBuildRequest(text),true,text);
   for(const text of ['Use version 2','Build this bridge','Build an image viewer',
-    'Create a concept bridge','Make another chair'])
+    'Create a concept bridge','Make another chair',
+    'Build a bridge, not the selected concept',
+    'Build this, not the selected concept',
+    'Build selected concept, not selected concept',
+    'Build selected concept, not just yet',
+    'Build selected concept, not now',
+    'Build selected concept, not today',
+    'Build selected concept, not now; build a bridge',
+    'Build this, not just yet; then build a bridge',
+    'Build renderer v2'])
     assert.equal(isSelectedConceptBuildRequest(text),false,text);
 });
 

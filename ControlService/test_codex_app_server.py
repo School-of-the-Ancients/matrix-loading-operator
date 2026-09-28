@@ -14,6 +14,9 @@ from unittest.mock import patch
 
 from codex_app_server import AppServerError, AppServerTransport, MAX_EVENT
 
+ORDINARY_POLICY = {"sandbox": "workspace-write", "approval_policy": "on-request"}
+IMAGE_POLICY = {"sandbox": "read-only", "approval_policy": "on-request"}
+
 
 FAKE_SERVER = r'''
 import base64
@@ -53,6 +56,11 @@ for line in sys.stdin:
         send({"id": message["id"], "result": {"namespaceTools": True, "imageGeneration": True,
                                                 "webSearch": True}})
     elif method == "turn/start":
+        image_turn = message["params"]["input"][0]["text"].startswith("$imagegen")
+        assert message["params"]["sandboxPolicy"] == (
+            {"type": "readOnly", "networkAccess": False} if image_turn else
+            {"type": "workspaceWrite"})
+        assert message["params"]["approvalPolicy"] == "on-request"
         turn_count += 1
         turn_id = "turn-" + str(turn_count)
         send({"id": message["id"], "result": {"turn": {"id": turn_id}}})
@@ -114,7 +122,7 @@ class AppServerTransportTests(unittest.TestCase):
         self.assertEqual(self.transport.thread_resume(thread_id), thread_id)
         self.assertEqual(self.transport.thread_read(thread_id)["turns"], [])
 
-        turn_id = self.transport.turn_start(thread_id, "Move this there")
+        turn_id = self.transport.turn_start(thread_id, "Move this there", **ORDINARY_POLICY)
         self.assertEqual(turn_id, "turn-1")
         pending = self.wait_for_approval(901)
         self.assertEqual(pending[0]["params"]["turnId"], turn_id)
@@ -126,7 +134,7 @@ class AppServerTransportTests(unittest.TestCase):
         with self.assertRaises(AppServerError):
             self.transport.respond_approval(901, thread_id, turn_id, "accept")
 
-        second_turn = self.transport.turn_start(thread_id, "Now make it taller")
+        second_turn = self.transport.turn_start(thread_id, "Now make it taller", **ORDINARY_POLICY)
         self.assertEqual(second_turn, "turn-2")
         self.wait_for_approval(902)
         self.transport.respond_approval(902, thread_id, second_turn, "decline")
@@ -151,9 +159,18 @@ class AppServerTransportTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             self.transport.request("thread/start", [])
         with self.assertRaises(ValueError):
-            self.transport.turn_start("thread-test", " ")
+            self.transport.turn_start("thread-test", " ", **ORDINARY_POLICY)
         with self.assertRaises(ValueError):
-            self.transport.turn_start("thread-test", "x" * 16001)
+            self.transport.turn_start("thread-test", "x" * 16001, **ORDINARY_POLICY)
+        with self.assertRaises(TypeError):
+            self.transport.turn_start("thread-test", "No implicit policy")
+        for sandbox, approval_policy in (("invalid", "on-request"),
+                                         ("workspace-write", "never"),
+                                         ("read-only", "never")):
+            with self.subTest(sandbox=sandbox, approval_policy=approval_policy), \
+                    self.assertRaises(ValueError):
+                self.transport.turn_start("thread-test", "Invalid policy",
+                                          sandbox=sandbox, approval_policy=approval_policy)
         with self.assertRaises(ValueError):
             self.transport.thread_start(sandbox="no-sandbox")
         with self.assertRaises(ValueError):
@@ -169,7 +186,7 @@ class AppServerTransportTests(unittest.TestCase):
         image.write_bytes(b"\x89PNG\r\n\x1a\nconcept")
         with patch.object(self.transport, "request", return_value={"turn": {"id": "turn-image"}}) as request:
             self.assertEqual(self.transport.turn_start("thread-test", "Build this",
-                                                       image_path=image), "turn-image")
+                                                       image_path=image, **ORDINARY_POLICY), "turn-image")
         method, params = request.call_args.args
         self.assertEqual(method, "turn/start")
         self.assertEqual(params["input"], [
@@ -177,11 +194,24 @@ class AppServerTransportTests(unittest.TestCase):
             {"type": "localImage", "path": str(image.resolve())}])
         self.assertEqual(Path(params["input"][1]["path"]).read_bytes(), image.read_bytes())
         with self.assertRaisesRegex(ValueError, "existing local image"):
-            self.transport.turn_start("thread-test", "Build this", image_path=image.with_name("missing.png"))
+            self.transport.turn_start("thread-test", "Build this",
+                                      image_path=image.with_name("missing.png"), **ORDINARY_POLICY)
+
+    def test_image_turn_policy_is_explicit_and_later_full_access_is_restored(self):
+        with patch.object(self.transport, "request",
+                          return_value={"turn": {"id": "turn-policy"}}) as request:
+            self.transport.turn_start("thread-test", "$imagegen blue orb", **IMAGE_POLICY)
+            self.transport.turn_start("thread-test", "Build this",
+                                      sandbox="danger-full-access", approval_policy="never")
+        first, second = [call.args[1] for call in request.call_args_list]
+        self.assertEqual(first["sandboxPolicy"], {"type": "readOnly", "networkAccess": False})
+        self.assertEqual(first["approvalPolicy"], "on-request")
+        self.assertEqual(second["sandboxPolicy"], {"type": "dangerFullAccess"})
+        self.assertEqual(second["approvalPolicy"], "never")
 
     def test_native_image_over_two_megabyte_line_stays_pc_only(self):
         self.assertEqual(self.transport.native_image_capability(), (True, None))
-        turn_id = self.transport.turn_start("thread-test", "$imagegen test art")
+        turn_id = self.transport.turn_start("thread-test", "$imagegen test art", **IMAGE_POLICY)
         deadline = time.monotonic() + 3
         result = None
         while time.monotonic() < deadline:

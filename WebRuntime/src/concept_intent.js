@@ -20,14 +20,26 @@ export function isSelectedConceptBuildRequest(text){
   // A follow-up can name an already completed build while explicitly asking
   // not to create another one. Only affirmative creation language starts a
   // fresh selected-image build.
-  const request=clean(text)
-    .replace(/\b(?:do not|don't|never|without|no need to)\b[^.!?;]*?(?=\b(?:but|then)\b|[.!?;]|$)/gi,'')
+  const original=clean(text);
+  for(const clause of original.split(/[.!?;]/)){
+    for(const deferred of clause.matchAll(/\bnot\s+(?:(?:just|quite)\s+)?(?:yet|now|today)\b/gi)){
+      const before=clause.slice(0,deferred.index);
+      if(/\b(?:build|construct|model|spawn|import|place|make|create|turn)\b/i.test(before)&&
+        (/\b(?:selected|concept|design|reference|version|this|that|it)\b/i.test(before)||
+          /(?:^|[\s,])v\d+\b/i.test(before)))return false;
+    }
+  }
+  const negated=/\b(?:do not|don't|never|without|no need to|not(?!\s+(?:only|just)\b[^.!?;]*\bbut\s+also\b))\b[^.!?;]*?(?=\b(?:but|then)\b|[.!?;]|$)/gi;
+  if([...original.matchAll(negated)].some(match=>/\bselected\s+(?:concept|design|image|version)\b/i.test(match[0])))return false;
+  const request=original
+    .replace(negated,'')
     .replace(/\bbuild\s+(?:is|was|has been)\s+(?:already\s+)?(?:complete|completed|finished|done)\b/gi,'');
   const existingResultFollowup=/^(?:(?:can|could|would) you\s+)?(?:bind|review|inspect|check|verify|show|report|describe|summarize|status|explain|tell|resume|continue|play)\b/i.test(request);
   const newBuildAfterFollowup=/(?:\b(?:and|then|now|also)\s+|[;,]\s*)(?:build|construct|model|spawn|import|place|make|create|turn)\b/i.test(request);
   if(existingResultFollowup&&!newBuildAfterFollowup)return false;
   const explicit=/\b(?:selected|concept|design|reference|version)\b/i.test(request)||
-    /\b(?:this|that|the)\s+image\b|\bimage\s+[0-9a-f]{32}\b/i.test(request);
+    /\b(?:this|that|the)\s+image\b|\bimage\s+[0-9a-f]{32}\b/i.test(request)||
+    /\b(?:build|construct|model|spawn|import|place|make|create)\s+v\d+\b/i.test(request);
   const deictic=/\b(?:this|that|it)\b(?=\s*(?:[.!?,;]|$)|\s+(?:in|into|around|here|there|at|on|for)\b)/i.test(request);
   if(!explicit&&!deictic)return false;
   if(/\b(?:build|construct|model|spawn|import)\b/i.test(request))return true;

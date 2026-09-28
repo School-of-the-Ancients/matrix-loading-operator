@@ -428,11 +428,24 @@ class AppServerTransport:
             raise AppServerError("Codex app-server returned an invalid thread")
         return result["thread"]
 
-    def turn_start(self, thread_id: str, text: str, *, effort: str | None = None,
+    def turn_start(self, thread_id: str, text: str, *, sandbox: str,
+                   approval_policy: str, effort: str | None = None,
                    image_path: str | Path | None = None,
                    skill_path: str | Path | None = None) -> str:
         if not isinstance(text, str) or not text.strip() or len(text) > 16000:
             raise ValueError("Turn text must be 1–16000 characters")
+        # These app-server overrides persist into later turns. Require an
+        # explicit policy for every turn so an image-only read-only turn cannot
+        # accidentally change the authority of a subsequent Agent turn (or
+        # inherit a prior full-access turn's authority itself).
+        policies = {
+            "read-only": {"type": "readOnly", "networkAccess": False},
+            "workspace-write": {"type": "workspaceWrite"},
+            "danger-full-access": {"type": "dangerFullAccess"},
+        }
+        if sandbox not in policies or approval_policy not in ("on-request", "never") or \
+                (approval_policy == "never" and sandbox != "danger-full-access"):
+            raise ValueError("Unsupported Agent Portal turn policy")
         inputs = [{"type": "text", "text": text}]
         if image_path is not None:
             path = Path(image_path)
@@ -445,7 +458,8 @@ class AppServerTransport:
             if not path.is_absolute() or not path.is_file() or path.name != "SKILL.md":
                 raise ValueError("Turn skill must be an existing local skill")
             inputs.append({"type": "skill", "name": "imagegen", "path": str(path.resolve())})
-        params = {"threadId": thread_id, "input": inputs}
+        params = {"threadId": thread_id, "input": inputs,
+                  "sandboxPolicy": policies[sandbox], "approvalPolicy": approval_policy}
         if effort:
             params["effort"] = effort
         result = self.request("turn/start", params)

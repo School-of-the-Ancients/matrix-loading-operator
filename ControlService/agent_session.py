@@ -761,6 +761,8 @@ class LocalCodexAgentBackend:
 
     def send_text(self, conversation_id: str, text: str, *, image_path: str | Path | None = None) -> str:
         return self.transport.turn_start(conversation_id, text,
+                                         sandbox=self.config.agent_sandbox,
+                                         approval_policy=self.config.agent_approval_policy,
                                          effort=self.config.reasoning_effort,
                                          **({"image_path": image_path} if image_path is not None else {}))
 
@@ -773,6 +775,7 @@ class LocalCodexAgentBackend:
     def start_native_image(self, conversation_id: str, text: str) -> str:
         skill = self.transport._generated_root.parent / "skills" / ".system" / "imagegen" / "SKILL.md"
         return self.transport.turn_start(conversation_id, text,
+                                         sandbox="read-only", approval_policy="on-request",
                                          effort=self.config.reasoning_effort,
                                          **({"skill_path": skill} if skill.is_file() else {}))
 
