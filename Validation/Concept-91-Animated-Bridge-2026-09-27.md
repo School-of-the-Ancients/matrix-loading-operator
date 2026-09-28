@@ -26,8 +26,8 @@ and [original checkpoint](concept-91-blender-world-checkpoint.json) are unchange
 named 2.0417-second clip, **Lantern Pulse**. Its 16 channels move eight panes.
 The real GLB passed a Three.js mixer test confirming a pane changes height and
 the one-clip loop continues. The full WebRuntime suite passed **631/631** and
-the production build passed; the existing large-chunk warning remains.
-ControlService source was unchanged by this derivative.
+the production build passed; the existing large-chunk warning remains. The
+full ControlService suite passed **845/845** after this derivative was added.
 
 ## Isolated browser world and receipt
 
@@ -47,9 +47,35 @@ checkpoint](concept-91-animated-bridge-world-checkpoint.json). `GET
 hash, and `Lantern Pulse` dependency. The `18795` scene and catalog are
 isolated from the earlier `18791` world and the `18794` gallery fixture.
 
-## Remaining wearer evidence
+## Quest VR wearer result
 
-Pending: a Quest wearer must see the same asset and animation in VR and AR.
+The Quest wearer restored **Concept 91 animated bridge acceptance** on the
+isolated `18795` page, entered VR, and reported both the bridge and its lantern
+animation visible. They initially asked whether the bridge's black appearance
+was a rendering error, then recognized and accepted it as the design. The
+animated derivative and accepted original GLB have the same seven PBR
+materials; the structural metal has a very dark charcoal base color and high
+metallic value. No material change was made. A subsequent service state at
+revision 27 reported the exact registered animated asset and object ID above.
+
 The new derivative is linked by its checked Blender source and this
 checkpoint; no second selected-image Agent turn or new durable ConceptStore
 build record is claimed for this manual animation follow-up.
+
+## Quest AR origin safeguard
+
+The first direct VR-to-AR entry after restoring this **PC** checkpoint showed
+passthrough but hid the bridge. The wearer saw `ROOM RELOCALIZATION FAILED`,
+and the service reported `roomContext.state: missing` while still retaining the
+same object ID and asset in the scene. This is the intended origin safeguard:
+PC checkpoints contain no browser AR room handle, so a nonempty restored world
+has `originBinding: unknown` and cannot be silently placed in a physical room.
+The wearer used WORLD → ARCHIVE + PLACE HERE → CONFIRM PLACE HERE on this
+isolated fixture and then reported the same bridge and its moving amber panes
+visible in passthrough AR. The service subsequently reported a new runtime
+generation in `ar`, `roomContext.state: ready`, 38 detected room planes, and
+the same object ID and exact asset ID. Its room-context message still called
+virtual-floor objects **unanchored previews**, with `alignmentVerified: false`;
+this check establishes AR visual placement and animation, not measured
+physical alignment or a reopen/relocalization guarantee. The named PC
+checkpoint remained listed after recovery.
