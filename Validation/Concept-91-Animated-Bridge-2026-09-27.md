@@ -72,7 +72,10 @@ PC checkpoints contain no browser AR room handle, so a nonempty restored world
 has `originBinding: unknown` and cannot be silently placed in a physical room.
 The wearer used WORLD → ARCHIVE + PLACE HERE → CONFIRM PLACE HERE on this
 isolated fixture and then reported the same bridge and its moving amber panes
-visible in passthrough AR. The service subsequently reported a new runtime
+visible in passthrough AR. Between checks, taking off and replacing the Quest
+headset left the AR page blank; the wearer restarted Quest Browser. The exact
+button sequence and cause of that one resume failure are unverified. The
+service subsequently reported a new runtime
 generation in `ar`, `roomContext.state: ready`, 38 detected room planes, and
 the same object ID and exact asset ID. Its room-context message still called
 virtual-floor objects **unanchored previews**, with `alignmentVerified: false`;
