@@ -268,15 +268,44 @@ class ConceptHandoffTests(unittest.TestCase):
         with self.assertRaisesRegex(APIError, "not a readable .blend file"):
             self.state.agent_record_concept_build(value)
         blend.write_bytes(b"BLENDER-v300" + b"\x00" * 32)
+        with patch("server.blender_executable", return_value="blender.exe"), \
+             patch("server.subprocess.run", return_value=subprocess.CompletedProcess([], 1, b"", b"invalid")):
+            with self.assertRaisesRegex(APIError, "not a readable .blend file"):
+                self.state.agent_record_concept_build(value)
         wrong_glb = self.state.directory / "other.glb"
         wrong_glb.write_bytes(b"different export")
         value["source_paths"] = [str(blend), str(wrong_glb)]
-        with self.assertRaisesRegex(APIError, "does not match the spawned registered asset"):
-            self.state.agent_record_concept_build(value)
-        value["source_paths"] = [str(blend), str(source_glb)]
-        recorded = self.state.agent_record_concept_build(value)
+        # The following assertions isolate GLB receipt/hash validation; raw
+        # Blender readability is exercised with an actual save below.
+        with patch("server.readable_blend_source", return_value=True):
+            with self.assertRaisesRegex(APIError, "does not match the spawned registered asset"):
+                self.state.agent_record_concept_build(value)
+            value["source_paths"] = [str(blend), str(source_glb)]
+            recorded = self.state.agent_record_concept_build(value)
         self.assertEqual(recorded["status"], "completed")
         self.assertEqual(recorded["creationMode"], "blender")
+
+    def test_real_raw_blend_source_must_open_in_blender(self):
+        try:
+            executable = blender_executable()
+        except BlenderAuthoringError:
+            self.skipTest("Blender is unavailable for raw-source validation")
+        self.state.directory.mkdir(parents=True, exist_ok=True)
+        blend = self.state.directory / "raw-source.blend"
+        command = [executable, "--background", "--factory-startup", "--disable-autoexec",
+                   "--python-expr", "import bpy; bpy.ops.wm.save_as_mainfile(filepath=" +
+                   repr(str(blend)) + ", compress=False)"]
+        created = subprocess.run(command, cwd=blend.parent, capture_output=True, timeout=60)
+        self.assertEqual(created.returncode, 0, created.stderr.decode("utf-8", errors="replace"))
+        with blend.open("rb") as source:
+            self.assertEqual(source.read(7), b"BLENDER")
+        self.assertTrue(readable_blend_source(blend))
+        with patch("server.MAX_BLEND_SOURCE_BYTES", 8), \
+             patch("server.subprocess.run") as run:
+            self.assertFalse(readable_blend_source(blend))
+            run.assert_not_called()
+        blend.write_bytes(b"BLENDER-v300" + b"\x00" * 32)
+        self.assertFalse(readable_blend_source(blend))
 
     def test_blender_mode_accepts_tracked_compressed_source(self):
         try:
@@ -314,7 +343,7 @@ class ConceptHandoffTests(unittest.TestCase):
         self.assertIn("--disable-autoexec", command)
         self.assertIn(str(blend), command)
         self.assertEqual(run.call_args.kwargs["timeout"], 60)
-        with patch("server.MAX_COMPRESSED_BLEND_BYTES", 8), \
+        with patch("server.MAX_BLEND_SOURCE_BYTES", 8), \
              patch("server.subprocess.run") as run:
             self.assertFalse(readable_blend_source(blend))
             run.assert_not_called()

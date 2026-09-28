@@ -55,7 +55,7 @@ from procedural_contract import (ProceduralError, GENERATOR_ID, VERSION,
 
 MAX_BODY = 1024 * 1024
 MAX_EXCHANGE_BODY = 3 * 1024 * 1024  # two bounded snapshots plus a base64 JPEG
-MAX_COMPRESSED_BLEND_BYTES = 64 * 1024 * 1024
+MAX_BLEND_SOURCE_BYTES = 64 * 1024 * 1024
 MAX_OBJECTS = 100
 MAX_PHYSICS_BODIES = 16
 MAX_RIGID_BODIES = 32
@@ -3552,13 +3552,12 @@ def require_physics_eligible(obj, assets, registered_assets, pose=None):
 
 
 def readable_blend_source(path):
-    """Accept a raw Blender header or ask Blender to open a bounded zstd save."""
+    """Ask Blender to open a bounded raw or zstd source without file scripts."""
     try:
         with path.open("rb") as source:
             header = source.read(7)
-        if header == b"BLENDER":
-            return True
-        if header[:4] != b"\x28\xb5\x2f\xfd" or path.stat().st_size > MAX_COMPRESSED_BLEND_BYTES:
+        if (header != b"BLENDER" and header[:4] != b"\x28\xb5\x2f\xfd") or \
+                path.stat().st_size > MAX_BLEND_SOURCE_BYTES:
             return False
     except OSError:
         return False
