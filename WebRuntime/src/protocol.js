@@ -3,6 +3,7 @@
 // ControlService/server.py and the archived native contract at
 // Archive/Unity/Assets/Sandbox/Runtime/SandboxWorld.cs.
 import {footprintInsideBoundary,footprintFitsRoomSupport} from './spatial.js';
+import {surfaceToVirtualTransform} from './room_surface_placement.js';
 import {validateAttachment,validatePackage} from './components.js';
 import {advanceFloorBody,createFloorBody,publicPhysicsState,validPhysicsConfig,validRenderedPhysicsSize} from './physics_floor.js';
 import {segmentClear} from './citizens_navigation.js';
@@ -969,6 +970,8 @@ export class MatrixWorld {
        !anchor.roomPose||!Array.isArray(anchor.surface.boundary)||
        anchor.surface.boundary.length<3)
       throw Error('Measured room support is unavailable');
+    if(!this.spatial.webFloorPose)
+      throw Error('Current aligned AR room origin is required for durable placement');
     return anchor;
   }
   assertRoomConstraint(object,transform,constraint){
@@ -1200,17 +1203,28 @@ export class MatrixWorld {
           if (!this.availableAnchors().some(anchor=>anchor.anchorId===command.anchorId)) throw Error('Unknown anchorId');
           if (!validTransform(command.transform)) throw Error('Invalid transform');
           if (this.scene.objects.length>=MAX_OBJECTS) throw Error('Scene object limit reached');
+          {let observedAnchor=null;
           if(Object.hasOwn(command,'roomConstraint')){
             if(command.placement!=='surface')
               throw Error('Room-constrained spawn needs measured surface placement');
-            const observedAnchor=this.assertCurrentRoomConstraint(
+            observedAnchor=this.assertCurrentRoomConstraint(
               command.roomConstraint,command.anchorId);
             this.assertSupportedFootprint(command.transform,command.assetId,observedAnchor);
           }
-          object={objectId:this.idFactory(),assetId:command.assetId,anchorId:command.anchorId,transform:this.resolvedTransform(command,command.assetId,command.anchorId)};
+          const resolved=this.resolvedTransform(command,command.assetId,command.anchorId);
+          const durable=observedAnchor?surfaceToVirtualTransform(resolved,
+            observedAnchor.roomPose,this.spatial.webFloorPose):null;
+          if(durable&&!validTransform(durable))
+            throw Error('Measured placement cannot be stored in the digital world');
+          object={objectId:this.idFactory(),assetId:command.assetId,
+            anchorId:durable?ANCHOR_ID:command.anchorId,transform:durable||resolved};
           if (!validId(object.objectId)||object.objectId===RIGID_FLOOR_ID||
               this.scene.objects.some(o=>o.objectId===object.objectId)) throw Error('Invalid generated objectId');
-          this.scene.objects.push(object); result.objectId=object.objectId; break;
+          this.scene.objects.push(object); result.objectId=object.objectId;
+          if(durable)result.outcome={kind:'room-surface-spawn',
+            supportAnchorId:command.anchorId,anchorId:ANCHOR_ID,
+            transform:clone(durable)};
+          break;}
         case 'create_procedural': {
           if(command.anchorId!==ANCHOR_ID||!validTransform(command.transform))
             throw Error('Procedural construction requires a virtual-floor transform');

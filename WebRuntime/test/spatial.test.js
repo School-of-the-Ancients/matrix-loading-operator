@@ -3,6 +3,8 @@ import assert from 'node:assert/strict';
 import * as THREE from 'three';
 import {MatrixWorld} from '../src/protocol.js';
 import {MatrixView,validateRenderedFootprint} from '../src/view.js';
+import {storedWorld,storedBrowserWorld,saveStoredWorld,loadStoredWorld,
+  restoreStoredWorld,restoreBestStoredWorld} from '../src/scene_store.js';
 import {viewerPose,planeData,insideBoundary,footprintInsideBoundary,
   footprintFitsRoomSupport,matchPlaneAnchor,samePlaneShape,measuredFloorHeight} from '../src/spatial.js';
 
@@ -10,6 +12,10 @@ const boundary=[{x:-2,y:0,z:-2},{x:2,y:0,z:-2},{x:2,y:0,z:2},{x:-2,y:0,z:2}];
 const anchor={anchorId:'webxr-plane-1',displayName:'FLOOR',source:'webxr',semanticLabels:['FLOOR'],
   surface:{kind:'support',boundary},roomPose:{position:{x:1,y:0,z:-1},rotation:{x:0,y:0,z:0},scale:{x:1,y:1,z:1}}};
 const transform={position:{x:0,y:0,z:0},rotation:{x:0,y:0,z:0},scale:{x:1,y:1,z:1}};
+const storage=()=>{const values=new Map();return {
+  getItem:key=>values.get(key)||null,
+  setItem:(key,value)=>values.set(key,value),
+  removeItem:key=>values.delete(key)};};
 
 test('AR scene uses session room planes, confirms alignment, and restores the desktop scene',()=>{
   let next=0;const world=new MatrixWorld(()=>`id-${++next}`);
@@ -87,7 +93,7 @@ test('queued surface spawn rejects a changed tracking epoch or lost room observa
   const world=new MatrixWorld(()=>`surface-${++sequence}`);
   world.enterAR();world.setSpatialAnchors([anchor]);world.setOriginLocated(true);
   const observe=epoch=>world.setSpatialObservation({planeObservedAt:performance.now(),
-    trackingEpoch:epoch});
+    trackingEpoch:epoch,webFloorPose:anchor.roomPose});
   observe(4);
   assert.equal(world.execute({requestId:'confirm-spawn',op:'confirm_room'}).ok,true);
   const spawn=(requestId,trackingEpoch=4,anchorId=anchor.anchorId)=>world.execute({
@@ -105,11 +111,58 @@ test('queued surface spawn rejects a changed tracking epoch or lost room observa
   assert.equal(world.scene.objects.length,0);
   world.setOriginLocated(true);observe(6);
   assert.equal(world.execute({requestId:'reconfirm-spawn',op:'confirm_room'}).ok,true);
-  assert.equal(spawn('current-spawn',6).ok,true);
+  const placed=spawn('current-spawn',6);
+  assert.equal(placed.ok,true,placed.error);
   assert.equal(world.scene.objects.length,1);
-  assert.equal(world.scene.objects[0].anchorId,anchor.anchorId);
+  assert.equal(world.scene.objects[0].anchorId,'web-floor');
+  assert.equal(placed.outcome.supportAnchorId,anchor.anchorId);
+  assert.deepEqual(placed.outcome.transform,world.scene.objects[0].transform);
+  const saved=storedWorld(world);
+  assert.equal(saved.scene.objects[0].objectId,placed.objectId);
   world.leaveAR();
-  assert.equal(world.scene.objects.length,0,'measured-plane objects remain session-only');
+  assert.deepEqual(world.scene.objects,saved.scene.objects,
+    'the room-aware spawn remains in the same digital world after AR exit');
+  const reopened=new MatrixWorld();
+  restoreStoredWorld(reopened,saved);
+  assert.deepEqual(reopened.scene.objects,saved.scene.objects);
+});
+
+test('room-aware spawn retains the same AR pose through a rotated origin and saves its ID',()=>{
+  let sequence=0;
+  const world=new MatrixWorld(()=>`durable-${++sequence}`);
+  const pose=(x,y,z,ry=0)=>({position:{x,y,z},rotation:{x:0,y:ry,z:0},
+    scale:{x:1,y:1,z:1}});
+  const support={...anchor,roomPose:pose(2,.75,3)};
+  const webFloorPose=pose(2,0,3,90);
+  world.enterAR();world.setSpatialAnchors([support]);world.setOriginLocated(true);
+  world.setSpatialObservation({planeObservedAt:performance.now(),trackingEpoch:9,
+    webFloorPose});
+  assert.equal(world.execute({requestId:'confirm-durable',op:'confirm_room'}).ok,true);
+  const local={...transform,position:{x:.5,y:0,z:.25},
+    rotation:{x:0,y:30,z:0}};
+  const placed=world.execute({requestId:'place-durable',op:'spawn',assetId:'orb',
+    anchorId:support.anchorId,placement:'surface',transform:local,
+    roomConstraint:{anchorId:support.anchorId,trackingEpoch:9}});
+  assert.equal(placed.ok,true,placed.error);
+  const object=world.requireObject(placed.objectId);
+  assert.equal(object.anchorId,'web-floor');
+  assert.deepEqual(object.transform.position,{x:-.25,y:.75,z:.5});
+  assert.deepEqual(object.transform.rotation,{x:0,y:-60,z:0});
+  assert.equal(world.snapshot().scene.objects[0].objectId,placed.objectId);
+  const saved=storedWorld(world);
+  world.originAnchorHandle='current-room-handle';
+  const browserSaved=storedBrowserWorld(world),tab=storage(),durable=storage();
+  assert.equal(browserSaved.originBinding,'ar');
+  assert.equal(browserSaved.originAnchorHandle,'current-room-handle');
+  assert.equal(saveStoredWorld(browserSaved,tab,durable),'');
+  world.leaveAR();
+  assert.deepEqual(world.scene.objects,saved.scene.objects);
+  const reopened=new MatrixWorld();
+  assert.equal(restoreBestStoredWorld(reopened,loadStoredWorld(storage(),durable),durable).state,
+    'restored');
+  assert.deepEqual(reopened.scene.objects,saved.scene.objects);
+  assert.equal(reopened.scene.objects[0].objectId,placed.objectId);
+  assert.equal(reopened.originAnchorHandle,'current-room-handle');
 });
 
 test('guarded placement uses the latest boundary even when display smoothing keeps the old plane',()=>{
