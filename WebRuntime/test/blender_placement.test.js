@@ -57,6 +57,24 @@ test('request-time pointing remains fixed as the ray moves, while XR session rep
   assert.throws(()=>validateBlenderPlacement(f.world,f.view,capture,{now:200}),/runtime or room origin changed/);
 });
 
+test('selected marker is the Blender destination even after hover and object selection change',()=>{
+  const f=fixture({point:{anchorId:'web-floor',objectId:null,
+    position:{x:8,y:0,z:0}}});
+  f.world.selection.objectId='chair-1';
+  let marker={anchorId:'web-floor',position:{x:.4,y:0,z:-.6},source:'raycast'};
+  f.view.selectedPlacementTarget=()=>marker;
+  const capture=captureBlenderPlacement(f.world,f.view,{now:100});
+  assert.equal(capture.selection.objectId,'chair-1');
+  assert.deepEqual(capture.selection.position,marker.position);
+  assert.deepEqual(capture.target,marker);
+  f.setPoint({anchorId:'web-floor',objectId:null,position:{x:5,y:0,z:1}});
+  assert.deepEqual(validateBlenderPlacement(f.world,f.view,capture,{now:200}).position,
+    marker.position);
+  marker={...marker,position:{x:.5,y:0,z:-.6}};
+  assert.throws(()=>validateBlenderPlacement(f.world,f.view,capture,{now:200}),
+    /placement selection changed/);
+});
+
 test('AR measured placement requires the same tracked room surface and a fresh pose',()=>{
   const f=fixture({ar:true});
   const session={id:'ar-1'};f.setSession(session);

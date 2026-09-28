@@ -169,6 +169,22 @@ def build_matrix_turn_message(user_text: str, context: dict,
                      "It is hidden in passthrough AR by default. Use the typed environment tools and "
                      "matching receipt for changes; preserve scene objects.")
     spatial = context.get("roomSpatial")
+    placement = context.get("selectedPlacement")
+    if type(placement) is dict:
+        lines.append("The wearer selected a retained placement marker at the "
+                     "anchor-local position in selectedPlacement. It remains distinct "
+                     "from the transient pointingTarget and can coexist with a selected "
+                     "object for 'move that there'. A raycast marker is a measured hit; "
+                     "a hit-test marker is snapped to a nearby measured support, "
+                     "and an adjusted marker is a user-edited point on that plane. "
+                     "Treat both as advisory until the current room context, target "
+                     "surface, and typed mutation guard are refreshed. For a surface "
+                     "spawn, selectedPlacement.position uses that support's local X/Z; "
+                     "check the full object footprint and use its fresh spatialToken. "
+                     "For a constrained move of a virtual-floor object, convert the "
+                     "destination into the virtual-floor frame using verified current "
+                     "poses, then use matrix_move_with_room_constraint. Never copy "
+                     "anchor-local coordinates into a virtual-floor transform.")
     if type(spatial) is dict:
         if spatial.get("usable") is True:
             lines.append("This turn includes bounded, measured WebXR room surfaces in a verified "

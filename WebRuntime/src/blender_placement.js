@@ -15,15 +15,23 @@ function spatialState(world,anchorId){
       copy(spatial?.anchors?.find(item=>item.anchorId===anchorId)||null)};
 }
 function currentPointingTarget(view){return copy(view.pointingTarget?.()||null);}
+function currentSelectedPlacement(view){return copy(view.selectedPlacementTarget?.()||null);}
+function currentSelection(world,selectedPlacement){
+  const selection=copy(world.selection);
+  if(selectedPlacement){selection.anchorId=selectedPlacement.anchorId;
+    selection.position=copy(selectedPlacement.position);}
+  return selection;
+}
 function poseReady(view,session,now,requiresXR){
   return !requiresXR||!!session&&!!view.xrViewer&&Number.isFinite(view.xrViewerCapturedAt)&&
     now-view.xrViewerCapturedAt>=0&&now-view.xrViewerCapturedAt<=XR_POSE_MAX_AGE_MS;
 }
 
 export function captureBlenderPlacement(world,view,{now=performance.now()}={}){
-  const selection=copy(world.selection);
+  const selectedPlacement=currentSelectedPlacement(view);
+  const selection=currentSelection(world,selectedPlacement);
   const pointingTarget=currentPointingTarget(view);
-  const target=pointingTarget||{anchorId:selection.anchorId,
+  const target=selectedPlacement||pointingTarget||{anchorId:selection.anchorId,
     objectId:selection.objectId||null,position:selection.position};
   const anchorId=target.anchorId;
   const session=xrSession(view);
@@ -36,7 +44,7 @@ export function captureBlenderPlacement(world,view,{now=performance.now()}={}){
     sessionStartedAt:view.sessionStartedAt,roomAnchor:view.roomAnchor,
     roomTrackingEpoch:view.roomTrackingEpoch,
     roomAnchorLocated:!!view.roomAnchorLocated,
-    isAR:!!view.isAR,selection,pointingTarget,target:copy(target),
+    isAR:!!view.isAR,selection,selectedPlacement,pointingTarget,target:copy(target),
     spatial:spatialState(world,anchorId),poseReadyAtRequest:poseReady(view,session,now,requiresXR)};
 }
 
@@ -58,7 +66,8 @@ export function validateBlenderPlacement(world,view,capture,{now=performance.now
   // The ray is a request-time target. Controller jitter or looking elsewhere
   // while Blender works must not move the saved point. Scene, selection, and
   // support-anchor checks below still reject a changed actual target.
-  if(!same(world.selection,capture.selection))
+  if(!same(currentSelectedPlacement(view),capture.selectedPlacement)||
+      !same(currentSelection(world,currentSelectedPlacement(view)),capture.selection))
     stale('The placement selection changed during Blender generation');
   const currentSpatial=spatialState(world,capture.target.anchorId);
   if(!same(currentSpatial,capture.spatial)||currentSpatial.originUnavailable||currentSpatial.stale)

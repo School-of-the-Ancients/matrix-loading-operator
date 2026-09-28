@@ -3502,16 +3502,38 @@ def agent_runtime_context(state, *, include_scene=False):
                     if current and include_scene else {})}
 
 
+def _selected_point_on_surface(point, boundary):
+    """Check a chosen anchor-local point against the currently observed plane."""
+    if not isinstance(boundary, list) or len(boundary) < 3:
+        return False
+    x, z = point["x"], point["z"]
+    inside = False
+    for index, a in enumerate(boundary):
+        b = boundary[(index + 1) % len(boundary)]
+        dx, dz = b["x"] - a["x"], b["z"] - a["z"]
+        length_sq = dx * dx + dz * dz
+        if length_sq > 0:
+            t = max(0, min(1, ((x - a["x"]) * dx + (z - a["z"]) * dz) / length_sq))
+            if (x - a["x"] - t * dx) ** 2 + (z - a["z"] - t * dz) ** 2 <= .005 ** 2:
+                return True
+        if ((a["z"] > z) != (b["z"] > z) and
+                x < dx * (z - a["z"]) / dz + a["x"]):
+            inside = not inside
+    return inside
+
+
 def agent_turn_context(state, value, *, creation=False):
     """Reduce one wearer-owned semantic hit to bounded, advisory agent data."""
     common = {"schemaVersion", "inputSource", "clientId", "roomId",
               "selectedObjectId", "pointingTarget", "viewerFrame"}
     require(isinstance(value, dict) and
             ((value.get("schemaVersion") == 1 and set(value) == common) or
-             (value.get("schemaVersion") == 2 and
-              set(value) == common | {"presentation", "trackingEpoch"})),
+              (value.get("schemaVersion") == 2 and
+               set(value) == common | {"presentation", "trackingEpoch"}) or
+              (value.get("schemaVersion") == 3 and
+               set(value) == common | {"presentation", "trackingEpoch", "selectedPlacement"})),
             "Invalid Matrix Agent context")
-    require(type(value["schemaVersion"]) is int and value["schemaVersion"] in (1, 2),
+    require(type(value["schemaVersion"]) is int and value["schemaVersion"] in (1, 2, 3),
             "Unsupported Matrix Agent context version")
     require(value["inputSource"] in ("text", "voice_transcript"), "Invalid Agent input source")
     client_id = text(value["clientId"], "Agent clientId")
@@ -3528,7 +3550,7 @@ def agent_turn_context(state, value, *, creation=False):
         require(current["scene"]["roomId"] == room_id, "Matrix room changed; point and retry", 409)
         descriptor = current.get("runtimeDescriptor") or {}
         presentation = descriptor.get("presentation")
-        if value["schemaVersion"] == 2:
+        if value["schemaVersion"] >= 2:
             require(value["presentation"] in ("desktop", "vr", "ar") and
                     value["presentation"] == presentation,
                     "Matrix presentation changed; capture current context and retry", 409)
@@ -3562,6 +3584,31 @@ def agent_turn_context(state, value, *, creation=False):
                     "Pointed Matrix object is no longer available", 409)
             target = {"anchorId": anchor_id, "objectId": object_id,
                       "position": vector(target["position"], "position")}
+        placement = value.get("selectedPlacement")
+        if placement is not None:
+            require(value["schemaVersion"] == 3 and isinstance(placement, dict) and
+                    set(placement) == {"anchorId", "position", "source"} and
+                    placement["source"] in ("raycast", "hit-test", "adjusted"),
+                    "Invalid selected placement")
+            anchor_id = text(placement["anchorId"], "placement anchorId")
+            point = vector(placement["position"], "position")
+            require(abs(point["y"]) <= .02, "Selected placement must lie on its support")
+            if presentation == "ar":
+                support = next((item for item in current["anchors"]
+                                if item["anchorId"] == anchor_id and
+                                item.get("source") == "webxr" and
+                                item["surface"]["kind"] == "support"), None)
+                require(support is not None, "Selected support is no longer available", 409)
+                spatial = room_spatial_summary(state, current, (anchor_id,))
+                require(spatial["usable"] and
+                        spatial["planeAgeMs"] is not None and
+                        spatial["planeAgeMs"] <= MAX_ROOM_PLANE_AGE_MS and
+                        _selected_point_on_surface(point, support["surface"]["boundary"]),
+                        "Selected room point changed; aim and select again", 409)
+            else:
+                require(anchor_id == "web-floor", "Virtual placement needs the virtual floor")
+            placement = {"anchorId": anchor_id, "position": point,
+                         "source": placement["source"]}
         frame = value["viewerFrame"]
         if frame is not None:
             try:
@@ -3572,7 +3619,8 @@ def agent_turn_context(state, value, *, creation=False):
         priority_ids = [identifier for identifier in
                         (selected_id, target["objectId"] if target else None) if identifier]
         priority_anchors = [identifier for identifier in
-                            (target["anchorId"] if target else None,
+                            (placement["anchorId"] if placement else None,
+                             target["anchorId"] if target else None,
                              objects[selected_id]["anchorId"] if selected_id else None)
                             if identifier]
         summary = agent_scene_summary(current, priority_ids,
@@ -3587,7 +3635,9 @@ def agent_turn_context(state, value, *, creation=False):
                 "gameStatus": current.get("gameStatus"),
                 "room": agent_room_status(current),
                 "selectedObject": summarized[selected_id] if selected_id else None,
-                "pointingTarget": target, "viewerFrame": frame,
+                "pointingTarget": target,
+                **({"selectedPlacement": placement} if value["schemaVersion"] == 3 else {}),
+                "viewerFrame": frame,
                  "sceneSummary": summary,
                  "roomSpatial": room_spatial_summary(state, current, priority_anchors)}
 

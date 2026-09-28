@@ -1,0 +1,24 @@
+# Selected placement point review — 2026-09-28
+
+## Source behavior recovered from Unity
+
+The read-only archive in `Archive/Unity/Assets/Sandbox/Runtime/QuestRoomAdapter.cs` uses the right controller ray and trigger to select a measured MRUK floor or table hit. It converts the hit to the support anchor's local frame and rounds local Y to zero. `SandboxApp.cs` then keeps a cyan “Selected placement” sphere at that point. Its transient pointing observation is a separate value in the room snapshot. The archive has thumbstick object edits; it does not show a coordinate editor for the placement marker.
+
+## WebXR interaction to review
+
+1. In AR, review room outlines and confirm alignment. Aim at a measured support and press the controller trigger. A small cyan point stays on that support after the ray moves.
+2. Aim at another spot on the support and press again. The same point moves. A different support can become the selected destination if currently measured and aligned.
+3. Select an object, then pin a support destination. Pinning turns on **Attach selected object, pinned destination, and current pointing hit** for future Agent requests. Agent context contains both `selectedObjectId` and `selectedPlacement`, while `pointingTarget` remains the transient ray observation. Requests such as “move that there” should use the selected object and pinned destination. Typed move and spawn tools still require fresh spatial tokens and their normal guards.
+4. In the browser Room controls, edit X/Z in metres on the selected support and choose **Move marker**, or choose **Clear marker**. The support boundary constrains edits. The controller trigger is the in-world way to reposition the point while immersed.
+5. Lose room alignment, the origin, the measured support, or the current tracking epoch. The marker and coordinate editor become unavailable, and Agent context omits `selectedPlacement`. Reacquire and select again.
+
+The old “Room target” surface selector belongs to the archived Unity Operator compatibility page in `ControlService/index.html`. It is disabled when a WebXR client is connected. The current `/web/` interaction now uses a point selected with the ray rather than that selector.
+
+## Evidence
+
+- `WebRuntime`: `npm test` passed, 684 tests. `npm run build` passed. Focused point, view, Agent context, and Blender placement tests cover retention, repeated hits, object selection coexistence, boundary rejection, and stale alignment/origin handling.
+- `ControlService`: `python -m unittest discover` passed, 879 tests. Focused Agent context HTTP test accepts a valid measured point and rejects a missing support, outside point, and unverified alignment.
+- Desktop UI: isolated Vite server on port 18980, Chrome `/web/`. Clicking two virtual-floor locations updated X/Z and moved the cyan marker. Editing X/Z and pressing **Move marker** changed its status to “adjusted point.” This page had no ControlService connection; a connection JSON error appeared, so Agent request delivery was not exercised in this desktop check.
+- Quest wearer: not tested in this branch. The AR trigger, alignment loss, readability, and physical placement must be checked on device against this review list.
+
+These checks do not claim physical collision, safe object fit, or successful live world mutation. The existing typed tool guards and receipts decide those operations.
