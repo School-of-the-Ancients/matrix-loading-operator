@@ -15,7 +15,10 @@ uses X for side-to-side yaw and Y for up/down pitch, including flips, on the
 same held object. Grabbing with the other hand exchanges these roles. Stick
 click still recalls the Operator panel after the grab ends; a click made during
 the grab must not unexpectedly open it on release. A gold outline follows the
-held object without controller text labels.
+held object without held-item description or stick-instruction labels. Grabbing
+does not hide the Operator panel. When the wearer hides it, a small lower-left
+XR cue says `CLICK STICK · OPEN OPERATOR` until the panel returns; the cue
+stays out of the way during a grab.
 
 The translation dead zone is 0.18. Translation moves at most 0.75 metres per
 second, each frame contributes at most 0.1 seconds, and the stick offset is
@@ -36,11 +39,12 @@ returns it to simulation.
 
 ## Automated validation on the revised two-hand candidate
 
-- WebRuntime: **597/597** Node tests passed, including two-hand source binding,
+- WebRuntime: **598/598** Node tests passed, including two-hand source binding,
   role reversal, yaw/pitch and full-flip math, AR parent transforms, Undo, save
-  and reopen, and Play/Test grab behavior.
+  and reopen, Play/Test grab behavior, panel visibility during a grab, and
+  hidden-panel hint lifecycle.
 - ControlService: **798/798** Python tests passed.
-- Vite production build passed with `view-sss3M221.js`; `git diff --check`
+- Vite production build passed with `view-DVj-S6vR.js`; `git diff --check`
   passed. The build has the existing large-chunk size warning.
 
 These results validate source behavior and the built bundle. They do not
@@ -76,8 +80,47 @@ the change.
 The wearer confirmed the Dragon was visible and flapping. They said grabbing
 already let them move it, but the thumbstick controls were wrong: they wanted
 side-to-side spins and up/down flips during the grab. They also reported that
-controller text filled the view. This is a failed control and UI acceptance on
-the old head. No AR wearer result or two-hand wearer result has been recorded.
+held-item description and stick-instruction text filled the view. This is a
+failed control and UI acceptance on the old head. The wearer later clarified
+that the Operator panel itself was fine.
+
+## Quest VR observation on the interim two-hand build — partial pass
+
+On 2026-09-28 UTC, the Quest 3 connected to the isolated
+`http://127.0.0.1:18791/web/` origin, which served interim head `ecca164`
+with production bundle `view-P0ugTY58.js`. The client reported
+`threejs-webxr`/`vr`, Creator Mode paused, ready virtual room
+`web-virtual-room-v1`, and an empty scene before the test mutation. The
+registered Ice Dragon was queued at `(-1.722, 1.5, -0.818)` with scale `0.5`
+using fresh client/revision/room/runtime guards. Spawn request
+`0cf8282679ce4c2c925e746959186d4e` returned `ok:true` with object ID
+`1894e1a2812c4243a85393bb707621d3`; Flight binding request
+`79bc1aa593234bda864948bbf006fb70` also returned `ok:true` for that ID.
+
+The wearer reported **both hand roles work**: the grabbing hand's stick moves
+the object and the free hand's stick spins/flips it. At `01:35:30Z`, service
+revision 37 retained that ID, Flight, and scale at position
+`(-0.714, 1.513, -3.132)` and rotation in degrees
+`(-141.07, -49.28, -170.39)`. Service pose changes alone cannot identify the
+input that caused them; the control observation is the wearer's report.
+
+An interim UI edit automatically hid the head-following Operator panel on grab.
+The wearer clarified that the panel was fine and requested its original
+behavior, so commit `1a1855f` reverted that edit. The obstructive held-item
+description and stick instructions remain removed. A small hint now reminds
+the wearer to click the stick when the panel is hidden manually. The final
+`view-DVj-S6vR.js` bundle still needs a wearer readability check after the
+Quest page reloads; the current loaded tab may still run the interim bundle.
+
+In the disposable VR scene, Undo request
+`1939583b937549cf8db2f46f47d9e7e8` returned `ok:true` and changed the
+same Dragon from position `(-1.689, 1.773, -2.942)` and rotation
+`(-150.08, -43.31, -164.98)` at revision 30 to position
+`(-1.833, 1.721, -2.868)` and rotation `(-150.3, -46.07, -165.34)` at
+revision 32. Scale `0.5` and Flight were retained. The wearer was away from
+the computer and did not notice the change; this is a runtime Undo result,
+not a wearer-visible Undo pass. Save/reopen, Play/Test, and AR remain untested
+on the revised controls.
 
 ## Remaining Quest acceptance
 
@@ -89,14 +132,17 @@ XR features, object ID, initial/final transform, and wearer observations.
    motion, then use that hand's stick X for a small sideways adjustment, Y for
    beyond-arm depth, and click plus Y for height. With the free hand's stick,
    use X to yaw both ways and Y to pitch both ways through a visible flip.
-   Check the gold outline, the absence of controller text, and UI readability.
+   Check the gold outline, the absence of held-item instruction text, that the
+   Operator panel remains visible during a grab, and UI readability.
    Repeat with the hands exchanged and check that both sticks can affect the
    same held object without position/rotation drift when released to neutral.
 2. Release in Creator Mode. Confirm the same ID, animation, scale and unrelated
    objects; Undo and save/reopen must preserve the authored transform.
-3. Click either stick outside a grab to recall/hide/show the Operator panel.
-   Check that stick axes without a grab do not move or rotate objects and that
-   a click held through grab release does not open the panel unexpectedly.
+3. Click either stick outside a grab to hide/show the Operator panel. Check
+   that a small readable recall cue appears only when the panel is hidden,
+   and disappears when it returns. Stick axes without a grab must not move or
+   rotate objects; a click held through grab release must not open the panel
+   unexpectedly.
 4. In running Play/Test, grab a dynamic body, translate and rotate it by stick,
    release it, and verify simulation resumes without an authored `set_transform`.
 5. In AR, repeat only when the room origin is ready. Check that unavailable

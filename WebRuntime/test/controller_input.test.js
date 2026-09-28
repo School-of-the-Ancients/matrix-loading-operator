@@ -59,6 +59,31 @@ test('thumbstick click recalls a pinned Operator, then hides and shows it once p
   assert.equal(positioned,2);
 });
 
+test('a small head-following recall cue appears only for a hidden editable XR Operator',()=>{
+  const view=Object.create(MatrixView.prototype);
+  const group=new THREE.Group();
+  view.operatorRecallHint={group};
+  view.operatorPanel={group:{visible:true},setPinLabel:()=>{}};
+  view.operatorMount={kind:'head'};view.isAR=false;view.readOnly=false;view.grab=null;
+  view.renderer={xr:{isPresenting:true}};
+  view.xrViewer={position:new THREE.Vector3(1,1.7,2),quaternion:new THREE.Quaternion()};
+  view.positionOperatorPanel=()=>{};
+  view.hideOperatorPanel();
+  assert.equal(group.visible,true);
+  assert.ok(group.position.distanceTo(new THREE.Vector3(.47,1.34,.85))<1e-6,
+    'the cue stays low and to the left of the center of view');
+  view.grab={};view.updateOperatorRecallHint();
+  assert.equal(group.visible,false,'the cue cannot cover an object being grabbed');
+  view.grab=null;view.updateOperatorRecallHint();
+  assert.equal(group.visible,true);
+  view.toggleOperatorPanel();
+  assert.equal(group.visible,false,'recalling the panel removes the cue');
+  view.hideOperatorPanel();view.readOnly=true;view.updateOperatorRecallHint();
+  assert.equal(group.visible,false,'a read-only visit has no Operator to recall');
+  view.readOnly=false;view.renderer.xr.isPresenting=false;view.updateOperatorRecallHint();
+  assert.equal(group.visible,false,'the cue clears when XR presentation ends');
+});
+
 test('a stick click during a grab cannot recall the Operator panel',()=>{
   const view=Object.create(MatrixView.prototype);
   const buttons=Array.from({length:4},()=>({pressed:false}));
@@ -147,12 +172,17 @@ test('a stick click between frames cannot recall the panel after grab release or
 
 test('XR select animates a Firefly and starts a grab on the same press',()=>{
   const {view,controller,glowCount}=selectableFirefly();
+  view.operatorPanel.group.visible=true;
+  view.operatorPanel.mesh=new THREE.Mesh(new THREE.PlaneGeometry(1,1));
+  view.operatorPanel.mesh.position.x=5;
+  view.operatorPanel.mesh.updateMatrixWorld(true);
   let committed=null;
   view.commitMove=(objectId,transform)=>{committed={objectId,transform};};
   view.selectFromController(controller);
   assert.equal(glowCount(),1);
   assert.equal(view.grab?.objectId,'firefly-1');
   assert.equal(view.grab?.controller,controller);
+  assert.equal(view.operatorPanel.group.visible,true,'grabbing an item leaves the Operator visible');
   controller.position.x=.5;
   view.releaseGrab(controller);
   assert.equal(view.grab,null);
