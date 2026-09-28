@@ -45,6 +45,8 @@ Use this sequence for a connected `/web/` world:
 2. Read the current scene revision, room ID, and environment. Ask Operator to apply the registered image with a specific yaw. Review the exact action, wait for the corresponding receipt, then read the scene again and inspect the desktop render.
 3. Change to a second registered image or yaw, then remove the environment through separate reviewed actions. After each receipt, confirm the prior objects retain their IDs and transforms.
 
+In the review page, enter the service token, stay in desktop or VR Creator Mode, and choose **Start or resume Codex** in the Agent Portal. For an existing registered sample, ask Codex to list the panoramas and set the named image at a specific yaw; review the proposed action and inspect its exact status. Ask for another registered image or yaw to compare. The page shows the active panorama but has no direct panorama picker. In AR, panorama changes are blocked while passthrough stays visible; return to desktop or VR to change the saved environment. Asking Codex to *create* a new panorama additionally requires a valid 2:1 image to be generated or supplied and registered in the PC catalog before it can be set.
+
 An image-only #91 concept turn does not call these actions. A chosen concept can guide an explicit environment request once a suitable image has passed panorama validation and registration.
 
 ## Rendering and persistence
