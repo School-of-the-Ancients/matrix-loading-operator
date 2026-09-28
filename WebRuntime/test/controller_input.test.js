@@ -59,6 +59,23 @@ test('thumbstick click recalls a pinned Operator, then hides and shows it once p
   assert.equal(positioned,2);
 });
 
+test('click changes grab height without recalling the Operator panel',()=>{
+  const view=Object.create(MatrixView.prototype);
+  const buttons=Array.from({length:4},()=>({pressed:false}));
+  const source={gamepad:{mapping:'xr-standard',axes:[0,0,0,-1],buttons}};
+  view.renderer={xr:{getSession:()=>({inputSources:[source]}),isPresenting:true}};
+  view.operatorPanel={group:{visible:false}};view.operatorMount={kind:'head'};
+  view.operatorThumbstickHeld=false;view.grab={inputSource:source};view.isAR=false;
+  let recalled=0;view.toggleOperatorPanel=()=>recalled++;
+  buttons[3].pressed=true;view.updateOperatorShortcut();
+  assert.equal(recalled,0);
+  view.grab=null;view.updateOperatorShortcut();
+  assert.equal(recalled,0,'release while click remains held must not open the panel');
+  buttons[3].pressed=false;view.updateOperatorShortcut();
+  buttons[3].pressed=true;view.updateOperatorShortcut();
+  assert.equal(recalled,1,'a fresh click outside grab still recalls the panel');
+});
+
 test('unsupported XR inputs do not accidentally toggle the Operator',()=>{
   const view=Object.create(MatrixView.prototype);
   const pressed={pressed:true};
@@ -118,8 +135,93 @@ test('XR select animates a Firefly and starts a grab on the same press',()=>{
   assert.equal(committed?.transform.position.x,.5);
 });
 
+test('only the grabbing xr-standard source moves a held object',()=>{
+  const {view,controller,root}=selectableFirefly();
+  const source={gamepad:{mapping:'xr-standard',axes:[0,0,1,0],buttons:[{},{},{},{pressed:false}]}};
+  const session={inputSources:[source]};
+  view.renderer={xr:{isPresenting:true,getSession:()=>session}};
+  view.xrViewer={direction:new THREE.Vector3(0,0,-1)};
+  view.hasFreshXrViewer=()=>true;
+  view.selectFromController(controller,source);
+  assert.equal(view.grab.inputSource,source);
+  view.updateHeldGrab({},.1);
+  assert.ok(Math.abs(root.position.x-.075)<1e-9);
+  source.gamepad.axes=[0,0,0,-1];source.gamepad.buttons[3].pressed=true;
+  view.updateHeldGrab({},.1);
+  assert.ok(Math.abs(root.position.y-1.075)<1e-9);
+  assert.ok(Math.abs(root.position.z+2)<1e-9);
+  source.gamepad.axes=[0,0,NaN,0];
+  assert.equal(view.updateGrabThumbstick({},.1),false);
+  let cancelled=0,resumed=0;
+  view.sync=()=>cancelled++;
+  view.world.resumePhysics=()=>resumed++;
+  session.inputSources=[];
+  const x=root.position.x;view.updateHeldGrab({},.1);
+  assert.equal(root.position.x,x);
+  assert.equal(view.grab,null);
+  assert.equal(cancelled,1);assert.equal(resumed,1);
+});
+
+test('tracking or AR origin loss suspends both held pose and Play rigid updates',()=>{
+  const {view,controller,root}=selectableFirefly();
+  const source={gamepad:{mapping:'xr-standard',axes:[0,0,1,0],buttons:[]}};
+  const session={inputSources:[source]};
+  view.renderer={xr:{isPresenting:true,getSession:()=>session}};
+  view.xrViewer={direction:new THREE.Vector3(0,0,-1)};
+  view.hasFreshXrViewer=()=>true;
+  view.selectFromController(controller,source);
+  let rigidMoves=0;view.moveHeldRigid=()=>rigidMoves++;
+  view.updateHeldGrab({},.1);
+  assert.equal(rigidMoves,1);
+  const x=root.position.x;
+  controller.visible=false;controller.position.x=2;
+  view.updateHeldGrab({},.1);
+  assert.equal(root.position.x,x);assert.equal(rigidMoves,1);
+  controller.visible=true;view.world.spatial.originUnavailable=true;
+  view.updateHeldGrab({},.1);
+  assert.equal(root.position.x,x);assert.equal(rigidMoves,1);
+  view.world.spatial.originUnavailable=false;view.world.spatial.stale=true;
+  view.updateHeldGrab({},.1);
+  assert.equal(root.position.x,x);assert.equal(rigidMoves,1);
+});
+
+test('release after AR origin loss discards the held edit',()=>{
+  const {view,controller}=selectableFirefly();
+  let resumed=0,synced=0;
+  view.world.resumePhysics=()=>resumed++;
+  view.sync=()=>synced++;
+  view.commitMove=()=>{throw Error('A stale AR grab must not author a transform');};
+  view.selectFromController(controller);
+  view.world.spatial.originUnavailable=true;
+  view.releaseGrab(controller);
+  assert.equal(view.grab,null);
+  assert.equal(resumed,1);
+  assert.equal(synced,1);
+});
+
+test('a failed Play/Test rigid move clears the held outline',()=>{
+  const {view,controller,root}=selectableFirefly();
+  view.scene=root.parent;
+  view.selectFromController(controller);
+  const grab=view.grab;grab.rigid=true;
+  const outline=view.heldOutline;
+  assert.ok(outline&&outline.parent===root);
+  let released=0;
+  view.world.moveRigidGrab=()=>{throw Error('Rigid grab lost');};
+  view.world.releaseRigidGrab=()=>released++;
+  view.moveHeldRigid(grab);
+  assert.equal(view.grab,null);
+  assert.equal(view.heldOutline,null);
+  assert.equal(outline.parent,null);
+  assert.equal(released,1);
+});
+
 test('Play/Test XR grab uses a dynamic body and never authors set_transform',()=>{
   const {view,controller}=selectableFirefly();
+  const source={gamepad:{mapping:'xr-standard',axes:[0,0,1,0],buttons:[]}};
+  view.renderer={xr:{isPresenting:true,getSession:()=>({inputSources:[source]})}};
+  view.xrViewer={direction:new THREE.Vector3(0,0,-1)};
+  view.hasFreshXrViewer=()=>true;
   const object=view.world.requireObject();object.rigidBody={type:'dynamic'};
   view.world.creatorMode={schemaVersion:1,mode:'play',simulation:'running',revision:1};
   const calls=[];
@@ -129,11 +231,13 @@ test('Play/Test XR grab uses a dynamic body and never authors set_transform',()=
   view.world.execute=()=>{throw Error('Play cannot author a scene transform');};
   view.onPlayInteraction=event=>calls.push(['interaction',event]);
   view.commitMove=()=>{throw Error('Play release must not call authored move');};
-  view.selectFromController(controller);
+  view.selectFromController(controller,source);
   assert.equal(view.grab?.rigid,true);
+  view.updateHeldGrab({},.1);
+  assert.ok(Math.abs(calls.at(-1)[2].position.x-.075)<1e-9);
   controller.position.x=.5;
   view.releaseGrab(controller);
-  assert.deepEqual(calls.map(item=>item[0]),['begin','move','release','interaction']);
+  assert.deepEqual(calls.map(item=>item[0]),['begin','move','move','release','interaction']);
   assert.equal(calls.at(-1)[1].objectId,'firefly-1');
 });
 

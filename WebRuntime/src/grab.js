@@ -3,22 +3,59 @@ import * as THREE from 'three';
 const position = value => ({x:Number(value.x.toFixed(3)),y:Number(value.y.toFixed(3)),z:Number(value.z.toFixed(3))});
 const rotation = value => ({x:Number(THREE.MathUtils.radToDeg(value.x).toFixed(2)),
   y:Number(THREE.MathUtils.radToDeg(value.y).toFixed(2)),z:Number(THREE.MathUtils.radToDeg(value.z).toFixed(2))});
+const STICK_DEAD_ZONE=.18;
+const STICK_SPEED=.75;
+const STICK_TRAVEL_LIMIT=3;
 
 export function beginGrab(controller,root){
   controller.updateMatrixWorld(true);
+  root.parent?.updateMatrixWorld(true);
   root.updateMatrixWorld(true);
   return {controller,root,
     offset:new THREE.Matrix4().copy(controller.matrixWorld).invert().multiply(root.matrixWorld),
+    stickOffset:new THREE.Vector3(),
     startPosition:root.getWorldPosition(new THREE.Vector3()),
     startQuaternion:root.getWorldQuaternion(new THREE.Quaternion())};
 }
 
+export function moveGrabThumbstick(grab,axes,vertical,viewerDirection,seconds){
+  if(!grab||!axes||axes.length<4||!viewerDirection||!Number.isFinite(seconds)||seconds<=0)return false;
+  const x=axes[2],y=axes[3];
+  if(!Number.isFinite(x)||!Number.isFinite(y)||Math.abs(x)>1||Math.abs(y)>1)return false;
+  const magnitude=Math.hypot(x,y);
+  if(magnitude<=STICK_DEAD_ZONE)return false;
+  const forward=new THREE.Vector3(viewerDirection.x,0,viewerDirection.z);
+  if(!Number.isFinite(forward.x)||!Number.isFinite(forward.z)||forward.lengthSq()<1e-6)return false;
+  forward.normalize();
+  const right=new THREE.Vector3().crossVectors(forward,new THREE.Vector3(0,1,0));
+  const speed=Math.min(1,(Math.min(magnitude,1)-STICK_DEAD_ZONE)/(1-STICK_DEAD_ZONE))*
+    STICK_SPEED*Math.min(seconds,.1);
+  const step=right.multiplyScalar(x/magnitude*speed);
+  if(vertical)step.y=-y/magnitude*speed;
+  else step.addScaledVector(forward,-y/magnitude*speed);
+  const next=grab.stickOffset.clone().add(step);
+  if(next.length()>STICK_TRAVEL_LIMIT)next.setLength(STICK_TRAVEL_LIMIT);
+  if(next.distanceToSquared(grab.stickOffset)<1e-12)return false;
+  grab.stickOffset.copy(next);
+  return true;
+}
+
 export function moveGrab(grab){
+  if(grab.controller.visible===false)return false;
   grab.controller.updateMatrixWorld(true);
   const world=new THREE.Matrix4().multiplyMatrices(grab.controller.matrixWorld,grab.offset);
+  world.elements[12]+=grab.stickOffset?.x||0;
+  world.elements[13]+=grab.stickOffset?.y||0;
+  world.elements[14]+=grab.stickOffset?.z||0;
+  grab.root.parent?.updateMatrixWorld(true);
   const parentInverse=grab.root.parent ? new THREE.Matrix4().copy(grab.root.parent.matrixWorld).invert() : new THREE.Matrix4();
-  parentInverse.multiply(world).decompose(grab.root.position,grab.root.quaternion,grab.root.scale);
+  const local=parentInverse.multiply(world);
+  const nextPosition=new THREE.Vector3(),nextQuaternion=new THREE.Quaternion(),nextScale=new THREE.Vector3();
+  local.decompose(nextPosition,nextQuaternion,nextScale);
+  if(!['x','y','z'].every(axis=>Number.isFinite(nextPosition[axis])&&Math.abs(nextPosition[axis])<=100))return false;
+  grab.root.position.copy(nextPosition);grab.root.quaternion.copy(nextQuaternion);grab.root.scale.copy(nextScale);
   grab.root.updateMatrixWorld(true);
+  return true;
 }
 
 export function finishGrab(grab,previousTransform){
