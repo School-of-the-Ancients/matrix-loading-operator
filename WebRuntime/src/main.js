@@ -17,7 +17,7 @@ import {routeOperatorRequest} from './operator_route.js';
 import {loadStoredWorld,restoreStoredWorld,restoreBestStoredWorldWithEnvironment,storedWorld,storedBrowserWorld,
   saveCheckpoint,loadCheckpoint,loadCitizensDeletionRecovery,clearCitizensDeletionRecovery,
   WORLD_KEY} from './scene_store.js';
-import {applyPCWorld} from './world_checkpoint.js';
+import {applyPCWorld,applyBrowserCheckpoint,captureWorldRestoreGuard} from './world_checkpoint.js';
 import {startNewWorld,restoreWorldArchive,worldArchives,worldArchiveSummaries,
   executeWorldSlotCommand} from './world_slots.js';
 import {refreshAssetCatalogs} from './catalog_refresh.js';
@@ -79,6 +79,8 @@ const feedback=(message,isError=false)=>{
 };
 const view=new MatrixView($('view'),world,()=>{discardProposal();scaleUI?.refreshTargets();citizensPanel?.render();feedback(`Selected ${world.selection.objectId||'placement point'} at ${Object.values(world.selection.position).join(', ')} m.`);},()=>$('token').value.trim(),message=>feedback(message,true),(id,position)=>{discardProposal();const delivered=deliverMovedObject(world,id);if(delivered)speakReply(delivered);renderScene();feedback(delivered||`Moved ${id.slice(0,8)} to ${Object.values(position).join(', ')} m. Undo and Save are available.`);},()=>{if(!view.isAR)cameraStream.stop();if(!view.isAR||!world.spatial?.originUnavailable){roomResetArmedUntil=0;roomRecoveryChoice='';}updateCameraControls();discardProposal();renderScene();},beginVoice,endVoice,()=>{$('speak-replies').checked=!$('speak-replies').checked;view.setVoiceOutputEnabled($('speak-replies').checked);unlockReplyAudio();},reviewView,newChat);
 view.onPanelAction=panelAction;
+view.xrEntryBlocker=()=>pendingWorld||pcWorldBusy||worldSwitchBusy?
+  'Finish world recovery or checkpoint restore before entering XR.':'';
 function setConceptCreationMode(mode){
   creationMode=saveCreationMode(sessionStorage,mode);
   $('concept-creation-mode').value=creationMode;
@@ -192,6 +194,7 @@ function updateWorldControls(){
     creator.simulation==='running';
   $('restore-pc-world').disabled=!!world.spatial||!!pendingWorld||pcWorldBusy||worldSwitchBusy||
     creator.mode!=='creator';
+  $('apply').disabled=!!pendingWorld||pcWorldBusy||worldSwitchBusy;
   $('restore-pc-world').textContent=performance.now()<pcRestoreArmedUntil&&
     $('pc-worlds').value===pcRestoreName?'Confirm restore':'Restore world';
   let archives=[];
@@ -800,7 +803,7 @@ async function showProposal(data,requestText='',blenderPlacement=null){
 }
 async function applyProposal(){
   if(world.digitalWorldVisit){feedback('Leave the AR visit before editing the digital world.',true);return;}
-  if(pendingWorld||worldSwitchBusy){feedback('Finish world recovery or switching before applying a proposal.',true);return;}
+  if(pendingWorld||pcWorldBusy||worldSwitchBusy){feedback('Finish world recovery or switching before applying a proposal.',true);return;}
   if(gameProposal){
     if(JSON.stringify(storedWorld(world))!==gameProposal.worldAtProposal){feedback('The world changed. Ask Codex to plan the game again.',true);discardProposal();return;}
     try{
@@ -869,17 +872,26 @@ async function restoreWorld(){
     view.setOperatorWorldNotice('Tap CONFIRM RESTORE within 10 seconds.','pending');return;
   }
   restoreArmedUntil=0;
+  citizensPanel?.pauseForCheckpoint();
+  worldSwitchBusy=true;updateWorldControls();
+  let restored=false;
   try{
-    if(checkpoint.scene?.environment)
-      await view.prepareEnvironment(checkpoint.scene.environment);
-    restoreStoredWorld(world,checkpoint);
+    await applyBrowserCheckpoint(world,checkpoint,bridge,
+      environment=>view.prepareEnvironment(environment),()=>{
+        if(view.grab||view.pointerGrab)
+          throw Error('Release the held object before restoring a checkpoint');
+      });
     discardProposal();
-    renderScene();feedback('World checkpoint restored in this browser.');
+    restored=true;
     view.setOperatorWorldNotice('Browser world checkpoint restored.');
     view.setOperatorStatus('World checkpoint restored.');
   }catch(error){
     feedback(`Checkpoint could not be restored: ${error.message}`,true);
     view.setOperatorWorldNotice('Browser checkpoint restore failed.','error');
+  }finally{
+    worldSwitchBusy=false;
+    renderScene();
+    if(restored)feedback('World checkpoint restored in this browser.');
   }
 }
 async function savePCWorld(){
@@ -903,6 +915,7 @@ async function savePCWorld(){
 }
 async function restorePCWorld(){
   if(pcWorldBusy||worldSwitchBusy)return;
+  if(view.xrControls?.busy){feedback('Wait for the XR session to finish starting or stopping before restoring a PC world.',true);return;}
   if(world.creatorMode.mode!=='creator'){
     feedback('Return to Creator Mode before restoring a PC world.',true);return;
   }
@@ -915,17 +928,30 @@ async function restorePCWorld(){
   }
   pcRestoreArmedUntil=0;pcRestoreName='';updateWorldControls();
   citizensPanel?.pauseForCheckpoint();
+  const unchanged=captureWorldRestoreGuard(world);
   pcWorldBusy=true;updateWorldControls();feedback(`Checking PC world checkpoint ${name}…`);
   let restored=false,restoreError=null;
   try{
     await refreshAssets(true);
+    unchanged();
     await bridge.sync();
+    unchanged();
     const data=await bridge.request('/api/web/world/load',{name});
-    if(world.spatial||pendingWorld)throw Error('The browser left the ready desktop virtual room');
-    if(data.world?.scene?.environment)
-      await view.prepareEnvironment(data.world.scene.environment);
-    await bridge.withExclusiveExchange(syncExclusive=>
-      applyPCWorld(world,data.world,()=>syncExclusive(data.expectedRevision)));
+    await bridge.withExclusiveExchange(async syncExclusive=>{
+      unchanged();
+      if(world.spatial||pendingWorld)throw Error('The browser left the ready desktop virtual room');
+      if(data.world?.scene?.environment)
+        await view.prepareEnvironment(data.world.scene.environment);
+      unchanged();
+      if(view.grab||view.pointerGrab)
+        throw Error('Release the held object before restoring a PC world');
+      // applyPCWorld stages the candidate while the guarded PC exchange is
+      // pending. Keep direct pointer/controller edits off that staged world.
+      const wasReadOnly=view.readOnly;
+      view.readOnly=true;
+      try{await applyPCWorld(world,data.world,()=>syncExclusive(data.expectedRevision));}
+      finally{view.readOnly=wasReadOnly;}
+    });
     discardProposal();restored=true;
   }catch(error){restoreError=error;}
   finally{
@@ -959,14 +985,20 @@ const worldArchiveName=()=>{
   const title=(world.game?.spec?.title||'Matrix world').slice(0,44);
   return `${title} · ${new Date().toISOString().slice(0,19).replace('T',' ')}`;
 };
-async function switchBrowserWorld(action){
+async function switchBrowserWorld(action,preflight=async()=>{}){
   const blocker=worldSwitchBlocker();
   if(blocker){feedback(blocker,true);view.setOperatorWorldNotice(blocker,'error');return;}
   citizensPanel?.pauseForCheckpoint();
+  const unchanged=captureWorldRestoreGuard(world);
   worldSwitchBusy=true;updateWorldControls();
   let switched=false;
   try{
-    const result=await bridge.withExclusiveExchange(()=>{
+    const result=await bridge.withExclusiveExchange(async()=>{
+      unchanged();
+      await preflight();
+      unchanged();
+      if(view.grab||view.pointerGrab)
+        throw Error('Release the held object before switching worlds');
       const switched=action();
       // Any PC command queued against the prior world needs fresh inspection.
       bridge.rejectPendingOnNextExchange=true;
@@ -986,8 +1018,8 @@ async function switchBrowserWorld(action){
     view.setOperatorWorldNotice(error.message,'error');
   }finally{
     worldSwitchBusy=false;
-    if(switched){renderScene();void bridge.tick(true);}
-    else{view.sync();updateWorldControls();citizensPanel?.render();}
+    renderScene();
+    if(switched)void bridge.tick(true);
   }
 }
 async function beginNewWorld(){
@@ -1017,13 +1049,16 @@ async function restoreSelectedArchive(){
     return;
   }
   archiveRestoreArmedUntil=0;archiveRestoreId='';
-  try{
-    const target=worldArchives(localStorage).find(item=>item.archiveId===archiveId);
-    if(target?.world?.scene?.environment)
-      await view.prepareEnvironment(target.world.scene.environment);
-  }catch(error){feedback(`Panorama dependency unavailable: ${error.message}`,true);return;}
   await switchBrowserWorld(()=>restoreWorldArchive(world,archiveId,
-    sessionStorage,localStorage,worldArchiveName()));
+    sessionStorage,localStorage,worldArchiveName()),async()=>{
+    const target=worldArchives(localStorage).find(item=>item.archiveId===archiveId);
+    if(!target)throw Error('Selected world archive no longer exists');
+    const environment=target.world.scene.environment;
+    if(environment)await view.prepareEnvironment(environment);
+    const current=worldArchives(localStorage).find(item=>item.archiveId===archiveId);
+    if(JSON.stringify(current?.world)!==JSON.stringify(target.world))
+      throw Error('Selected world archive changed during restore preparation');
+  });
 }
 function selectAdjacentArchive(direction){
   let archives;
@@ -1124,7 +1159,7 @@ function panelAction(action){
     'undo','redo','clear'].includes(action)){
     feedback('Finish saved-world recovery before changing the world.',true);return;
   }
-  if(pcWorldBusy&&['undo','redo','clear'].includes(action)){
+  if(pcWorldBusy&&['apply','undo','redo','clear'].includes(action)){
     feedback('Wait for the current PC world save or restore to finish.',true);return;
   }
   if(action==='agent-connect')agentAction(()=>agentClient.connect());

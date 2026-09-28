@@ -49,16 +49,39 @@ export class MatrixBridge {
     let worldSwitched=false;
     const completed=new Map(sent.map(result=>[result.requestId,result]));
     const apply=async operation=>{
-      try{this.commandGuards.get(operation.requestId)?.(operation);}
-      catch(error){return {requestId:operation.requestId,ok:false,
-        error:String(error?.message||error).slice(0,1000),objectId:''};}
+      const guard=()=>{
+        try{this.commandGuards.get(operation.requestId)?.(operation);return null;}
+        catch(error){return {requestId:operation.requestId,ok:false,
+          error:String(error?.message||error).slice(0,1000),objectId:''};}
+      };
+      const initialGuardFailure=guard();
+      if(initialGuardFailure)return initialGuardFailure;
       if(!WORLD_SLOT_OPS.has(operation.op)){
         try{
           const environment=operation.op==='set_environment'?operation.environment:
             operation.op==='load'?operation.scene?.environment:
             operation.op==='undo'?this.world.undo.at(-1)?.scene.environment:
             operation.op==='redo'?this.world.redo.at(-1)?.scene.environment:null;
-          if(environment)await this.prepareEnvironment(environment);
+          if(environment){
+            // Local desktop/XR edits can execute while uncached panorama bytes
+            // are fetched. Never replay a different history entry or replace a
+            // newer authored scene after that wait. Citizens motion is not an
+            // authored edit and may continue while the dependency loads.
+            const world=this.world,history=operation.op==='redo'?world.redo:world.undo;
+            const scene=world.scene,generation=world.authoredGeneration;
+            const historyLength=history.length,historyTop=history.at(-1);
+            await this.prepareEnvironment(environment);
+            if(this.world!==world||world.scene!==scene||
+               world.authoredGeneration!==generation||
+               history!==(operation.op==='redo'?world.redo:world.undo)||
+               (operation.op==='undo'||operation.op==='redo'||operation.op==='load')&&
+               (history.length!==historyLength||history.at(-1)!==historyTop))
+              return {requestId:operation.requestId,ok:false,
+                error:'World changed during panorama loading; inspect the current scene before retrying',
+                objectId:''};
+            const refreshedGuardFailure=guard();
+            if(refreshedGuardFailure)return refreshedGuardFailure;
+          }
         }catch(error){return {requestId:operation.requestId,ok:false,
           error:`Panorama dependency unavailable: ${String(error?.message||error).slice(0,900)}`,
           objectId:''};}

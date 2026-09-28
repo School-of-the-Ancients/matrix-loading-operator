@@ -565,7 +565,10 @@ export class MatrixView {
       const button=document.createElement('button');entries.push({button,mode,label});
       button.addEventListener('click',()=>{
         entryStatus.textContent='';
-        return this.xrControls.currentMode===mode?this.xrControls.exit():this.xrControls.enter(mode,options);
+        if(this.xrControls.currentMode===mode)return this.xrControls.exit();
+        const blocker=this.xrEntryBlocker?.();
+        if(blocker){entryStatus.textContent=blocker;this.onAssetError(blocker);return false;}
+        return this.xrControls.enter(mode,options);
       });
       buttons.append(button);
     };

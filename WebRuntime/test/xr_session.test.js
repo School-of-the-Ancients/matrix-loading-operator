@@ -73,6 +73,49 @@ test('AR exit allows VR on the same page without competing session offers or sta
   assert.equal(errors.length,0);
 });
 
+test('a world restore blocks XR entry before requestSession, including for a read-only view',async t=>{
+  const xrRenderer=rendererXR(),requests=[],errors=[];
+  let finishRequest;
+  const xr={isSessionSupported:async()=>true,requestSession:mode=>{
+    requests.push(mode);return new Promise(resolve=>{finishRequest=resolve;});
+  }};
+  const oldNavigator=Object.getOwnPropertyDescriptor(globalThis,'navigator');
+  const oldDocument=Object.getOwnPropertyDescriptor(globalThis,'document');
+  class Button extends EventTarget{
+    setAttribute(){}
+    click(){if(!this.disabled)this.dispatchEvent(new Event('click'));}
+  }
+  Object.defineProperty(globalThis,'navigator',{configurable:true,value:{xr}});
+  Object.defineProperty(globalThis,'document',{configurable:true,value:{
+    createElement:()=>new Button(),getElementById:()=>({})
+  }});
+  t.after(()=>{
+    if(oldNavigator)Object.defineProperty(globalThis,'navigator',oldNavigator);else delete globalThis.navigator;
+    if(oldDocument)Object.defineProperty(globalThis,'document',oldDocument);else delete globalThis.document;
+  });
+  const view=Object.create(MatrixView.prototype);
+  view.renderer={xr:xrRenderer};view.readOnly=true;
+  view.onAssetError=message=>errors.push(message);
+  let restoring=true;
+  view.xrEntryBlocker=()=>restoring?'PC world restore in progress':'';
+  const buttons={children:[],textContent:'',append(button){this.children.push(button);}};
+  await view.initXR(buttons);
+  const [status,ar]=buttons.children;
+  ar.click();
+  assert.deepEqual(requests,[],'a blocked click must never request a native XR session');
+  assert.equal(status.textContent,'PC world restore in progress');
+  assert.equal(view.xrControls.busy,false);
+  restoring=false;
+  ar.click();
+  assert.deepEqual(requests,['immersive-ar']);
+  assert.equal(view.xrControls.busy,true,
+    'PC restore can reject an entry that is still awaiting native session setup');
+  finishRequest(session());
+  await new Promise(resolve=>setImmediate(resolve));
+  assert.equal(view.xrControls.busy,false);
+  assert.deepEqual(errors,['PC world restore in progress']);
+});
+
 test('pending and ending sessions reject another immersive entry until sessionend',async()=>{
   const xrRenderer=rendererXR(),errors=[];
   let resolveRequest,requestCount=0;
