@@ -2,6 +2,26 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import {PanoramaUI} from '../src/panorama_ui.js';
 
+test('spoken panorama intent generates a draft while a bare request asks for a scene',async()=>{
+  const sessionId='a'.repeat(32),submitted=[];
+  const client={sessionId,
+    async generatePanorama(id,prompt,options){
+      submitted.push({id,prompt,options});
+      return {conceptId:'1'.repeat(32),version:1,status:'ready'};
+    }};
+  const ui=Object.create(PanoramaUI.prototype);
+  Object.assign(ui,{client,ensureSession:async()=>sessionId,getSession:()=>sessionId,
+    els:{provider:{value:'codex-native'},prompt:{value:''}},render(){},onChange(){},
+    batch:null,pendingGeneration:null,busy:false,notice:'',noticeError:false});
+  const guidance=await ui.handleText('Codex, create a panorama');
+  assert.match(guidance,/Describe the scene/);
+  assert.equal(submitted.length,0,'a missing scene does not start an Agent turn');
+  const generated=await ui.handleText('Codex, create a sci-fi panorama');
+  assert.deepEqual(submitted,[{id:sessionId,prompt:'sci-fi',
+    options:{providerId:'codex-native'}}]);
+  assert.match(generated,/Version 1 ready/);
+});
+
 test('single native panorama notice changes from generating to ready on refreshed status',async()=>{
   const sessionId='a'.repeat(32);
   const job={conceptId:'1'.repeat(32),version:1,status:'generating'};
