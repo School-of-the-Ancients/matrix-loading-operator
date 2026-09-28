@@ -18,7 +18,7 @@ In VR or AR, hold the trigger on an editable object. Physical movement and rotat
 
 ### Quest controls FAQ
 
-**Where did the Operator screen go?** If you hid it, release any grabbed object, then click down on either controller thumbstick to bring the Operator panel back. The same click hides a following panel when you are not grabbing an object. During a grab, stick click with the grabbing hand changes its Y axis to height control and does not toggle the panel.
+**Where did the Operator screen go?** Click down on either controller thumbstick to bring it back. If you are grabbing an object, release it first. The same click hides a following panel when you are not grabbing an object. During a grab, stick click with the grabbing hand changes its Y axis to height control and does not toggle the panel.
 
 The keyboard-accessible **Hide controls** button collapses the desktop sidebar to reveal the canvas; **Show controls** restores the same controls. This changes only the page layout, not the Matrix world, its mode, or saved progress. The [Dimensions Exhibit desktop trace](../Validation/Immersive-Creator-Desktop-2026-09-26.md#connected-codex-agent-non-physics-dimensions-exhibit) observed both wall displays unobstructed at 1055 px with the controls hidden. Display boards now emphasize a large headline derived from the same live binding; the complete reading remains smaller below it. The authored static board can truncate its large headline and may require moving closer to read the full text.
 
