@@ -120,6 +120,31 @@ function selectableFirefly(){
   return {view,controller,root,glowCount:()=>glowCount};
 }
 
+test('a stick click between frames cannot recall the panel after grab release or cancellation',()=>{
+  const {view,controller}=selectableFirefly();
+  const buttons=Array.from({length:4},()=>({pressed:false}));
+  const source={gamepad:{mapping:'xr-standard',axes:[0,0,0,0],buttons}};
+  view.renderer={xr:{isPresenting:true,getSession:()=>({inputSources:[source]})}};
+  view.hasFreshXrViewer=()=>true;
+  view.operatorThumbstickHeld=false;
+  view.sync=()=>{};
+  let recalled=0;view.toggleOperatorPanel=()=>recalled++;
+  view.selectFromController(controller,source);
+  buttons[3].pressed=true;
+  view.releaseGrab(controller);
+  view.updateOperatorShortcut();
+  assert.equal(recalled,0,'release must capture a click before the next XR frame');
+  buttons[3].pressed=false;view.updateOperatorShortcut();
+  view.selectFromController(controller,source);
+  buttons[3].pressed=true;
+  view.cancelGrab(controller,source);
+  view.updateOperatorShortcut();
+  assert.equal(recalled,0,'cancellation must capture a click before the next XR frame');
+  buttons[3].pressed=false;view.updateOperatorShortcut();
+  buttons[3].pressed=true;view.updateOperatorShortcut();
+  assert.equal(recalled,1,'a new click outside a grab still recalls the panel');
+});
+
 test('XR select animates a Firefly and starts a grab on the same press',()=>{
   const {view,controller,glowCount}=selectableFirefly();
   let committed=null;

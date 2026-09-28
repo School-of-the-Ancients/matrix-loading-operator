@@ -1245,6 +1245,7 @@ export class MatrixView {
   }
   releaseGrab(controller){
     if(!this.grab||this.grab.controller!==controller)return;
+    if(this.renderer?.xr?.getSession?.())this.updateOperatorShortcut();
     const grab=this.grab;this.grab=null;this.setGrabFeedback(null);
     if(this.readOnly||this.world.spatial?.stale||this.world.spatial?.originUnavailable||
        this.renderer?.xr?.isPresenting&&!this.hasFreshXrViewer()||
@@ -1265,6 +1266,7 @@ export class MatrixView {
   cancelGrab(controller,inputSource,message='Controller disconnected; the held edit was cancelled.'){
     const grab=this.grab;
     if(!grab||grab.controller!==controller||grab.inputSource!==inputSource)return;
+    if(this.renderer?.xr?.getSession?.())this.updateOperatorShortcut();
     this.grab=null;this.setGrabFeedback(null);
     if(grab.rigid)this.world.releaseRigidGrab?.(grab.objectId);
     else this.world.resumePhysics?.(grab.objectId);

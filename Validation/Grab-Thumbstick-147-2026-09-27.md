@@ -28,11 +28,12 @@ Undo; Play/Test only moves a running dynamic body and returns it to simulation.
 
 ## Validation on this candidate
 
-- WebRuntime: **591/591** Node tests passed. Focused coverage exercises the
+- WebRuntime: **592/592** Node tests passed. Focused coverage exercises the
   dead zone, frame rate, 3 m cap, rotated/moving AR parent, local bounds under
   an offset world origin, controller/headset tracking and origin loss, source binding and removal,
   session-exit cancellation,
-  failed rigid-move cleanup, click/panel behavior, Play/Test rigid-body path,
+  failed rigid-move cleanup, click/panel behavior including a press between XR frames,
+  Play/Test rigid-body path,
   same-ID transform, Undo, and browser scene save/reopen.
 - ControlService: **798/798** Python tests passed.
 - Vite production build passed; `git diff --check` passed.
