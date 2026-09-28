@@ -55,7 +55,9 @@ When Codex has ready image concepts, open **CODEX → IMAGE PREVIEWS** on the
 same Operator panel. **PREVIOUS** and **NEXT IMAGE** browse versions; **USE
 VERSION** selects only an image visible in the panel. A failed image offers
 **RETRY PREVIEW**. **BACK TO CODEX** returns to the conversation. Generating or
-selecting an image alone does not build or place an object. The [#91 gallery
+selecting an image alone does not build or place an object. A later explicit
+request to build, model, or place the selected image attaches its actual bytes
+to that Codex turn; an ordinary chat message does not. The [#91 gallery
 record](../Validation/Concept-91-XR-Gallery-2026-09-27.md) separates source,
 desktop canvas, and Quest wearer evidence.
 
