@@ -1,9 +1,11 @@
 # Room-aware Operator #149 — WebXR review
 
 This review began on `codex/room-aware-149` from `main` at `db2142a`.
-PR #159 subsequently merged as `1ad61d0`; this branch was rebased onto that
-commit. The combined source includes generated panoramas and room-aware
-Operator context. Rebase validation below is separate from Quest wearer proof.
+PR #159 subsequently merged as `1ad61d0`, and panorama voice routing PR #162
+merged as `704068c`. This branch is now rebased onto `704068c`; its room-aware
+implementation commit is `1515241`. The combined source includes generated
+panoramas, natural spoken panorama routing, and room-aware Operator context.
+Rebase validation below is separate from Quest wearer proof.
 
 ## Implemented contract
 
@@ -37,14 +39,16 @@ Operator context. Rebase validation below is separate from Quest wearer proof.
 ## Wearer review sequence
 
 The original isolated #160 desktop review used `http://127.0.0.1:18966/web/`
-before #150 merged. The current combined review serves rebased commit
-`11a8ab4` at `http://127.0.0.1:18970/web/`, with separate private scene,
+before #150 merged. The combined review port is
+`http://127.0.0.1:18970/web/`, with separate private scene,
 asset, and environment directories and no loopback token. Its checkpoint
 picker contains `quest150-codex-moonlit-forest-garden-v1` (the eleven-object
 garden with the selected generated panorama). A desktop review restored that
 checkpoint and observed eleven objects and the expected panorama; the desktop
 tab was then closed to release the single writer lease for Quest. This is
-staging evidence, not a wearer result.
+staging evidence, not a wearer result. The 18970 service was started from
+pre-hotfix commit `99acfde`; restart it and rebuild WebRuntime from the new
+branch head before using that port for exact-head Quest acceptance.
 
 On Quest, select **PC world checkpoints →
 quest150-codex-moonlit-forest-garden-v1**, then **Restore world → Confirm
@@ -58,9 +62,9 @@ evidence.
 2. Save/reopen or restore the same named checkpoint and confirm the six original
    and five added digital objects remain visible with their supported IDs.
 3. Enter AR with the same saved composition. Allow Quest room planes and the
-   room origin to settle. Check the visible outlines before selecting **Confirm
-   room**. If tracking or alignment is unavailable, record the stated reason;
-   do not claim a physical fit.
+   room origin to settle. Check the visible outlines before selecting **Outlines
+   align — enable AR editing**. If tracking or alignment is unavailable,
+   record the stated reason; do not claim a physical fit.
 4. Ask Operator to reorganize one existing object against a measured support.
    It should refresh `matrix_room_spatial_context`, use the current token, and
    obtain a succeeded `matrix_move_with_room_constraint` receipt. Confirm that
@@ -79,12 +83,12 @@ and camera pixels out of this record.
 
 | Gate | Result |
 | --- | --- |
-| ControlService full suite | Original branch: `python -m unittest discover -v`: 865 passed, 0 failed. Rebased branch: `python -m unittest discover`: 879 passed, 0 failed. |
-| WebRuntime full suite and production build | Original branch: `npm test`: 642 passed, 0 failed. Rebased branch: `npm test`: 674 passed, 0 failed; `npm run build`: passed. |
+| ControlService full suite | Original branch: `python -m unittest discover -v`: 865 passed, 0 failed. Rebased on #159 and again on #162: `python -m unittest discover`: 879 passed, 0 failed each time. |
+| WebRuntime full suite and production build | Original branch: `npm test`: 642 passed, 0 failed. Rebased on #159: 674 passed, 0 failed. Rebased on #162: 675 passed, 0 failed; `npm run build`: passed. |
 | Isolated desktop review | `http://127.0.0.1:18966/web/` served the final build with separate scene and asset directories; the PC checkpoint list contained `quest91-agent-strong-beacon-six-objects`, and UI restore displayed six original objects. The Agent Portal connected and read the six IDs/transforms at scene revision 3; it reported desktop mode, zero measured planes, and no physical fit claim. |
 | Agent composition / typed receipts | After service restart, Agent recaptured all six original IDs/transforms at source scene revision 1, then created two pedestal/orb pairs and one curved bench with five individually approved, succeeded typed receipts. Final live revision 11 had 11 objects. |
 | PC checkpoint and desktop reopen | Saved `quest149-lantern-garden-eleven-objects`, then reloaded the page and explicitly restored it through the PC checkpoint picker; UI reported 11 objects. Comparing checkpoint payloads found all six original IDs and transforms unchanged and exactly five new IDs. Saved checkpoint SHA-256: `C8E2D4BB4631C9AFC20E4BC14045E5C40FE09646E7BE28C154255C3BAB88FA84`. |
-| Combined #150 + #149 desktop staging | `http://127.0.0.1:18970/web/` serves `11a8ab4` from separate private review state. A desktop tab restored `quest150-codex-moonlit-forest-garden-v1` and observed the eleven-object garden and expected generated panorama; the tab was closed before Quest review. No Quest result is inferred. |
+| Combined #150 + #149 desktop staging | `http://127.0.0.1:18970/web/` was started from pre-hotfix `99acfde` with separate private review state. A desktop tab restored `quest150-codex-moonlit-forest-garden-v1` and observed the eleven-object garden and expected generated panorama; the tab was closed before Quest review. Restart/rebuild is required for exact-head review after PR #162. No Quest result is inferred. |
 | Quest VR save/reopen composition | Pending on the combined 18970 build; desktop restore and the earlier 18968/18969 wearer observations do not establish this exact build's VR result. |
 | Quest AR measured move and alignment | Pending wearer check |
 
@@ -92,8 +96,9 @@ Automated and desktop checks are not Quest wearer evidence.
 
 ## Rebase integration review
 
-Rebased source commit `2563ed7` descends from the #159 merge commit
-`1ad61d0`. The seven shared-file conflicts were resolved by retaining both
+Room-aware source commit `1515241` now descends from the #162 merge commit
+`704068c`. This rebase added no conflicts. The earlier seven shared-file
+conflicts with #150 were resolved by retaining both
 sets of capabilities: panorama catalog and Agent tools, generated panorama
 context, background rendering and AR hiding; plus room observations, measured
 support tools, tracking guards and alignment checks. The automatically merged
@@ -103,8 +108,9 @@ virtual object with the current room constraint, and verifies the panorama and
 object ID survive AR exit. This is source-level evidence only.
 
 The focused cross-feature runs passed: 67 ControlService tests and 43
-WebRuntime tests. The rebased full suites passed 879/879 ControlService and
-674/674 WebRuntime tests, and the production Vite build succeeded. Quest
+WebRuntime tests. The #159 rebase full suites passed 879/879 ControlService and
+674/674 WebRuntime tests; the #162 rebase passed 879/879 ControlService and
+675/675 WebRuntime tests and the production Vite build. Quest
 review of the exact rebased build is still required for a measured AR move
 and wearer-confirmed physical fit.
 
