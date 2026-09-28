@@ -4153,12 +4153,19 @@ class State:
         with self.lock:
             self.concept_build_guard = None
 
-    def agent_room_spatial(self):
+    def agent_room_spatial(self, anchor_id=None):
         """Read current, bounded WebXR planes without exposing raw room scans."""
+        if anchor_id is not None:
+            anchor_id = text(anchor_id, "anchor_id")
         with self.lock:
             self.expire()
             current = self.latest if self.online() and self.latest is not None else None
-            return room_spatial_summary(self, current)
+            if current is not None and anchor_id is not None:
+                require(any(item["anchorId"] == anchor_id and
+                            item.get("source") == "webxr" for item in current["anchors"]),
+                        "Requested measured room surface is unavailable", 409)
+            return room_spatial_summary(self, current,
+                                        (anchor_id,) if anchor_id is not None else ())
 
     def agent_portal_status(self, session_id, cursor=0):
         """Reconcile only exact terminal turns before reporting concept builds."""
@@ -4856,7 +4863,8 @@ class State:
                                     "This world has no panorama to remove", 409)
                 if item["op"] == "spawn" and "roomConstraint" in item:
                     constraint = item["roomConstraint"]
-                    spatial = room_spatial_summary(self, self.latest)
+                    spatial = room_spatial_summary(self, self.latest,
+                                                   (constraint["anchorId"],))
                     mode = self.latest.get("creatorMode") or {}
                     require(spatial["usable"] and
                             spatial["trackingEpoch"] == constraint["trackingEpoch"] and
@@ -5199,7 +5207,8 @@ class State:
                                 if obj["objectId"] == item["objectId"]), None)
                     if "roomConstraint" in item:
                         constraint = item["roomConstraint"]
-                        spatial = room_spatial_summary(self, self.latest)
+                        spatial = room_spatial_summary(self, self.latest,
+                                                       (constraint["anchorId"],))
                         require(spatial["usable"] and
                                 spatial["trackingEpoch"] == constraint["trackingEpoch"] and
                                 any(plane["anchorId"] == constraint["anchorId"] and
@@ -5448,7 +5457,7 @@ class State:
             current = self.latest
             require(current["scene"]["roomId"] == room_id and self.revision == revision,
                     "Matrix scene changed; inspect the current room and retry", 409)
-            spatial = room_spatial_summary(self, current)
+            spatial = room_spatial_summary(self, current, (anchor_id,))
             require(spatial["usable"],
                     "Verified fresh AR room geometry is unavailable: " +
                     str(spatial["unusableReason"]), 409)
@@ -5664,7 +5673,7 @@ class State:
             current = self.latest
             require(current["scene"]["roomId"] == room_id and self.revision == revision,
                     "Matrix scene changed; inspect the current room and retry", 409)
-            spatial = room_spatial_summary(self, current)
+            spatial = room_spatial_summary(self, current, (anchor_id,))
             require(spatial["usable"],
                     "Verified fresh AR room geometry is unavailable: " +
                     str(spatial["unusableReason"]), 409)

@@ -228,8 +228,9 @@ def build_matrix_turn_message(user_text: str, context: dict,
         if spatial.get("usable") is True:
             lines.append("This turn includes bounded, measured WebXR room surfaces in a verified "
                          "coordinate frame. Surface IDs and polygons are session observations, "
-                         "not saved room assets. Refresh matrix_room_spatial_context immediately "
-                         "before a physical-room action; use the chosen support plane's "
+                         "not saved room assets. Refresh matrix_room_spatial_context with the "
+                         "chosen support anchor ID immediately before a physical-room action; "
+                         "use that plane's "
                          "spatialToken because the top-level token also covers unrelated planes. "
                          "A measured-surface spawn also requires surfaceSpawnAvailable. "
                          "Use matrix_move_with_room_constraint to reposition an existing "
@@ -327,7 +328,9 @@ def build_matrix_turn_message(user_text: str, context: dict,
     if re.search(r"\b(?:physical|my room|living room|real room|wall|table|surface|"
                  r"room.aware|fit.*room|reorganiz\w*.*room)\b", user_text, re.IGNORECASE):
         lines.append("For a physical-room request, recapture matrix_room_spatial_context "
-                     "after entering AR or relocalizing and immediately before an edit. "
+                     "after entering AR or relocalizing. After choosing a measured target, "
+                     "refresh again with its anchor ID immediately before an edit so it "
+                     "appears even in a room with many planes. "
                      "Use measured placement only when it reports fresh usable geometry, "
                      "a verified origin, and a common coordinate frame. Supply the target "
                      "support plane's spatialToken to matrix_spawn_on_surface or "

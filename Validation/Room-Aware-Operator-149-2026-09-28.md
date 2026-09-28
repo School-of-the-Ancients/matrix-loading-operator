@@ -21,7 +21,9 @@ Rebase validation below is separate from Quest wearer proof.
   scene revision, runtime generation, tracking epoch, alignment and measured
   geometry. A support-specific token binds those guards to the chosen support;
   changes to unrelated, unshown planes no longer expire a placement. The
-  prompt shows only a limited set of plane poses and polygons.
+  prompt shows only a limited set of plane poses and polygons. A fresh spatial
+  read can prioritize a chosen anchor; both validators and their queue rechecks
+  use the same priority so a table remains available in a dense room.
   A physical camera frame is never a metric room measurement.
 - `matrix_spawn_on_surface` places a new session-local object on a measured
   support through the usual Matrix queue and observed receipt.
@@ -100,7 +102,7 @@ and camera pixels out of this record.
 | PC checkpoint and desktop reopen | Saved `quest149-lantern-garden-eleven-objects`, then reloaded the page and explicitly restored it through the PC checkpoint picker; UI reported 11 objects. Comparing checkpoint payloads found all six original IDs and transforms unchanged and exactly five new IDs. Saved checkpoint SHA-256: `C8E2D4BB4631C9AFC20E4BC14045E5C40FE09646E7BE28C154255C3BAB88FA84`. |
 | Combined #150 + #149 desktop staging | `http://127.0.0.1:18970/web/` was restarted from `dcdfef7` with separate private review state. A desktop tab had restored `quest150-codex-moonlit-forest-garden-v1` and observed the eleven-object garden and expected generated panorama; the tab was closed before Quest review. |
 | Quest 18970 AR attempt | Service observed the eleven-object world, AR ready/aligned, 38 measured planes, and a selected existing orb. The wearer reported an error and “PC review needed.” The Agent's two guarded moves returned 409 before a request ID; no Agent move receipt or pending edit exists. A separate PC command request was denied because its effect could not be reviewed in XR. The Agent turn was stopped. The orb had an X/Z tilt, which violates the support-fit guard; same-revision room reads also produced different global tokens while the chosen support stayed stable. The bridge hid the exact 409 reason, so neither guard can be identified as the first rejection. |
-| Guarded-move repair | The private bridge now preserves concise 409 reasons; the Agent is told to upright a tilted object explicitly and use the chosen plane's support-specific spatial token. The server still checks room identity, revision, alignment, target support and origin, while the browser still checks final footprint and tracking epoch. The full ControlService suite passed 879/879; exact-head Quest retest is pending. |
+| Guarded-move repair | The private bridge now preserves concise 409 reasons; the Agent is told to upright a tilted object explicitly and use the chosen plane's support-specific spatial token. A targeted fresh read and corresponding queue checks keep that support in a bounded context even when many floor planes precede it. The server still checks room identity, revision, alignment, target support and origin, while the browser still checks final footprint and tracking epoch. Targeted tests and the full ControlService suite (879/879) passed; exact-head Quest retest is pending. |
 | Quest VR save/reopen composition | Pending explicit wearer confirmation on the combined guarded-move build; desktop restore and earlier 18968/18969 wearer observations do not establish this exact build's VR result. |
 | Quest AR measured move and alignment | Alignment was observed on 18970; succeeded receipt, same ID, wearer-confirmed fit, stale-token rejection and save/reopen are pending on the repaired build. |
 

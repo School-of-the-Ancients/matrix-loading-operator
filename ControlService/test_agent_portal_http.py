@@ -559,7 +559,51 @@ class AgentPortalHTTPTests(unittest.TestCase):
         self.assertEqual(spawn_command["roomConstraint"],
                          {"anchorId": "floor-1", "trackingEpoch": 7})
         self.state.pending.clear()
+        for index in range(9):
+            extra = copy.deepcopy(self.state.latest["anchors"][1])
+            extra["anchorId"] = f"floor-extra-{index}"
+            extra["roomPose"]["position"]["x"] = index + 3
+            self.state.latest["anchors"].append(extra)
+        table = copy.deepcopy(self.state.latest["anchors"][1])
+        table["anchorId"] = "table-1"
+        table["semanticLabels"] = ["TABLE"]
+        table["roomPose"]["position"]["y"] = .7
+        self.state.latest["anchors"].append(table)
+        self.assertNotIn("table-1", [item["anchorId"] for item in
+                                     self.state.agent_room_spatial()["planes"]])
+        targeted = self.state.agent_room_spatial("table-1")
+        self.assertEqual(targeted["planes"][0]["anchorId"], "table-1")
+        table_token = targeted["planes"][0]["spatialToken"]
+        table_move = {**move, "anchor_id": "table-1",
+                      "scene_revision": targeted["sceneRevision"],
+                      "spatial_token": table_token}
+        targeted_move = self.state.agent_move_room(table_move)
+        self.assertEqual(targeted_move["status"], "queued")
+        self.state.pending.clear()
+        after_move = self.state.agent_room_spatial("table-1")
+        targeted_spawn = self.state.agent_spawn_surface({
+            "room_id": after_move["roomId"], "scene_revision": after_move["sceneRevision"],
+            "spatial_token": after_move["planes"][0]["spatialToken"], "asset_id": "tower",
+            "anchor_id": "table-1", "transform": pose()})
+        self.assertEqual(targeted_spawn["status"], "queued")
+        self.state.pending.clear()
+        after_spawn = self.state.agent_room_spatial("table-1")
+        table_move.update(scene_revision=after_spawn["sceneRevision"],
+                          spatial_token=after_spawn["planes"][0]["spatialToken"])
+        table["roomPose"]["position"]["x"] = .9
+        with self.assertRaises(APIError) as stale_table:
+            self.state.agent_move_room(table_move)
+        self.assertEqual(stale_table.exception.status, 409)
+        table["roomPose"]["position"]["x"] = .4
+        self.state.latest["spatialObservation"]["webFloorPose"]["position"]["x"] = .4
+        with self.assertRaises(APIError) as stale_origin:
+            self.state.agent_move_room(table_move)
+        self.assertEqual(stale_origin.exception.status, 409)
+        self.state.latest["spatialObservation"]["webFloorPose"]["position"]["x"] = 0
         self.state.latest["spatialObservation"]["trackingEpoch"] = 8
+        with self.assertRaises(APIError) as stale_epoch:
+            self.state.agent_move_room(table_move)
+        self.assertEqual(stale_epoch.exception.status, 409)
         with self.assertRaises(APIError) as stale_spawn:
             self.state.queue([{key: item for key, item in spawn_command.items()
                                if key != "requestId"}])

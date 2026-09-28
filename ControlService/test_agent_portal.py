@@ -459,7 +459,7 @@ class AgentPortalTests(unittest.TestCase):
             "Reorganize the forest to fit my room", context, tools)
         self.assertIn("capture the current scene revision", message)
         self.assertIn("matrix_list_entities pages", message)
-        self.assertIn("Refresh matrix_room_spatial_context immediately", message)
+        self.assertIn("Refresh matrix_room_spatial_context with the chosen support anchor ID", message)
         self.assertIn("Supply the target support plane's spatialToken", message)
         self.assertIn("matrix_move_with_room_constraint", message)
         self.assertIn("measured-plane additions live only in the current AR session", message)
