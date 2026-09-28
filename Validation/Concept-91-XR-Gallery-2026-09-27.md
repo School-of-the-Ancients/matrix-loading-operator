@@ -43,7 +43,13 @@ image sizing, controls, and text overlap; it is **not** a Quest capture.
 
 ## Quest wearer check
 
-Pending: whether the actual images are readable in VR/AR and whether the
-wearer can navigate and select a visible version. This is one focused gallery
-check; the separate #147 VR/AR grab, save, and room-origin acceptance is
-already recorded in [Grab-Thumbstick-147-2026-09-27.md](Grab-Thumbstick-147-2026-09-27.md).
+On the isolated `18794` page, the wearer entered **VR**, opened CODEX → IMAGE
+PREVIEWS, browsed the actual bridge images with PREVIOUS/NEXT, and reported
+that both images and selection worked. After USE VERSION 2, the PC concept
+status independently reported selected ID
+`e96a86c8becb497b893791392fd406a9`, Version 2, provider `comfyui`.
+This is a focused image-gallery check with imported recorded images. It does
+not establish fresh ComfyUI generation, concept-guided 3D construction,
+animated asset placement, or AR gallery readability. The separate #147 VR/AR
+grab, save, and room-origin acceptance is in
+[Grab-Thumbstick-147-2026-09-27.md](Grab-Thumbstick-147-2026-09-27.md).
