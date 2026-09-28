@@ -4,6 +4,7 @@ import {MatrixView} from './view.js';
 import {MatrixBridge} from './bridge.js';
 import {VoiceRecorder} from './voice.js';
 import {CameraStream,bindCameraPageLifecycle} from './camera_stream.js';
+import {bindXRPageLifecycle} from './xr_session.js';
 import {AgentClient,agentActivityLabel} from './agent_client.js';
 import {ConceptUI} from './concept_ui.js';
 import {loadCreationMode,saveCreationMode,creationModeFromPanelAction} from './creation_mode.js';
@@ -78,7 +79,9 @@ const feedback=(message,isError=false)=>{
 };
 const view=new MatrixView($('view'),world,()=>{discardProposal();scaleUI?.refreshTargets();citizensPanel?.render();feedback(`Selected ${world.selection.objectId||'placement point'} at ${Object.values(world.selection.position).join(', ')} m.`);},()=>$('token').value.trim(),message=>feedback(message,true),(id,position)=>{discardProposal();const delivered=deliverMovedObject(world,id);if(delivered)speakReply(delivered);renderScene();feedback(delivered||`Moved ${id.slice(0,8)} to ${Object.values(position).join(', ')} m. Undo and Save are available.`);},()=>{if(!view.isAR)cameraStream.stop();if(!view.isAR||!world.spatial?.originUnavailable){roomResetArmedUntil=0;roomRecoveryChoice='';}updateCameraControls();discardProposal();renderScene();},beginVoice,endVoice,()=>{$('speak-replies').checked=!$('speak-replies').checked;view.setVoiceOutputEnabled($('speak-replies').checked);unlockReplyAudio();},reviewView,newChat);
 view.onPanelAction=panelAction;
+view.onXRHidden=()=>{cameraStream.stop();updateCameraControls();};
 bindCameraPageLifecycle(cameraStream,document,window,updateCameraControls);
+bindXRPageLifecycle(()=>view.xrControls,document,window);
 function setConceptCreationMode(mode){
   creationMode=saveCreationMode(sessionStorage,mode);
   $('concept-creation-mode').value=creationMode;

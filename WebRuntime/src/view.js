@@ -553,7 +553,7 @@ export class MatrixView {
     };
     this.xrControls=new XRSessionController(navigator.xr,this.renderer.xr,refresh,message=>{
       entryStatus.textContent=message;this.onAssetError(message);
-    });
+    },()=>this.onXRHidden?.());
     const add=(mode,label,options)=>{
       const button=document.createElement('button');entries.push({button,mode,label});
       button.addEventListener('click',()=>{

@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {MatrixView} from '../src/view.js';
-import {XRSessionController} from '../src/xr_session.js';
+import {XRSessionController,bindXRPageLifecycle} from '../src/xr_session.js';
 
 function session(){
   const value=new EventTarget();
@@ -95,6 +95,76 @@ test('pending and ending sessions reject another immersive entry until sessionen
   assert.equal(xrRenderer.getSession(),null);
   assert.equal(requestCount,1);
   assert.equal(errors.length,3);
+});
+
+test('hidden page or XR visibility closes AR before returning to the browser',async()=>{
+  const xrRenderer=rendererXR();
+  const opened=session();
+  let endCalls=0;
+  opened.end=async()=>{endCalls++;opened.dispatchEvent(new Event('end'));};
+  let hiddenCalls=0;
+  const controls=new XRSessionController({requestSession:async()=>opened},xrRenderer,
+    ()=>{},()=>{},()=>hiddenCalls++);
+  assert.equal(await controls.enter('immersive-ar',{}),true);
+  const page=new EventTarget(),windowTarget=new EventTarget();
+  page.visibilityState='visible';
+  const unbind=bindXRPageLifecycle(()=>controls,page,windowTarget);
+  page.dispatchEvent(new Event('visibilitychange'));
+  assert.equal(endCalls,0);
+  page.visibilityState='hidden';
+  page.dispatchEvent(new Event('visibilitychange'));
+  await new Promise(resolve=>setImmediate(resolve));
+  assert.equal(endCalls,1);
+  assert.equal(xrRenderer.getSession(),null);
+  assert.equal(controls.busy,false);
+  windowTarget.dispatchEvent(new Event('pagehide'));
+  assert.equal(endCalls,1);
+  unbind();
+
+  const next=session();
+  next.visibilityState='visible';
+  next.end=async()=>{endCalls++;next.dispatchEvent(new Event('end'));};
+  controls.xr={requestSession:async()=>next};
+  assert.equal(await controls.enter('immersive-ar',{}),true);
+  next.visibilityState='hidden';
+  next.dispatchEvent(new Event('visibilitychange'));
+  await new Promise(resolve=>setImmediate(resolve));
+  assert.equal(hiddenCalls,1);
+  assert.equal(endCalls,2);
+  assert.equal(xrRenderer.getSession(),null);
+});
+
+test('pagehide closes an active XR session even while document remains visible',async()=>{
+  const xrRenderer=rendererXR(),opened=session();
+  let endCalls=0;
+  opened.end=async()=>{endCalls++;opened.dispatchEvent(new Event('end'));};
+  const controls=new XRSessionController({requestSession:async()=>opened},xrRenderer);
+  assert.equal(await controls.enter('immersive-ar',{}),true);
+  const page=new EventTarget(),windowTarget=new EventTarget();
+  page.visibilityState='visible';
+  const unbind=bindXRPageLifecycle(()=>controls,page,windowTarget);
+  windowTarget.dispatchEvent(new Event('pagehide'));
+  await new Promise(resolve=>setImmediate(resolve));
+  assert.equal(endCalls,1);
+  assert.equal(xrRenderer.getSession(),null);
+  unbind();
+});
+
+test('stalled native XR exit unlocks the button and allows a retry',async()=>{
+  const xrRenderer=rendererXR(),errors=[];
+  const opened=session();
+  const controls=new XRSessionController({requestSession:async()=>opened},xrRenderer,()=>{},
+    message=>errors.push(message));
+  assert.equal(await controls.enter('immersive-ar',{}),true);
+  controls.exitTimeoutMs=10;
+  opened.end=()=>new Promise(()=>{});
+  assert.equal(await controls.exit(),false);
+  assert.equal(controls.busy,false);
+  assert.equal(controls.currentMode,'immersive-ar');
+  assert.match(errors.at(-1),/XR exit did not finish/);
+  opened.end=async()=>opened.dispatchEvent(new Event('end'));
+  assert.equal(await controls.exit(),true);
+  assert.equal(xrRenderer.getSession(),null);
 });
 
 test('failed request or renderer setup reports an error and unlocks a new entry',async()=>{
