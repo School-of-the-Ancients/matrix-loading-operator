@@ -58,9 +58,10 @@ materials; the structural metal has a very dark charcoal base color and high
 metallic value. No material change was made. A subsequent service state at
 revision 27 reported the exact registered animated asset and object ID above.
 
-The new derivative is linked by its checked Blender source and this
-checkpoint; no second selected-image Agent turn or new durable ConceptStore
-build record is claimed for this manual animation follow-up.
+At this Quest check, the manually authored derivative was linked by its
+checked Blender source and checkpoint. A later selected-image Agent turn
+reused that exact derivative and recorded a durable build in the copied
+fixture, as documented below.
 
 ## Quest AR origin safeguard
 
@@ -82,3 +83,15 @@ virtual-floor objects **unanchored previews**, with `alignmentVerified: false`;
 this check establishes AR visual placement and animation, not measured
 physical alignment or a reopen/relocalization guarantee. The named PC
 checkpoint remained listed after recovery.
+
+## Agent reuse/provenance follow-up (copied fixture)
+
+This later trace used a copy of the acceptance scenes and asset catalog on an isolated loopback service at port `19870`. It did not alter the original acceptance world or the `18795` Quest fixture. The same Agent session `107c243008e941c09e8e7a7b871fd718` resumed native conversation `01a0e4be-7a58-7fd2-bcc1-fda94a5a3ec3`. The original ready Version 4 concept `4ecf4c7e86b34493b9a5502e381e4759` was selected. The new Agent turn's actual `input_image` decoded to 2,144,296 PNG bytes with SHA-256 `3ab3bf0cbb35dd2c44b5e2f4f41a5be24208eb35fdc41b351c3e1a1d0499dbc4`, matching the selected Version 4 image.
+
+One explicit selected-image `creationMode: auto` turn, `01a0e65f-d388-7522-b3ff-f32a9f0a65cb`, reused the already tracked manual derivative. The Agent verified the existing [animated GLB](../WebRuntime/art/concept-v4-garden-bridge-animated.glb) at SHA-256 `e3bddc50b62828f1265f46704cef5cad2cd1ddfd6db589554e5937f059d9e49a` and requested native approval to register that exact file with only source path, expected hash, and name. The isolated catalog registered `web:luminous-garden-bridge-v4-animated:e3bddc50b628`; its validator reported one 2.0417-second **Lantern Pulse** clip, and the connected browser advertised that clip before placement.
+
+After a separate reviewed spawn approval at scene revision `2`, typed request `526bb13235754e26b658569697213e89` returned `ok: true`. The browser observed new object `fa2cd874b1bb46eda06850070a296630` with the animated asset at `(0, 0, -8)`. The prior Block `e647674f24c541758de23075de9561c1`, static Version 4 GLB `0b8d7b29509943898939e9f01ab83a14`, and Version 2 procedural bridge `fb2853c93aa540afaefef60ca0ef1e14` kept their IDs and transforms. The scene had four objects and no pending commands.
+
+The copied ConceptStore durably records build `6a95facc44a940f2b9b737625baf5a27` as `completed` for selected Version 4, the same image SHA and Agent turn, asset `web:luminous-garden-bridge-v4-animated:e3bddc50b628`, object `fa2cd874b1bb46eda06850070a296630`, and the exact spawn receipt. Its source names are the tracked [animated `.blend`](../WebRuntime/art/concept-v4-garden-bridge-animated.blend), animated GLB, and [build script](../WebRuntime/art/build_concept_v4_garden_bridge_animated.py). The recorded strategy is: “Reused the earlier manually authored Blender animation; validated its tracked clip-bearing GLB and spawned one bridge in the copied world.” This follow-up did not author or modify the derivative. `creationMode: auto` records the reuse and receipt; it does not independently validate editability of the compressed `.blend`.
+
+The four-object copied world was saved and reopened as `Concept 91 selected v4 animated reuse acceptance` (checkpoint SHA-256 `76d01ea31b144dd0edf91d82c274ec023b936224811db5433365de538308da5f`). The checkpoint retains all four object IDs and a dependency on the exact animated GLB SHA with `Lantern Pulse`. The browser restored all four IDs. After the idle Agent turn, only the isolated `19870` service was restarted; the same session and conversation resumed idle with Version 4 still selected and the completed build intact, while the browser still reported four objects and the clip-bearing asset. The original acceptance portal, concepts, and asset manifest hashes remained unchanged. Playback of the new copied instance was not observed in this follow-up; the separate Quest wearer result above concerns the `18795` fixture.
