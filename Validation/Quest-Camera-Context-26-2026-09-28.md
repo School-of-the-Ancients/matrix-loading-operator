@@ -70,6 +70,46 @@ The revised source passes `npm test` in `WebRuntime` (**650/650**), `npm run bui
 
 Focused ADB logcat from the review shows Quest Browser entered `WebVRActivity` at device-log time 11:29:59.940–11:30:00.082. At 11:31:49.983–.985, the activity manager logged `Unexpected activity event`, `Skip pre-destroyed transaction`, and `Target activity: Not found for token` while leaving immersive UI; similar warnings had appeared at 11:28:58. A later 11:39:10 `SOFT_REPORT` was a `vrruntimeservice` interstitial timeout for `vrshell` over 30 seconds. The Browser main process remained alive, with no Browser fatal crash or ANR found in this log slice; camera HAL stream errors appeared later. These entries narrow the observed lifecycle timing but do not establish a browser crash, a camera-triggered cause, or that the patch resolves the wearer failure. The raw log remains a private local diagnostic and is not part of this source record.
 
+## Stacked #149/#26 recovery candidate
+
+Draft PR #161 is stacked on #160 (`codex/room-aware-149`) so its review diff
+contains the camera slice. The combined clean source commit `818e99e` is served
+at `http://127.0.0.1:18974/web/` through a separate Quest USB port bridge.
+That service has its own scene, asset, environment, content-cache, and Agent
+state directories. It contains the reviewed
+`quest150-codex-moonlit-forest-garden-v1` checkpoint and its verified assets;
+at launch `/api/health` and `/web/` succeeded, the world writer was offline,
+and there were no pending operations. These are staging checks, not wearer
+acceptance.
+
+The recovery follow-up bounds a never-settling `/api/exchange` to 12 seconds
+and retains receipts until a later successful exchange reconciles them. A
+camera permission or playback request times out after 45 seconds, stops any
+late stream, and allows another explicit attempt. A capture times out after
+12 seconds; page hide, XR hide, AR exit, and manual camera stop cancel it and
+produce a typed error receipt. The read-only Share View status poll also has a
+bounded request and retains its existing overall wait window. These guards
+prevent indefinitely disabled controls when promises do not settle; JavaScript
+timers cannot interrupt a synchronous GPU readback.
+
+For a mixed capture, the virtual panel now renders directly at 640×480 and is
+drawn beside the copied physical frame. Only the final labeled 1280×480 pair
+is JPEG-encoded, preserving the 512 KiB limit and provenance. The intermediate
+virtual JPEG and `Image.decode()` wait are gone. Virtual-only capture still
+renders at 960×720. Full WebRuntime tests at `818e99e`: **699/699**; the
+production Vite build and `git diff --check` passed. The combined ControlService
+Python source was unchanged since the earlier **888/888** staging run. These
+tests do not measure Quest capture duration or prove recovery on the device.
+
+The next wearer check must use the current 18974 build after #149's measured
+move gate: enable and explicitly share a physical camera frame, verify the
+Agent separates physical and virtual details, stop the camera and share a
+virtual-only frame, then repeat after hiding/returning and exiting/re-entering
+AR. Record camera permission/denial status, receipt/source, capture timing,
+temporary-image cleanup, and whether Matrix content and Exit AR remain
+responsive. The earlier 18967 frozen-page report remains unresolved until
+this exact build is observed on Quest.
+
 ## Source status
 
 The Meta browser passthrough page predates this review and describes the compositor boundary. The Meta Camera Access guide was updated September 4, 2026. The W3C Media Capture and Streams and WebXR Device API documents are specifications, while Raw Camera Access is a separate draft feature; none is a Quest 3 Browser 152 hardware acceptance report. [Issue #26](https://github.com/School-of-the-Ancients/matrix-loading-operator/issues/26) explicitly requires this versioned hardware check and treats qualitative physical-camera context and aligned overlay as different capability levels.
