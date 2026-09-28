@@ -141,40 +141,90 @@ export function footprintFitsRoomSupport(transform,bounds,spawnScale,webFloorPos
 }
 
 const VOLUME_EPSILON=.005;
+const AREA_EPSILON=1e-10;
 const boxEdges=[[0,1],[0,2],[0,4],[1,3],[1,5],[2,3],
   [2,6],[3,7],[4,5],[4,6],[5,7],[6,7]];
 const same2=(a,b)=>Math.hypot(a.x-b.x,a.z-b.z)<VOLUME_EPSILON;
-const onVolumeBoundary=(point,boundary)=>boundary.some((a,index)=>{
-  const b=boundary[(index+1)%boundary.length];
-  const edge={x:b.x-a.x,z:b.z-a.z};
-  const relative={x:point.x-a.x,z:point.z-a.z};
-  const lengthSquared=edge.x*edge.x+edge.z*edge.z;
-  const dot=relative.x*edge.x+relative.z*edge.z;
-  return lengthSquared>VOLUME_EPSILON*VOLUME_EPSILON&&
-    Math.abs(cross2(relative,edge))<=VOLUME_EPSILON*Math.sqrt(lengthSquared)&&
-    dot>=-VOLUME_EPSILON&&dot<=lengthSquared+VOLUME_EPSILON;
-});
-const strictlyInside=(point,boundary)=>
-  !onVolumeBoundary(point,boundary)&&insideBoundary(point,boundary);
-const properCross=(a,b,c,d)=>{
-  const ab={x:b.x-a.x,z:b.z-a.z},cd={x:d.x-c.x,z:d.z-c.z};
-  const ac={x:c.x-a.x,z:c.z-a.z},ad={x:d.x-a.x,z:d.z-a.z};
-  const ca={x:a.x-c.x,z:a.z-c.z},cb={x:b.x-c.x,z:b.z-c.z};
-  const one=cross2(ab,ac),two=cross2(ab,ad);
-  const three=cross2(cd,ca),four=cross2(cd,cb);
-  return one*two< -VOLUME_EPSILON*VOLUME_EPSILON&&
-    three*four< -VOLUME_EPSILON*VOLUME_EPSILON;
-};
-function polygonsOverlap(a,b){
-  if(a.some(point=>strictlyInside(point,b))||
-     b.some(point=>strictlyInside(point,a)))return true;
-  const center=polygon=>({x:polygon.reduce((sum,p)=>sum+p.x,0)/polygon.length,
-    z:polygon.reduce((sum,p)=>sum+p.z,0)/polygon.length});
-  // a is the convex box section. A measured polygon may be concave, with its
-  // arithmetic vertex center in empty space outside that polygon.
-  if(strictlyInside(center(a),b))return true;
-  return a.some((point,index)=>b.some((other,edge)=>
-    properCross(point,a[(index+1)%a.length],other,b[(edge+1)%b.length])));
+const orient2=(a,b,c)=>cross2({x:b.x-a.x,z:b.z-a.z},
+  {x:c.x-a.x,z:c.z-a.z});
+const signedArea2=polygon=>polygon.reduce((sum,point,index)=>{
+  const next=polygon[(index+1)%polygon.length];
+  return sum+point.x*next.z-next.x*point.z;
+},0);
+const samePoint2=(a,b)=>Math.hypot(a.x-b.x,a.z-b.z)<1e-9;
+function cleanPolygon(boundary){
+  const points=[];
+  for(const point of boundary)if(!points.length||!samePoint2(points.at(-1),point))
+    points.push(point);
+  if(points.length>1&&samePoint2(points[0],points.at(-1)))points.pop();
+  let changed=true;
+  while(changed&&points.length>3){
+    changed=false;
+    for(let i=0;i<points.length;i++){
+      const prev=points[(i+points.length-1)%points.length],next=points[(i+1)%points.length];
+      const current=points[i];
+      const between=(current.x-prev.x)*(current.x-next.x)+
+        (current.z-prev.z)*(current.z-next.z)<=0;
+      if(Math.abs(orient2(prev,current,next))<1e-12&&between){
+        points.splice(i,1);changed=true;break;
+      }
+    }
+  }
+  return points;
+}
+function triangulatePolygon(boundary){
+  const remaining=cleanPolygon(boundary);
+  const winding=Math.sign(signedArea2(remaining));
+  if(remaining.length<3||!winding)return null;
+  const triangles=[];
+  while(remaining.length>3){
+    let ear=false;
+    for(let i=0;i<remaining.length;i++){
+      const a=remaining[(i+remaining.length-1)%remaining.length];
+      const b=remaining[i],c=remaining[(i+1)%remaining.length];
+      if(winding*orient2(a,b,c)<=AREA_EPSILON)continue;
+      const contains=remaining.some((point,index)=>
+        index!==i&&index!==(i+remaining.length-1)%remaining.length&&
+        index!==(i+1)%remaining.length&&
+        winding*orient2(a,b,point)>=-AREA_EPSILON&&
+        winding*orient2(b,c,point)>=-AREA_EPSILON&&
+        winding*orient2(c,a,point)>=-AREA_EPSILON);
+      if(contains)continue;
+      triangles.push([a,b,c]);remaining.splice(i,1);ear=true;break;
+    }
+    if(!ear)return null;
+  }
+  triangles.push(remaining);
+  return triangles;
+}
+function clippedArea(triangle,convex){
+  const winding=Math.sign(signedArea2(convex));
+  if(!winding)return 0;
+  let polygon=triangle;
+  for(let edge=0;edge<convex.length&&polygon.length;edge++){
+    const a=convex[edge],b=convex[(edge+1)%convex.length];
+    const input=polygon;polygon=[];
+    let previous=input.at(-1),previousSide=winding*orient2(a,b,previous);
+    for(const point of input){
+      const side=winding*orient2(a,b,point);
+      const inside=side>=-AREA_EPSILON,wasInside=previousSide>=-AREA_EPSILON;
+      if(inside!==wasInside){
+        const t=previousSide/(previousSide-side);
+        polygon.push({x:previous.x+t*(point.x-previous.x),
+          z:previous.z+t*(point.z-previous.z)});
+      }
+      if(inside)polygon.push(point);
+      previous=point;previousSide=side;
+    }
+  }
+  return polygon.length<3?0:Math.abs(signedArea2(polygon))/2;
+}
+function polygonsOverlap(section,boundary){
+  if(Math.abs(signedArea2(section))/2<=AREA_EPSILON)return false;
+  const triangles=triangulatePolygon(boundary);
+  // Invalid observed geometry is not evidence of safe empty space.
+  if(!triangles)return true;
+  return triangles.some(triangle=>clippedArea(triangle,section)>AREA_EPSILON);
 }
 
 // Check the finite measured polygon, not its infinite plane or an axis-aligned

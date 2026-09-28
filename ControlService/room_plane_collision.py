@@ -8,6 +8,7 @@ import math
 
 
 _EPSILON = .005
+_AREA_EPSILON = 1e-10
 _EDGES = ((0, 1), (0, 2), (0, 4), (1, 3), (1, 5), (2, 3),
           (2, 6), (3, 7), (4, 5), (4, 6), (5, 7), (6, 7))
 
@@ -51,56 +52,110 @@ def _cross(a, b):
     return a[0] * b[1] - a[1] * b[0]
 
 
-def _on_boundary(point, polygon):
-    for index, a in enumerate(polygon):
-        b = polygon[(index + 1) % len(polygon)]
-        edge = (b[0] - a[0], b[1] - a[1])
-        relative = (point[0] - a[0], point[1] - a[1])
-        length_squared = edge[0] ** 2 + edge[1] ** 2
-        dot = relative[0] * edge[0] + relative[1] * edge[1]
-        if (length_squared > _EPSILON ** 2 and
-                abs(_cross(relative, edge)) <= _EPSILON * math.sqrt(length_squared)
-                and -_EPSILON <= dot <= length_squared + _EPSILON):
-            return True
-    return False
+def _orient(a, b, c):
+    return _cross((b[0] - a[0], b[1] - a[1]),
+                  (c[0] - a[0], c[1] - a[1]))
 
 
-def _inside(point, polygon):
-    if _on_boundary(point, polygon):
+def _signed_area2(polygon):
+    return sum(point[0] * polygon[(index + 1) % len(polygon)][1] -
+               polygon[(index + 1) % len(polygon)][0] * point[1]
+               for index, point in enumerate(polygon))
+
+
+def _clean_polygon(boundary):
+    points = []
+    for point in boundary:
+        if not points or math.dist(points[-1], point) >= 1e-9:
+            points.append(point)
+    if len(points) > 1 and math.dist(points[0], points[-1]) < 1e-9:
+        points.pop()
+    changed = True
+    while changed and len(points) > 3:
+        changed = False
+        for index, current in enumerate(points):
+            previous = points[index - 1]
+            following = points[(index + 1) % len(points)]
+            between = ((current[0] - previous[0]) *
+                       (current[0] - following[0]) +
+                       (current[1] - previous[1]) *
+                       (current[1] - following[1]) <= 0)
+            if abs(_orient(previous, current, following)) < 1e-12 and between:
+                points.pop(index)
+                changed = True
+                break
+    return points
+
+
+def _triangulate(boundary):
+    remaining = _clean_polygon(boundary)
+    signed = _signed_area2(remaining) if len(remaining) >= 3 else 0
+    winding = 1 if signed > 0 else -1 if signed < 0 else 0
+    if len(remaining) < 3 or not winding:
+        return None
+    triangles = []
+    while len(remaining) > 3:
+        ear = False
+        for index, point in enumerate(remaining):
+            previous = remaining[index - 1]
+            following = remaining[(index + 1) % len(remaining)]
+            if winding * _orient(previous, point, following) <= _AREA_EPSILON:
+                continue
+            contains = any(
+                other_index not in ((index - 1) % len(remaining), index,
+                                    (index + 1) % len(remaining)) and
+                winding * _orient(previous, point, other) >= -_AREA_EPSILON and
+                winding * _orient(point, following, other) >= -_AREA_EPSILON and
+                winding * _orient(following, previous, other) >= -_AREA_EPSILON
+                for other_index, other in enumerate(remaining))
+            if contains:
+                continue
+            triangles.append((previous, point, following))
+            remaining.pop(index)
+            ear = True
+            break
+        if not ear:
+            return None
+    triangles.append(tuple(remaining))
+    return triangles
+
+
+def _clipped_area(triangle, convex):
+    signed = _signed_area2(convex)
+    winding = 1 if signed > 0 else -1 if signed < 0 else 0
+    if not winding:
+        return 0
+    polygon = list(triangle)
+    for index, start in enumerate(convex):
+        if not polygon:
+            break
+        end = convex[(index + 1) % len(convex)]
+        source, polygon = polygon, []
+        previous = source[-1]
+        previous_side = winding * _orient(start, end, previous)
+        for point in source:
+            side = winding * _orient(start, end, point)
+            inside = side >= -_AREA_EPSILON
+            was_inside = previous_side >= -_AREA_EPSILON
+            if inside != was_inside:
+                ratio = previous_side / (previous_side - side)
+                polygon.append((previous[0] + ratio * (point[0] - previous[0]),
+                                previous[1] + ratio * (point[1] - previous[1])))
+            if inside:
+                polygon.append(point)
+            previous, previous_side = point, side
+    return abs(_signed_area2(polygon)) / 2 if len(polygon) >= 3 else 0
+
+
+def _overlap(section, measured):
+    if abs(_signed_area2(section)) / 2 <= _AREA_EPSILON:
         return False
-    inside = False
-    for index, a in enumerate(polygon):
-        b = polygon[(index + 1) % len(polygon)]
-        if ((a[1] > point[1]) != (b[1] > point[1]) and
-                point[0] < (b[0] - a[0]) * (point[1] - a[1]) /
-                (b[1] - a[1]) + a[0]):
-            inside = not inside
-    return inside
-
-
-def _proper_cross(a, b, c, d):
-    ab = (b[0] - a[0], b[1] - a[1])
-    cd = (d[0] - c[0], d[1] - c[1])
-    first = _cross(ab, (c[0] - a[0], c[1] - a[1]))
-    second = _cross(ab, (d[0] - a[0], d[1] - a[1]))
-    third = _cross(cd, (a[0] - c[0], a[1] - c[1]))
-    fourth = _cross(cd, (b[0] - c[0], b[1] - c[1]))
-    return first * second < -_EPSILON ** 2 and third * fourth < -_EPSILON ** 2
-
-
-def _overlap(first, second):
-    if any(_inside(point, second) for point in first) or any(
-            _inside(point, first) for point in second):
+    triangles = _triangulate(measured)
+    # Invalid observed geometry is not evidence of safe empty space.
+    if triangles is None:
         return True
-    # The first polygon is the convex box section. A concave measured polygon
-    # can have its arithmetic vertex center in an empty notch.
-    center = tuple(sum(point[axis] for point in first) / len(first)
-                   for axis in (0, 1))
-    if _inside(center, second):
-        return True
-    return any(_proper_cross(a, first[(i + 1) % len(first)], b,
-                             second[(j + 1) % len(second)])
-               for i, a in enumerate(first) for j, b in enumerate(second))
+    return any(_clipped_area(triangle, section) > _AREA_EPSILON
+               for triangle in triangles)
 
 
 def volume_intersects_plane(transform, bounds, spawn_scale, base_pose, plane,

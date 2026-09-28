@@ -88,6 +88,25 @@ class RoomPlaneCollisionTests(unittest.TestCase):
         self.assertTrue(volume_intersects_plane(
             small, self.block["localBounds"], 1, pose(), shelf))
 
+    def test_collinear_edges_detect_area_overlap_but_allow_touch(self):
+        bounds = {"center": {"x": 0, "y": .5, "z": 0},
+                  "size": {"x": 2, "y": 1, "z": 2}}
+        obj = pose(x=1, z=1)  # section x=[0,2], z=[0,2]
+        support = plane("offset-shelf", "support", pose(y=.5), 1)
+        support["surface"]["boundary"] = [
+            {"x": x, "y": 0, "z": z} for x, z in
+            ((1, 0), (3, 0), (3, 2), (1, 2))]
+        self.assertTrue(volume_intersects_plane(obj, bounds, 1, pose(), support))
+        for point in support["surface"]["boundary"]:
+            point["x"] += 1
+        self.assertFalse(volume_intersects_plane(obj, bounds, 1, pose(), support))
+        support["surface"]["boundary"] = [
+            {"x": x, "y": 0, "z": z} for x, z in
+            ((0, 1), (2, 1), (1, 0))]
+        self.assertTrue(volume_intersects_plane(obj, bounds, 1, pose(), support))
+        support["surface"]["boundary"].reverse()
+        self.assertTrue(volume_intersects_plane(obj, bounds, 1, pose(), support))
+
     def test_agent_preflight_rejects_crossing_without_queuing_and_keeps_tabletop(self):
         spatial = self.state.agent_room_spatial("floor")
         request = {"room_id": spatial["roomId"],

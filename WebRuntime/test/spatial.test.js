@@ -276,6 +276,25 @@ test('a concave measured shelf does not occupy its open notch',()=>{
   assert.equal(volumeIntersectsMeasuredPlane(inArm,bounds,1,origin,shelf),true);
 });
 
+test('collinear polygon edges still reveal positive area overlap without treating touch as penetration',()=>{
+  const origin={position:{x:0,y:0,z:0},rotation:{x:0,y:0,z:0},
+    scale:{x:1,y:1,z:1}};
+  const bounds={center:{x:0,y:.5,z:0},size:{x:2,y:1,z:2}};
+  const object={...transform,position:{x:1,y:0,z:1}}; // section x=[0,2], z=[0,2]
+  const support={...structuredClone(anchor),roomPose:{...origin,
+    position:{x:0,y:.5,z:0}},surface:{kind:'support',boundary:[
+      {x:1,z:0},{x:3,z:0},{x:3,z:2},{x:1,z:2}]}};
+  assert.equal(volumeIntersectsMeasuredPlane(object,bounds,1,origin,support),true);
+  support.surface.boundary=support.surface.boundary.map(point=>({
+    x:point.x+1,z:point.z})); // the polygons now only share an edge
+  assert.equal(volumeIntersectsMeasuredPlane(object,bounds,1,origin,support),false);
+  support.surface.boundary=[{x:0,z:1},{x:2,z:1},{x:1,z:0}];
+  assert.equal(volumeIntersectsMeasuredPlane(object,bounds,1,origin,support),true,
+    'a triangle entirely inside the section has positive area even if every vertex is on its edge');
+  support.surface.boundary.reverse();
+  assert.equal(volumeIntersectsMeasuredPlane(object,bounds,1,origin,support),true);
+});
+
 test('WebXR viewer and plane coordinates are read from the XR frame',()=>{
   const pose={transform:{position:{x:1,y:1.6,z:-2},orientation:{x:0,y:0,z:0,w:1}}};
   const frame={getViewerPose:()=>pose,getPose:()=>pose};
