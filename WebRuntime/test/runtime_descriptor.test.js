@@ -19,7 +19,9 @@ test('live descriptor follows desktop, VR, AR, and desktop without changing auth
   const view=Object.create(MatrixView.prototype);
   let session={environmentBlendMode:'opaque'};
   view.world=world;view.renderer={xr:{getSession:()=>session}};
-  view.operatorPanel={group:{visible:true},setPinLabel(){},setOriginLabel(){}};
+  const panelModes=[];
+  view.operatorPanel={group:{visible:true},setPinLabel(){},setOriginLabel(){},
+    setXRMode(mode){panelModes.push(mode);}};
   view.controllerRays=[];view.floor={visible:true};view.grid={visible:true};
   view.scene={background:null};view.reticle={visible:false};
   view.virtualFloorRoot={visible:true,position:{set(){}},quaternion:{identity(){}}};
@@ -38,5 +40,6 @@ test('live descriptor follows desktop, VR, AR, and desktop without changing auth
   assert.equal(world.snapshot().roomContext.mode,'ar');
   view.onSessionEnd();
   assert.equal(world.snapshot().runtimeDescriptor.presentation,'desktop');
+  assert.deepEqual(panelModes,['vr',null,'ar',null]);
   assert.deepEqual(world.scene,originalScene);
 });

@@ -1,17 +1,25 @@
 """Protocol-level tests with a local fake app-server; no Codex account is used."""
 from __future__ import annotations
 
+import base64
+import hashlib
+import json
 import sys
 import tempfile
 import textwrap
 import time
 import unittest
 from pathlib import Path
+from unittest.mock import patch
 
 from codex_app_server import AppServerError, AppServerTransport, MAX_EVENT
 
+ORDINARY_POLICY = {"sandbox": "workspace-write", "approval_policy": "on-request"}
+IMAGE_POLICY = {"sandbox": "read-only", "approval_policy": "on-request"}
+
 
 FAKE_SERVER = r'''
+import base64
 import json
 import sys
 
@@ -41,10 +49,30 @@ for line in sys.stdin:
     elif method == "thread/read":
         assert message["params"]["includeTurns"] is False
         send({"id": message["id"], "result": {"thread": {"id": "thread-test", "turns": []}}})
+    elif method == "account/read":
+        send({"id": message["id"], "result": {"account": {"type": "chatgpt", "email": "private@example.com"},
+                                                "requiresOpenaiAuth": True}})
+    elif method == "modelProvider/capabilities/read":
+        send({"id": message["id"], "result": {"namespaceTools": True, "imageGeneration": True,
+                                                "webSearch": True}})
     elif method == "turn/start":
+        image_turn = message["params"]["input"][0]["text"].startswith("$imagegen")
+        assert message["params"]["sandboxPolicy"] == (
+            {"type": "readOnly", "networkAccess": False} if image_turn else
+            {"type": "workspaceWrite"})
+        assert message["params"]["approvalPolicy"] == "on-request"
         turn_count += 1
         turn_id = "turn-" + str(turn_count)
         send({"id": message["id"], "result": {"turn": {"id": turn_id}}})
+        if message["params"]["input"][0]["text"].startswith("$imagegen"):
+            image = b"\x89PNG\r\n\x1a\n" + b"x" * 1700000
+            send({"method": "item/completed", "params": {"threadId": "thread-test", "turnId": turn_id,
+                  "item": {"type": "imageGeneration", "id": "image-1", "status": "completed",
+                           "result": base64.b64encode(image).decode(), "savedPath": None,
+                           "revisedPrompt": "test revised prompt", "failure": None}}})
+            send({"method": "turn/completed", "params": {"threadId": "thread-test",
+                  "turn": {"id": turn_id, "status": "completed"}}})
+            continue
         send({"method": "item/agentMessage/delta", "params": {"threadId": "thread-test", "turnId": turn_id, "delta": "Working"}})
         send({"method": "item/commandExecution/requestApproval", "id": 900 + turn_count,
               "params": {"threadId": "thread-test", "turnId": turn_id, "itemId": "item-test", "reason": "Test action"}})
@@ -94,7 +122,7 @@ class AppServerTransportTests(unittest.TestCase):
         self.assertEqual(self.transport.thread_resume(thread_id), thread_id)
         self.assertEqual(self.transport.thread_read(thread_id)["turns"], [])
 
-        turn_id = self.transport.turn_start(thread_id, "Move this there")
+        turn_id = self.transport.turn_start(thread_id, "Move this there", **ORDINARY_POLICY)
         self.assertEqual(turn_id, "turn-1")
         pending = self.wait_for_approval(901)
         self.assertEqual(pending[0]["params"]["turnId"], turn_id)
@@ -106,7 +134,7 @@ class AppServerTransportTests(unittest.TestCase):
         with self.assertRaises(AppServerError):
             self.transport.respond_approval(901, thread_id, turn_id, "accept")
 
-        second_turn = self.transport.turn_start(thread_id, "Now make it taller")
+        second_turn = self.transport.turn_start(thread_id, "Now make it taller", **ORDINARY_POLICY)
         self.assertEqual(second_turn, "turn-2")
         self.wait_for_approval(902)
         self.transport.respond_approval(902, thread_id, second_turn, "decline")
@@ -131,9 +159,18 @@ class AppServerTransportTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             self.transport.request("thread/start", [])
         with self.assertRaises(ValueError):
-            self.transport.turn_start("thread-test", " ")
+            self.transport.turn_start("thread-test", " ", **ORDINARY_POLICY)
         with self.assertRaises(ValueError):
-            self.transport.turn_start("thread-test", "x" * 16001)
+            self.transport.turn_start("thread-test", "x" * 16001, **ORDINARY_POLICY)
+        with self.assertRaises(TypeError):
+            self.transport.turn_start("thread-test", "No implicit policy")
+        for sandbox, approval_policy in (("invalid", "on-request"),
+                                         ("workspace-write", "never"),
+                                         ("read-only", "never")):
+            with self.subTest(sandbox=sandbox, approval_policy=approval_policy), \
+                    self.assertRaises(ValueError):
+                self.transport.turn_start("thread-test", "Invalid policy",
+                                          sandbox=sandbox, approval_policy=approval_policy)
         with self.assertRaises(ValueError):
             self.transport.thread_start(sandbox="no-sandbox")
         with self.assertRaises(ValueError):
@@ -143,6 +180,120 @@ class AppServerTransportTests(unittest.TestCase):
                 self.transport.thread_start(approval_policy=policy)
             with self.subTest(policy=policy), self.assertRaises(ValueError):
                 self.transport.thread_resume("thread-test", approval_policy=policy)
+
+    def test_turn_start_attaches_pc_image_as_multimodal_input(self):
+        image = Path(self.directory.name) / "selected.png"
+        image.write_bytes(b"\x89PNG\r\n\x1a\nconcept")
+        with patch.object(self.transport, "request", return_value={"turn": {"id": "turn-image"}}) as request:
+            self.assertEqual(self.transport.turn_start("thread-test", "Build this",
+                                                       image_path=image, **ORDINARY_POLICY), "turn-image")
+        method, params = request.call_args.args
+        self.assertEqual(method, "turn/start")
+        self.assertEqual(params["input"], [
+            {"type": "text", "text": "Build this"},
+            {"type": "localImage", "path": str(image.resolve())}])
+        self.assertEqual(Path(params["input"][1]["path"]).read_bytes(), image.read_bytes())
+        with self.assertRaisesRegex(ValueError, "existing local image"):
+            self.transport.turn_start("thread-test", "Build this",
+                                      image_path=image.with_name("missing.png"), **ORDINARY_POLICY)
+
+    def test_image_turn_policy_is_explicit_and_later_full_access_is_restored(self):
+        with patch.object(self.transport, "request",
+                          return_value={"turn": {"id": "turn-policy"}}) as request:
+            self.transport.turn_start("thread-test", "$imagegen blue orb", **IMAGE_POLICY)
+            self.transport.turn_start("thread-test", "Build this",
+                                      sandbox="danger-full-access", approval_policy="never")
+        first, second = [call.args[1] for call in request.call_args_list]
+        self.assertEqual(first["sandboxPolicy"], {"type": "readOnly", "networkAccess": False})
+        self.assertEqual(first["approvalPolicy"], "on-request")
+        self.assertEqual(second["sandboxPolicy"], {"type": "dangerFullAccess"})
+        self.assertEqual(second["approvalPolicy"], "never")
+
+    def test_native_image_over_two_megabyte_line_stays_pc_only(self):
+        self.assertEqual(self.transport.native_image_capability(), (True, None))
+        turn_id = self.transport.turn_start("thread-test", "$imagegen test art", **IMAGE_POLICY)
+        deadline = time.monotonic() + 3
+        result = None
+        while time.monotonic() < deadline:
+            result = self.transport.image_generation_result("thread-test", turn_id)
+            if result is not None:
+                break
+            time.sleep(.01)
+        self.assertIsNotNone(result)
+        self.assertEqual(result["status"], "ready")
+        self.assertEqual(result["mimeType"], "image/png")
+        self.assertIs(result["transientArtifact"], True)
+        self.assertEqual(result["revisedPrompt"], "test revised prompt")
+        self.assertEqual(Path(result["imagePath"]).stat().st_size, 1700008)
+        self.assertEqual(result["sha256"], hashlib.sha256(Path(result["imagePath"]).read_bytes()).hexdigest())
+        self.assertNotIn("result", json.dumps(self.transport.events_since()))
+        self.assertNotIn("savedPath", json.dumps(self.transport.events_since()))
+        self.assertGreater(Path(result["imagePath"]).stat().st_size * 4 // 3, 2 * 1024 * 1024)
+
+    def test_saved_native_path_must_be_under_codex_generated_root(self):
+        root = Path(self.directory.name) / "generated_images"
+        root.mkdir()
+        self.transport._generated_root = root
+        saved = root / "native.png"
+        saved.write_bytes(b"\x89PNG\r\n\x1a\nimage")
+        self.transport._receive({"method": "item/completed", "params": {
+            "threadId": "thread-test", "turnId": "saved-turn",
+            "item": {"type": "imageGeneration", "id": "image-saved", "status": "completed",
+                     "savedPath": str(saved), "result": base64.b64encode(saved.read_bytes()).decode(),
+                     "revisedPrompt": None}}})
+        result = self.transport.image_generation_result("thread-test", "saved-turn")
+        self.assertEqual(result["status"], "ready")
+        self.assertEqual(result["imagePath"], str(saved.resolve()))
+        outside = Path(self.directory.name) / "outside.png"
+        outside.write_bytes(saved.read_bytes())
+        self.transport._receive({"method": "item/completed", "params": {
+            "threadId": "thread-test", "turnId": "outside-turn",
+            "item": {"type": "imageGeneration", "id": "image-outside", "status": "completed",
+                     "savedPath": str(outside), "result": "not-base64"}}})
+        self.assertEqual(self.transport.image_generation_result("thread-test", "outside-turn")["status"],
+                         "failed")
+
+    def test_saved_path_hash_mismatch_uses_completed_image_bytes(self):
+        root = Path(self.directory.name) / "generated_images"
+        root.mkdir()
+        self.transport._generated_root = root
+        saved = root / "wrong.png"
+        saved.write_bytes(b"\x89PNG\r\n\x1a\nwrong")
+        actual = b"\x89PNG\r\n\x1a\nactual"
+        self.transport._receive({"method": "item/completed", "params": {
+            "threadId": "thread-test", "turnId": "mismatch-turn",
+            "item": {"type": "imageGeneration", "id": "image-mismatch", "status": "completed",
+                     "savedPath": str(saved), "result": base64.b64encode(actual).decode()}}})
+        result = self.transport.image_generation_result("thread-test", "mismatch-turn")
+        self.assertEqual(result["status"], "ready")
+        self.assertNotEqual(Path(result["imagePath"]), saved)
+        self.assertEqual(Path(result["imagePath"]).read_bytes(), actual)
+
+    def test_duplicate_native_result_and_close_discard_staged_images(self):
+        encoded = base64.b64encode(b"\x89PNG\r\n\x1a\nimage").decode()
+        def receive(turn_id):
+            self.transport._receive({"method": "item/completed", "params": {
+                "threadId": "thread-test", "turnId": turn_id,
+                "item": {"type": "imageGeneration", "status": "completed",
+                         "savedPath": None, "result": encoded}}})
+        receive("duplicate-turn")
+        staged = Path(self.transport.image_generation_result("thread-test", "duplicate-turn")["imagePath"])
+        self.assertTrue(staged.exists())
+        receive("duplicate-turn")
+        self.assertEqual(self.transport.image_generation_result("thread-test", "duplicate-turn")["status"],
+                         "failed")
+        self.assertFalse(staged.exists())
+        receive("unconsumed-turn")
+        staged = Path(self.transport.image_generation_result("thread-test", "unconsumed-turn")["imagePath"])
+        self.assertTrue(staged.exists())
+        self.transport.close()
+        self.assertFalse(staged.exists())
+
+    def test_native_capability_requires_chatgpt_account(self):
+        with patch.object(self.transport, "request", return_value={"account": {"type": "apiKey"}}):
+            available, reason = self.transport.native_image_capability()
+        self.assertFalse(available)
+        self.assertIn("ChatGPT", reason)
 
     def test_automatic_policy_is_sent_on_new_and_resumed_thread(self):
         thread_id = self.transport.thread_start(sandbox="danger-full-access", approval_policy="never")

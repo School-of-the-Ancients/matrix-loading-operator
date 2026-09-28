@@ -1,8 +1,9 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import * as THREE from 'three';
-import {MatrixView,updateControllerRayForPanel} from '../src/view.js';
+import {MatrixView,operatorPanel,updateControllerRayForPanel} from '../src/view.js';
 import {moveGrab,sampleHeldMotion} from '../src/grab.js';
+import {XRSessionController} from '../src/xr_session.js';
 
 function controllerAndPanel(){
   const scene=new THREE.Scene();
@@ -99,6 +100,83 @@ test('the in-world HIDE control clears the panel without selecting the scene',()
   view.onPanelAction=()=>{throw Error('HIDE must stay a local panel action');};
   view.selectFromController(controller);
   assert.equal(view.operatorPanel.group.visible,false);
+});
+
+test('WORLD panel labels the active XR mode and its exit control ends that session',async()=>{
+  const drawn=[];
+  const context={fillRect(){},strokeRect(){},
+    fillText(value){drawn.push(String(value));},measureText(){return {width:0};}};
+  const previousDocument=globalThis.document;
+  globalThis.document={createElement:kind=>{
+    assert.equal(kind,'canvas');return {width:0,height:0,getContext:()=>context};
+  }};
+  try{
+    const panel=operatorPanel(),hit=(x,y)=>panel.hit({x:x/1024,y:1-y/768});
+    assert.equal(hit(155,71),null,'the exit control belongs only to an active WORLD page');
+    panel.setXRMode('vr');panel.toggleWorld();
+    assert.equal(hit(155,71),'exit-xr');
+    assert.ok(drawn.includes('EXIT VR'));
+    drawn.length=0;panel.setXRMode('ar');
+    assert.ok(drawn.includes('EXIT AR'));
+    assert.ok(!drawn.includes('◈  OPERATOR'),'the WORLD header has no overlapping title');
+    assert.equal(hit(280,71),null,'exit does not overlap adjacent CODEX control');
+
+    const scene=new THREE.Scene(),controller=new THREE.Group();
+    controller.position.y=1;scene.add(controller);
+    panel.group.position.set(0,1,-1);panel.group.visible=true;scene.add(panel.group);
+    const target=new THREE.Vector3((155/1024-.5)*.96,1+(1-71/768-.5)*.72,-1);
+    controller.quaternion.setFromUnitVectors(new THREE.Vector3(0,0,-1),
+      target.sub(controller.position).normalize());
+    scene.updateMatrixWorld(true);
+    let ended=0;
+    const session={end:async()=>{ended++;}};
+    const rendererXR={addEventListener(){},getSession:()=>session};
+    const view=Object.create(MatrixView.prototype);
+    view.grab=null;view.raycaster=new THREE.Raycaster();view.operatorPanel=panel;
+    view.xrControls=new XRSessionController({},rendererXR);
+    view.selectFromRay=()=>{throw Error('Exit must not select the scene');};
+    view.onPanelAction=()=>{throw Error('Exit must stay in the XR session controller');};
+    view.selectFromController(controller);
+    await Promise.resolve();
+    assert.equal(ended,1);
+  }finally{
+    if(previousDocument===undefined)delete globalThis.document;
+    else globalThis.document=previousDocument;
+  }
+});
+
+test('XR creation-mode selection reaches the shared Operator action handler',()=>{
+  const {controller,panel}=controllerAndPanel();
+  panel.mesh.updateWorldMatrix(true,false);
+  const view=Object.create(MatrixView.prototype);
+  view.grab=null;view.raycaster=new THREE.Raycaster();
+  view.operatorPanel={...panel,hit:()=> 'creation-mode-blender'};
+  view.selectFromRay=()=>{throw Error('The panel action must not select the scene');};
+  let action=null;
+  view.onPanelAction=next=>{action=next;};
+  view.selectFromController(controller);
+  assert.equal(action,'creation-mode-blender');
+  assert.equal(view.operatorPanel.group.visible,true);
+});
+
+test('XR concept gallery navigation stays in the panel and version selection reaches Operator',()=>{
+  const {controller,panel}=controllerAndPanel();
+  panel.mesh.updateWorldMatrix(true,false);
+  const view=Object.create(MatrixView.prototype);
+  view.grab=null;view.raycaster=new THREE.Raycaster();
+  let action='open-concepts',opened=0,next=0,selected=null;
+  view.operatorPanel={...panel,hit:()=>action,
+    toggleConcepts:()=>opened++,previousConcept:()=>{},nextConcept:()=>next++};
+  view.selectFromRay=()=>{throw Error('Concept controls must not select a scene object');};
+  view.onPanelAction=value=>{selected=value;};
+  view.selectFromController(controller);
+  assert.equal(opened,1);assert.equal(selected,null);
+  action='concept-next';view.selectFromController(controller);
+  assert.equal(next,1);assert.equal(selected,null);
+  action='concept-select-2';view.selectFromController(controller);
+  assert.equal(selected,'concept-select-2');
+  action='concept-retry-2';view.selectFromController(controller);
+  assert.equal(selected,'concept-retry-2');
 });
 
 function selectableFirefly(){
@@ -364,6 +442,7 @@ test('XR session exit cancels a held edit and restores the authored pose',t=>{
   view.sync=()=>{synced++;root.position.copy(authored);};
   view.onRuntimeChange=()=>{};view.clearPlanes=()=>{};
   view.operatorPanel.setPinLabel=()=>{};view.operatorPanel.setOriginLabel=()=>{};
+  view.operatorPanel.setXRMode=()=>{};
   view.controllerRays=[];view.reticle={visible:false};
   view.virtualFloorRoot={visible:true,position:{set(){}},quaternion:{identity(){}}};
   view.floor={visible:true};view.grid={visible:true};view.scene=root.parent;

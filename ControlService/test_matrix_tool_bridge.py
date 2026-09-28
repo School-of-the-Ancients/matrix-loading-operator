@@ -136,6 +136,24 @@ class MatrixToolBridgeTests(unittest.TestCase):
         self.assertIsNotNone(other.matrix_tool_bridge)
         other.matrix_tool_bridge.close()
 
+    def test_native_image_turn_blocks_matrix_mutations_at_private_bridge(self):
+        self.state.agent_portal._native_starting = True
+        try:
+            for path in ("/spawn-builtin", "/scale", "/register-glb", "/concept-build"):
+                with self.subTest(path=path):
+                    request = urllib.request.Request(
+                        self.bridge.url.replace("/scene", path), data=b"{}",
+                        headers={"Authorization": "Bearer " + self.bridge.token,
+                                 "Content-Type": "application/json"})
+                    with self.assertRaises(urllib.error.HTTPError) as error:
+                        urllib.request.urlopen(request, timeout=3)
+                    self.assertEqual(error.exception.code, 409)
+                    self.assertIn("blocked during native concept image generation",
+                                  error.exception.read().decode("utf-8"))
+            self.assertEqual(len(self.state.agent_spawn_ids), 0)
+        finally:
+            self.state.agent_portal._native_starting = False
+
 
 if __name__ == "__main__":
     unittest.main()

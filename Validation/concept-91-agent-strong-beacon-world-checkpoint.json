@@ -1,0 +1,210 @@
+{
+  "schemaVersion": 1,
+  "world": {
+    "version": 2,
+    "scene": {
+      "schemaVersion": 1,
+      "roomId": "web-virtual-room-v1",
+      "objects": [
+        {
+          "objectId": "e647674f24c541758de23075de9561c1",
+          "assetId": "block",
+          "anchorId": "web-floor",
+          "transform": {
+            "position": {
+              "x": 0,
+              "y": 0,
+              "z": -2
+            },
+            "rotation": {
+              "x": 0,
+              "y": 0,
+              "z": 0
+            },
+            "scale": {
+              "x": 1,
+              "y": 1,
+              "z": 1
+            }
+          }
+        },
+        {
+          "objectId": "0b8d7b29509943898939e9f01ab83a14",
+          "assetId": "web:luminous-garden-footbridge-v4:27db9e18cca4",
+          "anchorId": "web-floor",
+          "transform": {
+            "position": {
+              "x": -3,
+              "y": 0,
+              "z": -2
+            },
+            "rotation": {
+              "x": 0,
+              "y": 0,
+              "z": 0
+            },
+            "scale": {
+              "x": 1,
+              "y": 1,
+              "z": 1
+            }
+          }
+        },
+        {
+          "objectId": "fb2853c93aa540afaefef60ca0ef1e14",
+          "assetId": "matrix:procedural",
+          "anchorId": "web-floor",
+          "transform": {
+            "position": {
+              "x": 3,
+              "y": 0,
+              "z": -2
+            },
+            "rotation": {
+              "x": 0,
+              "y": 0,
+              "z": 0
+            },
+            "scale": {
+              "x": 1,
+              "y": 1,
+              "z": 1
+            }
+          },
+          "procedural": {
+            "schemaVersion": 1,
+            "generatorId": "bridge",
+            "generatorVersion": "1.0.0",
+            "sourceRevision": "bridge-v1",
+            "parameters": {
+              "lengthMeters": 3.4,
+              "widthMeters": 1.2,
+              "deckHeightMeters": 0.55,
+              "riseMeters": 0.22,
+              "railings": true,
+              "supports": true
+            },
+            "seed": 0,
+            "dependencies": []
+          },
+          "rigidBody": {
+            "schemaVersion": 1,
+            "type": "static",
+            "collider": "procedural-mesh",
+            "restitution": 0,
+            "friction": 0.8,
+            "sensor": false
+          }
+        },
+        {
+          "objectId": "fa2cd874b1bb46eda06850070a296630",
+          "assetId": "web:luminous-garden-bridge-v4-animated:e3bddc50b628",
+          "anchorId": "web-floor",
+          "transform": {
+            "position": {
+              "x": 0,
+              "y": 0,
+              "z": -8
+            },
+            "rotation": {
+              "x": 0,
+              "y": 0,
+              "z": 0
+            },
+            "scale": {
+              "x": 1,
+              "y": 1,
+              "z": 1
+            }
+          }
+        },
+        {
+          "objectId": "ff5f6a636523499689f03522c208fc7b",
+          "assetId": "web:luminous-garden-bridge-v4-beacon:e700d15395ef",
+          "anchorId": "web-floor",
+          "transform": {
+            "position": {
+              "x": 0,
+              "y": 0,
+              "z": -14
+            },
+            "rotation": {
+              "x": 0,
+              "y": 0,
+              "z": 0
+            },
+            "scale": {
+              "x": 1,
+              "y": 1,
+              "z": 1
+            }
+          },
+          "animation": {
+            "loopClip": "Lantern Beacon",
+            "selectClip": null
+          }
+        },
+        {
+          "objectId": "48ef258727f04b2b9564014edef5e438",
+          "assetId": "web:luminous-garden-bridge-v4-beacon-strong:7fcc4aa068bd",
+          "anchorId": "web-floor",
+          "transform": {
+            "position": {
+              "x": 0,
+              "y": 0,
+              "z": -5
+            },
+            "rotation": {
+              "x": 0,
+              "y": 0,
+              "z": 0
+            },
+            "scale": {
+              "x": 1,
+              "y": 1,
+              "z": 1
+            }
+          },
+          "animation": {
+            "loopClip": "Lantern Beacon Strong",
+            "selectClip": null
+          }
+        }
+      ]
+    },
+    "game": null
+  },
+  "dependencies": [
+    {
+      "assetId": "web:luminous-garden-bridge-v4-animated:e3bddc50b628",
+      "sha256": "e3bddc50b62828f1265f46704cef5cad2cd1ddfd6db589554e5937f059d9e49a",
+      "spawnScale": 1,
+      "animationClips": [
+        "Lantern Pulse"
+      ]
+    },
+    {
+      "assetId": "web:luminous-garden-bridge-v4-beacon-strong:7fcc4aa068bd",
+      "sha256": "7fcc4aa068bd7a18448835438e9a7c54267f79459ffd3860d73796ca3bd1c3ec",
+      "spawnScale": 1,
+      "animationClips": [
+        "Lantern Beacon Strong"
+      ]
+    },
+    {
+      "assetId": "web:luminous-garden-bridge-v4-beacon:e700d15395ef",
+      "sha256": "e700d15395ef3b23b0c8669f22b64328248543da902e0145cffa16e9e33fef77",
+      "spawnScale": 1,
+      "animationClips": [
+        "Lantern Beacon"
+      ]
+    },
+    {
+      "assetId": "web:luminous-garden-footbridge-v4:27db9e18cca4",
+      "sha256": "27db9e18cca49ee37a249f0e30919bb852b30876361bed15e4d11e0e27524e3c",
+      "spawnScale": 1,
+      "animationClips": []
+    }
+  ],
+  "payloadSha256": "11c932d4dbb906eb6fe9ed768311a6f25fde679e32dc5bb785edc9e2c97ae4a7"
+}

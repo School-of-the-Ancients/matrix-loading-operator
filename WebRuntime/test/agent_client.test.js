@@ -29,6 +29,10 @@ test('agent session persists only an opaque Matrix ID and sends follow-ups to it
   assert.deepEqual(store.writes,[[AGENT_SESSION_KEY,id]]);
   await client.send('Make this taller');
   await client.send('Put this there',{schemaVersion:1,roomId:'room-1'});
+  await client.send('Build the selected design',{schemaVersion:1,roomId:'room-1'},
+    {conceptId:id,version:2});
+  await client.send('Build the selected design in Blender',null,
+    {conceptId:id,version:2},'blender');
   assert.equal(await client.transcribe('wav-data'),'Put this there');
   await client.decide(42,'turn-1',false);
   await client.cancel();
@@ -36,6 +40,12 @@ test('agent session persists only an opaque Matrix ID and sends follow-ups to it
     {sessionId:id,text:'Make this taller'});
   assert.deepEqual(calls.filter(([path])=>path==='/api/agent/turn')[1][1],
     {sessionId:id,text:'Put this there',context:{schemaVersion:1,roomId:'room-1'}});
+  assert.deepEqual(calls.filter(([path])=>path==='/api/agent/turn')[2][1],
+    {sessionId:id,text:'Build the selected design',context:{schemaVersion:1,roomId:'room-1'},
+      expectedConceptId:id,expectedConceptVersion:2,creationMode:'auto'});
+  assert.deepEqual(calls.filter(([path])=>path==='/api/agent/turn')[3][1],
+    {sessionId:id,text:'Build the selected design in Blender',
+      expectedConceptId:id,expectedConceptVersion:2,creationMode:'blender'});
   assert.deepEqual(calls.filter(([path])=>path==='/api/agent/approval')[0][1],
     {sessionId:id,approvalId:42,turnId:'turn-1',approve:false});
   assert.deepEqual(calls.filter(([path])=>path==='/api/agent/transcribe')[0][1],
@@ -61,4 +71,17 @@ test('invalid stored ID is ignored and malformed server ID is rejected',async()=
   assert.equal(client.sessionId,null);
   await assert.rejects(client.connect(),/Invalid Agent Portal session/);
   assert.deepEqual(store.writes,[]);
+});
+
+test('malformed expected concept identity is rejected before an Agent turn',async()=>{
+  const calls=[];
+  const client=new AgentClient(async(path,body)=>{
+    calls.push([path,body]);return status();
+  },storage({[AGENT_SESSION_KEY]:id}));
+  await assert.rejects(client.send('Build this in the Matrix',null,
+    {conceptId:'wrong',version:2}),/Selected concept identity is invalid/);
+  assert.deepEqual(calls,[]);
+  await assert.rejects(client.send('Build this in the Matrix',null,
+    {conceptId:id,version:2},'native-file'),/Unknown concept creation mode/);
+  assert.deepEqual(calls,[]);
 });

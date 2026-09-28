@@ -1,6 +1,117 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {operatorPanel} from '../src/view.js';
+import {MatrixView,operatorPanel} from '../src/view.js';
+
+test('MatrixView exposes the creation-mode setter used by the shared UI',()=>{
+  const view=Object.create(MatrixView.prototype);
+  let selected=null;
+  view.operatorPanel={setCreationMode:mode=>{selected=mode;}};
+  view.setOperatorCreationMode('procedural');
+  assert.equal(selected,'procedural');
+});
+
+test('Codex XR page exposes one shared creation-mode selector and keeps turn controls',()=>{
+  const drawn=[];
+  const context={
+    fillRect(x,y,w,h){drawn.push({kind:'rect',x,y,w,h,color:this.fillStyle});},
+    strokeRect(){},
+    fillText(text,x,y){drawn.push({kind:'text',text:String(text),x,y});},
+    measureText(text){return {width:String(text).length*14};},
+  };
+  const previousDocument=globalThis.document;
+  globalThis.document={createElement:kind=>{
+    assert.equal(kind,'canvas');return {width:0,height:0,getContext:()=>context};
+  }};
+  try{
+    const panel=operatorPanel();
+    const hit=(x,y)=>panel.hit({x:x/1024,y:1-y/768});
+    assert.equal(hit(190,212),null,'creation modes belong to the Codex page');
+    panel.toggleAgent();
+    assert.ok(drawn.some(item=>item.kind==='text'&&
+      item.text==='METHOD FOR SELECTED IMAGE BUILDS ONLY'&&item.y===158),
+      'XR mode choice only applies when building the selected image');
+    assert.equal(hit(190,212),'creation-mode-auto');
+    assert.equal(hit(490,212),'creation-mode-procedural');
+    assert.equal(hit(810,212),'creation-mode-blender');
+    assert.ok(drawn.some(item=>item.kind==='rect'&&item.x===55&&item.y===176&&
+      item.color==='#53dcc5'),'Auto is selected by default');
+    assert.ok(drawn.some(item=>item.kind==='text'&&item.text.startsWith('CODEX AGENT')&&
+      item.y===286),'transcript starts below the selector');
+    panel.setCreationMode('blender');
+    assert.ok(drawn.some(item=>item.kind==='rect'&&item.x===660&&item.y===176&&
+      item.color==='#53dcc5'));
+    assert.equal(hit(250,680),'agent-connect');
+    panel.setAgentStatus({activity:'Waiting',content:'Review this request.',pending:true,
+      approvalReviewable:true,active:true,connected:true,voiceStatus:'',latestTurnId:''});
+    assert.equal(hit(190,212),'creation-mode-auto');
+    assert.equal(hit(150,680),'agent-approve');
+    assert.equal(hit(430,680),'agent-deny');
+    assert.equal(hit(650,680),'agent-stop');
+    assert.throws(()=>panel.setCreationMode('anything'),/Invalid creation mode/);
+  }finally{
+    if(previousDocument===undefined)delete globalThis.document;
+    else globalThis.document=previousDocument;
+  }
+});
+
+test('XR concept gallery draws authenticated previews and selects the visible version',()=>{
+  const drawn=[];const images=[];
+  const context={fillRect(){},strokeRect(){},
+    drawImage(image,x,y,width,height){drawn.push({kind:'image',image,x,y,width,height});},
+    fillText(value){drawn.push({kind:'text',value:String(value)});},
+    measureText(value){return {width:String(value).length*12};}};
+  const previousDocument=globalThis.document;
+  globalThis.document={createElement:kind=>{
+    assert.equal(kind,'canvas');return {width:0,height:0,getContext:()=>context};
+  }};
+  try{
+    const panel=operatorPanel({createImage:()=>{
+      const image={naturalWidth:800,naturalHeight:400,onload:null,onerror:null};
+      images.push(image);return image;
+    }});
+    const hit=(x,y)=>panel.hit({x:x/1024,y:1-y/768});
+    panel.setConceptGallery([
+      {conceptId:'one',version:1,selected:true,prompt:'First design',sourceLabel:'ComfyUI',
+        previewStatus:'ready',previewObjectUrl:'blob:one'},
+      {conceptId:'two',version:2,selected:false,prompt:'Second design',sourceLabel:'Codex',
+        previewStatus:'ready',previewObjectUrl:'blob:two'},
+    ]);
+    panel.toggleAgent();
+    assert.equal(hit(400,290),'open-concepts');
+    panel.toggleConcepts();
+    assert.equal(panel.isAgentMode(),true,'gallery voice stays in the Codex conversation');
+    assert.equal(images.length,1);
+    assert.equal(images[0].src,'blob:one');
+    assert.equal(hit(700,596),null,'an image must be visible before it can be selected');
+    images[0].onload();
+    assert.ok(drawn.some(item=>item.kind==='image'&&item.image===images[0]),
+      'decoded preview is painted into the in-world canvas');
+    assert.equal(hit(380,596),'concept-next');
+    panel.nextConcept();
+    assert.equal(images.length,2);
+    assert.equal(images[1].src,'blob:two');
+    images[1].onload();
+    assert.equal(hit(700,596),'concept-select-2');
+    panel.setConceptGallery([
+      {conceptId:'one',version:1,selected:false,prompt:'First design',sourceLabel:'ComfyUI',
+        previewStatus:'ready',previewObjectUrl:'blob:one'},
+      {conceptId:'two',version:2,selected:true,prompt:'Second design',sourceLabel:'Codex',
+        previewStatus:'ready',previewObjectUrl:'blob:two'},
+    ]);
+    assert.equal(hit(700,596),null,'selected version cannot be submitted twice');
+    assert.equal(hit(895,71),'hide-panel');
+    panel.setConceptGallery([{conceptId:'two',version:2,selected:false,
+      prompt:'Second design',sourceLabel:'Codex',previewStatus:'error'}]);
+    assert.equal(hit(800,525),'concept-retry-2');
+    assert.equal(hit(700,596),null,'failed previews cannot be blindly selected');
+    panel.setConceptGallery([]);
+    assert.equal(images[1].onload,null,'old-session image callbacks are discarded');
+    assert.equal(hit(700,596),null);
+  }finally{
+    if(previousDocument===undefined)delete globalThis.document;
+    else globalThis.document=previousDocument;
+  }
+});
 
 test('Codex panel shows voice phases and returns to the first page for new feedback',()=>{
   const drawn=[];

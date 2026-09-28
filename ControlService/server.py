@@ -13,6 +13,7 @@ import math
 import os
 from pathlib import Path
 import re
+import subprocess
 import tempfile
 import threading
 import time
@@ -30,6 +31,7 @@ from learning import LearningBridge, LearningError, identifier
 from codex_provider import CodexConfig, CodexProviderError, codex_options, select_codex_config
 from agent_session import LocalCodexAgentBackend
 from agent_portal import AgentPortal, AgentPortalError
+from concept_store import ConceptStore
 from matrix_tool_bridge import MatrixToolBridge
 import speech
 import tts
@@ -38,7 +40,7 @@ from web_assets import WebAssetCatalog, WebAssetError, MAX_BYTES as MAX_GLB_BYTE
 from web_components import ComponentError, validate_attachment, validate_package, COMPONENT_ID
 from web_component_catalog import WebComponentCatalog
 from web_authoring import WebAuthoringJobs, WebAuthoringError
-from blender_authoring import BlenderAuthoringJobs, BlenderAuthoringError
+from blender_authoring import BlenderAuthoringJobs, BlenderAuthoringError, blender_executable
 from citizen_asset_profile import PROFILE_ID as CITIZEN_ASSET_PROFILE_ID
 from web_game import GamePlanError, design_game, wants_game, validate_game_plan, validate_saved_game
 from content_service import ContentBridge, runtime_capabilities
@@ -53,6 +55,7 @@ from procedural_contract import (ProceduralError, GENERATOR_ID, VERSION,
 
 MAX_BODY = 1024 * 1024
 MAX_EXCHANGE_BODY = 3 * 1024 * 1024  # two bounded snapshots plus a base64 JPEG
+MAX_BLEND_SOURCE_BYTES = 64 * 1024 * 1024
 MAX_OBJECTS = 100
 MAX_PHYSICS_BODIES = 16
 MAX_RIGID_BODIES = 32
@@ -3150,7 +3153,9 @@ def local_agent_backend(state=None):
     if state is not None and state.matrix_tool_bridge is None:
         state.matrix_tool_bridge = MatrixToolBridge(state)
     return LocalCodexAgentBackend(config, Path(__file__).resolve().parent.parent,
-                                  getattr(state, "matrix_tool_bridge", None))
+                                  getattr(state, "matrix_tool_bridge", None),
+                                  artifact_directory=(state.agent_portal.directory / "native_generated"
+                                                      if state is not None else None))
 
 
 def agent_capability_context(current):
@@ -3178,21 +3183,65 @@ def agent_room_status(current):
             "readOnly": current.get("readOnly", False)}
 
 
-def agent_runtime_context(state):
+def agent_scene_summary(current, priority_ids=(), *, include_asset_details=False):
+    """Bound one request-time scene sample; asset bounds stay local to each pose."""
+    scene_objects = current["scene"]["objects"]
+    objects = {item["objectId"]: item for item in scene_objects}
+    assets = {item["assetId"]: item for item in current["assets"]}
+    chosen, included = [], set()
+    for identifier in priority_ids:
+        if identifier in objects and identifier not in included:
+            chosen.append(objects[identifier])
+            included.add(identifier)
+    for item in scene_objects:
+        if len(chosen) >= 8:
+            break
+        if item["objectId"] not in included:
+            chosen.append(item)
+            included.add(item["objectId"])
+    def summarize(item):
+        asset = assets.get(item["assetId"], {})
+        return {"objectId": item["objectId"], "assetId": item["assetId"],
+                "anchorId": item["anchorId"], "transform": item["transform"],
+                **({"assetDisplayName": asset["displayName"]} if "displayName" in asset and
+                    (include_asset_details or item["objectId"] in priority_ids) else {}),
+                **({"localBounds": asset["localBounds"]} if "localBounds" in asset and
+                    (include_asset_details or item["objectId"] in priority_ids) else {}),
+                **({"procedural": item["procedural"]} if "procedural" in item else {}),
+                **({"animation": item["animation"]} if item["objectId"] in priority_ids and
+                    "animation" in item else {})}
+    return {"objectCount": len(scene_objects), "objects": [summarize(item) for item in chosen],
+            "omittedObjectCount": max(0, len(scene_objects) - len(chosen))}
+
+
+def concept_scene_fingerprint(current):
+    """Ignore asset-catalog refresh and observed Citizen motion during authoring."""
+    scene = scene_revision_data(current)["scene"]
+    return hashlib.sha256(json.dumps(scene, sort_keys=True, separators=(",", ":"),
+                                     ensure_ascii=True).encode("utf-8")).hexdigest()
+
+
+def agent_runtime_context(state, *, include_scene=False):
     """Refresh metadata for a text turn whose wearer did not opt into spatial data."""
     with state.lock:
         state.expire()
         current = state.latest if state.online() and state.latest else None
         return {"schemaVersion": 1, "kind": "matrix_runtime_context",
                 "online": current is not None,
+                "roomId": current["scene"]["roomId"] if current else None,
+                "sceneRevision": state.revision if current else None,
+                "hostWorldId": state.host_world_id if current else None,
+                "runtimeGeneration": state.runtime_generation if current else None,
                 **(agent_capability_context(current) if current else
                    {"runtimeDescriptor": None, "capabilityVersions": {},
                     "assetCatalogCount": None, "proceduralGeneratorCount": 0,
                     "creatorMode": None}),
-                "room": agent_room_status(current) if current else None}
+                "room": agent_room_status(current) if current else None,
+                **({"sceneSummary": agent_scene_summary(current, include_asset_details=True)}
+                   if current and include_scene else {})}
 
 
-def agent_turn_context(state, value):
+def agent_turn_context(state, value, *, creation=False):
     """Reduce one wearer-owned semantic hit to bounded, advisory agent data."""
     require(isinstance(value, dict) and set(value) == {"schemaVersion", "inputSource", "clientId",
             "roomId", "selectedObjectId", "pointingTarget", "viewerFrame"},
@@ -3237,51 +3286,132 @@ def agent_turn_context(state, value):
             except PlannerError as error:
                 raise APIError(400, str(error)) from None
             frame = checked["frames"][0]
-        asset_names = {item["assetId"]: item["displayName"] for item in current["assets"]}
-        def object_summary(item, *, target=False):
-            result = {"objectId": item["objectId"], "assetId": item["assetId"],
-                      "anchorId": item["anchorId"], "transform": item["transform"],
-                      **({"procedural": item["procedural"]} if "procedural" in item else {})}
-            if target:
-                if item["assetId"] in asset_names:
-                    result["assetDisplayName"] = asset_names[item["assetId"]]
-                if "animation" in item:
-                    result["animation"] = item["animation"]
-            return result
-        scene_objects = current["scene"]["objects"]
         priority_ids = [identifier for identifier in
                         (selected_id, target["objectId"] if target else None) if identifier]
-        summary_objects = []
-        included = set()
-        for identifier in priority_ids:
-            if identifier not in included:
-                summary_objects.append(objects[identifier])
-                included.add(identifier)
-        for item in scene_objects:
-            if len(summary_objects) >= 8:
-                break
-            if item["objectId"] not in included:
-                summary_objects.append(item)
-                included.add(item["objectId"])
+        summary = agent_scene_summary(current, priority_ids,
+                                      include_asset_details=creation)
+        summarized = {item["objectId"]: item for item in summary["objects"]}
         return {"schemaVersion": 1, "kind": "matrix_spatial_context",
-                "inputSource": value["inputSource"], "roomId": room_id,
+                "online": True, "inputSource": value["inputSource"], "roomId": room_id,
                 "sceneRevision": state.revision,
+                "hostWorldId": state.host_world_id,
+                "runtimeGeneration": state.runtime_generation,
                 **agent_capability_context(current),
                 "gameStatus": current.get("gameStatus"),
                 "room": agent_room_status(current),
-                "selectedObject": object_summary(objects[selected_id], target=True) if selected_id else None,
+                "selectedObject": summarized[selected_id] if selected_id else None,
                 "pointingTarget": target, "viewerFrame": frame,
-                "sceneSummary": {"objectCount": len(scene_objects),
-                                 "objects": [object_summary(item, target=item["objectId"] in priority_ids)
-                                             for item in summary_objects],
-                                 "omittedObjectCount": max(0, len(scene_objects) - 8)}}
+                "sceneSummary": summary}
+
+
+_CONCEPT_NEGATED_CLAUSE = re.compile(
+    r"\b(?:do not|don't|never|without|no need to|"
+    r"not(?!\s+(?:only|just)\b[^.!?;]*?\bbut\s+also\b))\b"
+    r"[^.!?;]*?(?=\b(?:but|then)\b|[.!?;]|$)", re.IGNORECASE)
+_CONCEPT_VERSION_REFERENCE = re.compile(
+    r"(?:\bversion\s+|(?<![\w-])v)(\d+|one|two|three|four|five|six|seven|eight|nine|ten)\b",
+    re.IGNORECASE)
+_CONCEPT_ID_REFERENCE = re.compile(r"\b(?:concept|image)\s+([0-9a-f]{32})\b", re.IGNORECASE)
+_SELECTED_CONCEPT_REFERENCE = re.compile(
+    r"\bselected\s+(?:concept|design|image|version)\b", re.IGNORECASE)
+_NEGATED_IMAGE_REFERENCE = re.compile(
+    r"\b(?:the|this)\s+image\b(?!\s+(?:viewer|preview|gallery)\b)", re.IGNORECASE)
+_DEFERRED_BUILD = re.compile(r"\bnot\s+(?:(?:just|quite)\s+)?(?:yet|now|today)\b",
+                             re.IGNORECASE)
+
+
+def concept_version_references(value):
+    words = {name: index for index, name in enumerate(
+        ("one", "two", "three", "four", "five", "six", "seven", "eight", "nine", "ten"), 1)}
+    return [int(match[1]) if match[1].isdigit() else words[match[1].lower()]
+            for match in _CONCEPT_VERSION_REFERENCE.finditer(value)]
+
+
+def concept_positive_request(value):
+    """Remove clauses that explicitly exclude a concept or build action."""
+    request = re.sub(r"^(?:please\s+)?(?:hey\s+)?operator[,;:\s]+", "", value.strip(),
+                     flags=re.IGNORECASE)
+    request = re.sub(r"^please\s+", "", request, flags=re.IGNORECASE)
+    # Bind/review follow-ups can mention a completed build and say not to
+    # spawn another one; neither phrase authorizes a new selected-image build.
+    return _CONCEPT_NEGATED_CLAUSE.sub("", request)
+
+
+def concept_build_request(value):
+    """Recognize an explicit request to use the selected design for a build."""
+    if type(value) is not str:
+        return False
+    for clause in re.split(r"[.!?;]", value):
+        for deferred in _DEFERRED_BUILD.finditer(clause):
+            before = clause[:deferred.start()]
+            if (re.search(r"\b(?:build|construct|model|spawn|import|place|make|create|turn)\b",
+                          before, re.IGNORECASE) and
+                    (re.search(r"\b(?:selected|concept|design|reference|version|this|that|it)\b",
+                               before, re.IGNORECASE) or
+                     _CONCEPT_VERSION_REFERENCE.search(before))):
+                return False
+    if any(_SELECTED_CONCEPT_REFERENCE.search(clause.group())
+           for clause in _CONCEPT_NEGATED_CLAUSE.finditer(value)):
+        return False
+    request = concept_positive_request(value)
+    request = re.sub(r"\bbuild\s+(?:is|was|has been)\s+(?:already\s+)?"
+                     r"(?:complete|completed|finished|done)\b", "", request,
+                     flags=re.IGNORECASE)
+    followup = re.match(r"(?:(?:can|could|would) you\s+)?(?:bind|review|inspect|check|"
+                        r"verify|show|report|describe|summarize|status|explain|tell|resume|"
+                        r"continue|play)\b", request, re.IGNORECASE)
+    new_build = re.search(r"(?:\b(?:and|then|now|also)\s+|[;,]\s*)"
+                          r"(?:build|construct|model|spawn|import|place|make|create|turn)\b",
+                          request, re.IGNORECASE)
+    if followup and not new_build:
+        return False
+    explicit = (re.search(r"\b(?:selected|concept|design|reference|version)\b",
+                          request, re.IGNORECASE) or
+                re.search(r"\b(?:this|that|the)\s+image\b|\bimage\s+[0-9a-f]{32}\b",
+                          request, re.IGNORECASE) or
+                re.search(r"\b(?:build|construct|model|spawn|import|place|make|create)\s+v\d+\b",
+                          request, re.IGNORECASE))
+    # "Build this bridge" names an ordinary text creation. A bare pronoun
+    # refers to the selected design only when no object noun follows it.
+    deictic = re.search(r"\b(?:this|that|it)\b(?=\s*(?:[.!?,;]|$)|\s+"
+                        r"(?:in|into|around|here|there|at|on|for)\b)", request, re.IGNORECASE)
+    if not explicit and not deictic:
+        return False
+    if re.search(r"\b(?:build|construct|model|spawn|import)\b", request, re.IGNORECASE):
+        return True
+    if re.search(r"\bplace\b", request, re.IGNORECASE):
+        return bool(explicit or deictic and re.search(r"\b(?:matrix|world|scene)\b",
+                                                       request, re.IGNORECASE))
+    if re.search(r"\b(?:make|create|turn)\b", request, re.IGNORECASE):
+        return bool(deictic or explicit and re.search(
+            r"\b(?:matrix|world|scene|blender|asset|object|geometry|around|into)\b",
+            request, re.IGNORECASE))
+    return bool(re.search(r"\buse\b.{0,40}\b(?:design|concept|reference|image)\b",
+                          request, re.IGNORECASE))
+
+
+def concept_reference_matches(value, selected):
+    """An explicit version/ID may never silently resolve to another selection."""
+    for clause in _CONCEPT_NEGATED_CLAUSE.finditer(value):
+        excluded = clause.group()
+        if (_SELECTED_CONCEPT_REFERENCE.search(excluded) or
+                _NEGATED_IMAGE_REFERENCE.search(excluded) or
+                selected.get("version") in concept_version_references(excluded) or
+                any(match[1].lower() == selected.get("conceptId")
+                    for match in _CONCEPT_ID_REFERENCE.finditer(excluded))):
+            return False
+    request = concept_positive_request(value)
+    return (all(version == selected.get("version")
+                for version in concept_version_references(request)) and
+            all(match[1].lower() == selected.get("conceptId")
+                for match in _CONCEPT_ID_REFERENCE.finditer(request)))
 
 
 def agent_portal_action(state, path, body):
     portal = state.agent_portal
     if path == "/api/agent/transcribe":
         require(set(body) == {"sessionId", "audioBase64"}, "Invalid Agent transcription request")
-        portal.status(body["sessionId"])
+        state.agent_portal_status(body["sessionId"])
         audio = speech.decode_audio(body["audioBase64"])
         speech.configuration()
         require(state.voice_worker.acquire(blocking=False),
@@ -3295,13 +3425,15 @@ def agent_portal_action(state, path, body):
         return portal.open()
     if path == "/api/agent/status":
         require(set(body) in ({"sessionId"}, {"sessionId", "cursor"}), "Invalid Agent status request")
-        return portal.status(body["sessionId"], body.get("cursor", 0))
+        return state.agent_portal_status(body["sessionId"], body.get("cursor", 0))
     if path == "/api/agent/turn":
-        require(set(body) in ({"sessionId", "text"}, {"sessionId", "text", "context"}),
-                "Invalid Agent turn request")
-        context = (agent_turn_context(state, body["context"]) if "context" in body
-                   else agent_runtime_context(state))
-        return portal.send_text(body["sessionId"], body["text"], context)
+        # Reserve admission before reading status or changing a concept guard.
+        if not state.agent_turn_submission_lock.acquire(blocking=False):
+            raise AgentPortalError(409, "Agent is already working")
+        try:
+            return agent_portal_turn(state, body)
+        finally:
+            state.agent_turn_submission_lock.release()
     if path == "/api/agent/approval":
         require(set(body) == {"sessionId", "approvalId", "turnId", "approve"}, "Invalid Agent approval request")
         return portal.decide(body["sessionId"], body["approvalId"], body["turnId"], body["approve"])
@@ -3309,6 +3441,105 @@ def agent_portal_action(state, path, body):
         require(set(body) == {"sessionId", "turnId"}, "Invalid Agent cancel request")
         return portal.cancel(body["sessionId"], body["turnId"])
     raise APIError(404, "Not found")
+
+
+def agent_portal_turn(state, body):
+    """Submit one turn while holding the session submission reservation."""
+    portal = state.agent_portal
+    fields = set(body)
+    expected = {"expectedConceptId", "expectedConceptVersion"}
+    require({"sessionId", "text"} <= fields <=
+            {"sessionId", "text", "context", "creationMode"} | expected and
+            (expected <= fields or expected.isdisjoint(fields)),
+            "Invalid Agent turn request")
+    # Selection and image bytes stay on the PC. The browser names neither a
+    # path nor an image; a new image result never starts a Codex build.
+    portal_status = state.agent_portal_status(body["sessionId"])
+    if portal_status.get("activeTurnId") is not None:
+        raise AgentPortalError(409, "Agent is already working")
+    with state.lock:
+        if (state.concept_build_guard is not None and
+                state.concept_build_guard.get("sessionId") == body["sessionId"]):
+            state.concept_build_guard = None
+    selected = (state.concepts.selected(body["sessionId"])
+                if concept_build_request(body["text"]) else None)
+    require((expected | {"creationMode"}).isdisjoint(fields) or selected is not None,
+            "Concept build options require a selected-concept build request", 409)
+    if selected is None and concept_build_request(body["text"]):
+        raise APIError(409, "Select a ready concept version before building it")
+    if selected is not None:
+        creation_mode = body.get("creationMode", "auto")
+        require(type(creation_mode) is str and
+                creation_mode in ("auto", "procedural", "blender"),
+                "Invalid concept creation mode")
+        if expected <= fields:
+            require(type(body["expectedConceptId"]) is str and
+                    re.fullmatch(r"[0-9a-f]{32}", body["expectedConceptId"]) and
+                    type(body["expectedConceptVersion"]) is int and
+                    body["expectedConceptVersion"] >= 1,
+                    "Invalid expected concept identity")
+            require(selected["conceptId"] == body["expectedConceptId"] and
+                    selected["version"] == body["expectedConceptVersion"],
+                    "Selected concept changed; review and select the intended version again", 409)
+        require(concept_reference_matches(body["text"], selected),
+                "Requested concept version is not selected; select it first", 409)
+    context = (agent_turn_context(state, body["context"], creation=selected is not None)
+               if "context" in body
+               else agent_runtime_context(state, include_scene=selected is not None))
+    if selected is None:
+        return portal.send_text(body["sessionId"], body["text"], context)
+    require(context.get("online") is True and type(context.get("sceneSummary")) is dict,
+            "Current Matrix scene is required to build from a concept", 409)
+    build_id = uuid.uuid4().hex
+    provenance = {"buildRequestId": build_id, "conceptId": selected["conceptId"],
+                  "creationMode": creation_mode,
+                  "status": "requested", "turnId": None,
+                  "roomId": context["roomId"], "sceneRevision": context["sceneRevision"],
+                  "hostWorldId": context.get("hostWorldId"),
+                  "runtimeGeneration": context.get("runtimeGeneration")}
+    with state.lock:
+        state.expire()
+        require(state.online() and state.latest is not None and
+                state.latest["scene"]["roomId"] == context["roomId"] and
+                state.revision == context["sceneRevision"] and
+                state.host_world_id == context.get("hostWorldId") and
+                state.runtime_generation == context.get("runtimeGeneration"),
+                "Matrix scene changed before concept build started; retry", 409)
+        state.concepts.record_build(body["sessionId"], provenance)
+        state.concept_build_guard = {"sessionId": body["sessionId"],
+                                     "sceneFingerprint": concept_scene_fingerprint(state.latest),
+                                     **{key: provenance[key] for key in
+                                     ("buildRequestId", "roomId", "sceneRevision",
+                                      "hostWorldId", "runtimeGeneration")}}
+    try:
+        result = portal.send_text(body["sessionId"], body["text"], context,
+                                  {**selected, "buildRequestId": build_id,
+                                   "creationMode": creation_mode})
+    except Exception:
+        with state.lock:
+            if (state.concept_build_guard is not None and
+                    state.concept_build_guard.get("buildRequestId") == build_id):
+                state.concept_build_guard = None
+        try:
+            state.concepts.record_build(body["sessionId"],
+                                        {**provenance, "status": "failed"})
+        except (ContentError, OSError):
+            pass
+        raise
+    try:
+        state.concepts.record_build(body["sessionId"],
+                                    {**provenance, "turnId": result["turnId"]})
+    except (ContentError, OSError):
+        with state.lock:
+            if (state.concept_build_guard is not None and
+                    state.concept_build_guard.get("buildRequestId") == build_id):
+                state.concept_build_guard = None
+        try:
+            portal.cancel(body["sessionId"], result["turnId"])
+        except AgentPortalError:
+            pass
+        raise AgentPortalError(503, "Concept build record could not be saved") from None
+    return result
 
 
 def web_virtual_floor_ready(snapshot):
@@ -3381,6 +3612,40 @@ def require_physics_eligible(obj, assets, registered_assets, pose=None):
     # the model bottom even when the raw export pivot starts elsewhere.
 
 
+def readable_blend_source(path):
+    """Ask Blender to open a bounded raw or zstd source without file scripts."""
+    try:
+        with path.open("rb") as source:
+            header = source.read(7)
+        if (header != b"BLENDER" and header[:4] != b"\x28\xb5\x2f\xfd") or \
+                path.stat().st_size > MAX_BLEND_SOURCE_BYTES:
+            return False
+    except OSError:
+        return False
+    try:
+        executable = blender_executable()
+    except BlenderAuthoringError:
+        raise APIError(503, "Blender is needed to verify a compressed .blend source") from None
+    # The source path is an argv value, never executable code. Disable file
+    # scripts and require the loaded Blender filepath to identify this file.
+    command = [executable, "--background", "--factory-startup", "--disable-autoexec",
+               str(path), "--python-expr",
+               "import bpy; print('MATRIX_BLEND_SOURCE=' + bpy.data.filepath)"]
+    try:
+        process = subprocess.run(command, cwd=path.parent, capture_output=True, timeout=60)
+    except (OSError, subprocess.TimeoutExpired):
+        return False
+    if process.returncode != 0:
+        return False
+    marker = "MATRIX_BLEND_SOURCE="
+    lines = process.stdout.decode("utf-8", errors="replace").splitlines()
+    loaded = [line[len(marker):] for line in lines if line.startswith(marker)]
+    try:
+        return len(loaded) == 1 and Path(loaded[0]).samefile(path)
+    except OSError:
+        return False
+
+
 class State:
     def __init__(self, directory, clock=time.monotonic, learning=None,
                  web_assets_directory=None, citizen_capability_budget=1,
@@ -3402,6 +3667,8 @@ class State:
             self.web_assets, citizen_directory=self.directory / "citizen_blender_jobs")
         self.matrix_tool_bridge = None
         self.agent_portal = AgentPortal(self.directory / ".agent_portal", lambda: local_agent_backend(self))
+        self.concept_build_guard = None
+        self.agent_turn_submission_lock = threading.Lock()
         self.clock = clock
         self.lock = threading.RLock()
         self.client_id = None
@@ -3445,12 +3712,181 @@ class State:
         self.last_capture_request = -float("inf")
         self.voice_capture_id = None
         self.content = ContentBridge(self)
+        self.concepts = ConceptStore(self.directory / ".agent_portal" / "concepts",
+                                     lambda: self.content.catalog,
+                                     lambda: self.agent_portal)
         self.clients = ClientAPI(self, plan, lambda: client_planner_modes(self))
 
     @property
     def citizen_construction_budget(self):
         """Compatibility spelling for the #143 bounded construction fixture."""
         return self.citizen_capability_budget
+
+    def concept_build_preflight(self):
+        """Reject the first concept world mutation if authoring outlived its scene."""
+        with self.lock:
+            guard = self.concept_build_guard
+            if guard is None:
+                return
+            self.expire()
+            require(self.online() and self.latest is not None and
+                    self.latest["scene"]["roomId"] == guard["roomId"] and
+                    concept_scene_fingerprint(self.latest) == guard["sceneFingerprint"] and
+                    self.host_world_id == guard["hostWorldId"] and
+                    self.runtime_generation == guard["runtimeGeneration"],
+                    "Matrix scene changed while the selected concept was being built; ask for a new placement", 409)
+
+    def concept_build_first_action(self):
+        """Subsequent typed actions each carry their own current scene revision."""
+        with self.lock:
+            self.concept_build_guard = None
+
+    def agent_portal_status(self, session_id, cursor=0):
+        """Reconcile only exact terminal turns before reporting concept builds."""
+        status = self.agent_portal.status(session_id, cursor)
+        self.concepts.reconcile_terminal_builds(session_id, status)
+        return status
+
+    def agent_record_concept_build(self, value):
+        """Persist a concept result only after exact, observed Matrix receipts."""
+        require(type(value) is dict and set(value) in (
+            {"build_request_id", "concept_id", "strategy", "receipt_ids", "object_ids", "asset_ids"},
+            {"build_request_id", "concept_id", "strategy", "receipt_ids", "object_ids", "asset_ids",
+             "source_paths"},
+            {"build_request_id", "concept_id", "strategy", "receipt_ids", "object_ids", "asset_ids",
+             "recipe"},
+            {"build_request_id", "concept_id", "strategy", "receipt_ids", "object_ids", "asset_ids",
+             "source_paths", "recipe"}),
+            "Invalid concept build result")
+        build_id = value["build_request_id"]
+        concept_id = value["concept_id"]
+        require(type(build_id) is str and re.fullmatch(r"[0-9a-f]{32}", build_id) and
+                type(concept_id) is str and re.fullmatch(r"[0-9a-f]{32}", concept_id),
+                "Invalid concept build identity")
+        strategy = text(value["strategy"], "concept creation strategy", limit=160)
+        ids = value["receipt_ids"]
+        objects = value["object_ids"]
+        assets = value["asset_ids"]
+        require(type(ids) is list and type(objects) is list and type(assets) is list and
+                1 <= len(ids) == len(objects) <= 8 and 1 <= len(assets) <= 8 and
+                len(set(ids)) == len(ids) and len(set(objects)) == len(objects) and
+                len(set(assets)) == len(assets) and
+                all(type(item) is str and re.fullmatch(r"[0-9a-f]{32}", item) for item in ids) and
+                all(type(item) is str and 1 <= len(item) <= 128 for item in objects + assets),
+                "Invalid concept build receipts or object IDs")
+        source_paths = value.get("source_paths", [])
+        require(type(source_paths) is list and len(source_paths) <= 8 and
+                all(type(item) is str and 1 <= len(item) <= 1024 for item in source_paths),
+                "Invalid concept build source paths")
+        checked_paths = []
+        for source in source_paths:
+            path = Path(source)
+            try:
+                checked = path.resolve(strict=True)
+                allowed = any(checked.is_relative_to(root.resolve()) for root in
+                              (Path(__file__).resolve().parent.parent, self.directory))
+            except (OSError, ValueError):
+                allowed = False
+            require(path.is_absolute() and allowed and checked.is_file(),
+                    "Concept build source must be an existing PC workspace file", 409)
+            checked_paths.append(str(checked))
+        recipe = value.get("recipe")
+        if recipe is not None:
+            require(type(recipe) is dict and set(recipe) ==
+                    {"generatorId", "generatorVersion", "sourceRevision"} and
+                    all(type(item) is str and 1 <= len(item) <= 128 for item in recipe.values()),
+                    "Invalid concept build recipe")
+        session_id = self.agent_portal.current_session_id()
+        require(session_id is not None, "Agent Portal session is unavailable", 409)
+        prior = self.concepts.build_provenance(session_id, build_id)
+        require(prior["conceptId"] == concept_id and prior["status"] == "requested" and
+                prior.get("turnId") is not None,
+                "Concept build request is not active", 409)
+        portal_status = self.agent_portal_status(session_id)
+        require(portal_status.get("activeTurnId") == prior["turnId"],
+                "Concept build turn is no longer active", 409)
+        with self.lock:
+            self.expire()
+            require(self.online() and self.latest is not None and
+                    self.latest["scene"]["roomId"] == prior["roomId"] and
+                    self.host_world_id == prior.get("hostWorldId") and
+                    self.runtime_generation == prior.get("runtimeGeneration"),
+                    "Matrix world changed before concept result verification", 409)
+            observed = {item["objectId"]: item for item in self.latest["scene"]["objects"]}
+            verified_assets = []
+            verified_recipes = []
+            for receipt_id, object_id in zip(ids, objects):
+                if receipt_id in self.agent_spawn_ids:
+                    issued = self.agent_spawn_ids[receipt_id]
+                    receipt = self.agent_spawn_status(receipt_id)
+                    asset_id = receipt["assetId"]
+                elif receipt_id in self.agent_procedural_ids:
+                    issued = self.agent_procedural_ids[receipt_id]
+                    require(issued["action"] == "create",
+                            "A procedural update cannot prove a new concept object", 409)
+                    receipt = self.agent_procedural_status(receipt_id)
+                    asset_id = "matrix:procedural"
+                    verified_recipes.append({key: receipt[key] for key in
+                                             ("generatorId", "generatorVersion", "sourceRevision")})
+                else:
+                    raise APIError(404, "Concept build receipt is unavailable")
+                require(issued.get("issuedAt", 0) >= prior["createdAt"] and
+                        receipt["status"] == "succeeded" and
+                        receipt["roomId"] == prior["roomId"] and
+                        receipt.get("objectId") == object_id and
+                        observed.get(object_id, {}).get("assetId") == asset_id,
+                        "Concept build needs a matching succeeded Matrix receipt and observed object", 409)
+                verified_assets.append(asset_id)
+            require(set(assets) == set(verified_assets),
+                    "Concept build asset IDs do not match verified receipts", 409)
+            creation_mode = prior.get("creationMode", "auto")
+            if creation_mode == "procedural":
+                require(len(verified_recipes) == len(ids),
+                        "Procedural creation mode needs only verified generator create receipts", 409)
+            elif creation_mode == "blender":
+                require(not verified_recipes and all(asset_id.startswith("web:")
+                                                     for asset_id in verified_assets),
+                        "Blender creation mode needs registered GLB spawn receipts", 409)
+                blend_sources = [Path(path) for path in checked_paths
+                                 if Path(path).suffix.lower() == ".blend"]
+                glb_sources = [Path(path) for path in checked_paths
+                               if Path(path).suffix.lower() == ".glb"]
+                require(blend_sources and glb_sources,
+                        "Blender creation mode needs an editable .blend source and exported .glb", 409)
+                valid_blend = any(readable_blend_source(path) for path in blend_sources)
+                require(valid_blend, "Blender source is not a readable .blend file", 409)
+                try:
+                    registered = {item["assetId"]: item for item in self.web_assets.list()}
+                    registered_digests = set()
+                    for asset_id in verified_assets:
+                        entry = registered.get(asset_id)
+                        require(entry is not None, "Blender GLB is not registered", 409)
+                        self.web_assets.file(entry["sha256"])
+                        registered_digests.add(entry["sha256"])
+                except WebAssetError as error:
+                    raise APIError(409, str(error)) from None
+                try:
+                    require(all(path.stat().st_size <= MAX_GLB_BYTES for path in glb_sources),
+                            "Blender GLB source exceeds the registration limit", 409)
+                    exported_digests = {hashlib.sha256(path.read_bytes()).hexdigest()
+                                        for path in glb_sources}
+                except OSError:
+                    raise APIError(409, "Blender GLB source is unavailable") from None
+                require(registered_digests <= exported_digests,
+                        "Blender GLB source does not match the spawned registered asset", 409)
+            if recipe is not None:
+                require(recipe in verified_recipes,
+                        "Concept build recipe does not match a verified receipt", 409)
+            elif len(verified_recipes) == 1:
+                recipe = verified_recipes[0]
+            result = self.concepts.record_build(session_id, {
+                "buildRequestId": build_id, "conceptId": concept_id,
+                "status": "completed", "turnId": prior["turnId"],
+                "creationMode": creation_mode,
+                "strategy": strategy, "sourcePaths": checked_paths,
+                "assetIds": assets, "objectIds": objects, "receipts": ids,
+                **({"recipe": recipe} if recipe is not None else {})})
+            return result
 
     @citizen_construction_budget.setter
     def citizen_construction_budget(self, value):
@@ -4526,6 +4962,8 @@ class State:
             request_id = queued["requestId"]
             self.agent_spawn_ids[request_id] = {"roomId": room_id, "assetId": asset_id,
                                                 "transform": pose,
+                                                "requestSceneRevision": revision,
+                                                "issuedAt": time.time(),
                                                 "existingObjectIds": {item["objectId"] for item in
                                                                       current["scene"]["objects"]}}
             while len(self.agent_spawn_ids) > 64:
@@ -4566,6 +5004,8 @@ class State:
             request_id = queued["requestId"]
             self.agent_spawn_ids[request_id] = {"roomId": room_id, "assetId": asset_id,
                                                 "transform": pose,
+                                                "requestSceneRevision": revision,
+                                                "issuedAt": time.time(),
                                                 "existingObjectIds": {item["objectId"] for item in
                                                                       current["scene"]["objects"]}}
             while len(self.agent_spawn_ids) > 64:
@@ -5044,7 +5484,8 @@ class State:
             self.agent_procedural_ids[request_id] = {
                 "action": action, "roomId": room_id, "objectId": object_id,
                 "recipe": copy.deepcopy(recipe), "transform": pose,
-                "hostWorldId": self.host_world_id}
+                "hostWorldId": self.host_world_id,
+                "requestSceneRevision": revision, "issuedAt": time.time()}
             while len(self.agent_procedural_ids) > 64:
                 self.agent_procedural_ids.popitem(last=False)
             return self.agent_procedural_status(request_id)
@@ -7031,7 +7472,10 @@ class Handler(BaseHTTPRequestHandler):
         script_sources = "'self' 'unsafe-inline'"
         if allow_webassembly:
             script_sources += " 'wasm-unsafe-eval'"
-        self.send_header("Content-Security-Policy", "default-src 'self'; img-src 'self' data:; "
+        # GLTFLoader fetches embedded GLB textures through blob: URLs before
+        # createImageBitmap; img-src alone does not authorize that fetch.
+        self.send_header("Content-Security-Policy", "default-src 'self'; img-src 'self' data: blob:; "
+                         "connect-src 'self' blob:; "
                          f"script-src {script_sources}; style-src 'self' 'unsafe-inline'; "
                          "frame-ancestors 'none'")
         self.end_headers()
@@ -7194,7 +7638,19 @@ class Handler(BaseHTTPRequestHandler):
                 self.send_data(200, asset.read_bytes(), "model/gltf-binary")
                 return
             self.authenticate()
-            if path == "/api/state":
+            if path == "/api/agent/concepts":
+                query = urllib.parse.parse_qs(url.query, keep_blank_values=True)
+                require(set(query) == {"sessionId"} and len(query["sessionId"]) == 1,
+                        "Concept status requires one Agent session ID")
+                session_id = query["sessionId"][0]
+                self.server.state.agent_portal_status(session_id)
+                data = self.server.state.concepts.status(session_id)
+            elif re.fullmatch(r"/api/agent/concepts/[0-9a-f]{32}/preview", path):
+                concept_id = path.split("/")[4]
+                asset, mime_type = self.server.state.concepts.preview(concept_id)
+                self.send_data(200, asset.read_bytes(), mime_type)
+                return
+            elif path == "/api/state":
                 data = self.server.state.status()
             elif path == "/api/web/assets":
                 try:
@@ -7258,7 +7714,7 @@ class Handler(BaseHTTPRequestHandler):
             self.send_data(200, data)
         except (WebAuthoringError, BlenderAuthoringError) as error:
             self.send_api_error(APIError(error.status, str(error)))
-        except (APIError, LearningError, ContentError, ClientError) as error:
+        except (APIError, AgentPortalError, LearningError, ContentError, ClientError) as error:
             self.send_api_error(error)
         except PlannerError as error:
             self.send_data(error.status, {"error": str(error)})
@@ -7299,6 +7755,36 @@ class Handler(BaseHTTPRequestHandler):
                 data = self.server.quest_connection.reconnect(self.server.server_port, state.online)
             elif path.startswith("/api/content/"):
                 data = state.content.post(path, body)
+            elif path == "/api/agent/concepts":
+                require({"sessionId", "prompt"} <= set(body) <=
+                        {"sessionId", "prompt", "negativePrompt", "providerId"},
+                        "Invalid concept generation request")
+                state.agent_portal_status(body["sessionId"])
+                data = state.concepts.create(body["sessionId"], body["prompt"],
+                                             negative_prompt=body.get("negativePrompt"),
+                                             provider_id=body.get("providerId"))
+            elif path == "/api/agent/concepts/variation":
+                require({"sessionId", "sourceConceptId"} <= set(body) <=
+                        {"sessionId", "sourceConceptId", "prompt", "negativePrompt",
+                         "providerId"},
+                        "Invalid concept variation request")
+                state.agent_portal_status(body["sessionId"])
+                data = state.concepts.create(body["sessionId"], body.get("prompt"),
+                                             source_concept_id=body["sourceConceptId"],
+                                             negative_prompt=body.get("negativePrompt"),
+                                             provider_id=body.get("providerId"))
+            elif path == "/api/agent/concepts/select":
+                require({"sessionId", "conceptId"} <= set(body) <=
+                        {"sessionId", "conceptId", "designNotes"},
+                        "Invalid concept selection request")
+                state.agent_portal_status(body["sessionId"])
+                data = state.concepts.select(body["sessionId"], body["conceptId"],
+                                             body.get("designNotes"))
+            elif path == "/api/agent/concepts/cancel":
+                require(set(body) == {"sessionId", "conceptId"},
+                        "Invalid concept cancellation request")
+                state.agent_portal_status(body["sessionId"])
+                data = state.concepts.cancel(body["sessionId"], body["conceptId"])
             elif path == "/api/web/authoring":
                 data = state.web_authoring.submit(body)
             elif path == "/api/web/blender":

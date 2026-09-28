@@ -138,7 +138,7 @@ function paintDisplay(board,display,observation,headline){
     observation.status==='unavailable'?'#ffd0b7':'#b8ffeb',4,36);
   board.texture.needsUpdate=true;
 }
-export function operatorPanel(){
+export function operatorPanel({createImage=()=>new Image()}={}){
   const canvas=document.createElement('canvas');canvas.width=1024;canvas.height=768;
   const texture=new THREE.CanvasTexture(canvas);texture.colorSpace=THREE.SRGBColorSpace;
   const mesh=new THREE.Mesh(new THREE.PlaneGeometry(.96,.72),new THREE.MeshBasicMaterial({map:texture,transparent:true,depthTest:false,depthWrite:false,side:THREE.DoubleSide}));
@@ -146,25 +146,47 @@ export function operatorPanel(){
   const group=new THREE.Group();group.add(mesh);group.visible=false;
   let message='Aim here, hold trigger, and ask for a scene.',tone='idle',page=0,mode='chat',proposal=null;
   let agent={activity:'Not connected',content:'Connect to Codex on the PC.',pending:false,approvalReviewable:false,active:false,connected:false,voiceStatus:'',latestTurnId:''};
-  let pinLabel='PIN TO WALL',voiceLabel='VOICE ON',originLabel='ROOM ORIGIN UNKNOWN',conversationCount=0;
+  let creationMode='auto';
+  let pinLabel='PIN TO WALL',voiceLabel='VOICE ON',originLabel='ROOM ORIGIN UNKNOWN',conversationCount=0,xrMode=null;
   let voiceInputLabel='HOLD TO SPEAK';
   let gameStatus='No game running.',worldInfo={objects:0,canConfirm:false,alignment:'No room scan'},worldWarning='';
   let creatorMode={mode:'creator',simulation:'paused',revision:0};
   let worldNotice={text:'',tone:'idle'};
   let cameraStatus='Camera not tested',cameraActive=false;
+  let concepts=[],conceptIndex=0,conceptKey='[]';
+  const conceptImages=new Map();
   let buttons=[];
+  const currentConcept=()=>concepts[conceptIndex]||null;
+  const loadConceptImage=(url)=>{
+    if(!url||conceptImages.has(url))return;
+    const image=createImage(),entry={image,state:'loading'};
+    conceptImages.set(url,entry);
+    image.onload=()=>{
+      if(conceptImages.get(url)!==entry)return;
+      entry.state=image.naturalWidth>0&&image.naturalHeight>0?'ready':'error';
+      if(mode==='concepts')paint();
+    };
+    image.onerror=()=>{
+      if(conceptImages.get(url)!==entry)return;
+      entry.state='error';if(mode==='concepts')paint();
+    };
+    image.src=url;
+  };
   const paint=()=>{
     const ctx=canvas.getContext('2d');ctx.fillStyle='#071923';ctx.fillRect(0,0,1024,768);
     ctx.strokeStyle=tone==='error'?'#ffad8d':'#55e9d2';ctx.lineWidth=9;ctx.strokeRect(10,10,1004,748);
-    ctx.fillStyle='#75f4df';ctx.font='bold 35px sans-serif';ctx.fillText('◈  OPERATOR',55,83);
     buttons=[];
     const button=(id,label,x,y,w,h,active=false)=>{
       ctx.fillStyle=active?'#53dcc5':'#245568';ctx.fillRect(x,y,w,h);
       ctx.fillStyle=active?'#062b34':'#e9f9fa';ctx.font=`bold ${label.length>15?21:25}px sans-serif`;
-      ctx.textAlign='center';ctx.textBaseline='middle';ctx.fillText(label,x+w/2,y+h/2);ctx.textAlign='left';ctx.textBaseline='alphabetic';
+      ctx.textAlign='center';ctx.textBaseline='middle';ctx.fillText(label,x+w/2,y+h/2,w-12);
+      ctx.textAlign='left';ctx.textBaseline='alphabetic';
       buttons.push({id,x,y,w,h});
     };
-    button('toggle-agent',mode==='agent'?'CHAT':'CODEX',290,35,103,72,mode==='agent');
+    if(mode==='world'&&xrMode)button('exit-xr',xrMode==='ar'?'EXIT AR':'EXIT VR',35,35,240,72);
+    else {ctx.fillStyle='#75f4df';ctx.font='bold 30px sans-serif';ctx.fillText('◈  OPERATOR',55,83);}
+    button('toggle-agent',mode==='agent'?'CHAT':'CODEX',290,35,103,72,
+      mode==='agent'||mode==='concepts');
     button('toggle-world',mode==='world'?'CHAT':'WORLD',404,35,120,72,
       mode==='world'||mode==='archives');
     button('toggle-mode',mode==='modes'?'CHAT':creatorMode.mode==='play'?'PLAY':'CREATE',535,35,124,72,mode==='modes');
@@ -252,7 +274,70 @@ export function operatorPanel(){
           'Recover the saved room origin before switching.':
           'Return to paused Creator Mode or finish recovery first.',55,560,910);
       }
+    }else if(mode==='concepts'){
+      ctx.fillStyle='#dff7f8';ctx.font='bold 32px sans-serif';
+      ctx.fillText('IMAGE CONCEPTS',55,177);
+      const concept=currentConcept();
+      if(!concept){
+        ctx.font='26px sans-serif';ctx.fillStyle='#8bb8c2';
+        ctx.fillText('No ready images yet. Ask Codex to generate one.',55,260,910);
+      }else{
+        ctx.font='bold 26px sans-serif';ctx.fillStyle='#75f4df';
+        ctx.fillText(`VERSION ${concept.version} · ${conceptIndex+1}/${concepts.length}${concept.selected?' · SELECTED':''}`,
+          55,209,900);
+        ctx.fillStyle='#112e3b';ctx.fillRect(55,225,595,335);
+        ctx.strokeStyle='#245568';ctx.lineWidth=3;ctx.strokeRect(55,225,595,335);
+        const preview=conceptImages.get(concept.previewObjectUrl);
+        if(concept.previewObjectUrl&&!preview)loadConceptImage(concept.previewObjectUrl);
+        if(preview?.state==='ready'){
+          const {image}=preview,ratio=Math.min(595/image.naturalWidth,335/image.naturalHeight);
+          const width=image.naturalWidth*ratio,height=image.naturalHeight*ratio;
+          ctx.drawImage(image,55+(595-width)/2,225+(335-height)/2,width,height);
+        }else{
+          ctx.fillStyle=concept.previewStatus==='error'||preview?.state==='error'?'#ffad8d':'#8bb8c2';
+          ctx.font='25px sans-serif';
+          ctx.fillText(concept.previewStatus==='error'||preview?.state==='error'?
+            'Preview unavailable':'Loading image preview…',88,390,525);
+        }
+        ctx.fillStyle='#8bb8c2';ctx.font='bold 22px sans-serif';
+        ctx.fillText(concept.sourceLabel||'IMAGE SOURCE',680,258,285);
+        ctx.fillStyle='#dff7f8';ctx.font='23px sans-serif';
+        const words=String(concept.prompt||'').split(/\s+/);let line='',lineNumber=0;
+        for(const word of words){
+          const next=line?`${line} ${word}`:word;
+          if(ctx.measureText(next).width>275&&line){
+            ctx.fillText(line,680,307+lineNumber*31,285);line=word;lineNumber++;
+            if(lineNumber===6)break;
+          }else line=next;
+        }
+        if(line&&lineNumber<6)ctx.fillText(line,680,307+lineNumber*31,285);
+        const previewFailed=concept.previewStatus==='error'||preview?.state==='error';
+        if(previewFailed)button(`concept-retry-${concept.version}`,'RETRY PREVIEW',680,495,285,60);
+        else if(agent.pending){ctx.fillStyle='#ffad8d';ctx.font='20px sans-serif';
+          ctx.fillText('Codex review waiting · return to CODEX',680,535,285);}
+        button('concept-prev','PREVIOUS',55,566,205,63);
+        button('concept-next','NEXT IMAGE',275,566,205,63);
+        if(!concept.selected&&preview?.state==='ready')button(`concept-select-${concept.version}`,
+          `USE VERSION ${concept.version}`,495,566,475,63,true);
+        else {ctx.fillStyle=concept.selected?'#53dcc5':'#245568';ctx.fillRect(495,566,475,63);
+          ctx.fillStyle=concept.selected?'#062b34':'#e9f9fa';ctx.font='bold 25px sans-serif';
+          ctx.textAlign='center';ctx.textBaseline='middle';
+          ctx.fillText(concept.selected?'SELECTED':previewFailed?'PREVIEW REQUIRED':'WAIT FOR IMAGE',732,597);
+          ctx.textAlign='left';ctx.textBaseline='alphabetic';}
+      }
     }else{
+      if(mode==='agent'){
+        ctx.fillStyle='#8bb8c2';ctx.font='bold 21px sans-serif';
+        ctx.fillText('METHOD FOR SELECTED IMAGE BUILDS ONLY',55,158);
+        button('creation-mode-auto','AUTO',55,176,265,72,creationMode==='auto');
+        button('creation-mode-procedural','PROCEDURAL',345,176,290,72,
+          creationMode==='procedural');
+        button('creation-mode-blender','BLENDER',660,176,309,72,
+          creationMode==='blender');
+      }
+      if(mode==='agent'&&concepts.length)
+        button('open-concepts',`IMAGE PREVIEWS · ${concepts.length} VERSION${concepts.length===1?'':'S'}`,
+          55,258,914,61,true);
       const content=mode==='agent'?`CODEX AGENT · ${agent.activity}\n\n${agent.content}`:mode==='proposal'&&proposal?
         `REVIEW BEFORE APPLY\n${proposal.summary||''}\n\n${proposal.kind==='game'?
           `GAME: ${proposal.gamePlan?.title||''}\nROLES\n${proposal.gamePlan?.roles?.map(role=>`${role.count} × ${role.assetId} as ${role.roleId} (${role.kind})`).join('\n')||''}\nRULES\n${proposal.gamePlan?.rules?.map(rule=>`${rule.actorRoleId} → ${rule.targetRoleId}: ${rule.event} within ${rule.distanceMeters} m, +${rule.scorePoints}`).join('\n')||''}\nOBJECTIVES\n${proposal.gamePlan?.objectives?.map(objective=>objective.kind==='score-at-least'?`At least ${objective.targetPoints} points`:`${objective.roleId}: ${objective.targetCount} delivered`).join('\n')||''}`:
@@ -267,9 +352,13 @@ export function operatorPanel(){
         }
         lines.push(line);
       }
-      const perPage=content.length>500?14:12,pages=Math.max(1,Math.ceil(lines.length/perPage));page%=pages;
-      const step=content.length>500?30:37;
-      lines.slice(page*perPage,(page+1)*perPage).forEach((line,index)=>ctx.fillText(line,55,160+index*step));
+      const perPage=mode==='agent'?concepts.length?7:content.length>500?10:9:
+        content.length>500?14:12;
+      const pages=Math.max(1,Math.ceil(lines.length/perPage));page%=pages;
+      const step=mode==='agent'?content.length>500?28:34:content.length>500?30:37;
+      const contentTop=mode==='agent'?concepts.length?355:286:160;
+      lines.slice(page*perPage,(page+1)*perPage).forEach((line,index)=>
+        ctx.fillText(line,55,contentTop+index*step));
       ctx.fillStyle='#8bb8c2';ctx.font='24px sans-serif';ctx.fillText(`Page ${page+1}/${pages}`,55,596);
     }
     if(worldWarning){ctx.fillStyle='#ffad8d';ctx.font='bold 19px sans-serif';ctx.fillText(worldWarning,55,625);}
@@ -287,6 +376,10 @@ export function operatorPanel(){
         button('pin',pinLabel,519,636,210,90);
         button('next','NEXT',741,636,248,90);
       }
+    }else if(mode==='concepts'){
+      button('concept-back','BACK TO CODEX',35,636,472,90,true);
+      button('pin',pinLabel,519,636,210,90);
+      button('voice',voiceInputLabel,741,636,248,90);
     }else if(mode==='proposal'&&proposal){
       button('voice',voiceInputLabel,35,636,330,90,true);
       button('apply','APPLY',377,636,207,90,true);
@@ -308,6 +401,7 @@ export function operatorPanel(){
     paint();
   };
   const setPinLabel=next=>{pinLabel=next;paint();};
+  const setXRMode=next=>{xrMode=next;if(mode==='world')paint();};
   const setVoiceLabel=next=>{voiceLabel=next;paint();};
   const setVoiceInputLabel=next=>{if(voiceInputLabel!==next){voiceInputLabel=next;paint();}};
   const setOriginLabel=next=>{if(originLabel!==next){originLabel=next;paint();}};
@@ -328,13 +422,37 @@ export function operatorPanel(){
   const setCameraStatus=(next,active)=>{if(cameraStatus!==next||cameraActive!==active){cameraStatus=next;cameraActive=active;paint();}};
   const setAgentStatus=next=>{if(JSON.stringify(agent)!==JSON.stringify(next)){
     if(agent.pending!==next.pending||agent.voiceStatus!==next.voiceStatus||agent.latestTurnId!==next.latestTurnId)page=0;
-    agent=next;if(mode==='agent')paint();
+    agent=next;if(mode==='agent'||mode==='concepts')paint();
   }};
+  const setConceptGallery=next=>{
+    const key=JSON.stringify(next||[]);
+    if(key===conceptKey)return;
+    const previousVersion=currentConcept()?.version;
+    conceptKey=key;concepts=Array.isArray(next)?next:[];
+    const urls=new Set(concepts.map(concept=>concept.previewObjectUrl).filter(Boolean));
+    for(const [url,entry] of conceptImages){
+      if(urls.has(url))continue;
+      entry.image.onload=null;entry.image.onerror=null;conceptImages.delete(url);
+    }
+    const previousIndex=concepts.findIndex(concept=>concept.version===previousVersion);
+    const selectedIndex=concepts.findIndex(concept=>concept.selected);
+    conceptIndex=previousIndex>=0?previousIndex:selectedIndex>=0?selectedIndex:
+      Math.max(0,concepts.length-1);
+    if(mode==='agent'||mode==='concepts')paint();
+  };
+  const setCreationMode=next=>{
+    if(!['auto','procedural','blender'].includes(next))throw Error('Invalid creation mode');
+    if(creationMode!==next){creationMode=next;if(mode==='agent')paint();}
+  };
   const toggleWorld=()=>{mode=mode==='world'?'chat':'world';page=0;paint();};
   const toggleArchives=()=>{mode=mode==='archives'?'world':'archives';page=0;paint();};
   const toggleModePage=()=>{mode=mode==='modes'?'chat':'modes';page=0;paint();};
-  const toggleAgent=()=>{mode=mode==='agent'?'chat':'agent';page=0;paint();};
-  const isAgentMode=()=>mode==='agent';
+  const toggleAgent=()=>{if(mode==='concepts'){mode='agent';paint();return;}
+    mode=mode==='agent'?'chat':'agent';page=0;paint();};
+  const toggleConcepts=()=>{mode=mode==='concepts'?'agent':'concepts';paint();};
+  const previousConcept=()=>{if(concepts.length){conceptIndex=(conceptIndex+concepts.length-1)%concepts.length;paint();}};
+  const nextConcept=()=>{if(concepts.length){conceptIndex=(conceptIndex+1)%concepts.length;paint();}};
+  const isAgentMode=()=>mode==='agent'||mode==='concepts';
   const openProposal=()=>{if(proposal){mode='proposal';page=0;paint();}};
   const hit=uv=>{
     if(!uv)return null;const x=uv.x*1024,y=(1-uv.y)*768;
@@ -342,8 +460,10 @@ export function operatorPanel(){
   };
   const nextPage=()=>{page++;paint();};
   paint();
-  return {group,mesh,setMessage,setPinLabel,setVoiceLabel,setOriginLabel,setConversationCount,
-    setProposal,setWorldInfo,setWorldNotice,setGameStatus,setCreatorMode,setWarning,setCameraStatus,setAgentStatus,setVoiceInputLabel,toggleWorld,toggleArchives,toggleModePage,toggleAgent,isAgentMode,openProposal,hit,nextPage};
+  return {group,mesh,setMessage,setPinLabel,setXRMode,setVoiceLabel,setOriginLabel,setConversationCount,
+    setProposal,setWorldInfo,setWorldNotice,setGameStatus,setCreatorMode,setWarning,setCameraStatus,
+    setAgentStatus,setConceptGallery,setCreationMode,setVoiceInputLabel,toggleWorld,toggleArchives,
+    toggleModePage,toggleAgent,toggleConcepts,previousConcept,nextConcept,isAgentMode,openProposal,hit,nextPage};
 }
 const v3=v=>new THREE.Vector3(v.x,v.y,v.z);
 const plain=v=>({x:Number(v.x.toFixed(3)),y:Number(v.y.toFixed(3)),z:Number(v.z.toFixed(3))});
@@ -455,6 +575,7 @@ export class MatrixView {
     this.world.runtimePresentation=this.isAR?'ar':'vr';
     document.getElementById('xr-exit').textContent=this.isAR?'Exit AR':'Exit VR';
     if(session.domOverlayState)document.getElementById('xr-overlay').style.display='';
+    this.operatorPanel.setXRMode(this.isAR?'ar':'vr');
     this.operatorPanel.group.visible=!this.readOnly;
     this.operatorMount={kind:'head'};this.operatorPanel.setPinLabel(this.isAR?'PIN TO WALL':'PIN HERE');
     this.operatorThumbstickHeld=false;
@@ -653,6 +774,7 @@ export class MatrixView {
     if(this.operatorVoiceController)this.releaseOperatorVoice(this.operatorVoiceController);
     this.operatorPanel.group.visible=false;this.operatorMount={kind:'head'};
     this.operatorThumbstickHeld=false;
+    this.operatorPanel.setXRMode(null);
     this.operatorPanel.setPinLabel('PIN TO WALL');this.operatorPanel.setOriginLabel('ROOM ORIGIN UNKNOWN');
     if(this.grab)this.cancelGrab(this.grab.controller,this.grab.inputSource,
       'XR session ended; the held edit was cancelled.');
@@ -675,6 +797,9 @@ export class MatrixView {
   setOperatorWarning(warning){this.operatorPanel.setWarning(warning);}
   setOperatorCameraStatus(status,active){this.operatorPanel.setCameraStatus(status,active);}
   setOperatorAgentStatus(status){this.operatorPanel.setAgentStatus(status);}
+  setOperatorConceptGallery(concepts){this.operatorPanel.setConceptGallery(concepts);}
+  setOperatorCreationMode(mode){this.operatorPanel.setCreationMode(mode);}
+  setCreationMode(mode){this.setOperatorCreationMode(mode);}
   setOperatorVoiceInputLabel(label){this.operatorPanel.setVoiceInputLabel(label);}
   isOperatorAgentMode(){return this.operatorPanel.isAgentMode();}
   showOperatorAgentMode(){
@@ -1233,10 +1358,14 @@ export class MatrixView {
     if(panelHit){
       const action=this.operatorPanel.hit(panelHit.uv);
       if(action==='review-view')this.onVisualReview();
+      else if(action==='exit-xr')void this.exitXR();
       else if(action==='toggle-world')this.operatorPanel.toggleWorld();
       else if(action==='toggle-archives')this.operatorPanel.toggleArchives();
       else if(action==='toggle-mode')this.operatorPanel.toggleModePage();
       else if(action==='toggle-agent')this.operatorPanel.toggleAgent();
+      else if(action==='open-concepts'||action==='concept-back')this.operatorPanel.toggleConcepts();
+      else if(action==='concept-prev')this.operatorPanel.previousConcept();
+      else if(action==='concept-next')this.operatorPanel.nextConcept();
       else if(action==='open-proposal')this.operatorPanel.openProposal();
       else if(action==='next')this.operatorPanel.nextPage();
       else if(action==='voice-output')this.onVoiceOutputToggle();

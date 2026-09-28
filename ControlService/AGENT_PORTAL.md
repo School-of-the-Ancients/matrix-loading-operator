@@ -141,6 +141,94 @@ an edit. Source changes on `main` do not update an already-running service,
 MCP subprocess, or headset page. See the [prompt-source audit](../Validation/Operator-Prompt-Audit-2026-09-27.md)
 for the exact source boundaries and remaining verification work under #116.
 
+## PC concept versions
+
+The Agent Portal can generate a 2D concept before a separate creation turn.
+The default source is Codex's built-in GPT Image generation on the **same
+ChatGPT-authenticated Agent Portal thread**. The PC advertises it only when
+the local app-server reports a ChatGPT account and `imageGeneration` capability.
+It uses Codex usage, not a separately billed Images API call, and needs no
+`OPENAI_API_KEY`. An image-only turn cannot call Matrix mutation tools. Its
+completed native image artifact is verified and copied into the PC concept
+store; the image-generation result, Codex saved path, and thread internals are
+never sent to the browser.
+
+ComfyUI remains a selectable local fallback. Configure one enabled `comfyui`
+provider in the existing PC-side
+`MATRIX_CONTENT_CONFIG` and one reviewed image API graph. The workflow entry
+needs `promptNode`, `promptInput`, `seedNode`, and `seedInput`; it may also set
+`negativePromptNode` and `negativePromptInput`. For the reviewed Krea2 image
+graph, these map to text node `53`, KSampler seed node `55`, and optional
+negative text node `78`; the endpoint-free
+[acceptance graph](../Validation/concept-91-krea2-workflow.json) records the exact
+node inputs used for the live run. Keep the worker address, configured graph,
+and any credential environment variables in PC-private configuration. When
+several workflows are enabled, set `MATRIX_CONCEPT_PROVIDER_ID` and
+`MATRIX_CONCEPT_WORKFLOW_ID` on the PC to choose exactly one. The concept path
+checks the current worker's
+`/object_info` against the reviewed image-node subset before each submission;
+configuration alone does not establish that generation will succeed.
+
+The authenticated Operator API uses the existing Agent session ID:
+
+| Action | Route | JSON body/result |
+| --- | --- | --- |
+| Generate | `POST /api/agent/concepts` | `{sessionId,prompt,negativePrompt?,providerId?}` → `{job}` |
+| Vary | `POST /api/agent/concepts/variation` | `{sessionId,sourceConceptId,prompt?,negativePrompt?,providerId?}` → `{job}` |
+| List and refresh | `GET /api/agent/concepts?sessionId=...` | `{jobs,concepts,selectedConceptId,builds,providers,defaultProviderId}` |
+| Select | `POST /api/agent/concepts/select` | `{sessionId,conceptId,designNotes?}` → `{selectedConceptId,concept}` |
+| Cancel queued | `POST /api/agent/concepts/cancel` | `{sessionId,conceptId}` → `{job}` |
+| Preview | `GET /api/agent/concepts/<conceptId>/preview` | Authenticated image bytes |
+| Build selected | `POST /api/agent/turn` | `{sessionId,text,context?,expectedConceptId?,expectedConceptVersion?,creationMode?}`; the UI sends both expected fields and a creation mode for a selected build |
+
+`providers` contains `codex-native` and `comfyui` with availability and reason;
+`defaultProviderId` is native when available. An explicit `providerId` uses
+that source or returns a conflict if it is unavailable. Every job retains its
+provider ID, an immutable `conceptId`, a one-based `version`, and a
+`parentConceptId` for variations. ComfyUI versions also retain the exact seed,
+workflow hash, and reported model names. Native versions retain the revised
+prompt when Codex supplies it; the native event does not guarantee a model or
+seed field. Omitting `prompt` on a variation reuses the parent's text for a new
+sample; supplying it is a complete new text prompt, not an image-conditioned
+edit. A ready concept has a content SHA-256 and a
+private, durable PC image file; the preview route never exposes the worker URL
+or local path. Jobs report `queued`, `generating`, `ready`, `failed`, or
+`cancelled`. A confirmed queued ComfyUI job can be cancelled; each job's
+`cancellable` field reports this. ComfyUI outages after submission leave
+completion unverified for later polling. If the service restarts during a
+native image turn, that job is marked failed with an uncertain outcome and is
+never replayed automatically. A result finishing later never changes the selected concept.
+Only explicit selection updates it, and omitting design notes preserves the
+notes already stored on that version. A separate explicit build request is
+required before the selected image enters the existing Codex Agent turn. If a
+browser supplies expected ID and version, the server rejects a different
+current selection instead of silently handing the wrong image to Codex.
+
+The selected-image build method is a per-tab Operator preference with three
+values:
+
+| Mode | Agent behavior |
+| --- | --- |
+| **Auto** (`auto`, default) | Codex chooses an authorized path, including asset reuse, reviewed procedural generation, Blender, agent-authored code, or a combination. |
+| **Procedural** (`procedural`) | Codex uses a suitable reviewed Matrix procedural generator and typed create/receipt path. If none fits, it reports that limitation and asks for an explicit mode change. |
+| **Blender** (`blender`) | Codex uses editable Blender source, validates and registers a GLB, and places it through a typed Matrix spawn with a receipt. If the path is unavailable, it reports the blocker and asks for an explicit mode change. |
+
+The browser sends `creationMode` only for an explicit selected-concept build;
+the server validates it and retains the requested mode in build provenance.
+Desktop `/web/` exposes the selector beside the concept controls. The shared
+immersive WebXR navigation panel exposes the same Auto, Procedural, and Blender
+controls on its **CODEX** page in VR and AR. The in-world voice route uses the
+selected mode when it sends a selected-concept build. The XR controls do not
+establish that concept previews, selection, or an actual build have been
+operated successfully by a Quest wearer; those require separate device evidence.
+
+Selection, versions, notes, and build provenance are persisted under the
+service scene directory's `.agent_portal/concepts/`. Image files are immutable
+and named by their SHA-256; build provenance records the captured concept and
+request-time world context, with verified Matrix receipt and object IDs only
+after a world action actually succeeds. Generated images are art direction,
+not physical room measurements, geometry, or automatic Matrix placement.
+
 ## Dated installed-version observations
 
 The observations below describe their specific installed versions and isolated

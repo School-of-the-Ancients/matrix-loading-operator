@@ -16,6 +16,7 @@ class FakeTransport:
     def __init__(self):
         self.calls = []
         self.cwd = Path.cwd()
+        self._generated_root = self.cwd / ".codex" / "generated_images"
 
     def events_since(self, cursor):
         self.calls.append(("events", cursor))
@@ -44,8 +45,10 @@ class FakeTransport:
         self.calls.append(("resume", identifier, sandbox, approval_policy))
         return identifier
 
-    def turn_start(self, identifier, text, *, effort=None):
-        self.calls.append(("send", identifier, text, effort))
+    def turn_start(self, identifier, text, *, sandbox, approval_policy, effort=None,
+                   image_path=None, skill_path=None):
+        self.calls.append(("send", identifier, text, effort, sandbox, approval_policy,
+                           image_path, skill_path))
         return "turn-1"
 
     def respond_approval(self, *args):
@@ -179,6 +182,8 @@ class AgentSessionTests(unittest.TestCase):
         self.assertIn(("start", "model-test", "workspace-write", "on-request"), backend.transport.calls)
         self.assertIn(("resume", "thread-1", "workspace-write", "on-request"), backend.transport.calls)
         self.assertEqual(backend.send_text("thread-1", "Hello"), "turn-1")
+        self.assertIn(("send", "thread-1", "Hello", "medium", "workspace-write",
+                       "on-request", None, None), backend.transport.calls)
         events = backend.events_since(0)
         self.assertEqual([event["type"] for event in events],
                          ["text", "activity", "approval", "activity"])
@@ -198,6 +203,17 @@ class AgentSessionTests(unittest.TestCase):
         backend.cancel("thread-1", "turn-1")
         self.assertIn(("approval", 42, "thread-1", "turn-1", "decline"), backend.transport.calls)
         self.assertIn(("interrupt", "thread-1", "turn-1"), backend.transport.calls)
+
+    def test_native_image_turn_restricts_then_restores_automatic_agent_policy(self):
+        backend = LocalCodexAgentBackend.__new__(LocalCodexAgentBackend)
+        backend.config = SimpleNamespace(agent_sandbox="danger-full-access",
+                                         agent_approval_policy="never", reasoning_effort="high")
+        backend.transport = FakeTransport()
+        self.assertEqual(backend.start_native_image("thread-1", "$imagegen A blue orb"), "turn-1")
+        self.assertEqual(backend.send_text("thread-1", "Build the selected concept"), "turn-1")
+        image, ordinary = [call for call in backend.transport.calls if call[0] == "send"]
+        self.assertEqual(image[4:6], ("read-only", "on-request"))
+        self.assertEqual(ordinary[4:6], ("danger-full-access", "never"))
 
     def test_only_known_activity_and_complete_text(self):
         self.assertIsNone(normalize_event({"sequence": 1, "method": "unknown", "params": {"token": "secret"}}))
