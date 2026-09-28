@@ -19,7 +19,9 @@ Rebase validation below is separate from Quest wearer proof.
   `matrix_room_spatial_context` tool provides a fresh read before editing.
 - `roomSpatial` labels unusable geometry explicitly. Its token binds room,
   scene revision, runtime generation, tracking epoch, alignment and measured
-  geometry. The prompt shows only a limited set of plane poses and polygons.
+  geometry. A support-specific token binds those guards to the chosen support;
+  changes to unrelated, unshown planes no longer expire a placement. The
+  prompt shows only a limited set of plane poses and polygons.
   A physical camera frame is never a metric room measurement.
 - `matrix_spawn_on_surface` places a new session-local object on a measured
   support through the usual Matrix queue and observed receipt.
@@ -45,20 +47,21 @@ Rebase validation below is separate from Quest wearer proof.
 ## Wearer review sequence
 
 The original isolated #160 desktop review used `http://127.0.0.1:18966/web/`
-before #150 merged. The combined review port is
+before #150 merged. The combined review port was
 `http://127.0.0.1:18970/web/`, with separate private scene,
 asset, and environment directories and no loopback token. Its checkpoint
 picker contains `quest150-codex-moonlit-forest-garden-v1` (the eleven-object
 garden with the selected generated panorama). A desktop review restored that
 checkpoint and observed eleven objects and the expected panorama; the desktop
 tab was then closed to release the single writer lease for Quest. This is
-staging evidence, not a wearer result. The 18970 service was started from
-pre-hotfix commit `99acfde`; restart it and rebuild WebRuntime from the new
-branch head before using that port for exact-head Quest acceptance.
+staging evidence, not a wearer result. The 18970 service was restarted from
+`dcdfef7` for the natural AR routing check. Its Quest world remains connected;
+the guarded-move fix is staged separately at `http://127.0.0.1:18973/web/`
+for a fresh exact-head wearer retest without replacing that live session.
 
 On Quest, select **PC world checkpoints →
 quest150-codex-moonlit-forest-garden-v1**, then **Restore world → Confirm
-restore**. Use the 18970 page for all remaining wearer checks. Record the
+restore**. Use the 18973 page for the guarded-move retest. Record the
 Quest Browser version, restored checkpoint, and source commit with the new
 evidence.
 
@@ -95,9 +98,11 @@ and camera pixels out of this record.
 | Isolated desktop review | `http://127.0.0.1:18966/web/` served the final build with separate scene and asset directories; the PC checkpoint list contained `quest91-agent-strong-beacon-six-objects`, and UI restore displayed six original objects. The Agent Portal connected and read the six IDs/transforms at scene revision 3; it reported desktop mode, zero measured planes, and no physical fit claim. |
 | Agent composition / typed receipts | After service restart, Agent recaptured all six original IDs/transforms at source scene revision 1, then created two pedestal/orb pairs and one curved bench with five individually approved, succeeded typed receipts. Final live revision 11 had 11 objects. |
 | PC checkpoint and desktop reopen | Saved `quest149-lantern-garden-eleven-objects`, then reloaded the page and explicitly restored it through the PC checkpoint picker; UI reported 11 objects. Comparing checkpoint payloads found all six original IDs and transforms unchanged and exactly five new IDs. Saved checkpoint SHA-256: `C8E2D4BB4631C9AFC20E4BC14045E5C40FE09646E7BE28C154255C3BAB88FA84`. |
-| Combined #150 + #149 desktop staging | `http://127.0.0.1:18970/web/` was started from pre-hotfix `99acfde` with separate private review state. A desktop tab restored `quest150-codex-moonlit-forest-garden-v1` and observed the eleven-object garden and expected generated panorama; the tab was closed before Quest review. Restart/rebuild is required for exact-head review after PR #162. No Quest result is inferred. |
-| Quest VR save/reopen composition | Pending on the combined 18970 build; desktop restore and the earlier 18968/18969 wearer observations do not establish this exact build's VR result. |
-| Quest AR measured move and alignment | Pending wearer check |
+| Combined #150 + #149 desktop staging | `http://127.0.0.1:18970/web/` was restarted from `dcdfef7` with separate private review state. A desktop tab had restored `quest150-codex-moonlit-forest-garden-v1` and observed the eleven-object garden and expected generated panorama; the tab was closed before Quest review. |
+| Quest 18970 AR attempt | Service observed the eleven-object world, AR ready/aligned, 38 measured planes, and a selected existing orb. The wearer reported an error and “PC review needed.” The Agent's two guarded moves returned 409 before a request ID; no Agent move receipt or pending edit exists. A separate PC command request was denied because its effect could not be reviewed in XR. The Agent turn was stopped. The orb had an X/Z tilt, which violates the support-fit guard; same-revision room reads also produced different global tokens while the chosen support stayed stable. The bridge hid the exact 409 reason, so neither guard can be identified as the first rejection. |
+| Guarded-move repair | The private bridge now preserves concise 409 reasons; the Agent is told to upright a tilted object explicitly and use the chosen plane's support-specific spatial token. The server still checks room identity, revision, alignment, target support and origin, while the browser still checks final footprint and tracking epoch. The full ControlService suite passed 879/879; exact-head Quest retest is pending. |
+| Quest VR save/reopen composition | Pending explicit wearer confirmation on the combined guarded-move build; desktop restore and earlier 18968/18969 wearer observations do not establish this exact build's VR result. |
+| Quest AR measured move and alignment | Alignment was observed on 18970; succeeded receipt, same ID, wearer-confirmed fit, stale-token rejection and save/reopen are pending on the repaired build. |
 
 Automated and desktop checks are not Quest wearer evidence.
 

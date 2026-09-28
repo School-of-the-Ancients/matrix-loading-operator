@@ -217,11 +217,20 @@ class MatrixToolBridgeTests(unittest.TestCase):
         with self.assertRaises(urllib.error.HTTPError) as stale_move:
             move_with_room_constraint(self.bridge.url, self.bridge.token, move)
         self.assertEqual(stale_move.exception.code, 409)
+        self.assertIn("Target support or room origin changed", str(stale_move.exception))
         self.assertFalse(self.state.pending)
 
+        room["scene"]["objects"][0]["transform"]["rotation"]["x"] = 1
+        self.state.exchange({"clientId": "web-client", "snapshot": room, "results": []})
         spatial = room_spatial_context(self.bridge.url, self.bridge.token)
         move.update(scene_revision=spatial["sceneRevision"],
-                    spatial_token=spatial["spatialToken"])
+                    spatial_token=spatial["planes"][0]["spatialToken"])
+        with self.assertRaises(urllib.error.HTTPError) as tilted_move:
+            move_with_room_constraint(self.bridge.url, self.bridge.token, move)
+        self.assertEqual(tilted_move.exception.code, 409)
+        self.assertIn("requires an upright object", str(tilted_move.exception))
+        self.assertFalse(self.state.pending)
+        move["rotation"] = {"x": 0, "y": 0, "z": 0}
         with patch("matrix_tool_bridge.MOVE_WAIT", .05):
             moved = move_with_room_constraint(self.bridge.url, self.bridge.token, move)
         self.assertEqual(moved["status"], "queued")
@@ -231,6 +240,7 @@ class MatrixToolBridgeTests(unittest.TestCase):
                                                       "trackingEpoch": 3})
         self.assertEqual(command["transform"]["position"], move["position"])
         room["scene"]["objects"][0]["transform"]["position"] = move["position"]
+        room["scene"]["objects"][0]["transform"]["rotation"] = move["rotation"]
         self.state.exchange({"clientId": "web-client", "snapshot": room,
                              "results": [{"requestId": moved["requestId"], "ok": True,
                                           "objectId": "chair-vr", "error": ""}]})
