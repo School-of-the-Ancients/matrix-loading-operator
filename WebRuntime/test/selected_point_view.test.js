@@ -9,6 +9,7 @@ test('successive controller ray hits move one visible marker while hover and obj
     {x:1,y:0,z:1},{x:-1,y:0,z:1}];
   const world={runtimePresentation:'ar',scene:{roomId:'room-1',objects:[
     {objectId:'chair-1',anchorId:'web-floor'}]},
+    placementWorldEpoch:0,
     selection:{anchorId:'web-floor',objectId:'',position:{x:0,y:0,z:-2}},
     spatial:{alignmentVerified:true,stale:false,originUnavailable:false,
       trackingEpoch:3,
@@ -37,6 +38,11 @@ test('successive controller ray hits move one visible marker while hover and obj
   click(.25,.2);
   assert.deepEqual(view.selectedPlacementTarget().position,{x:.25,y:0,z:.2});
   assert.equal(view.selectedPointMarker.visible,true);
+  view.reticleVisible=true;view.reticleAnchorId='table-1';
+  view.reticle=new THREE.Group();view.reticle.position.set(.8,0,.8);
+  click(5,5);
+  assert.deepEqual(view.selectedPlacementTarget().position,{x:.25,y:0,z:.2},
+    'a controller ray miss must not pin the unrelated viewer-gaze reticle');
   world.selection.objectId='chair-1';
   click(.6,-.3);
   assert.deepEqual(view.selectedPlacementTarget().position,{x:.6,y:0,z:-.3});

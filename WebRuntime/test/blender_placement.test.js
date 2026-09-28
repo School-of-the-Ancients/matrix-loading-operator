@@ -75,6 +75,36 @@ test('selected marker is the Blender destination even after hover and object sel
     /placement selection changed/);
 });
 
+test('bridge binds the projected selected point without losing object or support identity',async()=>{
+  for(const ar of [false,true]){
+    const {world,view}=fixture({ar});
+    world.selection.objectId='chair-1';
+    if(ar)world.spatial.anchors.push({anchorId:'support-2',
+      surface:{kind:'support',boundary:[[0,0],[1,0],[1,1]]}});
+    let marker={anchorId:ar?'support-2':'web-floor',
+      position:{x:.4,y:0,z:.6},source:'raycast'};
+    view.selectedPlacementTarget=()=>marker;
+    const state={online:true,clientId:'client-1',revision:7,runtimeGeneration:3,
+      snapshot:{scene:structuredClone(world.scene),
+        selection:{...structuredClone(world.selection),anchorId:marker.anchorId,
+          position:structuredClone(marker.position)},
+        creatorMode:structuredClone(world.creatorMode)}};
+    const bridge={clientId:'client-1',sync:async()=>{},
+      request:async path=>{assert.equal(path,'/api/state');return state;}};
+    const capture=await captureBlenderRequestContext(world,view,bridge);
+    assert.equal(capture.selection.objectId,'chair-1');
+    assert.equal(capture.selection.anchorId,marker.anchorId);
+    assert.deepEqual(capture.target.position,marker.position);
+    state.snapshot.selection.position.x+=.1;
+    await assert.rejects(captureBlenderRequestContext(world,view,bridge),
+      /PC Matrix world differs/);
+    state.snapshot.selection.position.x-=.1;
+    marker={...marker,position:{x:.6,y:0,z:.6}};
+    await assert.rejects(captureBlenderRequestContext(world,view,bridge),
+      /PC Matrix world differs/);
+  }
+});
+
 test('AR measured placement requires the same tracked room surface and a fresh pose',()=>{
   const f=fixture({ar:true});
   const session={id:'ar-1'};f.setSession(session);

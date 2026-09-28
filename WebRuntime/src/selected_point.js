@@ -4,7 +4,8 @@ const finitePoint=point=>point&&['x','y','z'].every(axis=>
   Number.isFinite(point[axis])&&Math.abs(point[axis])<=100);
 
 export function currentSelectedPoint(world,selected,trackingEpoch){
-  if(!selected||selected.roomId!==world.scene.roomId||
+  if(!selected||selected.worldEpoch!==world.placementWorldEpoch||
+     selected.roomId!==world.scene.roomId||
      selected.presentation!==world.runtimePresentation||!finitePoint(selected.position))return null;
   if(selected.presentation!=='ar')return selected.anchorId==='web-floor'?selected:null;
   const spatial=world.spatial;
@@ -26,6 +27,7 @@ export function selectedPointAt(world,anchorId,position,trackingEpoch,source='ra
      source==='raycast'&&Math.abs(position.y)>.02)
     throw Error('Choose a current measured support point inside its boundary');
   const selected={anchorId,position:{x:position.x,y:0,z:position.z},source,
+    worldEpoch:world.placementWorldEpoch,
     roomId:world.scene.roomId,presentation:world.runtimePresentation,
     trackingEpoch:world.runtimePresentation==='ar'?trackingEpoch:null};
   if(!currentSelectedPoint(world,selected,trackingEpoch))

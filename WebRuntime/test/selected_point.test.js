@@ -6,6 +6,7 @@ import {MatrixWorld} from '../src/protocol.js';
 const boundary=[{x:-1,y:0,z:-1},{x:1,y:0,z:-1},
   {x:1,y:0,z:1},{x:-1,y:0,z:1}];
 const world=()=>({runtimePresentation:'ar',scene:{roomId:'room-1'},
+  placementWorldEpoch:0,
   selection:{objectId:'chair-1'},digitalWorldVisit:false,
   spatial:{stale:false,originUnavailable:false,alignmentVerified:true,
     trackingEpoch:7,

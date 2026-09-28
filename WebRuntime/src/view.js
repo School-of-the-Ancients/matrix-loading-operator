@@ -1683,8 +1683,7 @@ export class MatrixView {
     if(this.isAR&&this.world.digitalWorldVisit)return null;
     if(this.isAR){const hits=this.raycaster.intersectObjects([...this.planeOutlines.values()],true);
       const hit=hits.find(item=>item.object.isMesh&&item.object.userData.anchorId);
-      if(hit){const anchorId=hit.object.userData.anchorId;const root=this.planeOutlines.get(anchorId);const local=root.worldToLocal(hit.point.clone());this.selectPlacementPoint(anchorId,plain(local));return;}
-      if(this.reticleVisible&&this.reticleAnchorId){const root=this.planeOutlines.get(this.reticleAnchorId);this.selectPlacementPoint(this.reticleAnchorId,plain(root.worldToLocal(this.reticle.position.clone())),'hit-test');return;}}
+      if(hit){const anchorId=hit.object.userData.anchorId;const root=this.planeOutlines.get(anchorId);const local=root.worldToLocal(hit.point.clone());this.selectPlacementPoint(anchorId,plain(local));return;}}
     const floorHit=this.isAR?null:this.raycaster.intersectObject(this.floor)[0];
     if(floorHit){this.virtualFloorRoot.updateMatrixWorld(true);
       this.selectPlacementPoint('web-floor',plain(this.virtualFloorRoot.worldToLocal(floorHit.point.clone())));}

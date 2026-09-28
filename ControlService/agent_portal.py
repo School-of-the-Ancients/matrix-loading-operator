@@ -171,20 +171,25 @@ def build_matrix_turn_message(user_text: str, context: dict,
     spatial = context.get("roomSpatial")
     placement = context.get("selectedPlacement")
     if type(placement) is dict:
-        lines.append("The wearer selected a retained placement marker at the "
+        lines.append("The user selected a retained placement marker at the "
                      "anchor-local position in selectedPlacement. It remains distinct "
                      "from the transient pointingTarget and can coexist with a selected "
-                     "object for 'move that there'. A raycast marker is a measured hit; "
-                     "a hit-test marker is snapped to a nearby measured support, "
-                     "and an adjusted marker is a user-edited point on that plane. "
-                     "Treat both as advisory until the current room context, target "
-                     "surface, and typed mutation guard are refreshed. For a surface "
-                     "spawn, selectedPlacement.position uses that support's local X/Z; "
-                     "check the full object footprint and use its fresh spatialToken. "
-                     "For a constrained move of a virtual-floor object, convert the "
-                     "destination into the virtual-floor frame using verified current "
-                     "poses, then use matrix_move_with_room_constraint. Never copy "
-                     "anchor-local coordinates into a virtual-floor transform.")
+                     "object for 'move that there'. The marker is advisory until the "
+                     "current room context and typed mutation guard are refreshed.")
+        if placement.get("anchorId") == "web-floor":
+            lines.append("This selected point is on the synthetic virtual floor, "
+                         "even if its source says raycast. It is not a physical-room "
+                         "measurement or proof of physical fit.")
+        else:
+            lines.append("In AR, a raycast marker on a current WebXR support is a "
+                         "measured hit; an adjusted marker is a user-edited point "
+                         "on that plane. For a surface spawn, selectedPlacement.position "
+                         "uses that support's local X/Z; check the full object footprint "
+                         "and use its fresh spatialToken. For a constrained move of a "
+                         "virtual-floor object, convert the destination into the "
+                         "virtual-floor frame using verified current poses, then use "
+                         "matrix_move_with_room_constraint. Never copy anchor-local "
+                         "coordinates into a virtual-floor transform.")
     if type(spatial) is dict:
         if spatial.get("usable") is True:
             lines.append("This turn includes bounded, measured WebXR room surfaces in a verified "

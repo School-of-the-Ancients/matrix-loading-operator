@@ -343,6 +343,7 @@ export class MatrixWorld {
     this.arEntryContent=null;
     this.selection={anchorId:ANCHOR_ID,objectId:'',position:{x:0,y:0,z:-2}};
     this.selectedPlacement=null;
+    this.placementWorldEpoch=0;
     this.spatial=null;this.virtualScene=null;this.digitalWorldVisit=false;
     this.undo=[]; this.redo=[];
     this.physicsBodies=new Map();this.physicsVerification=new Map();

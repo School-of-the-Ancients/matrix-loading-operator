@@ -39,6 +39,7 @@ export function captureBlenderPlacement(world,view,{now=performance.now()}={}){
   return {sceneReference:world.scene,scene:JSON.stringify(world.scene),
     roomId:world.scene.roomId,authoredGeneration:world.authoredGeneration,
     creatorMode:copy(world.creatorMode),
+    rawSelection:copy(world.selection),
     originBinding:world.originBinding,originAnchorHandle:world.originAnchorHandle,
     runtimePresentation:world.runtimePresentation,session,requiresXR,
     sessionStartedAt:view.sessionStartedAt,roomAnchor:view.roomAnchor,
@@ -66,7 +67,8 @@ export function validateBlenderPlacement(world,view,capture,{now=performance.now
   // The ray is a request-time target. Controller jitter or looking elsewhere
   // while Blender works must not move the saved point. Scene, selection, and
   // support-anchor checks below still reject a changed actual target.
-  if(!same(currentSelectedPlacement(view),capture.selectedPlacement)||
+  if(!same(world.selection,capture.rawSelection)||
+      !same(currentSelectedPlacement(view),capture.selectedPlacement)||
       !same(currentSelection(world,currentSelectedPlacement(view)),capture.selection))
     stale('The placement selection changed during Blender generation');
   const currentSpatial=spatialState(world,capture.target.anchorId);
@@ -117,11 +119,13 @@ function servicePlacementProjection(state){
     digitalWorldVisit:current.digitalWorldVisit===true,readOnly:current.readOnly===true};
 }
 
-function bindServiceContext(capture,state,world,bridge){
+function bindServiceContext(capture,state,world,view,bridge){
   const projection=servicePlacementProjection(state);
   if(!state.online||projection.clientId!==bridge.clientId||
       stable(world.scene)!==projection.scene||
-      stable(world.selection)!==projection.selection||
+      !same(world.selection,capture.rawSelection)||
+      stable(currentSelection(world,currentSelectedPlacement(view)))!==projection.selection||
+      stable(capture.selection)!==projection.selection||
       stable(world.creatorMode)!==projection.creatorMode)
     throw Error('The PC Matrix world differs from this browser; refresh before Blender generation');
   capture.service=projection;
@@ -131,13 +135,13 @@ function bindServiceContext(capture,state,world,bridge){
 export async function captureBlenderRequestContext(world,view,bridge){
   await bridge.sync();
   const capture=captureBlenderPlacement(world,view);
-  return bindServiceContext(capture,await bridge.request('/api/state'),world,bridge);
+  return bindServiceContext(capture,await bridge.request('/api/state'),world,view,bridge);
 }
 
 export async function bindBlenderRequestContext(world,view,bridge,capture){
   await bridge.sync();
   validateBlenderPlacement(world,view,capture);
-  return bindServiceContext(capture,await bridge.request('/api/state'),world,bridge);
+  return bindServiceContext(capture,await bridge.request('/api/state'),world,view,bridge);
 }
 
 function unchangedServiceContext(capture,state,bridge){
