@@ -16,9 +16,9 @@ same held object. Grabbing with the other hand exchanges these roles. Stick
 click still recalls the Operator panel after the grab ends; a click made during
 the grab must not unexpectedly open it on release. A gold outline follows the
 held object without held-item description or stick-instruction labels. Grabbing
-does not hide the Operator panel. When the wearer hides it, a small lower-left
-XR cue says `CLICK STICK · OPEN OPERATOR` until the panel returns; the cue
-stays out of the way during a grab.
+does not hide the Operator panel. If the wearer hides it, clicking either
+thumbstick after releasing the object recalls it; the
+[Quest controls FAQ](../WebRuntime/README.md#quest-controls-faq) records this.
 
 The translation dead zone is 0.18. Translation moves at most 0.75 metres per
 second, each frame contributes at most 0.1 seconds, and the stick offset is
@@ -39,12 +39,11 @@ returns it to simulation.
 
 ## Automated validation on the revised two-hand candidate
 
-- WebRuntime: **598/598** Node tests passed, including two-hand source binding,
+- WebRuntime: **597/597** Node tests passed, including two-hand source binding,
   role reversal, yaw/pitch and full-flip math, AR parent transforms, Undo, save
-  and reopen, Play/Test grab behavior, panel visibility during a grab, and
-  hidden-panel hint lifecycle.
+  and reopen, Play/Test grab behavior, and panel click suppression during a grab.
 - ControlService: **798/798** Python tests passed.
-- Vite production build passed with `view-DVj-S6vR.js`; `git diff --check`
+- Vite production build passed with `view-sss3M221.js`; `git diff --check`
   passed. The build has the existing large-chunk size warning.
 
 These results validate source behavior and the built bundle. They do not
@@ -107,10 +106,10 @@ input that caused them; the control observation is the wearer's report.
 An interim UI edit automatically hid the head-following Operator panel on grab.
 The wearer clarified that the panel was fine and requested its original
 behavior, so commit `1a1855f` reverted that edit. The obstructive held-item
-description and stick instructions remain removed. A small hint now reminds
-the wearer to click the stick when the panel is hidden manually. The final
-`view-DVj-S6vR.js` bundle still needs a wearer readability check after the
-Quest page reloads; the current loaded tab may still run the interim bundle.
+description and stick instructions remain removed. A small recall hint was
+briefly added, then removed at the wearer's request in favor of a user-guide
+FAQ. The final
+`view-sss3M221.js` bundle still needs an exact-bundle wearer check.
 
 In the disposable VR scene, Undo request
 `1939583b937549cf8db2f46f47d9e7e8` returned `ok:true` and changed the
@@ -119,8 +118,31 @@ same Dragon from position `(-1.689, 1.773, -2.942)` and rotation
 `(-1.833, 1.721, -2.868)` and rotation `(-150.3, -46.07, -165.34)` at
 revision 32. Scale `0.5` and Flight were retained. The wearer was away from
 the computer and did not notice the change; this is a runtime Undo result,
-not a wearer-visible Undo pass. Save/reopen, Play/Test, and AR remain untested
-on the revised controls.
+not a wearer-visible Undo pass. Manual checkpoint and full browser close/reopen,
+Play/Test, and AR remain untested on the revised controls.
+
+## Quest VR UI retest on `21f56bc` — panel and recall worked
+
+The isolated service served production bundle `view-DVj-S6vR.js` at
+`http://127.0.0.1:18791/web/` with `Cache-Control: no-store`. The wearer
+reported refreshing that Quest Browser tab and re-entering VR. They saw the
+Dragon and explicitly confirmed that the Operator panel stayed visible while
+grabbing. At `2026-09-28T01:55:02Z`, the live VR Creator scene still contained
+the same Dragon ID `1894e1a2812c4243a85393bb707621d3`, scale `0.5`, and
+Flight binding. The service reused its client ID and runtime generation across
+the reported refresh, so those fields alone do not prove a reload; the wearer
+observation establishes the corrected panel behavior in the headset.
+The reported page refresh also kept the Dragon present with the same ID,
+scale, and Flight binding; a manual checkpoint and full browser close/reopen
+still need a separate check.
+
+When asked to hide the panel outside a grab, the wearer reported that the
+`CLICK STICK · OPEN OPERATOR` cue was **completely absent**. The wearer
+confirmed that a second stick click **does** restore the Operator panel and
+decided this small quality-of-life instruction belongs in the user guide.
+The invisible cue was removed from the candidate; the FAQ now answers
+"Where did the Operator screen go?" This VR UI result does not satisfy the
+remaining full VR, Play/Test, or AR gate.
 
 ## Remaining Quest acceptance
 
@@ -138,11 +160,10 @@ XR features, object ID, initial/final transform, and wearer observations.
    same held object without position/rotation drift when released to neutral.
 2. Release in Creator Mode. Confirm the same ID, animation, scale and unrelated
    objects; Undo and save/reopen must preserve the authored transform.
-3. Click either stick outside a grab to hide/show the Operator panel. Check
-   that a small readable recall cue appears only when the panel is hidden,
-   and disappears when it returns. Stick axes without a grab must not move or
-   rotate objects; a click held through grab release must not open the panel
-   unexpectedly.
+3. Click either stick outside a grab to hide/show the Operator panel. Stick
+   axes without a grab must not move or rotate objects; a click held through
+   grab release must not open the panel unexpectedly. The guide documents how
+   to recall a hidden panel.
 4. In running Play/Test, grab a dynamic body, translate and rotate it by stick,
    release it, and verify simulation resumes without an authored `set_transform`.
 5. In AR, repeat only when the room origin is ready. Check that unavailable
