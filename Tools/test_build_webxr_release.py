@@ -3,7 +3,10 @@
 import importlib.util
 import hashlib
 import json
+import os
 from pathlib import Path, PurePosixPath
+import shutil
+import subprocess
 import tempfile
 import unittest
 import zipfile
@@ -11,6 +14,8 @@ import zlib
 
 
 SCRIPT = Path(__file__).with_name("Build-WebXR-Release.py")
+LAUNCHER = SCRIPT.parents[1] / "Start-CodexControlService.ps1"
+SPEECH_INSTALLER = SCRIPT.parents[1] / "Setup-LocalSpeech.ps1"
 SPEC = importlib.util.spec_from_file_location("build_webxr_release", SCRIPT)
 builder = importlib.util.module_from_spec(SPEC)
 SPEC.loader.exec_module(builder)
@@ -26,6 +31,14 @@ class ReleaseBuilderTests(unittest.TestCase):
             PurePosixPath("ControlService/scenes/private.json")))
         self.assertFalse(builder.eligible_source(
             PurePosixPath("ControlService/test_hosted_world.py")))
+        self.assertTrue(builder.eligible_source(
+            PurePosixPath("ControlService/content-config.example.json")))
+        self.assertFalse(builder.eligible_source(
+            PurePosixPath("ControlService/content-config.json")))
+        self.assertFalse(builder.eligible_source(
+            PurePosixPath("ControlService/review-workflow.json")))
+        self.assertFalse(builder.eligible_source(
+            PurePosixPath("Docs/Content-Catalogs.md")))
         self.assertFalse(builder.eligible_source(
             PurePosixPath("WebRuntime/test/fixtures/loopback-test.key")))
         for name in ("preview.png", "source.py", "editable.blend", "model.glb",
@@ -123,6 +136,104 @@ class ReleaseBuilderTests(unittest.TestCase):
             one, two = root / "one.zip", root / "two.zip"
             self.assertEqual(builder.add_zip(bundle, one), builder.add_zip(bundle, two))
             self.assertEqual(builder.file_digest(one), builder.file_digest(two))
+
+    def test_v1_release_instructions_use_bundled_docs_and_external_data(self):
+        versions = {"node": "test", "npm": "test", "python": "test"}
+        readme = builder.release_readme("v1.0.0", "a" * 40, versions, None)
+        for reference in ("ControlService/content-config.example.json",
+                          "ControlService/AGENT_PORTAL.md",
+                          "Docs/Matrix-Environments.md"):
+            with self.subTest(reference=reference):
+                self.assertTrue(builder.eligible_source(PurePosixPath(reference)))
+                self.assertIn(reference, readme)
+        for requirement in ("$env:LOCALAPPDATA", "MATRIX_CONTENT_CONFIG",
+                            "MATRIX_CONTENT_CACHE", "-Scenes", "-WebAssets",
+                            "-WebEnvironments", "/api/content/providers/test",
+                            "CODEX → IMAGE PREVIEWS", "environment receipt",
+                            "Setup-LocalSpeech.ps1", "-SpeechRoot"):
+            with self.subTest(requirement=requirement):
+                self.assertIn(requirement, readme)
+        self.assertNotIn("Docs/Content-Catalogs.md", readme)
+        self.assertNotIn("Start the interactive Creator", builder.release_readme(
+            "v0.8.0-preview.1", "a" * 40, versions, None))
+
+    @unittest.skipUnless(shutil.which("powershell.exe"), "Windows PowerShell 5.1 required")
+    def test_launcher_forwards_optional_data_paths_and_preserves_defaults(self):
+        script = r'''
+$tokens = $null
+$parseErrors = $null
+$ast = [System.Management.Automation.Language.Parser]::ParseFile(
+    $env:MATRIX_TEST_LAUNCHER, [ref]$tokens, [ref]$parseErrors)
+if ($parseErrors.Count) { throw ($parseErrors | Out-String) }
+$function = $ast.FindAll({ param($node)
+    $node -is [System.Management.Automation.Language.FunctionDefinitionAst] -and
+    $node.Name -eq 'Get-ControlServiceArguments'
+}, $true) | Select-Object -First 1
+if (-not $function) { throw 'Launcher argument function is missing' }
+. ([scriptblock]::Create($function.Extent.Text))
+$parameters = @($ast.ParamBlock.Parameters | ForEach-Object { $_.Name.VariablePath.UserPath })
+foreach ($required in @('Scenes', 'WebAssets', 'WebEnvironments')) {
+    if ($parameters -notcontains $required) { throw "Missing launcher parameter $required" }
+}
+@{
+    default = @(Get-ControlServiceArguments -ServicePort 8765)
+    external = @(Get-ControlServiceArguments -ServicePort 18796 `
+        -ScenesPath 'C:\Review Data\scenes' `
+        -WebAssetsPath 'C:\Review Data\assets' `
+        -WebEnvironmentsPath 'C:\Review Data\environments')
+} | ConvertTo-Json -Compress
+'''
+        result = subprocess.run(
+            [shutil.which("powershell.exe"), "-NoProfile", "-NonInteractive",
+             "-Command", script], capture_output=True, text=True,
+            env={**os.environ, "MATRIX_TEST_LAUNCHER": str(LAUNCHER)},
+            check=False)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        arguments = json.loads(result.stdout)
+        self.assertEqual(arguments["default"], ["--port", "8765"])
+        self.assertEqual(arguments["external"], [
+            "--port", "18796", "--scenes", r"C:\Review Data\scenes",
+            "--web-assets", r"C:\Review Data\assets",
+            "--web-environments", r"C:\Review Data\environments"])
+
+    @unittest.skipUnless(shutil.which("powershell.exe"), "Windows PowerShell 5.1 required")
+    def test_v1_powershell_startup_example_parses(self):
+        readme = builder.release_readme("v1.0.0", "a" * 40,
+                                        {"node": "test", "npm": "test",
+                                         "python": "test"}, None)
+        example = readme.split("```powershell\n", 1)[1].split("\n```", 1)[0]
+        script = r'''
+$tokens = $null
+$parseErrors = $null
+[System.Management.Automation.Language.Parser]::ParseInput(
+    $env:MATRIX_TEST_STARTUP_EXAMPLE, [ref]$tokens, [ref]$parseErrors) | Out-Null
+if ($parseErrors.Count) { throw ($parseErrors | Out-String) }
+'''
+        result = subprocess.run(
+            [shutil.which("powershell.exe"), "-NoProfile", "-NonInteractive",
+             "-Command", script], capture_output=True, text=True,
+            env={**os.environ, "MATRIX_TEST_STARTUP_EXAMPLE": example},
+            check=False)
+        self.assertEqual(result.returncode, 0, result.stderr)
+
+    @unittest.skipUnless(shutil.which("powershell.exe"), "Windows PowerShell 5.1 required")
+    def test_optional_speech_installer_accepts_external_root(self):
+        script = r'''
+$tokens = $null
+$parseErrors = $null
+$ast = [System.Management.Automation.Language.Parser]::ParseFile(
+    $env:MATRIX_TEST_SPEECH_INSTALLER, [ref]$tokens, [ref]$parseErrors)
+if ($parseErrors.Count) { throw ($parseErrors | Out-String) }
+@($ast.ParamBlock.Parameters | ForEach-Object { $_.Name.VariablePath.UserPath }) |
+    ConvertTo-Json -Compress
+'''
+        result = subprocess.run(
+            [shutil.which("powershell.exe"), "-NoProfile", "-NonInteractive",
+             "-Command", script], capture_output=True, text=True,
+            env={**os.environ, "MATRIX_TEST_SPEECH_INSTALLER": str(SPEECH_INSTALLER)},
+            check=False)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(json.loads(result.stdout), ["Python", "Root"])
 
 
 if __name__ == "__main__":

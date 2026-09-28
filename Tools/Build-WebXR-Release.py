@@ -116,6 +116,8 @@ def eligible_source(relative: PurePosixPath) -> bool:
         return True
     if path.startswith("ControlService/"):
         return (len(relative.parts) == 2 and
+                (relative.suffix != ".json" or
+                 relative.name == "content-config.example.json") and
                 not relative.name.startswith("test_") and
                 not FORBIDDEN_NAMES.search(relative.name))
     if path.startswith("WebRuntime/"):
@@ -261,6 +263,64 @@ def release_readme(version: str, commit: str, versions: dict,
             "directories before starting the service.\n" if demo_name else
             "No world checkpoint or asset catalog is included. Start a fresh "
             "hosted AdaBo fixture, or supply a separately reviewed data export.\n")
+    interactive = """## Start the interactive Creator and Operator world (v1)
+
+From this extracted bundle, keep writable data outside the bundle. In PowerShell,
+copy `ControlService/content-config.example.json` once to a private PC directory,
+then edit that copy:
+
+```powershell
+$data = (New-Item -ItemType Directory -Force -Path (Join-Path $env:LOCALAPPDATA 'MatrixWebXR-v1')).FullName
+$config = Join-Path $data 'content-config.json'
+if (-not (Test-Path -LiteralPath $config)) {
+    Copy-Item .\\ControlService\\content-config.example.json $config
+}
+$env:MATRIX_CONTENT_CONFIG = $config
+$env:MATRIX_CONTENT_CACHE = Join-Path $data 'content-cache'
+$tokenBytes = New-Object byte[] 32
+[Security.Cryptography.RandomNumberGenerator]::Create().GetBytes($tokenBytes)
+$env:SANDBOX_TOKEN = [Convert]::ToBase64String($tokenBytes)
+.\\Start-CodexControlService.ps1 -Port 18796 `
+    -Scenes (Join-Path $data 'scenes') `
+    -WebAssets (Join-Path $data 'web_assets') `
+    -WebEnvironments (Join-Path $data 'web_environments')
+```
+
+The launcher keeps its original defaults when these three directory options are
+omitted. Sign in with the PC Codex CLI first. The example config has ComfyUI
+disabled and no workflows. To use ComfyUI, enable its provider in the private
+copy, set the URL of a reachable worker, and point it to a reviewed image API
+graph stored outside this bundle. Configure the prompt and seed node/input IDs;
+relative workflow paths resolve beside the private config. Never put worker
+credentials, a configured graph, generated images, or the cache in this ZIP.
+
+Before a Quest run, test the configured provider with authenticated
+`POST /api/content/providers/test` and its provider ID. `ok: true`, a nonzero
+`nodeCount`, and a nonzero `configuredWorkflowCount` show worker reachability
+and node listing; only an actual completed image job proves generation. See
+[ControlService/AGENT_PORTAL.md](ControlService/AGENT_PORTAL.md) for the #91
+concept workflow and [Docs/Matrix-Environments.md](Docs/Matrix-Environments.md)
+for #150 panorama rules.
+
+Open `http://127.0.0.1:18796/web/` on the PC, or run
+`adb reverse tcp:18796 tcp:18796` for Quest Browser. Choose a free port and use
+the same value in the launcher, URL, and USB mapping.
+In **CODEX → IMAGE PREVIEWS**, generate at least two concept versions, explicitly
+select one, then ask the existing Agent to build from that image. Confirm the
+resulting Matrix action through its exact receipt and scene
+inspection. For a panorama, generate and preview a 2:1 version, select it, then
+register and apply it in Creator Mode. A preview or registration alone does not
+change the background; confirm the succeeded environment receipt and saved
+world. Keep the matching external asset and panorama catalogs with checkpoints.
+
+Quest push-to-talk can use optional local Whisper. The bundle includes
+`Setup-LocalSpeech.ps1` but no speech runtime or model. Run
+`.\\Setup-LocalSpeech.ps1 -Root $data` to install those in the external data
+directory, then pass `-SpeechRoot $data` to the launcher on restart. An existing
+external installation can use that same launcher option. Text requests work
+without local speech.
+
+""" if version.startswith("v1.") else ""
     return f"""# Matrix WebXR PC bundle — {version}
 
 Frozen source: `{commit}`. The bundle preserves the v0.7 root-level service and
@@ -292,7 +352,7 @@ addition to the hosted fixture, or Bo can use its one addition for a bounded
 procedural/Blender seat. These are mutually exclusive in this release.
 
 {demo}
-The release excludes credentials, private worlds, room images, Agent history,
+{interactive}The release excludes credentials, private worlds, room images, Agent history,
 browser storage, speech models, Blender installations, Blender job state, and
 editable WebRuntime/art examples. The examples remain available in the frozen
 [source repository]({REPOSITORY}/tree/{commit}/WebRuntime/art); they are not
