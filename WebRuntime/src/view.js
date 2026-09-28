@@ -190,7 +190,7 @@ export function operatorPanel({createImage=()=>new Image()}={}){
     button('toggle-world',mode==='world'?'CHAT':'WORLD',404,35,120,72,
       mode==='world'||mode==='archives');
     button('toggle-mode',mode==='modes'?'CHAT':creatorMode.mode==='play'?'PLAY':'CREATE',535,35,124,72,mode==='modes');
-    button(proposal&&mode!=='proposal'?'open-proposal':'review-view',proposal&&mode!=='proposal'?'PROPOSAL':'REVIEW VIEW',670,35,130,72);
+    button(proposal&&mode!=='proposal'?'open-proposal':'review-view',proposal&&mode!=='proposal'?'PROPOSAL':'SEND VIEW',670,35,130,72);
     button('hide-panel','HIDE',812,35,164,72);
     ctx.fillStyle='#8bb8c2';ctx.font='bold 21px sans-serif';ctx.fillText(originLabel,55,123);
     ctx.font='19px sans-serif';ctx.fillText('STICK CLICK: RECALL · HIDE · SHOW',540,123);
@@ -1611,7 +1611,7 @@ export class MatrixView {
   }
   async captureCameraPair(request,clientId,cameraStream){
     const started=performance.now();
-    const cameraFrame=cameraStream.captureFrame();
+    const {canvas:cameraFrame,cameraFrameCapturedAtUtc,copiedAtMonotonicMs}=cameraStream.captureFrame();
     const virtual=this.captureVirtual(request,clientId);
     const image=new Image();
     image.src=`data:image/jpeg;base64,${virtual.dataBase64}`;
@@ -1631,13 +1631,15 @@ export class MatrixView {
       if(encoded.length<=4*Math.ceil(512*1024/3))break;
     }
     if(!encoded||encoded.length>4*Math.ceil(512*1024/3))throw Error('Camera and virtual view exceed 512 KiB');
+    const pairedAt=performance.now();
     return {...virtual,mode:'mixed',source:'webxr_camera_pair',includesPhysicalCamera:true,
       includesPassthrough:false,dataBase64:encoded,width,height,capturedAtUtc:new Date().toISOString(),
+      cameraFrameCapturedAtUtc,cameraToPairMs:Math.max(0,pairedAt-copiedAtMonotonicMs),
       spatialProvenance:{source:'webxr_room_planes',roomId:virtual.snapshot.scene.roomId,
         anchorCount:virtual.snapshot.anchors.length,alignmentVerified:!!this.world.spatial?.alignmentVerified,
         depthOcclusion:false,physicalDepthIncluded:false},
       layout:{kind:'side-by-side',cameraPanel:[0,0,half,height],virtualPanel:[half,0,half,height],
-        calibrated:false},renderMs:virtual.renderMs,encodeMs:performance.now()-started-virtual.renderMs};
+        calibrated:false},renderMs:virtual.renderMs,encodeMs:pairedAt-started-virtual.renderMs};
   }
   animate(time,frame){
     const delta=this.lastFrameTime===null?0:Math.max(0,Math.min(.1,(time-this.lastFrameTime)/1000));

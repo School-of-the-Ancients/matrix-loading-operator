@@ -109,6 +109,21 @@ class NativeFakeBackend(FakeBackend):
         return self.native_result
 
 
+class CaptureBackend(FakeBackend):
+    def __init__(self, persisted):
+        super().__init__(persisted)
+        self.image_paths = []
+        self.image_bytes = []
+        self.fail_send = False
+
+    def send_text(self, identifier, text, *, image_path=None):
+        self.image_paths.append(image_path)
+        self.image_bytes.append(image_path.read_bytes() if image_path is not None else None)
+        if self.fail_send:
+            raise RuntimeError("backend send failed")
+        return super().send_text(identifier, text)
+
+
 class AgentPortalTests(unittest.TestCase):
     def setUp(self):
         self.temp = tempfile.TemporaryDirectory()
@@ -134,6 +149,105 @@ class AgentPortalTests(unittest.TestCase):
                 return value
             time.sleep(0.01)
         self.fail("portal did not reach expected state")
+
+    def camera_capture(self, **changes):
+        return {"imageBytes": b"\xff\xd8\xffphysical and virtual sample\xff\xd9",
+                "source": "webxr_camera_pair", "capturedAtUtc": "2026-09-28T12:00:00Z",
+                "cameraFrameCapturedAtUtc": "2026-09-28T11:59:59.900Z",
+                "cameraToPairMs": 100, "content": "physical left; virtual right",
+                "captureId": "a" * 32, **changes}
+
+    def test_camera_capture_attaches_once_without_persisting_and_cleans_on_completion(self):
+        backend = CaptureBackend(self.persisted)
+        portal = AgentPortal(self.temp.name, lambda: backend)
+        self.addCleanup(portal.close)
+        session_id = portal.open()["sessionId"]
+        capture = self.camera_capture()
+        started = portal.send_text(session_id, "What do you see?", capture_input=capture)
+        staged = backend.image_paths[-1]
+        self.assertEqual(backend.image_bytes[-1], capture["imageBytes"])
+        self.assertEqual(staged.parent, Path(self.temp.name) / "turn-captures")
+        self.assertTrue(staged.is_file())
+        self.assertIn("not pixel aligned or calibrated", backend.sent_texts[-1])
+        self.assertIn("does not establish sensor exposure time", backend.sent_texts[-1])
+        self.assertIn('"cameraToPairMs": 100', backend.sent_texts[-1])
+        self.assertIn('"cameraFrameCapturedAtUtc": "2026-09-28T11:59:59.900Z"',
+                      backend.sent_texts[-1])
+        self.assertIn("Do not derive metric distances", backend.sent_texts[-1])
+        saved = (Path(self.temp.name) / "agent_portal.json").read_text()
+        self.assertNotIn("physical left", saved)
+        self.assertNotIn("turn-captures", saved)
+        self.assertNotIn(capture["captureId"], saved)
+        status = portal.status(session_id)
+        self.assertEqual(status["transcript"][-1]["user"], "What do you see?")
+        self.assertNotIn("captureId", json.dumps(status))
+        approval = backend.approval
+        portal.decide(session_id, approval["approvalId"], started["turnId"], True)
+        self.wait_for(portal, session_id,
+                      lambda value: value["transcript"][-1]["status"] == "completed")
+        self.assertFalse(staged.exists())
+        portal.send_text(session_id, "A follow-up without image")
+        self.assertIsNone(backend.image_paths[-1])
+
+    def test_virtual_only_capture_disclosure_and_cancel_cleanup(self):
+        backend = CaptureBackend(self.persisted)
+        portal = AgentPortal(self.temp.name, lambda: backend)
+        self.addCleanup(portal.close)
+        session_id = portal.open()["sessionId"]
+        capture = self.camera_capture(source="webxr_virtual_center_eye",
+                                      cameraFrameCapturedAtUtc=None, cameraToPairMs=None)
+        del capture["cameraFrameCapturedAtUtc"]
+        del capture["cameraToPairMs"]
+        started = portal.send_text(session_id, "Inspect this", capture_input=capture)
+        staged = backend.image_paths[-1]
+        self.assertIn("contains no physical camera or passthrough pixels", backend.sent_texts[-1])
+        portal.cancel(session_id, started["turnId"])
+        self.wait_for(portal, session_id,
+                      lambda value: value["transcript"][-1]["status"] == "cancelled")
+        self.assertFalse(staged.exists())
+
+    def test_camera_capture_failure_close_and_restart_cleanup(self):
+        backend = CaptureBackend(self.persisted)
+        portal = AgentPortal(self.temp.name, lambda: backend)
+        self.addCleanup(portal.close)
+        session_id = portal.open()["sessionId"]
+        backend.fail_send = True
+        with self.assertRaisesRegex(AgentPortalError, "could not be sent"):
+            portal.send_text(session_id, "Inspect this", capture_input=self.camera_capture())
+        self.assertFalse(backend.image_paths[-1].exists())
+        self.assertEqual(portal.status(session_id)["transcript"], [])
+        backend.fail_send = False
+        started = portal.send_text(session_id, "Inspect this", capture_input=self.camera_capture())
+        staged = backend.image_paths[-1]
+        backend.events.append({"sequence": len(backend.events) + 1, "type": "activity",
+                               "conversationId": "native-thread-id", "turnId": started["turnId"],
+                               "activity": "failed"})
+        self.wait_for(portal, session_id,
+                      lambda value: value["transcript"][-1]["status"] == "failed")
+        self.assertFalse(staged.exists())
+        started = portal.send_text(session_id, "Inspect again", capture_input=self.camera_capture())
+        staged = backend.image_paths[-1]
+        portal.close()
+        self.assertFalse(staged.exists())
+        orphan = staged.parent / "turn-orphan.jpg"
+        orphan.write_bytes(self.camera_capture()["imageBytes"])
+        self.persisted[0] = True
+        restarted = AgentPortal(self.temp.name, lambda: CaptureBackend(self.persisted))
+        self.addCleanup(restarted.close)
+        restarted.open()
+        self.assertFalse(orphan.exists())
+
+    def test_camera_capture_rejects_paths_and_incomplete_timing(self):
+        backend = CaptureBackend(self.persisted)
+        portal = AgentPortal(self.temp.name, lambda: backend)
+        self.addCleanup(portal.close)
+        session_id = portal.open()["sessionId"]
+        for capture in (self.camera_capture(imagePath="C:/private/photo.jpg"),
+                        self.camera_capture(cameraFrameCapturedAtUtc=None),
+                        self.camera_capture(cameraToPairMs=-1)):
+            with self.assertRaisesRegex(AgentPortalError, "Invalid Agent camera capture"):
+                portal.send_text(session_id, "Inspect", capture_input=capture)
+        self.assertEqual(backend.image_paths, [])
 
     def test_native_generation_uses_same_thread_and_keeps_artifact_pc_only(self):
         backend = NativeFakeBackend(self.persisted)

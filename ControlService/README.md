@@ -16,6 +16,14 @@ Web persistence, use [whole-world checkpoints](WORLD_CHECKPOINTS.md) and the
 [Web save guide](../WebRuntime/README.md#save-and-restore). The
 [project map](../PROJECTS.md) defines ownership.
 
+## Current Web Review View and Agent Portal
+
+On `/web/`, **Enable environment camera for AI review** requests a separate browser `MediaDevices` stream in AR. It does not share an image. **Review View** is the explicit share action: the browser requests `POST /api/capture` with `mode: mixed` when an identified environment stream is active, or `mode: virtual` otherwise. The service returns an opaque `captureId`; the WebXR runtime supplies the JPEG and paired snapshot through its normal exchange. The page polls the capture status in `GET /api/state`, verifies the ready source and provenance, then sends `{sessionId,text,context,captureId}` to `/api/agent/turn` in the existing persistent Agent Portal session. This is separate from the historical Unity `/api/plan` image attachment below.
+
+The service accepts a current Matrix Web `webxr_camera_pair` only in AR and a `webxr_virtual_center_eye` as virtual-only. It checks the image against the requested mode and authoritative runtime snapshot, then binds Agent submission to the same client, room, scene revision, runtime generation and presentation. A ready capture expires after 30 seconds and can start only one Agent turn. The Agent Portal receives one validated JPEG of at most 512 KiB, stages it in a temporary local file for that turn, and clears it on completion, cancellation, error, close or restart. Image bytes are not put in saved scenes or normal Agent text turns.
+
+The mixed JPEG has two labeled panels: a separate environment-camera frame and a separate Three.js render. It contains no readable WebXR compositor passthrough pixels and makes no pixel-alignment, depth or camera calibration claim. `cameraFrameCapturedAtUtc` is the wall-clock time after JavaScript copies the current video frame to a canvas; `cameraToPairMs` is the application interval from that copy to pair assembly. Neither is sensor exposure time or end-to-end latency. If permission or device identification fails, the Web page displays the camera status and Review View uses virtual-only capture. If a mixed capture fails, the page reports it and requests a new virtual-only image; the service never silently changes a mixed request's source. The [#26 validation record](../Validation/Quest-Camera-Context-26-2026-09-28.md) lists the pending Quest wearer gates.
+
 ## Historical Unity Operator and client API
 
 The remainder of this guide records the native Operator and compatible API

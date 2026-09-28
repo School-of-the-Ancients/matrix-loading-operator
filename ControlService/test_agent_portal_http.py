@@ -1,4 +1,6 @@
 """Authenticated Matrix Agent Portal API on an isolated loopback service."""
+import base64
+import copy
 import json
 from pathlib import Path
 import tempfile
@@ -13,6 +15,8 @@ from agent_session import _mcp_approval_description
 from matrix_tool_bridge import scene_summary
 from server import APIError, Server, State, agent_runtime_context, agent_turn_context, snapshot
 from test_agent_portal import FakeBackend
+from test_scene_capture import JPEG, capture_result
+from test_server import SNAPSHOT
 from test_web_assets import glb
 from web_assets import WebAssetCatalog
 
@@ -89,6 +93,241 @@ class AgentPortalHTTPTests(unittest.TestCase):
             decode.assert_called_once_with("recording")
             transcribe.assert_called_once_with(b"wav")
             self.assertFalse(self.state.voice_jobs)
+
+    def test_explicit_webxr_camera_pair_reaches_one_agent_turn_only(self):
+        class ImageBackend(FakeBackend):
+            def send_text(self, identifier, text, *, image_path=None):
+                self.image_bytes = Path(image_path).read_bytes() if image_path else None
+                self.image_path = image_path
+                return super().send_text(identifier, text)
+
+        backend = ImageBackend(self.persisted)
+        self.state.agent_portal = AgentPortal(Path(self.temp.name) / ".agent_portal",
+                                             lambda: backend)
+        self.addCleanup(self.state.agent_portal.close)
+        web = copy.deepcopy(SNAPSHOT)
+        web["scene"]["roomId"] = "web-camera-room"
+        web["roomContext"] = {"mode": "ar", "state": "ready", "alignmentVerified": False}
+        web["runtimeDescriptor"] = {"schemaVersion": 1, "client": "matrix-web",
+                                    "renderer": "threejs-webxr", "presentation": "ar"}
+        capabilities = {"modes": ["virtual", "mixed"], "device": "WebXR environment camera",
+                        "mixedStatus": "available", "reason": "Separate camera and virtual view",
+                        "depthOcclusion": False}
+        exchange = {"clientId": "web-camera-runtime", "snapshot": web,
+                    "captureSupported": True, "captureCapabilities": capabilities}
+        self.state.exchange(exchange)
+        capture_id = self.state.request_capture({"mode": "mixed"})["captureId"]
+        raw = bytearray(JPEG)
+        raw[7:9] = (480).to_bytes(2, "big")
+        raw[9:11] = (1280).to_bytes(2, "big")
+        pair = capture_result(self.state, source="webxr_camera_pair", mode="mixed",
+                              includesPhysicalCamera=True, includesPassthrough=False,
+                              dataBase64=base64.b64encode(raw).decode(), width=1280, height=480,
+                              cameraFrameCapturedAtUtc="2026-09-21T12:34:55.900Z",
+                              cameraToPairMs=100,
+                              layout={"kind": "side-by-side", "cameraPanel": [0, 0, 640, 480],
+                                      "virtualPanel": [640, 0, 640, 480], "calibrated": False},
+                              spatialProvenance={"source": "webxr_room_planes", "roomId": "web-camera-room",
+                                                 "anchorCount": len(web["anchors"]), "alignmentVerified": False,
+                                                 "depthOcclusion": False, "physicalDepthIncluded": False})
+        self.state.exchange({**exchange, "capture": pair})
+        self.assertEqual(self.state.capture_status()["status"], "ready")
+        session_id = self.post("/api/agent/session", {})[1]["sessionId"]
+        context = {"schemaVersion": 1, "inputSource": "text", "clientId": "web-camera-runtime",
+                   "roomId": "web-camera-room", "selectedObjectId": None,
+                   "pointingTarget": None, "viewerFrame": None}
+        request = {"sessionId": session_id, "text": "Describe the physical marker and virtual scene",
+                   "context": context, "captureId": capture_id}
+        self.assertEqual(self.post("/api/agent/turn", {**request, "captureId": "bad"})[0], 400)
+        self.assertEqual(self.post("/api/agent/turn", {key: value for key, value in request.items()
+                                                       if key != "context"})[0], 400)
+        code, started = self.post("/api/agent/turn", request)
+        self.assertEqual(code, 200, started)
+        self.assertEqual(backend.image_bytes, bytes(raw))
+        self.assertIn("not pixel aligned", backend.sent_texts[-1])
+        self.assertIn("physical", backend.sent_texts[-1].lower())
+        self.assertIn("cameraFrameCapturedAtUtc", backend.sent_texts[-1])
+        self.assertNotIn(pair["dataBase64"], backend.sent_texts[-1])
+        self.assertEqual(self.state.capture["agentTurnId"], started["turnId"])
+        self.state.agent_portal.cancel(session_id, started["turnId"])
+        self.state.agent_portal.status(session_id)
+        self.assertEqual(self.post("/api/agent/turn", request)[0], 409)
+        code, _ = self.post("/api/agent/turn", {"sessionId": session_id,
+                                                "text": "Ordinary follow-up"})
+        self.assertEqual(code, 200)
+        self.assertIsNone(backend.image_bytes)
+
+    def test_stale_or_mismatched_webxr_capture_cannot_reach_agent(self):
+        web = copy.deepcopy(SNAPSHOT)
+        web["scene"]["roomId"] = "web-camera-room"
+        web["roomContext"] = {"mode": "ar", "state": "ready", "alignmentVerified": False}
+        web["runtimeDescriptor"] = {"schemaVersion": 1, "client": "matrix-web",
+                                    "renderer": "threejs-webxr", "presentation": "ar"}
+        exchange = {"clientId": "web-camera-runtime", "snapshot": web, "captureSupported": True}
+        self.state.exchange(exchange)
+        capture_id = self.state.request_capture({})["captureId"]
+        self.state.exchange({**exchange,
+                             "capture": capture_result(self.state, source="webxr_virtual_center_eye")})
+        session_id = self.post("/api/agent/session", {})[1]["sessionId"]
+        context = {"schemaVersion": 1, "inputSource": "text", "clientId": "web-camera-runtime",
+                   "roomId": "web-camera-room", "selectedObjectId": None,
+                   "pointingTarget": None, "viewerFrame": None}
+        body = {"sessionId": session_id, "text": "Review this virtual-only view",
+                "context": context, "captureId": capture_id}
+        self.assertEqual(self.post("/api/agent/turn", {**body,
+                         "context": {**context, "roomId": "another-room"}})[0], 409)
+        changed = copy.deepcopy(web)
+        changed["runtimeDescriptor"]["presentation"] = "vr"
+        changed["roomContext"] = {"mode": "white-room", "state": "ready",
+                                  "alignmentVerified": False}
+        self.state.exchange({**exchange, "snapshot": changed})
+        self.assertEqual(self.state.capture_status()["status"], "stale")
+        self.assertEqual(self.post("/api/agent/turn", body)[0], 409)
+        self.assertEqual(self.state.agent_portal._backend.sent_texts, [])
+
+    def test_runtime_heartbeat_continues_during_camera_image_admission(self):
+        sending = threading.Event()
+        release = threading.Event()
+
+        class BlockingImageBackend(FakeBackend):
+            def send_text(self, identifier, text, *, image_path=None):
+                self.image_bytes = Path(image_path).read_bytes()
+                sending.set()
+                if not release.wait(3):
+                    raise RuntimeError("Camera admission test timed out")
+                return super().send_text(identifier, text)
+
+        backend = BlockingImageBackend(self.persisted)
+        self.state.agent_portal = AgentPortal(Path(self.temp.name) / ".agent_portal",
+                                             lambda: backend)
+        self.addCleanup(self.state.agent_portal.close)
+        web = copy.deepcopy(SNAPSHOT)
+        web["scene"]["roomId"] = "web-camera-room"
+        web["roomContext"] = {"mode": "white-room", "state": "ready", "alignmentVerified": False}
+        web["runtimeDescriptor"] = {"schemaVersion": 1, "client": "matrix-web",
+                                    "renderer": "threejs-webxr", "presentation": "desktop"}
+        exchange = {"clientId": "web-camera-runtime", "snapshot": web, "captureSupported": True}
+        self.state.exchange(exchange)
+        capture_id = self.state.request_capture({})["captureId"]
+        self.state.exchange({**exchange,
+                             "capture": capture_result(self.state, source="webxr_virtual_center_eye")})
+        session_id = self.post("/api/agent/session", {})[1]["sessionId"]
+        body = {"sessionId": session_id, "text": "Review this virtual view",
+                "context": {"schemaVersion": 1, "inputSource": "text",
+                            "clientId": "web-camera-runtime", "roomId": "web-camera-room",
+                            "selectedObjectId": None, "pointingTarget": None, "viewerFrame": None},
+                "captureId": capture_id}
+        outcome = {}
+        sender = threading.Thread(target=lambda: outcome.update(sent=self.post("/api/agent/turn", body)))
+        sender.start()
+        self.assertTrue(sending.wait(2))
+        self.assertEqual(self.state.capture["agentAdmission"], "submitting")
+        exchange_started = threading.Event()
+        exchange_done = threading.Event()
+        def heartbeat():
+            exchange_started.set()
+            self.state.exchange(exchange)
+            exchange_done.set()
+        changer = threading.Thread(target=heartbeat)
+        changer.start()
+        try:
+            self.assertTrue(exchange_started.wait(2))
+            self.assertTrue(exchange_done.wait(1), "Codex IPC blocked a Matrix heartbeat")
+        finally:
+            release.set()
+            sender.join(3)
+            changer.join(3)
+        self.assertFalse(sender.is_alive())
+        self.assertFalse(changer.is_alive())
+        self.assertEqual(outcome["sent"][0], 200)
+        self.assertEqual(backend.image_bytes, JPEG)
+        self.assertTrue(exchange_done.is_set())
+        self.assertEqual(self.state.capture["agentAdmission"], "shared")
+        self.state.agent_portal.cancel(session_id, outcome["sent"][1]["turnId"])
+        self.state.agent_portal.status(session_id)
+        self.assertEqual(self.post("/api/agent/turn", body)[0], 409,
+                         "A shared capture must not be admitted twice")
+
+    def test_runtime_switch_during_camera_submission_stops_stale_turn(self):
+        sending = threading.Event()
+        release = threading.Event()
+
+        class BlockingImageBackend(FakeBackend):
+            def send_text(self, identifier, text, *, image_path=None):
+                sending.set()
+                if not release.wait(3):
+                    raise RuntimeError("Camera admission test timed out")
+                return super().send_text(identifier, text)
+
+        backend = BlockingImageBackend(self.persisted)
+        self.state.agent_portal = AgentPortal(Path(self.temp.name) / ".agent_portal",
+                                             lambda: backend)
+        self.addCleanup(self.state.agent_portal.close)
+        web = copy.deepcopy(SNAPSHOT)
+        web["scene"]["roomId"] = "web-camera-room"
+        web["roomContext"] = {"mode": "white-room", "state": "ready", "alignmentVerified": False}
+        web["runtimeDescriptor"] = {"schemaVersion": 1, "client": "matrix-web",
+                                    "renderer": "threejs-webxr", "presentation": "desktop"}
+        exchange = {"clientId": "web-camera-runtime", "snapshot": web, "captureSupported": True}
+        self.state.exchange(exchange)
+        capture_id = self.state.request_capture({})["captureId"]
+        self.state.exchange({**exchange,
+                             "capture": capture_result(self.state, source="webxr_virtual_center_eye")})
+        session_id = self.post("/api/agent/session", {})[1]["sessionId"]
+        body = {"sessionId": session_id, "text": "Review this virtual view",
+                "context": {"schemaVersion": 1, "inputSource": "text",
+                            "clientId": "web-camera-runtime", "roomId": "web-camera-room",
+                            "selectedObjectId": None, "pointingTarget": None, "viewerFrame": None},
+                "captureId": capture_id}
+        outcome = {}
+        sender = threading.Thread(target=lambda: outcome.update(sent=self.post("/api/agent/turn", body)))
+        sender.start()
+        self.assertTrue(sending.wait(2))
+        changed = copy.deepcopy(web)
+        changed["runtimeDescriptor"]["presentation"] = "vr"
+        self.state.exchange({**exchange, "snapshot": changed})
+        try:
+            self.assertEqual(self.state.capture["agentAdmission"], "submitting")
+        finally:
+            release.set()
+            sender.join(3)
+        self.assertFalse(sender.is_alive())
+        self.assertEqual(outcome["sent"][0], 409)
+        self.assertIn("Camera view reached Agent", outcome["sent"][1]["error"])
+        self.assertEqual(self.state.capture["agentAdmission"], "stale")
+        self.assertEqual(backend.approval, None, "Stale Agent turn was not stopped")
+        self.assertEqual(self.post("/api/agent/turn", body)[0], 409)
+
+    def test_failed_camera_submission_cleans_staging_and_requires_new_capture(self):
+        class FailedImageBackend(FakeBackend):
+            def send_text(self, identifier, text, *, image_path=None):
+                self.image_path = Path(image_path)
+                raise RuntimeError("Agent transport failed after receiving image path")
+
+        backend = FailedImageBackend(self.persisted)
+        self.state.agent_portal = AgentPortal(Path(self.temp.name) / ".agent_portal",
+                                             lambda: backend)
+        self.addCleanup(self.state.agent_portal.close)
+        web = copy.deepcopy(SNAPSHOT)
+        web["scene"]["roomId"] = "web-camera-room"
+        web["roomContext"] = {"mode": "white-room", "state": "ready", "alignmentVerified": False}
+        web["runtimeDescriptor"] = {"schemaVersion": 1, "client": "matrix-web",
+                                    "renderer": "threejs-webxr", "presentation": "desktop"}
+        exchange = {"clientId": "web-camera-runtime", "snapshot": web, "captureSupported": True}
+        self.state.exchange(exchange)
+        capture_id = self.state.request_capture({})["captureId"]
+        self.state.exchange({**exchange,
+                             "capture": capture_result(self.state, source="webxr_virtual_center_eye")})
+        session_id = self.post("/api/agent/session", {})[1]["sessionId"]
+        body = {"sessionId": session_id, "text": "Review this virtual view",
+                "context": {"schemaVersion": 1, "inputSource": "text",
+                            "clientId": "web-camera-runtime", "roomId": "web-camera-room",
+                            "selectedObjectId": None, "pointingTarget": None, "viewerFrame": None},
+                "captureId": capture_id}
+        self.assertEqual(self.post("/api/agent/turn", body)[0], 502)
+        self.assertEqual(self.state.capture["agentAdmission"], "failed")
+        self.assertFalse(backend.image_path.exists())
+        self.assertEqual(self.post("/api/agent/turn", body)[0], 409)
 
     def test_known_mcp_approval_uses_existing_browser_decision_route(self):
         session_id = self.post("/api/agent/session", {})[1]["sessionId"]

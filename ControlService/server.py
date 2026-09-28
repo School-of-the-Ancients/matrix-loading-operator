@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import argparse
+import base64
 import ssl
 import collections
 import copy
@@ -3449,9 +3450,11 @@ def agent_portal_turn(state, body):
     fields = set(body)
     expected = {"expectedConceptId", "expectedConceptVersion"}
     require({"sessionId", "text"} <= fields <=
-            {"sessionId", "text", "context", "creationMode"} | expected and
+            {"sessionId", "text", "context", "creationMode", "captureId"} | expected and
             (expected <= fields or expected.isdisjoint(fields)),
             "Invalid Agent turn request")
+    require("captureId" not in fields or "context" in fields,
+            "A reviewed image needs the current Matrix Agent context")
     # Selection and image bytes stay on the PC. The browser names neither a
     # path nor an image; a new image result never starts a Codex build.
     portal_status = state.agent_portal_status(body["sessionId"])
@@ -3467,6 +3470,8 @@ def agent_portal_turn(state, body):
             "Concept build options require a selected-concept build request", 409)
     if selected is None and concept_build_request(body["text"]):
         raise APIError(409, "Select a ready concept version before building it")
+    require("captureId" not in fields or selected is None,
+            "Review a camera capture separately from a selected-concept build", 409)
     if selected is not None:
         creation_mode = body.get("creationMode", "auto")
         require(type(creation_mode) is str and
@@ -3486,8 +3491,101 @@ def agent_portal_turn(state, body):
     context = (agent_turn_context(state, body["context"], creation=selected is not None)
                if "context" in body
                else agent_runtime_context(state, include_scene=selected is not None))
+    capture_input = None
+    if "captureId" in fields:
+        require(type(body["captureId"]) is str and
+                re.fullmatch(r"[0-9a-f]{32}", body["captureId"]),
+                "Invalid camera capture ID")
+        with state.lock:
+            image, captured = state.selected_capture(body["captureId"])
+            record = state.capture
+            current = state.latest
+            descriptor = (current or {}).get("runtimeDescriptor") or {}
+            captured_descriptor = captured.get("runtimeDescriptor") or {}
+            require(context.get("online") is True and current is not None and
+                    context.get("kind") == "matrix_spatial_context" and
+                    context.get("roomId") == captured["scene"]["roomId"] ==
+                    current["scene"]["roomId"] and
+                    context.get("sceneRevision") == record["revision"] == state.revision and
+                    context.get("runtimeGeneration") == record["runtimeGeneration"] ==
+                    state.runtime_generation and
+                    record["clientId"] == state.client_id and
+                    record["roomId"] == context["roomId"] and
+                    record["presentation"] == descriptor.get("presentation") ==
+                    captured_descriptor.get("presentation") and
+                    descriptor.get("client") == captured_descriptor.get("client") == "matrix-web" and
+                    descriptor.get("renderer") == captured_descriptor.get("renderer") == "threejs-webxr",
+                    "Camera capture no longer matches the current Matrix Web runtime; capture again", 409)
+            require(not record.get("agentTurnId") and not record.get("agentAdmission"),
+                    "Camera capture was already used for an Agent submission; capture again", 409)
+            require(image["source"] in ("webxr_camera_pair", "webxr_virtual_center_eye") and
+                    (image["source"] != "webxr_camera_pair" or
+                     descriptor.get("presentation") == "ar" and
+                     (current.get("roomContext") or {}).get("mode") == "ar"),
+                    "Only a current Matrix Web camera pair or virtual view can be shared", 409)
+            capture_input = {"imageBytes": base64.b64decode(image["dataBase64"], validate=True),
+                             "source": image["source"],
+                             "capturedAtUtc": image["capturedAtUtc"],
+                             "content": image["content"],
+                             "captureId": record["captureId"],
+                             **({"cameraFrameCapturedAtUtc": image["cameraFrameCapturedAtUtc"],
+                                 "cameraToPairMs": image["cameraToPairMs"]}
+                                if "cameraFrameCapturedAtUtc" in image else {})}
     if selected is None:
-        return portal.send_text(body["sessionId"], body["text"], context)
+        if capture_input is None:
+            return portal.send_text(body["sessionId"], body["text"], context)
+        # Reserve this one-use image while the runtime is current. Do not hold
+        # the runtime lock across Codex IPC: a first thread/start and turn/start
+        # can outlast the 15-second browser lease and block its heartbeats.
+        with state.lock:
+            require(state.capture is record and
+                    state.runtime_generation == record["runtimeGeneration"] and
+                    state.revision == context["sceneRevision"] and
+                    state.latest is not None and
+                    state.latest["scene"]["roomId"] == record["roomId"] and
+                    (state.latest.get("runtimeDescriptor") or {}).get("presentation") ==
+                    record["presentation"],
+                    "Camera capture no longer matches the Matrix runtime; capture again", 409)
+            state.selected_capture(record["captureId"])
+            require(not record.get("agentTurnId") and not record.get("agentAdmission"),
+                    "Camera capture was already used for an Agent submission; capture again", 409)
+            record["agentAdmission"] = "submitting"
+        try:
+            result = portal.send_text(body["sessionId"], body["text"], context,
+                                      capture_input=capture_input)
+        except Exception:
+            # An IPC error may be an uncertain send. Require a new capture
+            # instead of attaching the same physical image a second time.
+            with state.lock:
+                if state.capture is record and record.get("agentAdmission") == "submitting":
+                    record["agentAdmission"] = "failed"
+            raise
+        with state.lock:
+            current = state.latest
+            still_current = (state.capture is record and state.online() and
+                             state.client_id == record["clientId"] and
+                             state.runtime_generation == record["runtimeGeneration"] and
+                             state.revision == record["revision"] and
+                             current is not None and
+                             current["scene"]["roomId"] == record["roomId"] and
+                             (current.get("runtimeDescriptor") or {}).get("presentation") ==
+                             record["presentation"])
+            if state.capture is record:
+                record["agentTurnId"] = result["turnId"]
+                record["agentAdmission"] = "shared" if still_current else "stale"
+        if not still_current:
+            # The image may have reached Codex, so stop its turn and disclose
+            # that outcome instead of reporting a clean pre-send rejection.
+            try:
+                stopped = portal.cancel(body["sessionId"], result["turnId"])
+            except AgentPortalError:
+                raise APIError(409, "Camera view reached Agent, but Matrix changed while it was being shared. "
+                               "Agent stop could not be confirmed; inspect its turn before continuing") from None
+            outcome = ("Agent stop was requested" if stopped.get("activity") == "stopping"
+                       else "Agent turn had already ended")
+            raise APIError(409, "Camera view reached Agent, but Matrix changed while it was being shared. "
+                           f"{outcome}; inspect its turn before continuing")
+        return result
     require(context.get("online") is True and type(context.get("sceneSummary")) is dict,
             "Current Matrix scene is required to build from a concept", 409)
     build_id = uuid.uuid4().hex
@@ -4203,6 +4301,11 @@ class State:
                 status, error = capture["status"], capture["error"]
             if status in ("pending", "ready"):
                 if (not self.online() or self.client_id != capture["clientId"] or self.revision != capture["revision"]
+                        or self.runtime_generation != capture.get("runtimeGeneration")
+                        or self.latest is not None and
+                        (self.latest["scene"]["roomId"] != capture.get("roomId") or
+                         (self.latest.get("runtimeDescriptor") or {}).get("presentation") !=
+                         capture.get("presentation"))
                         or self.latest is None or self.latest.get("readOnly") or self.pending or
                         not resident_motion_current(self.latest, capture.get("motionDependencies", {}))):
                     status, error = "stale", "Runtime, scene, or selection changed. Capture the current view again."
@@ -4235,6 +4338,9 @@ class State:
             self.last_capture_request = self.clock()
             self.capture = {"captureId": uuid.uuid4().hex, "clientId": self.client_id,
                             "revision": self.revision, "requested": self.clock(), "status": "pending", "mode": mode,
+                            "runtimeGeneration": self.runtime_generation,
+                            "roomId": self.latest["scene"]["roomId"],
+                            "presentation": (self.latest.get("runtimeDescriptor") or {}).get("presentation"),
                             "motionDependencies": resident_motion_dependencies(self.latest, strict=True)}
             self.voice_capture_id = None
             return self.capture_status()
