@@ -174,11 +174,14 @@ def build_matrix_turn_message(user_text: str, context: dict,
             lines.append("This turn includes bounded, measured WebXR room surfaces in a verified "
                          "coordinate frame. Surface IDs and polygons are session observations, "
                          "not saved room assets. Refresh matrix_room_spatial_context immediately "
-                         "before a physical-room action; use its current spatial token. "
+                         "before a physical-room action; use the chosen support plane's "
+                         "spatialToken because the top-level token also covers unrelated planes. "
                          "A measured-surface spawn also requires surfaceSpawnAvailable. "
                          "Use matrix_move_with_room_constraint to reposition an existing "
                          "virtual-floor object against a measured support while retaining "
-                         "its ID. The browser checks the final footprint. "
+                         "its ID. Inspect its current rotation first: a support fit must be "
+                         "upright, so supply a complete rotation with x and z zero if it is "
+                         "tilted. The browser checks the final footprint. "
                          "Explain which measured constraint influenced the result without "
                          "exposing private room geometry in a public artifact.")
         else:
@@ -271,11 +274,14 @@ def build_matrix_turn_message(user_text: str, context: dict,
         lines.append("For a physical-room request, recapture matrix_room_spatial_context "
                      "after entering AR or relocalizing and immediately before an edit. "
                      "Use measured placement only when it reports fresh usable geometry, "
-                     "a verified origin, and a common coordinate frame. Supply its current "
-                     "spatial token to matrix_spawn_on_surface or "
+                     "a verified origin, and a common coordinate frame. Supply the target "
+                     "support plane's spatialToken to matrix_spawn_on_surface or "
                      "matrix_move_with_room_constraint as appropriate. If unavailable, explain the "
                      "specific limit and keep any proposal in digital coordinates without "
-                     "claiming physical fit.")
+                     "claiming physical fit. If the typed tool rejects a room edit without a "
+                     "request ID, use its stated validation reason to recapture or correct the "
+                     "proposal once; report a remaining conflict without trying a PC command "
+                     "as a live-world fallback.")
     encoded = (json.dumps(context, ensure_ascii=True, separators=(",", ":"))
                .replace("<", "\\u003c").replace(">", "\\u003e"))
     context_tag = ("matrix_runtime_context" if context.get("kind") == "matrix_runtime_context"

@@ -3451,6 +3451,12 @@ def room_spatial_summary(state, current, priority_anchor_ids=()):
                              **({"localBounds": surface["localBounds"]} if "localBounds" in surface else {})},
                  "boundaryVertexCount": len(boundary),
                  "geometryTruncated": len(boundary) > MAX_ROOM_SPATIAL_BOUNDARY}
+        if (result["usable"] and plane["kind"] == "support" and
+                plane["roomPose"] is not None and not plane["geometryTruncated"] and
+                len(boundary) >= 3):
+            # A target-specific guard keeps unrelated, unshown WebXR planes
+            # from invalidating a fresh placement against this support.
+            plane["spatialToken"] = _room_spatial_fingerprint(state, current, [anchor])
         result["planes"].append(plane)
         result["omittedPlaneCount"] = len(planes) - len(result["planes"])
         if len(json.dumps(result, ensure_ascii=True, separators=(",", ":")).encode("utf-8")) > MAX_ROOM_SPATIAL_BYTES:
@@ -5340,15 +5346,16 @@ class State:
             require(spatial["usable"],
                     "Verified fresh AR room geometry is unavailable: " +
                     str(spatial["unusableReason"]), 409)
-            require(spatial["spatialToken"] == token,
-                    "Room spatial context changed; recapture and replan placement", 409)
-            require(any(plane["anchorId"] == anchor_id and
-                        plane["kind"] == "support" and
-                        plane["roomPose"] is not None and
-                        not plane["geometryTruncated"] and
-                        len(plane["surface"].get("boundary", [])) >= 3
-                        for plane in spatial["planes"]),
+            bounded_anchor = next((plane for plane in spatial["planes"]
+                                   if plane["anchorId"] == anchor_id and
+                                   plane["kind"] == "support" and
+                                   plane["roomPose"] is not None and
+                                   not plane["geometryTruncated"] and
+                                   len(plane["surface"].get("boundary", [])) >= 3), None)
+            require(bounded_anchor is not None,
                     "Target support is absent from bounded room context", 409)
+            require(token in (spatial["spatialToken"], bounded_anchor["spatialToken"]),
+                    "Target support or room origin changed; recapture and replan placement", 409)
             mode = current.get("creatorMode") or {}
             require(mode.get("mode") == "creator" and mode.get("simulation") == "paused" and
                     not current.get("readOnly") and not current.get("digitalWorldVisit") and
@@ -5555,8 +5562,6 @@ class State:
             require(spatial["usable"],
                     "Verified fresh AR room geometry is unavailable: " +
                     str(spatial["unusableReason"]), 409)
-            require(spatial["spatialToken"] == token,
-                    "Room spatial context changed; recapture and replan placement", 409)
             bounded_anchor = next((plane for plane in spatial["planes"]
                                    if plane["anchorId"] == anchor_id and
                                    plane["kind"] == "support" and
@@ -5565,6 +5570,8 @@ class State:
                                    len(plane["surface"].get("boundary", [])) >= 3), None)
             require(bounded_anchor is not None,
                     "Target support is absent from bounded room context; recapture a visible target", 409)
+            require(token in (spatial["spatialToken"], bounded_anchor["spatialToken"]),
+                    "Target support or room origin changed; recapture and replan placement", 409)
             mode = current.get("creatorMode") or {}
             require(mode.get("mode") == "creator" and mode.get("simulation") == "paused" and
                     not current.get("readOnly") and not current.get("digitalWorldVisit") and

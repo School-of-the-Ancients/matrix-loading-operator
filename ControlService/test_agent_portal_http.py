@@ -1,4 +1,5 @@
 """Authenticated Matrix Agent Portal API on an isolated loopback service."""
+import copy
 import json
 from pathlib import Path
 import tempfile
@@ -267,6 +268,8 @@ class AgentPortalHTTPTests(unittest.TestCase):
         self.assertEqual(scene_revision_data(self.state.latest), scene_revision_data(refined))
         self.state.latest = refined
         self.assertNotEqual(self.state.agent_room_spatial()["spatialToken"], spatial["spatialToken"])
+        self.assertNotEqual(self.state.agent_room_spatial()["planes"][0]["spatialToken"],
+                            spatial["planes"][0]["spatialToken"])
         move = {"room_id": spatial["roomId"], "scene_revision": spatial["sceneRevision"],
                 "spatial_token": spatial["spatialToken"], "anchor_id": "floor-1",
                 "object_id": "tower-1", "expected_asset_id": "tower",
@@ -285,7 +288,15 @@ class AgentPortalHTTPTests(unittest.TestCase):
         self.assertEqual(stale_tracking.exception.status, 409)
         self.state.last_seen = self.state.clock()
         fresh = self.state.agent_room_spatial()
-        queued = self.state.agent_move_room({**move, "spatial_token": fresh["spatialToken"]})
+        target_token = fresh["planes"][0]["spatialToken"]
+        other = copy.deepcopy(self.state.latest["anchors"][1])
+        other["anchorId"] = "floor-2"
+        other["roomPose"]["position"]["x"] = 1
+        self.state.latest["anchors"].append(other)
+        changed_other = self.state.agent_room_spatial()
+        self.assertNotEqual(changed_other["spatialToken"], fresh["spatialToken"])
+        self.assertEqual(changed_other["planes"][0]["spatialToken"], target_token)
+        queued = self.state.agent_move_room({**move, "spatial_token": target_token})
         self.assertEqual(queued["status"], "queued")
         self.assertEqual(queued["constraintAnchorId"], "floor-1")
         self.assertEqual(self.state.pending[queued["requestId"]]["roomConstraint"],

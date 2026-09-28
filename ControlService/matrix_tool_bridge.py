@@ -8,11 +8,13 @@ from __future__ import annotations
 import copy
 import hmac
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+import io
 import json
 import re
 import secrets
 import threading
 import time
+import urllib.error
 import urllib.request
 import urllib.parse
 
@@ -33,8 +35,27 @@ def _request_json(url: str, token: str, body: dict | None = None) -> dict:
     request = urllib.request.Request(url, headers=headers,
                                      data=json.dumps(body, allow_nan=False).encode("utf-8") if body is not None else None)
     opener = urllib.request.build_opener(urllib.request.ProxyHandler({}))
-    with opener.open(request, timeout=8) as response:
-        raw = response.read(64 * 1024 + 1)
+    try:
+        with opener.open(request, timeout=8) as response:
+            raw = response.read(64 * 1024 + 1)
+    except urllib.error.HTTPError as error:
+        # The private listener returns concise validation errors. Keep their
+        # reason visible to the Agent so a rejected edit can be corrected
+        # without guessing or repeating an uncertain mutation.
+        if error.headers.get_content_type() == "application/json":
+            raw_error = error.read(8193)
+            try:
+                payload = json.loads(raw_error) if len(raw_error) <= 8192 else None
+                reason = payload.get("error") if type(payload) is dict else None
+            except (ValueError, UnicodeDecodeError):
+                reason = None
+            if (type(reason) is str and 0 < len(reason) <= 240 and
+                    all(ord(char) >= 32 for char in reason)):
+                raise urllib.error.HTTPError(error.url, error.code, reason,
+                                             error.headers, io.BytesIO(raw_error)) from None
+            raise urllib.error.HTTPError(error.url, error.code, error.reason,
+                                         error.headers, io.BytesIO(raw_error)) from None
+        raise
     if len(raw) > 64 * 1024:
         raise ValueError("Matrix scene summary exceeded its limit")
     return json.loads(raw)

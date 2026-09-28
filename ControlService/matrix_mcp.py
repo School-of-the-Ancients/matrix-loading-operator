@@ -100,10 +100,15 @@ def matrix_move_with_room_constraint(room_id: str, scene_revision: int, spatial_
     position is in web-floor digital coordinates, while anchor_id identifies
     the measured WebXR support that must contain the object's physical footprint
     after mapping through the current web-floor pose. Optional rotation and
-    scale replace the complete current values. Matrix checks the fresh room
-    token and support availability before queueing; the browser checks the final
-    footprint and tracking epoch. Inspect matrix_move_status and the observed scene before
-    claiming success. The object keeps its virtual-floor anchor and stable ID.
+    scale replace the complete current values. A support fit requires an upright
+    target (rotation x and z within 0.01 degrees); if the observed object is
+    tilted, supply a complete upright rotation with its intended y angle.
+    Use the chosen support plane's spatialToken from that fresh room context.
+    The top-level spatialToken covers every detected plane and can expire from
+    unrelated tracking changes. Matrix checks the target token and support
+    before queueing; the browser checks the final footprint and tracking epoch. Inspect
+    matrix_move_status and the observed scene before claiming success. The
+    object keeps its virtual-floor anchor and stable ID.
     """
     value = {"room_id": room_id, "scene_revision": scene_revision,
              "spatial_token": spatial_token, "anchor_id": anchor_id,
@@ -187,7 +192,8 @@ def matrix_spawn_on_surface(room_id: str, scene_revision: int, spatial_token: st
     """Place one Matrix asset on a fresh, verified WebXR support surface.
 
     Read matrix_room_spatial_context immediately beforehand. Choose a measured
-    support anchor and a transform expressed in that anchor's local coordinates;
+    support anchor, use that plane's spatialToken, and supply a transform
+    expressed in that anchor's local coordinates;
     position.y is clearance above its polygon. Matrix rechecks room identity,
     origin/tracking and the token before queueing, then validates the asset's
     footprint again when the browser executes. Inspect matrix_spawn_status and
