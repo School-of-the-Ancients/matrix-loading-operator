@@ -53,6 +53,14 @@ FORBIDDEN_DEMO_KEYS = re.compile(
     r"room.?image|room.?scan", re.IGNORECASE,
 )
 FIXED_ZIP_TIME = (2026, 1, 1, 0, 0, 0)
+PRIVATE_ART_PREFIX = "WebRuntime/art/"
+
+
+def reject_private_art(paths) -> None:
+    """Keep editable examples out of public bytes, even if copied later."""
+    if any(path == PRIVATE_ART_PREFIX[:-1] or path.startswith(PRIVATE_ART_PREFIX)
+           for path in paths):
+        raise ValueError("Public release must not contain WebRuntime/art")
 
 
 def run(*command: str, cwd: Path | None = None, env: dict | None = None) -> str:
@@ -116,7 +124,7 @@ def eligible_source(relative: PurePosixPath) -> bool:
                 "package-lock.json", "vite.config.js", "README.md",
                 "QUEST3_ACCEPTANCE.md", "BLENDER_AUTHORING_TIERS.md",
             }
-        return (relative.parts[1] in {"src", "art"} and
+        return (relative.parts[1] == "src" and
                 not FORBIDDEN_NAMES.search(relative.name))
     return False
 
@@ -284,7 +292,10 @@ procedural/Blender seat. These are mutually exclusive in this release.
 
 {demo}
 The release excludes credentials, private worlds, room images, Agent history,
-browser storage, speech models, Blender installations, and Blender job state.
+browser storage, speech models, Blender installations, Blender job state, and
+editable WebRuntime/art examples. The examples remain available in the frozen
+[source repository]({REPOSITORY}/tree/{commit}/WebRuntime/art); they are not
+registered runtime assets in this bundle.
 The hosted owner resumes the last complete checkpoint, without downtime catch-up.
 See Docs/Persistent-World-Host.md and Docs/Versions-And-Submissions.md.
 """
@@ -292,11 +303,11 @@ See Docs/Persistent-World-Host.md and Docs/Versions-And-Submissions.md.
 
 def add_zip(bundle: Path, target: Path) -> dict[str, str]:
     hashes: dict[str, str] = {}
+    files = sorted(source for source in bundle.rglob("*") if source.is_file())
+    reject_private_art(source.relative_to(bundle).as_posix() for source in files)
     with zipfile.ZipFile(target, "w", compression=zipfile.ZIP_DEFLATED,
                          compresslevel=9) as archive:
-        for source in sorted(bundle.rglob("*")):
-            if not source.is_file():
-                continue
+        for source in files:
             name = source.relative_to(bundle).as_posix()
             info = zipfile.ZipInfo(name, FIXED_ZIP_TIME)
             info.compress_type = zipfile.ZIP_DEFLATED
@@ -355,6 +366,7 @@ def verify_extracted(archive_path: Path, hashes: dict[str, str],
     with tempfile.TemporaryDirectory(prefix="matrix-release-verify-") as temp:
         root = Path(temp)
         with zipfile.ZipFile(archive_path) as archive:
+            reject_private_art(archive.namelist())
             if set(archive.namelist()) != set(hashes):
                 raise ValueError("ZIP inventory differs from SHA manifest")
             for entry in archive.infolist():
@@ -486,7 +498,8 @@ def build(args: argparse.Namespace) -> dict:
         "exclusions": ["credentials and private world state",
                        "Quest room imagery and browser storage",
                        "Agent sessions and transcripts", "local speech models",
-                       "Blender installation and unfinished Blender job state"],
+                       "Blender installation and unfinished Blender job state",
+                       "editable WebRuntime/art examples"],
     }
     manifest_path.write_text(json.dumps(manifest, indent=2, sort_keys=True) + "\n",
                              encoding="utf-8", newline="\n")
