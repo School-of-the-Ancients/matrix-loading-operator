@@ -199,10 +199,20 @@ off recent parent-local XR pose motion as at most 6 m/s linear and 12 rad/s
 angular velocity on a normal tracked release. Gaps, stillness, cancellation,
 and tracking loss use zero momentum. The lower-level API rejects invalid or
 over-limit velocities before changing a held body. Automated tests and the
-`view-Dyy84z0d.js` build pass; **the corrected throw still needs a Quest
-wearer retest**. The old Play/Test observation is not a fling pass.
+`view-Dyy84z0d.js` build pass. The wearer then refreshed the Quest Browser
+page, re-entered VR Play/Test, swung and released the Block, and reported
+**"Yes, it flings."** During that run, the service observed the same Block ID
+unheld at revision 210, position `(1.798, 5.743, -1.145)`, with velocity
+`(0.784, -1.351, 3.649)` m/s and nonzero angular velocity. At revision 211 it
+had continued to `(2.225, 2.671, 1.225)` with the same lateral and depth
+velocity components while gravity increased downward speed. This corroborates
+a moving release and subsequent arc; the headset result is the wearer's
+observation. The Dragon retained its ID, Flight, and scale.
 
 ## Remaining Quest acceptance
+
+The VR control, UI, Undo, browser reopen, and Play/Test throw checks above
+passed. The separate AR wearer run remains open.
 
 Run VR and AR separately on the revised exact PR head using an isolated browser origin
 and a disposable world. Record the Quest OS, Browser version, URL, bundle/commit,
