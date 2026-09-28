@@ -64,8 +64,10 @@ export class ConceptUI {
     }
     this.notice='';this.noticeError=false;
     const currentSession=this.getSession();
-    if(currentSession&&this.client&&this.client.sessionId!==currentSession)
+    if(currentSession&&this.client&&this.client.sessionId!==currentSession){
+      this._clearPreviews();
       this.client._session(currentSession);
+    }
     this.render();
     return null;
   }
@@ -142,6 +144,25 @@ export class ConceptUI {
     }
     return this.select(concept.conceptId,notes||concept.designNotes||'');
   }
+  async retryPreviewVersion(version){
+    if(!Number.isSafeInteger(version)||version<1)throw Error('Invalid concept version.');
+    const sessionId=await this._session();
+    await this._currentResult(sessionId,this.client.refresh(sessionId));
+    if(this.getSession()!==sessionId||this.client.sessionId!==sessionId)
+      throw Error('Codex session changed. Review the concept versions and try again.');
+    const concept=this.client.byVersion(version);
+    if(!concept||concept.status!=='ready')
+      throw Error(`Version ${version} is unavailable or not ready.`);
+    if(!concept.previewUrl)throw Error(`Version ${version} has no preview.`);
+    this.previewErrors.delete(concept.conceptId);
+    const result=await this._loadPreview(concept);
+    if(this.getSession()!==sessionId||this.client.sessionId!==sessionId||result.status==='stale')
+      throw Error('Codex session changed. Review the concept versions and try again.');
+    if(result.status==='error')throw Error(result.message);
+    const gallery=this.galleryForWorld().find(item=>item.conceptId===concept.conceptId);
+    if(!gallery)throw Error(`Version ${version} is unavailable or not ready.`);
+    return gallery;
+  }
   async saveNotes(){
     const selected=this.client.selected;
     if(!selected)throw Error('Select a ready concept before saving design notes.');
@@ -201,6 +222,23 @@ export class ConceptUI {
         this.client.concepts.length?'No image selected. Choose a version before asking Codex to build from it.':'',
       this.buildStatus(),
       this.client.error?`Image concepts: ${this.client.error}`:''].filter(Boolean).join('\n');
+  }
+  galleryForWorld(){
+    const sessionId=this.getSession();
+    if(!sessionId||this.client.sessionId!==sessionId)return [];
+    return [...this.client.concepts].filter(concept=>concept.status==='ready')
+      .sort((a,b)=>a.version-b.version||a.conceptId.localeCompare(b.conceptId))
+      .map(concept=>{
+        const preview=this.previews.get(concept.conceptId);
+        const ready=!!concept.previewUrl&&preview?.sessionId===sessionId&&
+          preview.serverUrl===concept.previewUrl&&
+          typeof preview.objectUrl==='string'&&preview.objectUrl.startsWith('blob:');
+        return {conceptId:concept.conceptId,version:concept.version,
+          selected:concept.conceptId===this.client.selectedConceptId,
+          prompt:short(concept.prompt),sourceLabel:this._providerLabel(concept.providerId),
+          previewStatus:ready?'ready':!concept.previewUrl||this.previewErrors.has(concept.conceptId)?'error':'loading',
+          ...(ready?{previewObjectUrl:preview.objectUrl}:{})};
+      });
   }
   render(){
     const {selected,activeJobs,concepts,jobs,error}=this.client;
@@ -280,7 +318,7 @@ export class ConceptUI {
         card.append(source);
       }
       const preview=this.previews.get(concept.conceptId);
-      if(preview?.serverUrl===concept.previewUrl){
+      if(preview?.sessionId===this.client.sessionId&&preview.serverUrl===concept.previewUrl){
         const image=document.createElement('img');image.src=preview.objectUrl;
         image.alt=`Generated image for ${label(concept)}`;
         card.append(image);
@@ -309,7 +347,8 @@ export class ConceptUI {
   }
   async _loadPreview(concept){
     const id=concept.conceptId,url=concept.previewUrl;
-    if(this.loadingPreviews.has(id)||!url)return;
+    if(this.loadingPreviews.has(id))return {status:'loading'};
+    if(!url)return {status:'error',message:'Preview URL is unavailable'};
     const sessionId=this.client.sessionId;
     this.loadingPreviews.add(id);
     try{
@@ -325,14 +364,21 @@ export class ConceptUI {
       if(!['image/png','image/jpeg','image/webp'].includes(blob.type)||
           blob.size===0||blob.size>24*1024*1024)
         throw Error('Preview image format is unsupported');
-      if(this.client.sessionId!==sessionId)return;
+      if(this.client.sessionId!==sessionId||this.getSession()!==sessionId)
+        return {status:'stale'};
       const objectUrl=URL.createObjectURL(blob);
       const previous=this.previews.get(id);
       if(previous)URL.revokeObjectURL(previous.objectUrl);
-      this.previews.set(id,{serverUrl:url,objectUrl});
-      this.previewErrors.delete(id);this.render();
-    }catch(error){if(this.client.sessionId===sessionId){
-      this.previewErrors.set(id,String(error?.message||error));this.render();}}
+      this.previews.set(id,{sessionId,serverUrl:url,objectUrl});
+      this.previewErrors.delete(id);this.render();this.onChange();
+      return {status:'ready',objectUrl};
+    }catch(error){
+      if(this.client.sessionId!==sessionId||this.getSession()!==sessionId)
+        return {status:'stale'};
+      const message=String(error?.message||error);
+      this.previewErrors.set(id,message);this.render();this.onChange();
+      return {status:'error',message};
+    }
     finally{this.loadingPreviews.delete(id);}
   }
   _clearPreviews(){

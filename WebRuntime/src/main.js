@@ -459,6 +459,7 @@ function renderAgent(){
     pending:!!pending,approvalReviewable:pending?.reviewable===true,
     active:!!status?.activeTurnId,connected:!!status&&!agentClient.error,
     voiceStatus:agentVoiceStatus,latestTurnId:latest?.turnId||''});
+  view.setOperatorConceptGallery(conceptUI?.galleryForWorld()||[]);
 }
 agentClient=new AgentClient((path,body)=>bridge.request(path,body),localStorage,renderAgent);
 conceptUI=new ConceptUI({request:(path,body)=>bridge.request(path,body),
@@ -1060,6 +1061,23 @@ function changeCreatorMode(action){
 }
 
 function panelAction(action){
+  const conceptRetry=/^concept-retry-([1-9]\d*)$/.exec(action);
+  if(conceptRetry){
+    const version=Number(conceptRetry[1]);
+    if(!Number.isSafeInteger(version)){feedback('Invalid concept version.',true);return;}
+    agentAction(()=>conceptUI._run(()=>conceptUI.retryPreviewVersion(version)));
+    return;
+  }
+  const conceptSelection=/^concept-select-([1-9]\d*)$/.exec(action);
+  if(conceptSelection){
+    const version=Number(conceptSelection[1]);
+    if(!Number.isSafeInteger(version)){feedback('Invalid concept version.',true);return;}
+    agentAction(async()=>{
+      const selected=await conceptUI._run(()=>conceptUI.selectVersion(version));
+      if(selected)feedback(`Image Version ${version} selected for the next explicit build.`);
+    });
+    return;
+  }
   const selectedMode=creationModeFromPanelAction(action);
   if(selectedMode){setConceptCreationMode(selectedMode);return;}
   if(['enter-play','enter-creator','stop-play','resume-play'].includes(action)){

@@ -115,6 +115,26 @@ test('XR creation-mode selection reaches the shared Operator action handler',()=
   assert.equal(view.operatorPanel.group.visible,true);
 });
 
+test('XR concept gallery navigation stays in the panel and version selection reaches Operator',()=>{
+  const {controller,panel}=controllerAndPanel();
+  panel.mesh.updateWorldMatrix(true,false);
+  const view=Object.create(MatrixView.prototype);
+  view.grab=null;view.raycaster=new THREE.Raycaster();
+  let action='open-concepts',opened=0,next=0,selected=null;
+  view.operatorPanel={...panel,hit:()=>action,
+    toggleConcepts:()=>opened++,previousConcept:()=>{},nextConcept:()=>next++};
+  view.selectFromRay=()=>{throw Error('Concept controls must not select a scene object');};
+  view.onPanelAction=value=>{selected=value;};
+  view.selectFromController(controller);
+  assert.equal(opened,1);assert.equal(selected,null);
+  action='concept-next';view.selectFromController(controller);
+  assert.equal(next,1);assert.equal(selected,null);
+  action='concept-select-2';view.selectFromController(controller);
+  assert.equal(selected,'concept-select-2');
+  action='concept-retry-2';view.selectFromController(controller);
+  assert.equal(selected,'concept-retry-2');
+});
+
 function selectableFirefly(){
   const scene=new THREE.Scene();
   const controller=new THREE.Group();controller.position.set(0,1,0);scene.add(controller);
