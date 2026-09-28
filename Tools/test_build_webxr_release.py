@@ -80,6 +80,11 @@ class ReleaseBuilderTests(unittest.TestCase):
             manifest = {"WebRuntime/art/editable.blend": hashlib.sha256(payload).hexdigest()}
             with self.assertRaisesRegex(ValueError, "WebRuntime/art"):
                 builder.verify_extracted(archive_path, manifest, None, 0.1)
+            for disguised in ("WebRuntime/Art/editable.blend",
+                              "WebRuntime\\art\\editable.blend"):
+                with self.subTest(disguised=disguised), self.assertRaisesRegex(
+                        ValueError, "WebRuntime/art"):
+                    builder.reject_private_art([disguised])
 
     def test_demo_copies_only_explicit_checkpoint_and_referenced_catalog(self):
         with tempfile.TemporaryDirectory() as temporary:

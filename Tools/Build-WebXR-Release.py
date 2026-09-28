@@ -58,8 +58,9 @@ PRIVATE_ART_PREFIX = "WebRuntime/art/"
 
 def reject_private_art(paths) -> None:
     """Keep editable examples out of public bytes, even if copied later."""
-    if any(path == PRIVATE_ART_PREFIX[:-1] or path.startswith(PRIVATE_ART_PREFIX)
-           for path in paths):
+    normalized = (path.replace("\\", "/").casefold() for path in paths)
+    if any(path == PRIVATE_ART_PREFIX[:-1].casefold() or
+           path.startswith(PRIVATE_ART_PREFIX.casefold()) for path in normalized):
         raise ValueError("Public release must not contain WebRuntime/art")
 
 
