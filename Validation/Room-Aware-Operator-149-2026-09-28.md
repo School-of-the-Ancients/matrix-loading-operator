@@ -36,15 +36,21 @@ Operator context. Rebase validation below is separate from Quest wearer proof.
 
 ## Wearer review sequence
 
-The original isolated #160 review used `http://127.0.0.1:18966/web/`. For the
-rebased branch, use a fresh combined review service and a separate scene and
-asset directory containing the generated panorama. Leave the service token
-empty on a loopback review. Record its actual URL, source commit, and restored
-checkpoint with the new wearer evidence. The earlier 18966 review predates
-the #150 merge.
-Select **PC world checkpoints → quest149-lantern-garden-eleven-objects**,
-then **Restore world → Confirm restore**. The desktop runtime tab must be
-closed before Quest takes the single writer lease.
+The original isolated #160 desktop review used `http://127.0.0.1:18966/web/`
+before #150 merged. The current combined review serves rebased commit
+`11a8ab4` at `http://127.0.0.1:18970/web/`, with separate private scene,
+asset, and environment directories and no loopback token. Its checkpoint
+picker contains `quest150-codex-moonlit-forest-garden-v1` (the eleven-object
+garden with the selected generated panorama). A desktop review restored that
+checkpoint and observed eleven objects and the expected panorama; the desktop
+tab was then closed to release the single writer lease for Quest. This is
+staging evidence, not a wearer result.
+
+On Quest, select **PC world checkpoints →
+quest150-codex-moonlit-forest-garden-v1**, then **Restore world → Confirm
+restore**. Use the 18970 page for all remaining wearer checks. Record the
+Quest Browser version, restored checkpoint, and source commit with the new
+evidence.
 
 1. Restore the named eleven-object world in Quest Browser. In VR, inspect the
    five new garden elements around the six preserved bridges/block. Record the
@@ -78,7 +84,8 @@ and camera pixels out of this record.
 | Isolated desktop review | `http://127.0.0.1:18966/web/` served the final build with separate scene and asset directories; the PC checkpoint list contained `quest91-agent-strong-beacon-six-objects`, and UI restore displayed six original objects. The Agent Portal connected and read the six IDs/transforms at scene revision 3; it reported desktop mode, zero measured planes, and no physical fit claim. |
 | Agent composition / typed receipts | After service restart, Agent recaptured all six original IDs/transforms at source scene revision 1, then created two pedestal/orb pairs and one curved bench with five individually approved, succeeded typed receipts. Final live revision 11 had 11 objects. |
 | PC checkpoint and desktop reopen | Saved `quest149-lantern-garden-eleven-objects`, then reloaded the page and explicitly restored it through the PC checkpoint picker; UI reported 11 objects. Comparing checkpoint payloads found all six original IDs and transforms unchanged and exactly five new IDs. Saved checkpoint SHA-256: `C8E2D4BB4631C9AFC20E4BC14045E5C40FE09646E7BE28C154255C3BAB88FA84`. |
-| Quest VR save/reopen composition | Pending wearer check; desktop restore is not VR proof |
+| Combined #150 + #149 desktop staging | `http://127.0.0.1:18970/web/` serves `11a8ab4` from separate private review state. A desktop tab restored `quest150-codex-moonlit-forest-garden-v1` and observed the eleven-object garden and expected generated panorama; the tab was closed before Quest review. No Quest result is inferred. |
+| Quest VR save/reopen composition | Pending on the combined 18970 build; desktop restore and the earlier 18968/18969 wearer observations do not establish this exact build's VR result. |
 | Quest AR measured move and alignment | Pending wearer check |
 
 Automated and desktop checks are not Quest wearer evidence.
@@ -100,3 +107,9 @@ WebRuntime tests. The rebased full suites passed 879/879 ControlService and
 674/674 WebRuntime tests, and the production Vite build succeeded. Quest
 review of the exact rebased build is still required for a measured AR move
 and wearer-confirmed physical fit.
+
+The remaining exact-build gates are: restore/reopen the eleven-object world in
+Quest VR; enter AR and verify room alignment against visible outlines; make
+one measured, room-constrained move of an existing object with a succeeded
+receipt and stable ID; verify the physical fit; reject a stale room token
+without an edit; then exit AR, save, and reopen with that move preserved.
