@@ -52,6 +52,7 @@ test('main browser controls remain in the intended expandable sections',()=>{
   assert.match(html.slice(starts[1],starts[2]),/id="agent-stop"/);
   assert.match(html.slice(starts[2],starts[3]),/id="proposal"/);
   assert.match(html.slice(starts[3],starts[4]),/id="confirm-room"/);
+  assert.match(html.slice(starts[3],starts[4]),/id="target-point-set"/);
   assert.match(html.slice(starts[4],starts[5]),/id="save-pc-world"/);
   assert.match(html.slice(starts[5],starts[6]),/id="citizens-routine-apply"/);
   assert.match(html.slice(starts[7]),/id="token"/);
