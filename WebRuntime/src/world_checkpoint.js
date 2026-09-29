@@ -6,6 +6,7 @@ import {restoreStoredWorld} from './scene_store.js';
 export function captureWorldRestoreGuard(world){
   const scene=world.scene,undo=world.undo,redo=world.redo;
   const state=()=>JSON.stringify({generation:world.authoredGeneration,
+    placementWorldEpoch:world.placementWorldEpoch,
     scene:world.scene,game:world.game,citizens:world.citizens,
     selection:world.selection,creatorMode:world.creatorMode,
     controlStates:world.controlStates,rigidGravity:world.rigidGravity,
@@ -58,7 +59,8 @@ export async function applyPCWorld(world,saved,sync){
     physicsBodies:structuredClone(world.physicsBodies),
     physicsVerification:structuredClone(world.physicsVerification),
     renderedVerification:structuredClone(world.renderedVerification),
-    authoredGeneration:world.authoredGeneration};
+    authoredGeneration:world.authoredGeneration,
+    placementWorldEpoch:world.placementWorldEpoch};
   // PC checkpoints do not carry browser AR origin provenance. A nonempty
   // restored world therefore remains ambiguous until explicitly rebound.
   try{
@@ -80,6 +82,7 @@ export async function applyPCWorld(world,saved,sync){
     world.renderedVerification=previous.renderedVerification;
     world.physicsSceneReference=world.scene;
     world.authoredGeneration=previous.authoredGeneration;
+    world.placementWorldEpoch=previous.placementWorldEpoch;
     if(world.rigidPhysics&&previous.rigidSnapshot){
       world.rigidPhysics.restore(previous.rigidSnapshot);
       world.rigidSceneReference=world.scene;

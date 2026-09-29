@@ -15,28 +15,52 @@ function spatialState(world,anchorId){
       copy(spatial?.anchors?.find(item=>item.anchorId===anchorId)||null)};
 }
 function currentPointingTarget(view){return copy(view.pointingTarget?.()||null);}
+function currentSelectedPlacement(view){return copy(view.selectedPlacementTarget?.()||null);}
+function currentSelection(world,selectedPlacement){
+  const selection=copy(world.selection);
+  if(selectedPlacement){selection.anchorId=selectedPlacement.anchorId;
+    selection.position=copy(selectedPlacement.position);}
+  return selection;
+}
+function currentRoomConstraint(world,view,anchorId){
+  const trackingEpoch=world.spatial?.trackingEpoch;
+  if(!view.isAR||!Number.isSafeInteger(trackingEpoch)||trackingEpoch<0||
+      trackingEpoch!==view.roomTrackingEpoch||
+      typeof world.assertCurrentRoomConstraint!=='function')
+    throw Error('Current measured AR room tracking is unavailable');
+  const constraint={anchorId,trackingEpoch};
+  // Share the runtime's execution guard instead of inferring durable placement
+  // from a display plane or from the old, session-only surface spawn path.
+  world.assertCurrentRoomConstraint(constraint,anchorId);
+  return constraint;
+}
 function poseReady(view,session,now,requiresXR){
   return !requiresXR||!!session&&!!view.xrViewer&&Number.isFinite(view.xrViewerCapturedAt)&&
     now-view.xrViewerCapturedAt>=0&&now-view.xrViewerCapturedAt<=XR_POSE_MAX_AGE_MS;
 }
 
 export function captureBlenderPlacement(world,view,{now=performance.now()}={}){
-  const selection=copy(world.selection);
+  const selectedPlacement=currentSelectedPlacement(view);
+  const selection=currentSelection(world,selectedPlacement);
   const pointingTarget=currentPointingTarget(view);
-  const target=pointingTarget||{anchorId:selection.anchorId,
+  const target=selectedPlacement||pointingTarget||{anchorId:selection.anchorId,
     objectId:selection.objectId||null,position:selection.position};
   const anchorId=target.anchorId;
+  const roomConstraint=anchorId==='web-floor'?null:
+    currentRoomConstraint(world,view,anchorId);
   const session=xrSession(view);
   const requiresXR=!!view.isAR||['vr','ar'].includes(world.runtimePresentation);
   return {sceneReference:world.scene,scene:JSON.stringify(world.scene),
     roomId:world.scene.roomId,authoredGeneration:world.authoredGeneration,
     creatorMode:copy(world.creatorMode),
+    rawSelection:copy(world.selection),
     originBinding:world.originBinding,originAnchorHandle:world.originAnchorHandle,
     runtimePresentation:world.runtimePresentation,session,requiresXR,
     sessionStartedAt:view.sessionStartedAt,roomAnchor:view.roomAnchor,
     roomTrackingEpoch:view.roomTrackingEpoch,
     roomAnchorLocated:!!view.roomAnchorLocated,
-    isAR:!!view.isAR,selection,pointingTarget,target:copy(target),
+    isAR:!!view.isAR,selection,selectedPlacement,pointingTarget,target:copy(target),
+    roomConstraint,
     spatial:spatialState(world,anchorId),poseReadyAtRequest:poseReady(view,session,now,requiresXR)};
 }
 
@@ -58,7 +82,9 @@ export function validateBlenderPlacement(world,view,capture,{now=performance.now
   // The ray is a request-time target. Controller jitter or looking elsewhere
   // while Blender works must not move the saved point. Scene, selection, and
   // support-anchor checks below still reject a changed actual target.
-  if(!same(world.selection,capture.selection))
+  if(!same(world.selection,capture.rawSelection)||
+      !same(currentSelectedPlacement(view),capture.selectedPlacement)||
+      !same(currentSelection(world,currentSelectedPlacement(view)),capture.selection))
     stale('The placement selection changed during Blender generation');
   const currentSpatial=spatialState(world,capture.target.anchorId);
   if(!same(currentSpatial,capture.spatial)||currentSpatial.originUnavailable||currentSpatial.stale)
@@ -71,14 +97,23 @@ export function validateBlenderPlacement(world,view,capture,{now=performance.now
        !view.roomAnchorLocated||!capture.roomAnchorLocated||
        currentSpatial.anchor.surface?.kind!=='support'))
     stale('The measured placement surface is no longer ready');
+  if(anchorId!=='web-floor'){
+    let currentConstraint;
+    try{currentConstraint=currentRoomConstraint(world,view,anchorId);}
+    catch{stale('The measured placement surface is no longer ready');}
+    if(!same(currentConstraint,capture.roomConstraint))
+      stale('The room tracking epoch changed during Blender generation');
+  }
   return {anchorId,position:copy(position),
-    ...(anchorId==='web-floor'?{}:{placement:'surface'})};
+    ...(anchorId==='web-floor'?{}:{placement:'surface',
+      roomConstraint:copy(capture.roomConstraint)})};
 }
 
 export function blenderSpawnCommand(world,view,capture,asset,{now=performance.now()}={}){
   const placement=validateBlenderPlacement(world,view,capture,{now});
   return {op:'spawn',assetId:asset.assetId,
     anchorId:placement.anchorId,...(placement.placement?{placement:placement.placement}:{}),
+    ...(placement.roomConstraint?{roomConstraint:placement.roomConstraint}:{}),
     transform:{position:placement.position,rotation:{x:0,y:0,z:0},scale:{x:1,y:1,z:1}}};
 }
 
@@ -108,11 +143,13 @@ function servicePlacementProjection(state){
     digitalWorldVisit:current.digitalWorldVisit===true,readOnly:current.readOnly===true};
 }
 
-function bindServiceContext(capture,state,world,bridge){
+function bindServiceContext(capture,state,world,view,bridge){
   const projection=servicePlacementProjection(state);
   if(!state.online||projection.clientId!==bridge.clientId||
       stable(world.scene)!==projection.scene||
-      stable(world.selection)!==projection.selection||
+      !same(world.selection,capture.rawSelection)||
+      stable(currentSelection(world,currentSelectedPlacement(view)))!==projection.selection||
+      stable(capture.selection)!==projection.selection||
       stable(world.creatorMode)!==projection.creatorMode)
     throw Error('The PC Matrix world differs from this browser; refresh before Blender generation');
   capture.service=projection;
@@ -122,13 +159,13 @@ function bindServiceContext(capture,state,world,bridge){
 export async function captureBlenderRequestContext(world,view,bridge){
   await bridge.sync();
   const capture=captureBlenderPlacement(world,view);
-  return bindServiceContext(capture,await bridge.request('/api/state'),world,bridge);
+  return bindServiceContext(capture,await bridge.request('/api/state'),world,view,bridge);
 }
 
 export async function bindBlenderRequestContext(world,view,bridge,capture){
   await bridge.sync();
   validateBlenderPlacement(world,view,capture);
-  return bindServiceContext(capture,await bridge.request('/api/state'),world,bridge);
+  return bindServiceContext(capture,await bridge.request('/api/state'),world,view,bridge);
 }
 
 function unchangedServiceContext(capture,state,bridge){
@@ -178,11 +215,22 @@ export async function queueBlenderPlacement(world,view,bridge,capture,asset,
   if(!pcReceipt.ok)
     throw Error(`Blender asset ${asset.displayName||asset.assetId} is registered, but Matrix rejected placement: ${pcReceipt.error}. Choose a fresh target to load it.`);
   const placed=state.snapshot?.scene?.objects?.find(item=>item.objectId===pcReceipt.objectId);
+  const durable=!!capture.roomConstraint;
+  const outcome=pcReceipt.outcome;
+  const confirmedDurable=!durable||
+    outcome&&Object.keys(outcome).length===4&&
+    outcome.kind==='room-surface-spawn'&&
+    outcome.supportAnchorId===capture.target.anchorId&&
+    outcome.anchorId==='web-floor'&&
+    stable(outcome)===stable(browserReceipt.outcome)&&
+    stable(placed?.transform)===stable(outcome.transform);
   if(state.clientId!==capture.service.clientId||
       state.runtimeGeneration!==capture.service.runtimeGeneration||
       state.snapshot?.scene?.roomId!==capture.roomId||
       state.snapshot?.assets?.find(item=>item.assetId===asset.assetId)?.sha256!==asset.sha256||
-      placed?.assetId!==asset.assetId||placed?.anchorId!==capture.target.anchorId)
+      placed?.assetId!==asset.assetId||
+      placed?.anchorId!==(durable?'web-floor':capture.target.anchorId)||
+      !confirmedDurable)
     throw Error(`Matrix spawn ${requestId} was acknowledged, but its live object is unconfirmed; inspect the scene before retrying.`);
   return pcReceipt;
 }

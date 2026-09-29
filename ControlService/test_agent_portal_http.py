@@ -507,6 +507,28 @@ class AgentPortalHTTPTests(unittest.TestCase):
         self.assertEqual(spatial["sceneRevision"], 12)
         self.assertEqual(len(spatial["spatialToken"]), 64)
         self.assertIn("localBounds", grounded["sceneSummary"]["objects"][0])
+        selected = {**context, "schemaVersion": 3,
+                    "selectedPlacement": {"anchorId": "floor-1",
+                                          "position": point(.4, 0, -.2),
+                                          "source": "adjusted"}}
+        selected_context = agent_turn_context(self.state, selected)
+        self.assertEqual(selected_context["selectedObject"]["objectId"], "tower-1")
+        self.assertEqual(selected_context["selectedPlacement"],
+                         selected["selectedPlacement"])
+        self.assertEqual(selected_context["roomSpatial"]["planes"][0]["anchorId"],
+                         "floor-1")
+        with self.assertRaises(APIError):
+            agent_turn_context(self.state, {**selected,
+                "selectedPlacement": {**selected["selectedPlacement"],
+                                      "position": point(4, 0, 0)}})
+        with self.assertRaises(APIError):
+            agent_turn_context(self.state, {**selected,
+                "selectedPlacement": {**selected["selectedPlacement"],
+                                      "anchorId": "missing"}})
+        self.state.latest["roomContext"]["alignmentVerified"] = False
+        with self.assertRaises(APIError):
+            agent_turn_context(self.state, selected)
+        self.state.latest["roomContext"]["alignmentVerified"] = True
         self.assertNotIn("roomSpatial", agent_runtime_context(self.state))
         self.assertNotIn("roomSpatial", agent_runtime_context(self.state, include_scene=True))
         self.assertEqual(self.state.agent_room_spatial()["spatialToken"], spatial["spatialToken"])

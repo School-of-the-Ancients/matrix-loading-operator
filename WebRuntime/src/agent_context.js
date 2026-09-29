@@ -16,13 +16,18 @@ export function captureAgentContext(world,view,clientId,inputSource){
   const selected=world.scene.objects.find(item=>item.objectId===world.selection.objectId);
   const selectedObjectId=selected?.objectId||null;
   const pointingTarget=view.pointingTarget();
+  // A click pins an editable destination independently of object selection.
+  // Live hover remains a separate, transient observation.
+  const selectedPlacement=view.selectedPlacementTarget?.()||null;
   const reported=view.viewer()?.frames;
   const frames=Array.isArray(reported)?reported.filter(validViewerFrame):[];
   // An empty world still has a virtual-floor viewpoint. A current pointing
   // hit, then an existing selection, chooses the more specific anchor frame.
-  const preferred=[pointingTarget?.anchorId,selected?.anchorId,'web-floor'];
+  const preferred=[selectedPlacement?.anchorId,pointingTarget?.anchorId,
+    selected?.anchorId,'web-floor'];
   const viewerFrame=preferred.map(anchorId=>frames.find(frame=>
     frame.anchorId===anchorId)).find(Boolean)||null;
-  return {schemaVersion:2,inputSource,clientId,roomId:world.scene.roomId,
-    presentation,trackingEpoch,selectedObjectId,pointingTarget,viewerFrame};
+  return {schemaVersion:3,inputSource,clientId,roomId:world.scene.roomId,
+    presentation,trackingEpoch,selectedObjectId,selectedPlacement,
+    pointingTarget,viewerFrame};
 }

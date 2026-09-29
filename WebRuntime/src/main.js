@@ -87,6 +87,10 @@ view.onPanelAction=panelAction;
 view.onXRHidden=()=>{cameraStream.stop();bridge.cancelCapture();updateCameraControls();};
 bindCameraPageLifecycle(cameraStream,document,window,()=>{bridge.cancelCapture();updateCameraControls();});
 bindXRPageLifecycle(()=>view.xrControls,document,window);
+view.onSelectedPointChange=()=>{
+  updateSelectedPointEditor();
+  if(view.selectedPlacementTarget())$('agent-include-context').checked=true;
+};
 view.xrEntryBlocker=()=>pendingWorld||pcWorldBusy||worldSwitchBusy?
   'Finish world recovery or checkpoint restore before entering XR.':'';
 function setConceptCreationMode(mode){
@@ -273,6 +277,24 @@ function updateWorldControls(){
   $('game-status').textContent=status;view.setOperatorGameStatus(status);
   citizensPanel?.render();
   updateCameraControls();
+  updateSelectedPointEditor();
+}
+function updateSelectedPointEditor(){
+  const point=view.selectedPlacementTarget();
+  const label=point?.anchorId==='web-floor'?'virtual floor':
+    world.spatial?.anchors.find(anchor=>anchor.anchorId===point?.anchorId)?.displayName||
+    point?.anchorId||'';
+  $('target-point-status').textContent=point?
+    `${label} · ${point.source} point · Y 0 m`:
+    view.selectedPoint?'Selected point is stale. Aim and select again.':
+      'Aim at a support surface and click or press trigger to pin a point.';
+  for(const axis of ['x','z']){
+    const input=$(`target-point-${axis}`);
+    input.disabled=!point;
+    if(document.activeElement!==input)input.value=point?String(point.position[axis]):'';
+  }
+  $('target-point-set').disabled=!point;
+  $('target-point-clear').disabled=!view.selectedPoint;
 }
 function updateCameraControls(){
   const capability=cameraStream.capabilities();
@@ -1359,6 +1381,18 @@ $('blender-request').addEventListener('click',async()=>{
 $('review-view').addEventListener('click',reviewView);
 $('enable-camera').addEventListener('click',toggleCamera);
 $('confirm-room').addEventListener('click',confirmRoom);
+$('target-point-set').addEventListener('click',()=>{
+  try{
+    const x=$('target-point-x').value.trim(),z=$('target-point-z').value.trim();
+    if(!x||!z)throw Error('Enter both X and Z coordinates');
+    const point=view.editSelectedPoint(Number(x),Number(z));
+    feedback(`Destination marker moved on ${point.anchorId}. The point is advisory until the current room and object footprint are checked.`);
+    updateSelectedPointEditor();
+  }catch(error){feedback(error.message,true);updateSelectedPointEditor();}
+});
+$('target-point-clear').addEventListener('click',()=>{
+  view.clearSelectedPoint();feedback('Destination marker cleared.');
+});
 $('retry-room-origin').addEventListener('click',retryRoomOrigin);
 $('reset-room-origin').addEventListener('click',()=>recoverRoomOrigin('empty'));
 $('rebase-room-origin').addEventListener('click',()=>recoverRoomOrigin('rebase'));

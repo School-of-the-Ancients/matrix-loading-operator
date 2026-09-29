@@ -34,7 +34,7 @@
         <button id="agent-connect">Start or resume Codex</button>
         <label for="agent-input">Message to Codex</label>
         <textarea id="agent-input" rows="3" placeholder="Create a physics playground with a ramp, grabbable objects, and a challenge."></textarea>
-        <label class="check-label"><input id="agent-include-context" type="checkbox" /> Attach selected object and current pointing hit</label>
+        <label class="check-label"><input id="agent-include-context" type="checkbox" /> Attach selected object, pinned destination, and current pointing hit</label>
         <div class="row"><button id="agent-send" class="primary">Send to Codex</button><button id="agent-stop" disabled>Stop turn</button></div>
         <p id="agent-send-hint" class="hint" role="status">Send starts a turn in this Codex conversation.</p>
         <details id="concept-panel" class="concept-panel panel-section section-nested">
@@ -125,6 +125,15 @@
       <button id="enable-camera" disabled>Enable environment camera for AI review</button>
       <p id="camera-status" class="hint" role="status">Enter AR to test the Quest environment camera.</p>
       <button id="confirm-room" disabled>Outlines align — enable AR editing</button>
+      <div class="target-point-panel" aria-labelledby="target-point-heading">
+        <strong id="target-point-heading">Selected destination</strong>
+        <p id="target-point-status" role="status">Aim at a support surface and click or press trigger to pin a point.</p>
+        <div class="target-point-coordinates">
+          <label for="target-point-x">X <small>metres on surface</small><input id="target-point-x" type="number" step="0.01" disabled></label>
+          <label for="target-point-z">Z <small>metres on surface</small><input id="target-point-z" type="number" step="0.01" disabled></label>
+        </div>
+        <div class="row"><button id="target-point-set" type="button" disabled>Move marker</button><button id="target-point-clear" type="button" disabled>Clear marker</button></div>
+      </div>
       <p id="room-origin-status" class="hint" role="status">Room origin status appears in AR.</p>
       <div class="row"><button id="retry-room-origin" class="hidden">Retry saved room origin</button><button id="rebase-room-origin" class="hidden">Archive and place world here</button><button id="reset-room-origin" class="hidden">Archive and start empty</button></div>
       <button id="download-room-archives" class="hidden">Download room recovery archives</button>

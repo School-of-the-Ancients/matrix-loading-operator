@@ -431,6 +431,7 @@ export function restoreStoredWorld(world,value,{waitForWebAssets=false,validateO
     agentGrab:world.agentGrab,
     originBinding:world.originBinding,originAnchorHandle:world.originAnchorHandle,
     undo:world.undo,redo:world.redo,authoredGeneration:world.authoredGeneration,
+    placementWorldEpoch:world.placementWorldEpoch,
     rigidSceneReference:world.rigidSceneReference,
     rigidSnapshot:world.rigidPhysics?.snapshot()??null};
   try{
@@ -465,6 +466,7 @@ export function restoreStoredWorld(world,value,{waitForWebAssets=false,validateO
     world.originAnchorHandle=previous.originAnchorHandle;
     world.undo=previous.undo;world.redo=previous.redo;
     world.authoredGeneration=previous.authoredGeneration;
+    world.placementWorldEpoch=previous.placementWorldEpoch;
     if(world.rigidPhysics&&previous.rigidSnapshot)
       world.rigidPhysics.restore(previous.rigidSnapshot);
     world.rigidSceneReference=previous.rigidSceneReference;
@@ -545,5 +547,6 @@ export function restoreStoredScene(world,scene){
   // Keep both the active and suspended virtual-room selections valid.
   world.selection={anchorId:'web-floor',objectId:'',position:{x:0,y:0,z:-2}};
   if(world.virtualScene)world.virtualScene.selection=structuredClone(world.selection);
+  world.placementWorldEpoch=((world.placementWorldEpoch??0)+1)%Number.MAX_SAFE_INTEGER;
   world.markAuthoredSceneChange?.();
 }

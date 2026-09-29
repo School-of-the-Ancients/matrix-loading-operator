@@ -14,9 +14,26 @@ test('captures selected object and a distinct pointing hit at send time',()=>{
   assert.equal(context.viewerFrame.anchorId,'floor-1');
   assert.equal(context.inputSource,'voice_transcript');
   assert.equal(context.roomId,'webxr-session-1');
-  assert.equal(context.schemaVersion,2);
+  assert.equal(context.schemaVersion,3);
+  assert.equal(context.selectedPlacement,null);
   assert.equal(context.presentation,'ar');
   assert.equal(context.trackingEpoch,4);
+});
+
+test('selected placement stays distinct from live hover and selected object',()=>{
+  const world={runtimePresentation:'ar',scene:{roomId:'room-1',objects:[
+    {objectId:'chair-1',anchorId:'web-floor'}]},selection:{objectId:'chair-1'}};
+  const frame=anchorId=>({anchorId,position:{x:0,y:1.7,z:0},
+    forward:{x:0,y:0,z:-1}});
+  const view={roomTrackingEpoch:8,pointingTarget:()=>null,
+    selectedPlacementTarget:()=>({anchorId:'table-1',position:{x:.4,y:0,z:.2},
+      source:'adjusted'}),viewer:()=>({frames:[frame('web-floor'),frame('table-1')]})};
+  const context=captureAgentContext(world,view,'client-1','text');
+  assert.equal(context.selectedObjectId,'chair-1');
+  assert.equal(context.pointingTarget,null);
+  assert.deepEqual(context.selectedPlacement,{anchorId:'table-1',
+    position:{x:.4,y:0,z:.2},source:'adjusted'});
+  assert.equal(context.viewerFrame.anchorId,'table-1');
 });
 
 test('does not invent a pointing hit or head pose for a plain request',()=>{

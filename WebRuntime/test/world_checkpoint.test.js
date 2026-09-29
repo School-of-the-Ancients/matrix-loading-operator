@@ -1,6 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {MatrixWorld} from '../src/protocol.js';
+import {selectedPointAt,currentSelectedPoint} from '../src/selected_point.js';
 import {applyPCWorld} from '../src/world_checkpoint.js';
 import {storedWorld} from '../src/scene_store.js';
 import {startGame} from '../src/game.js';
@@ -54,6 +55,22 @@ test('failed PC exchange leaves the prior scene, game, selection and undo state 
   assert.deepEqual(world.undo,undo);
   assert.deepEqual(world.redo,redo);
   assert.equal(world.originBinding,'ar');
+});
+
+test('PC restore invalidates a pinned point only after the exchange succeeds',async()=>{
+  const world=current(),checkpoint=saved();
+  const point=selectedPointAt(world,'web-floor',{x:.5,y:0,z:-.5},null);
+  world.selectedPlacement=point;
+  const epoch=world.placementWorldEpoch;
+  await assert.rejects(applyPCWorld(world,checkpoint,async()=>{
+    throw Error('exchange rejected');
+  }),/exchange rejected/);
+  assert.equal(world.placementWorldEpoch,epoch);
+  assert.equal(currentSelectedPoint(world,point,null),point);
+  await applyPCWorld(world,checkpoint,async()=>{});
+  assert.notEqual(world.placementWorldEpoch,epoch);
+  assert.equal(currentSelectedPoint(world,point,null),null);
+  assert.deepEqual(world.snapshot().selection,world.selection);
 });
 
 test('failed PC exchange restores the prior control progress and target scale',async()=>{

@@ -524,6 +524,28 @@ class AgentPortalTests(unittest.TestCase):
         self.assertIn("without claiming physical fit", unverified)
         self.assertNotIn("This turn includes bounded, measured", unverified)
 
+    def test_selected_point_prompt_distinguishes_virtual_and_measured_support(self):
+        context = {"kind": "matrix_spatial_context", "online": True,
+                   "roomId": "web-virtual-room-v1", "sceneRevision": 1,
+                   "runtimeDescriptor": {"schemaVersion": 1, "client": "matrix-web",
+                                         "renderer": "threejs-webxr", "presentation": "desktop"},
+                   "room": {"mode": "white-room", "state": "ready",
+                            "alignmentVerified": False, "readOnly": False},
+                   "selectedPlacement": {"anchorId": "web-floor",
+                                         "position": {"x": 1, "y": 0, "z": -1},
+                                         "source": "raycast"}}
+        virtual = build_matrix_turn_message("Put a chair there", context)
+        self.assertIn("synthetic virtual floor", virtual)
+        self.assertIn("not a physical-room measurement", virtual)
+        measured = build_matrix_turn_message(
+            "Put a chair there",
+            {**context, "runtimeDescriptor": {**context["runtimeDescriptor"],
+                                               "presentation": "ar"},
+             "selectedPlacement": {**context["selectedPlacement"],
+                                   "anchorId": "support-1"}})
+        self.assertIn("raycast marker on a current WebXR support", measured)
+        self.assertIn("full object footprint", measured)
+
     def test_hosted_runtime_is_grounded_as_the_same_saved_world(self):
         context = {"kind": "matrix_runtime_context", "online": True,
                    "runtimeDescriptor": {"schemaVersion": 1,

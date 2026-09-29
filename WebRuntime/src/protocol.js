@@ -5,6 +5,7 @@
 import {footprintInsideBoundary,footprintFitsRoomSupport,
   volumeIntersectsMeasuredPlane} from './spatial.js';
 import {surfaceToVirtualTransform} from './room_surface_placement.js';
+import {currentSelectedPoint} from './selected_point.js';
 import {validateAttachment,validatePackage} from './components.js';
 import {advanceFloorBody,createFloorBody,publicPhysicsState,validPhysicsConfig,validRenderedPhysicsSize} from './physics_floor.js';
 import {segmentClear} from './citizens_navigation.js';
@@ -341,6 +342,8 @@ export class MatrixWorld {
     this.originAnchorHandle=null;
     this.arEntryContent=null;
     this.selection={anchorId:ANCHOR_ID,objectId:'',position:{x:0,y:0,z:-2}};
+    this.selectedPlacement=null;
+    this.placementWorldEpoch=0;
     this.spatial=null;this.virtualScene=null;this.digitalWorldVisit=false;
     this.undo=[]; this.redo=[];
     this.physicsBodies=new Map();this.physicsVerification=new Map();
@@ -370,7 +373,11 @@ export class MatrixWorld {
     const descriptor=this.runtimePresentation==='host'?
       {schemaVersion:1,client:'matrix-world-host',renderer:'none',presentation:'host'}:
       {schemaVersion:1,client:'matrix-web',renderer:'threejs-webxr',presentation:this.runtimePresentation};
-    const snapshot={scene:clone(this.scene),assets:clone([...ASSETS,proceduralAsset,...this.externalAssets].map(({assetId,displayName,description,spawnScale,localBounds,geometry,interactions,sha256})=>({assetId,displayName,description,spawnScale,...(localBounds?{localBounds}:{}),...(interactions?{interactions}:{}),...(sha256?{sha256}:{}),...(geometry?.animationClips?{animationClips:geometry.animationClips.map(clip=>clip.name)}:{})}))),environmentSchemaVersion:1,environmentAssets:clone(this.environmentAssets),anchors:clone(anchors),selection:clone(this.selection),behaviorKinds:['rotate','bob'],componentSchemaVersion:1,animationSchemaVersion:1,physicsSchemaVersion:1,interactionSchemaVersion:2,physicsStates:this.physicsStates(),rigidSchemaVersion:1,rigidGravity:clone(this.rigidGravity),rigidStates:this.rigidPhysics?.states().filter(state=>this.scene.objects.some(item=>item.objectId===state.objectId))||[],entityActionSchemaVersion:1,agentGrab:clone(this.agentGrab),controlSchemaVersion:1,controlStates:clone(this.controlStates),proceduralGenerators:listProceduralGenerators(),creatorMode:clone(this.creatorMode),game:clone(this.game),gameStatus:this.game?{phase:this.game.state.phase,score:this.game.state.score,objectiveProgress:clone(this.game.state.objectiveProgress),unlockedObjectIds:clone(this.game.state.unlockedObjectIds||[])}:null,roomContext:context,runtimeDescriptor:descriptor};
+    const selectedPoint=currentSelectedPoint(this,this.selectedPlacement,
+      this.spatial?.trackingEpoch);
+    const snapshotSelection=selectedPoint?{anchorId:selectedPoint.anchorId,
+      objectId:this.selection.objectId,position:selectedPoint.position}:this.selection;
+    const snapshot={scene:clone(this.scene),assets:clone([...ASSETS,proceduralAsset,...this.externalAssets].map(({assetId,displayName,description,spawnScale,localBounds,geometry,interactions,sha256})=>({assetId,displayName,description,spawnScale,...(localBounds?{localBounds}:{}),...(interactions?{interactions}:{}),...(sha256?{sha256}:{}),...(geometry?.animationClips?{animationClips:geometry.animationClips.map(clip=>clip.name)}:{})}))),environmentSchemaVersion:1,environmentAssets:clone(this.environmentAssets),anchors:clone(anchors),selection:clone(snapshotSelection),behaviorKinds:['rotate','bob'],componentSchemaVersion:1,animationSchemaVersion:1,physicsSchemaVersion:1,interactionSchemaVersion:2,physicsStates:this.physicsStates(),rigidSchemaVersion:1,rigidGravity:clone(this.rigidGravity),rigidStates:this.rigidPhysics?.states().filter(state=>this.scene.objects.some(item=>item.objectId===state.objectId))||[],entityActionSchemaVersion:1,agentGrab:clone(this.agentGrab),controlSchemaVersion:1,controlStates:clone(this.controlStates),proceduralGenerators:listProceduralGenerators(),creatorMode:clone(this.creatorMode),game:clone(this.game),gameStatus:this.game?{phase:this.game.state.phase,score:this.game.state.score,objectiveProgress:clone(this.game.state.objectiveProgress),unlockedObjectIds:clone(this.game.state.unlockedObjectIds||[])}:null,roomContext:context,runtimeDescriptor:descriptor};
     if(this.spatial)snapshot.spatialObservation={schemaVersion:1,
       planeAgeMs:planeObservationAge(this.spatial.planeObservedAt),
       trackingEpoch:this.spatial.trackingEpoch,

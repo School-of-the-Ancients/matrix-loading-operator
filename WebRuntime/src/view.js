@@ -3,6 +3,7 @@ import {GLTFLoader} from 'three/addons/loaders/GLTFLoader.js';
 import {XRSessionController} from './xr_session.js';
 import {beginGrab,moveGrab,moveGrabThumbstick,rotateGrabThumbstick,sampleHeldMotion,heldReleaseMotion,finishGrab,beginPointerGrab,movePointerGrab,movePointerGrabVertical,finishPointerGrab,moveDesktopCamera} from './grab.js';
 import {viewerPose,planeData,insideBoundary,matchPlaneAnchor,samePlaneShape,measuredFloorHeight} from './spatial.js';
+import {currentSelectedPoint,selectedPointAt,agentSelectedPoint} from './selected_point.js';
 import {ROOM_ANCHOR_KEY,hasWorldToProtect} from './room_origin.js';
 import {componentFrame} from './components.js';
 import {instantiateAnimatedAsset,stopAnimatedAsset} from './asset_animation.js';
@@ -571,6 +572,11 @@ export class MatrixView {
     this.floor=new THREE.Mesh(new THREE.PlaneGeometry(200,200),new THREE.MeshStandardMaterial({color:0x163149,roughness:1}));this.floor.rotation.x=-Math.PI/2;this.floor.receiveShadow=true;this.virtualFloorRoot.add(this.floor);
     this.grid=new THREE.GridHelper(200,200,0x2e8499,0x24506a);this.grid.position.y=.002;this.virtualFloorRoot.add(this.grid);
     this.reticle=new THREE.Mesh(new THREE.RingGeometry(.06,.075,32),new THREE.MeshBasicMaterial({color:0x5ef7d7,side:THREE.DoubleSide}));this.reticle.rotation.x=-Math.PI/2;this.reticle.visible=false;this.scene.add(this.reticle);
+    this.selectedPoint=null;this.onSelectedPointChange=()=>{};
+    this.selectedPointMarker=new THREE.Mesh(new THREE.SphereGeometry(.0175,16,12),
+      new THREE.MeshBasicMaterial({color:0x5ef7d7,depthTest:false}));
+    this.selectedPointMarker.renderOrder=20;this.selectedPointMarker.visible=false;
+    this.selectedPointMarker.raycast=()=>{};this.scene.add(this.selectedPointMarker);
     this.operatorPanel=operatorPanel();this.scene.add(this.operatorPanel.group);this.operatorVoiceController=null;this.operatorMount={kind:'head'};this.operatorThumbstickHeld=false;
     this.raycaster=new THREE.Raycaster();this.pointer=new THREE.Vector2();this.pointerKnown=false;this.lastPointingController=null;
     this.controllers=[0,1].map(index=>this.renderer.xr.getController(index));
@@ -1022,6 +1028,7 @@ export class MatrixView {
     if(this.grab)this.world.resumePhysics?.(this.grab.objectId);
     if(this.pointerGrab)this.world.resumePhysics?.(this.pointerGrab.objectId);
     this.grab=null;this.pointerGrab=null;this.setGrabFeedback(null);
+    this.refreshSelectedPointMarker();
     const currentObjects=new Map(this.world.scene.objects.map(object=>
       [object.objectId,object]));
     const retainedProcedural=new Map();
@@ -1683,10 +1690,56 @@ export class MatrixView {
     if(this.isAR&&this.world.digitalWorldVisit)return null;
     if(this.isAR){const hits=this.raycaster.intersectObjects([...this.planeOutlines.values()],true);
       const hit=hits.find(item=>item.object.isMesh&&item.object.userData.anchorId);
-      if(hit){const anchorId=hit.object.userData.anchorId;const root=this.planeOutlines.get(anchorId);const local=root.worldToLocal(hit.point.clone());this.world.setSelection('',plain(local),anchorId);this.onSelection();return;}
-      if(this.reticleVisible&&this.reticleAnchorId){const root=this.planeOutlines.get(this.reticleAnchorId);this.world.setSelection('',plain(root.worldToLocal(this.reticle.position.clone())),this.reticleAnchorId);this.onSelection();return;}}
+      if(hit){const anchorId=hit.object.userData.anchorId;const root=this.planeOutlines.get(anchorId);const local=root.worldToLocal(hit.point.clone());this.selectPlacementPoint(anchorId,plain(local));return;}}
     const floorHit=this.isAR?null:this.raycaster.intersectObject(this.floor)[0];
-    if(floorHit){const position=plain(floorHit.point);if(['x','y','z'].every(k=>Math.abs(position[k])<=100)){this.world.setSelection('',position);this.highlight();this.onSelection();}}
+    if(floorHit){this.virtualFloorRoot.updateMatrixWorld(true);
+      this.selectPlacementPoint('web-floor',plain(this.virtualFloorRoot.worldToLocal(floorHit.point.clone())));}
+  }
+  selectPlacementPoint(anchorId,position,source='raycast'){
+    try{
+      const selected=selectedPointAt(this.world,anchorId,position,this.roomTrackingEpoch,source);
+      // The destination and the selected object are independent, as in the
+      // Unity room snapshot. Keep "that" selected while pinning "there".
+      if(!this.world.selection.objectId)
+        this.world.setSelection('',selected.position,anchorId);
+      this.selectedPoint=selected;this.world.selectedPlacement=selected;
+      this.refreshSelectedPointMarker();this.highlight();
+      this.onSelection();this.onSelectedPointChange();
+    }catch(error){this.onAssetError(error.message);}
+  }
+  editSelectedPoint(x,z){
+    const current=currentSelectedPoint(this.world,this.selectedPoint,this.roomTrackingEpoch);
+    if(!current)throw Error('Select a current surface point with the ray first');
+    const updated=selectedPointAt(this.world,current.anchorId,{x,y:0,z},
+      this.roomTrackingEpoch,'adjusted');
+    this.selectedPoint=updated;this.world.selectedPlacement=updated;
+    if(!this.world.selection.objectId)
+      this.world.setSelection('',updated.position,updated.anchorId);
+    this.refreshSelectedPointMarker();this.onSelectedPointChange();
+    return this.selectedPlacementTarget();
+  }
+  clearSelectedPoint(){
+    this.selectedPoint=null;this.world.selectedPlacement=null;
+    if(!this.world.selection.objectId)
+      this.world.setSelection('',{x:0,y:0,z:-2},'web-floor');
+    this.refreshSelectedPointMarker();this.onSelectedPointChange();
+  }
+  selectedPlacementTarget(){
+    return agentSelectedPoint(this.world,this.selectedPoint,this.roomTrackingEpoch);
+  }
+  refreshSelectedPointMarker(){
+    if(!this.selectedPointMarker)return;
+    const current=currentSelectedPoint(this.world,this.selectedPoint,this.roomTrackingEpoch);
+    const root=current&&(current.anchorId==='web-floor'?this.virtualFloorRoot:
+      this.planeOutlines.get(current.anchorId));
+    const wasVisible=this.selectedPointMarker.visible;
+    this.selectedPointMarker.visible=!!root;
+    if(wasVisible!==this.selectedPointMarker.visible)this.onSelectedPointChange?.();
+    if(!root)return;
+    root.updateMatrixWorld(true);
+    this.selectedPointMarker.position.copy(root.localToWorld(v3(current.position)));
+    this.selectedPointMarker.material.color.setHex(this.world.spatial&&
+      !this.world.spatial.alignmentVerified?0xffc877:0x5ef7d7);
   }
   pointingTarget(){
     if(this.isAR&&this.world.spatial?.originUnavailable)return null;
@@ -1894,6 +1947,7 @@ export class MatrixView {
           const local=root.worldToLocal(this.reticle.position.clone());if(Math.abs(local.y)<.12&&insideBoundary(local,anchor.surface.boundary)){this.reticleAnchorId=anchor.anchorId;break;}}
       }}
     this.updateHeldGrab(frame,delta);
+    this.refreshSelectedPointMarker();
     if(this.renderer.xr.isPresenting)for(let index=0;index<this.controllers.length;index++)
       updateControllerRayForPanel(this.controllerRays[index],this.controllers[index],this.operatorPanel);
     for(const root of this.objectRoots.values()){
