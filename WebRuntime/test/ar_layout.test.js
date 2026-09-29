@@ -187,3 +187,36 @@ test('restoring another browser layout during AR invalidates the old root and ep
     else globalThis.localStorage=previousStorage;
   }
 });
+
+test('same-offset AR checkpoint replacement still requires clearance review and a new room epoch',()=>{
+  const world=new MatrixWorld(()=> 'old-object');
+  assert.equal(world.execute({requestId:'spawn',op:'spawn',assetId:'orb',
+    anchorId:'web-floor',transform}).ok,true);
+  world.originBinding='ar';world.originAnchorHandle='handle-1';
+  world.arLayoutOffset={x:.25,z:0,yawDegrees:0};
+  const replacement=storedBrowserWorld(world);
+  replacement.scene.objects[0].objectId='replacement-object';
+  replacement.scene.objects[0].transform.position.x=1;
+  world.enterAR();world.setOriginLocated(true);
+  world.spatial.alignmentVerified=true;world.spatial.layoutReviewPending=false;
+  const priorWorldEpoch=world.placementWorldEpoch;
+  let cleared=0;
+  const view={world,isAR:true,roomAnchorLocated:true,roomAnchorPose:anchorPose,
+    roomTrackingEpoch:7,appliedARWorldEpoch:priorWorldEpoch,
+    appliedARLayoutKey:JSON.stringify(world.arLayoutOffset),
+    virtualFloorRoot:new THREE.Group(),clearSelectedPoint(){cleared++;}};
+  restoreStoredWorld(world,replacement);
+  assert.equal(world.placementWorldEpoch,priorWorldEpoch+1);
+  assert.equal(MatrixView.prototype.refreshARLayoutFromWorld.call(view),true);
+  assert.equal(view.roomTrackingEpoch,8);
+  assert.equal(cleared,1);
+  assert.equal(world.spatial.layoutReviewPending,true);
+  assert.equal(world.spatial.alignmentVerified,false);
+  assert.equal(world.scene.objects[0].objectId,'replacement-object');
+  assert.deepEqual(world.arLayoutOffset,{x:.25,z:0,yawDegrees:0});
+  world.spatial.layoutReviewPending=false;world.spatial.alignmentVerified=true;
+  world.setSpatialObservation({planeObservedAt:performance.now(),trackingEpoch:8,
+    webFloorPose:world.spatial.webFloorPose});
+  assert.throws(()=>world.assertCurrentRoomConstraint(
+    {anchorId:'old-shelf',trackingEpoch:7},'old-shelf'),/changed or is stale/);
+});

@@ -583,6 +583,7 @@ export class MatrixView {
     this.readOnly=options.readOnly===true;
     this.observationStale=false;
     this.appliedARLayoutKey=JSON.stringify(world.arLayoutOffset);
+    this.appliedARWorldEpoch=world.placementWorldEpoch;
     this.container=container;this.objectRoots=new Map();this.anchorRoots=new Map();this.planeOutlines=new Map();this.planeIds=new WeakMap();this.nextPlaneId=0;this.hitSource=null;this.reticleVisible=false;this.xrViewer=null;this.xrViewerCapturedAt=0;this.roomTrackingEpoch=0;this.reticleAnchorId='';this.lastPlaneTime=0;this.lastPlaneObservedAt=null;
     this.modelCache=new Map();this.environmentTextures=new Map();
     this.environmentLoads=new Map();this.environmentFailures=new Map();
@@ -687,6 +688,7 @@ export class MatrixView {
     advanceRoomTrackingEpoch(this);
     this.xrViewer=null;this.xrViewerCapturedAt=0;
     this.appliedARLayoutKey=JSON.stringify(this.world.arLayoutOffset);
+    this.appliedARWorldEpoch=this.world.placementWorldEpoch;
     this.world.runtimePresentation=this.isAR?'ar':'vr';
     document.getElementById('xr-exit').textContent=this.isAR?'Exit AR':'Exit VR';
     if(session.domOverlayState)document.getElementById('xr-overlay').style.display='';
@@ -902,9 +904,13 @@ export class MatrixView {
     if(!this.isAR||!this.world.spatial||!this.roomAnchorLocated||!this.roomAnchorPose)
       return false;
     const key=JSON.stringify(this.world.arLayoutOffset);
-    if(this.appliedARLayoutKey===undefined){this.appliedARLayoutKey=key;return false;}
-    if(key===this.appliedARLayoutKey)return false;
+    const epoch=this.world.placementWorldEpoch;
+    if(this.appliedARLayoutKey===undefined||this.appliedARWorldEpoch===undefined){
+      this.appliedARLayoutKey=key;this.appliedARWorldEpoch=epoch;return false;
+    }
+    if(key===this.appliedARLayoutKey&&epoch===this.appliedARWorldEpoch)return false;
     this.appliedARLayoutKey=key;
+    this.appliedARWorldEpoch=epoch;
     composeARLayoutPose(this.virtualFloorRoot,this.roomAnchorPose,this.world.arLayoutOffset);
     advanceRoomTrackingEpoch(this);
     this.clearSelectedPoint();
@@ -929,6 +935,7 @@ export class MatrixView {
     const next=adjustedARLayoutOffset(this.world.arLayoutOffset,action);
     this.world.arLayoutOffset=next;
     this.appliedARLayoutKey=JSON.stringify(next);
+    this.appliedARWorldEpoch=this.world.placementWorldEpoch;
     composeARLayoutPose(this.virtualFloorRoot,this.roomAnchorPose,next);
     advanceRoomTrackingEpoch(this);
     this.clearSelectedPoint();
