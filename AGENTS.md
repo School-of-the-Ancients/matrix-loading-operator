@@ -38,6 +38,10 @@ Complete the v1.0 critical path in order:
 5. #26 — Quest physical-camera context;
 6. freeze, validate and publish v1.0 from the exact tested artifact.
 
+The owner completed #150 and merged PR #159 into `main` on 2026-09-28.
+Continue #149 and #26 on that integrated baseline before the v1.0 freeze;
+see [ROADMAP.md](ROADMAP.md).
+
 Do not expand the active sprint into later milestones. #148, #20/#29, #9, #31, #32 and coursework packaging are parallel/post-v1.0 work unless the owner explicitly changes the roadmap.
 
 Continue compatible merged work; do not restart earlier milestones.

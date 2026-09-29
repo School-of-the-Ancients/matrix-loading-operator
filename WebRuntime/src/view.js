@@ -506,7 +506,31 @@ export function operatorPanel({createImage=()=>new Image()}={}){
 }
 const v3=v=>new THREE.Vector3(v.x,v.y,v.z);
 const plain=v=>({x:Number(v.x.toFixed(3)),y:Number(v.y.toFixed(3)),z:Number(v.z.toFixed(3))});
-const advanceRoomTrackingEpoch=view=>{view.roomTrackingEpoch=(view.roomTrackingEpoch||0)+1;};
+const monotonicNow=()=>typeof globalThis.performance?.now==='function'?
+  globalThis.performance.now():null;
+function publishSpatialObservation(view){
+  if(!view.isAR||!view.world?.spatial)return;
+  const root=view.virtualFloorRoot;
+  let webFloorPose=null;
+  if(view.roomAnchorLocated&&view.world.spatial.originLocated&&
+     root?.position&&root?.quaternion&&root?.scale&&
+     ['x','y','z'].every(axis=>Number.isFinite(root.position[axis])&&
+       Number.isFinite(root.scale[axis]))){
+    const rotation=new THREE.Euler().setFromQuaternion(root.quaternion,'XYZ');
+    webFloorPose={position:plain(root.position),
+      rotation:{x:Number(THREE.MathUtils.radToDeg(rotation.x).toFixed(2)),
+        y:Number(THREE.MathUtils.radToDeg(rotation.y).toFixed(2)),
+        z:Number(THREE.MathUtils.radToDeg(rotation.z).toFixed(2))},
+      scale:plain(root.scale)};
+  }
+  view.world.setSpatialObservation({planeObservedAt:view.lastPlaneObservedAt??null,
+    trackingEpoch:view.roomTrackingEpoch??0,webFloorPose});
+}
+const advanceRoomTrackingEpoch=view=>{
+  view.roomTrackingEpoch=(view.roomTrackingEpoch||0)+1;
+  view.lastPlaneObservedAt=null;
+  publishSpatialObservation(view);
+};
 function setRoomContentVisible(view,visible){
   const shown=visible&&!view.observationStale;
   view.virtualFloorRoot.visible=shown;
@@ -519,7 +543,7 @@ export class MatrixView {
     this.world=world;this.onSelection=onSelection;this.getToken=getToken;this.onAssetError=onAssetError;this.onSceneEdit=onSceneEdit;this.onRuntimeChange=onRuntimeChange;this.onVoiceStart=onVoiceStart;this.onVoiceEnd=onVoiceEnd;this.onVoiceOutputToggle=onVoiceOutputToggle;this.onVisualReview=onVisualReview;this.onNewChat=onNewChat;this.onPanelAction=()=>{};this.onFrame=()=>{};this.onAssetReadinessChange=()=>{};this.onPhysicsContacts=()=>{};this.onPlayInteraction=()=>{};
     this.readOnly=options.readOnly===true;
     this.observationStale=false;
-    this.container=container;this.objectRoots=new Map();this.anchorRoots=new Map();this.planeOutlines=new Map();this.planeIds=new WeakMap();this.nextPlaneId=0;this.hitSource=null;this.reticleVisible=false;this.xrViewer=null;this.xrViewerCapturedAt=0;this.roomTrackingEpoch=0;this.reticleAnchorId='';this.lastPlaneTime=0;
+    this.container=container;this.objectRoots=new Map();this.anchorRoots=new Map();this.planeOutlines=new Map();this.planeIds=new WeakMap();this.nextPlaneId=0;this.hitSource=null;this.reticleVisible=false;this.xrViewer=null;this.xrViewerCapturedAt=0;this.roomTrackingEpoch=0;this.reticleAnchorId='';this.lastPlaneTime=0;this.lastPlaneObservedAt=null;
     this.modelCache=new Map();this.environmentTextures=new Map();
     this.environmentLoads=new Map();this.environmentFailures=new Map();
     this.environmentSyncPending=new Set();
@@ -624,8 +648,9 @@ export class MatrixView {
     this.operatorPanel.group.visible=!this.readOnly;
     this.operatorMount={kind:'head'};this.operatorPanel.setPinLabel(this.isAR?'PIN TO WALL':'PIN HERE');
     this.operatorThumbstickHeld=false;
-    this.sessionStartedAt=performance.now();this.roomCaptureRequested=false;this.virtualFloorCalibrated=false;this.roomAnchorCreationFailed=false;this.roomAnchorRestoreFailed=false;this.roomAnchorLocated=false;this.roomPoseMissingSince=0;
+    this.sessionStartedAt=performance.now();this.roomCaptureRequested=false;this.virtualFloorCalibrated=false;this.roomAnchorCreationFailed=false;this.roomAnchorRestoreFailed=false;this.roomAnchorLocated=false;this.roomPoseMissingSince=0;this.lastPlaneTime=0;
     if(this.isAR)this.world.enterAR({visitDigitalWorld:this.world.canVisitDigitalWorld()});
+    publishSpatialObservation(this);
     this.restoreRoomAnchor(session);
     if(this.isAR)this.sync();
     this.onRuntimeChange();
@@ -705,6 +730,7 @@ export class MatrixView {
     advanceRoomTrackingEpoch(this);
     this.roomAnchorRestoreFailed=true;setRoomContentVisible(this,false);
     this.world.setOriginUnavailable(true);
+    publishSpatialObservation(this);
     this.onAssetError(message);
     this.onRuntimeChange();
   }
@@ -782,11 +808,13 @@ export class MatrixView {
     if(!pose){
       if(!this.isAR)return;
       if(!this.roomPoseMissingSince){this.roomPoseMissingSince=performance.now();advanceRoomTrackingEpoch(this);}
+      this.world.setOriginLocated(false);
       if(this.roomAnchorLocated||this.world.digitalWorldVisit&&
          !this.world.spatial?.originUnavailable){
         this.roomAnchorLocated=false;setRoomContentVisible(this,false);
         this.world.setOriginUnavailable(true);this.onRuntimeChange();
       }
+      publishSpatialObservation(this);
       if(!this.roomAnchorRestoreFailed&&performance.now()-this.roomPoseMissingSince>10000){
         if(this.world.digitalWorldVisit){
           this.roomAnchorCreationFailed=true;this.roomAnchor=null;
@@ -812,6 +840,8 @@ export class MatrixView {
       this.world.originAnchorHandle=this.roomAnchorRestoredHandle;
     if(newlyBound)this.world.originBinding='ar';
     this.world.setOriginUnavailable(false);
+    this.world.setOriginLocated(true);
+    publishSpatialObservation(this);
     setRoomContentVisible(this,true);
     if(wasUnavailable||newlyBound)this.onRuntimeChange();
   }
@@ -955,6 +985,8 @@ export class MatrixView {
     }
     for(const [id,group] of this.planeOutlines)if(!present.has(id)){this.scene.remove(group);disposeGroup(group);this.planeOutlines.delete(id);}
     this.world.setSpatialAnchors(anchors);
+    this.lastPlaneObservedAt=monotonicNow();
+    publishSpatialObservation(this);
     const floorHeight=measuredFloorHeight(anchors,this.xrViewer?.position.y);
     if(floorHeight!==null){
       if(!this.roomAnchor)this.virtualFloorRoot.position.y=floorHeight;
@@ -1704,7 +1736,11 @@ export class MatrixView {
     const previous=this.xrViewer;
     this.xrViewer=frame&&referenceSpace?viewerPose(frame,referenceSpace):null;
     this.xrViewerCapturedAt=this.xrViewer?now:0;
-    if(previous&&!this.xrViewer)advanceRoomTrackingEpoch(this);
+    if(previous&&!this.xrViewer){
+      advanceRoomTrackingEpoch(this);
+      if(this.isAR)this.world.setOriginLocated(false);
+      publishSpatialObservation(this);
+    }
     return this.xrViewer;
   }
   viewer(){

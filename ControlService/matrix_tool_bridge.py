@@ -8,11 +8,13 @@ from __future__ import annotations
 import copy
 import hmac
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+import io
 import json
 import re
 import secrets
 import threading
 import time
+import urllib.error
 import urllib.request
 import urllib.parse
 
@@ -33,8 +35,27 @@ def _request_json(url: str, token: str, body: dict | None = None) -> dict:
     request = urllib.request.Request(url, headers=headers,
                                      data=json.dumps(body, allow_nan=False).encode("utf-8") if body is not None else None)
     opener = urllib.request.build_opener(urllib.request.ProxyHandler({}))
-    with opener.open(request, timeout=8) as response:
-        raw = response.read(64 * 1024 + 1)
+    try:
+        with opener.open(request, timeout=8) as response:
+            raw = response.read(64 * 1024 + 1)
+    except urllib.error.HTTPError as error:
+        # The private listener returns concise validation errors. Keep their
+        # reason visible to the Agent so a rejected edit can be corrected
+        # without guessing or repeating an uncertain mutation.
+        if error.headers.get_content_type() == "application/json":
+            raw_error = error.read(8193)
+            try:
+                payload = json.loads(raw_error) if len(raw_error) <= 8192 else None
+                reason = payload.get("error") if type(payload) is dict else None
+            except (ValueError, UnicodeDecodeError):
+                reason = None
+            if (type(reason) is str and 0 < len(reason) <= 240 and
+                    all(ord(char) >= 32 for char in reason)):
+                raise urllib.error.HTTPError(error.url, error.code, reason,
+                                             error.headers, io.BytesIO(raw_error)) from None
+            raise urllib.error.HTTPError(error.url, error.code, error.reason,
+                                         error.headers, io.BytesIO(raw_error)) from None
+        raise
     if len(raw) > 64 * 1024:
         raise ValueError("Matrix scene summary exceeded its limit")
     return json.loads(raw)
@@ -44,10 +65,26 @@ def read_scene(url: str, token: str) -> dict:
     return _request_json(url, token)
 
 
+def room_spatial_context(url: str, token: str, anchor_id: str | None = None) -> dict:
+    if not url.endswith("/scene"):
+        raise ValueError("Invalid Matrix tool bridge URL")
+    if anchor_id is not None and (type(anchor_id) is not str or
+                                  re.fullmatch(r"[A-Za-z0-9._:-]{1,128}", anchor_id) is None):
+        raise ValueError("Invalid measured room anchor ID")
+    suffix = "" if anchor_id is None else "/" + anchor_id
+    return _request_json(url[:-6] + "/room-spatial" + suffix, token)
+
+
 def move_object(url: str, token: str, value: dict) -> dict:
     if not url.endswith("/scene"):
         raise ValueError("Invalid Matrix tool bridge URL")
     return _request_json(url[:-6] + "/move", token, value)
+
+
+def move_with_room_constraint(url: str, token: str, value: dict) -> dict:
+    if not url.endswith("/scene"):
+        raise ValueError("Invalid Matrix tool bridge URL")
+    return _request_json(url[:-6] + "/move-room", token, value)
 
 
 def move_status(url: str, token: str, request_id: str) -> dict:
@@ -60,6 +97,12 @@ def spawn_asset(url: str, token: str, value: dict) -> dict:
     if not url.endswith("/scene"):
         raise ValueError("Invalid Matrix tool bridge URL")
     return _request_json(url[:-6] + "/spawn", token, value)
+
+
+def spawn_surface(url: str, token: str, value: dict) -> dict:
+    if not url.endswith("/scene"):
+        raise ValueError("Invalid Matrix tool bridge URL")
+    return _request_json(url[:-6] + "/spawn-surface", token, value)
 
 
 def spawn_builtin(url: str, token: str, value: dict) -> dict:
@@ -364,13 +407,13 @@ def scene_summary(state) -> dict:
 
 
 CONCEPT_SCENE_MUTATIONS = frozenset({
-    "/move", "/spawn", "/spawn-builtin", "/procedural", "/bind-game",
+    "/move", "/move-room", "/spawn", "/spawn-surface", "/spawn-builtin", "/procedural", "/bind-game",
     "/update-game", "/display", "/control", "/rigid", "/entity-action",
     "/world-archive", "/bind-animation", "/component-action", "/physics",
     "/interaction", "/scale", "/environment"})
 
 BRIDGE_POST_PATHS = frozenset({
-    "/move", "/spawn", "/spawn-builtin", "/procedural", "/bind-game", "/update-game",
+    "/move", "/move-room", "/spawn", "/spawn-surface", "/spawn-builtin", "/procedural", "/bind-game", "/update-game",
     "/display", "/control", "/rigid", "/inspect-entity", "/entity-action",
     "/world-archive", "/bind-animation", "/register-glb", "/publish-component",
     "/component-action", "/scale", "/physics", "/interaction", "/concept-build",
@@ -430,6 +473,15 @@ class _Handler(BaseHTTPRequestHandler):
             return
         if self.path == "/scene":
             self._send_json(200, scene_summary(self.server.state))
+        elif (self.path == "/room-spatial" or
+              re.fullmatch(r"/room-spatial/[A-Za-z0-9._:-]{1,128}", self.path)):
+            try:
+                anchor_id = (None if self.path == "/room-spatial" else
+                             self.path[len("/room-spatial/"):])
+                self._send_json(200, self.server.state.agent_room_spatial(anchor_id))
+            except Exception as error:
+                self._send_json(getattr(error, "status", 500),
+                                {"error": str(error) if hasattr(error, "status") else "Matrix tool failed"})
         elif re.fullmatch(r"/moves/[0-9a-f]{32}", self.path):
             try:
                 self._send_json(200, self.server.state.agent_move_status(self.path.rsplit("/", 1)[1]))
@@ -705,6 +757,18 @@ class _Handler(BaseHTTPRequestHandler):
                 while result["status"] == "queued" and time.monotonic() < deadline:
                     time.sleep(.1)
                     result = self.server.state.agent_spawn_status(result["requestId"])
+            elif self.path == "/spawn-surface":
+                result = self.server.state.agent_spawn_surface(value)
+                deadline = time.monotonic() + MOVE_WAIT
+                while result["status"] == "queued" and time.monotonic() < deadline:
+                    time.sleep(.1)
+                    result = self.server.state.agent_spawn_status(result["requestId"])
+            elif self.path == "/move-room":
+                result = self.server.state.agent_move_room(value)
+                deadline = time.monotonic() + MOVE_WAIT
+                while result["status"] == "queued" and time.monotonic() < deadline:
+                    time.sleep(.1)
+                    result = self.server.state.agent_move_status(result["requestId"])
             else:
                 result = self.server.state.agent_move(value)
                 deadline = time.monotonic() + MOVE_WAIT

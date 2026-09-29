@@ -330,6 +330,35 @@ class AgentPortalTests(unittest.TestCase):
         self.assertIn("Physical-room alignment: unverified", message)
         self.assertNotIn("Physical-room alignment: verified.", message)
 
+    def test_room_aware_composition_requires_fresh_measured_context(self):
+        context = {"kind": "matrix_spatial_context", "online": True,
+                   "roomId": "webxr-session-review", "sceneRevision": 9,
+                   "runtimeDescriptor": {"schemaVersion": 1, "client": "matrix-web",
+                                         "renderer": "threejs-webxr", "presentation": "ar"},
+                   "room": {"mode": "ar", "state": "ready", "alignmentVerified": True,
+                            "readOnly": False},
+                   "roomSpatial": {"schemaVersion": 1, "usable": True,
+                                   "spatialToken": "a" * 64, "planeCount": 1}}
+        tools = ("matrix_scene_summary", "matrix_list_entities",
+                 "matrix_room_spatial_context", "matrix_spawn_on_surface")
+        message = build_matrix_turn_message(
+            "Reorganize the forest to fit my room", context, tools)
+        self.assertIn("capture the current scene revision", message)
+        self.assertIn("matrix_list_entities pages", message)
+        self.assertIn("Refresh matrix_room_spatial_context with the chosen support anchor ID", message)
+        self.assertIn("Supply the target support plane's spatialToken", message)
+        self.assertIn("matrix_move_with_room_constraint", message)
+        self.assertIn("objects spawned against measured AR surfaces", message)
+        self.assertIn("measured support IDs and geometry remain session-only", message)
+        self.assertNotIn("measured-plane additions live only", message)
+        unverified = build_matrix_turn_message(
+            "Reorganize the forest to fit my room",
+            {**context, "roomSpatial": {"schemaVersion": 1, "usable": False,
+                                        "unusableReason": "alignment-unverified"}}, tools)
+        self.assertIn("Physical-room layout is currently unverified or unavailable", unverified)
+        self.assertIn("without claiming physical fit", unverified)
+        self.assertNotIn("This turn includes bounded, measured", unverified)
+
     def test_hosted_runtime_is_grounded_as_the_same_saved_world(self):
         context = {"kind": "matrix_runtime_context", "online": True,
                    "runtimeDescriptor": {"schemaVersion": 1,

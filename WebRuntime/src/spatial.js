@@ -103,6 +103,173 @@ export function footprintInsideBoundary(corners,boundary){
   return true;
 }
 
+const finiteVector=value=>value&&['x','y','z'].every(axis=>Number.isFinite(value[axis]));
+const finiteTransform=value=>value&&finiteVector(value.position)&&
+  finiteVector(value.rotation)&&finiteVector(value.scale)&&
+  ['x','y','z'].every(axis=>value.scale[axis]>0);
+const matrixFromTransform=transform=>new THREE.Matrix4().compose(
+  new THREE.Vector3(transform.position.x,transform.position.y,transform.position.z),
+  new THREE.Quaternion().setFromEuler(new THREE.Euler(
+    THREE.MathUtils.degToRad(transform.rotation.x),
+    THREE.MathUtils.degToRad(transform.rotation.y),
+    THREE.MathUtils.degToRad(transform.rotation.z),'XYZ')),
+  new THREE.Vector3(transform.scale.x,transform.scale.y,transform.scale.z));
+
+// The object remains a virtual-floor entity. Convert its floor-aligned bounds
+// through the tracked web-floor pose into the current measured support frame.
+export function footprintFitsRoomSupport(transform,bounds,spawnScale,webFloorPose,anchor){
+  if(!finiteTransform(transform)||!finiteTransform(webFloorPose)||
+     !finiteTransform(anchor?.roomPose)||!finiteVector(bounds?.size)||
+     bounds.size.x<=0||bounds.size.z<=0||
+     !Number.isFinite(spawnScale)||spawnScale<=0||
+     anchor?.source!=='webxr'||anchor.surface?.kind!=='support'||
+     !Array.isArray(anchor.surface.boundary)||
+     Math.abs(transform.rotation.x)>.01||Math.abs(transform.rotation.z)>.01)
+    return {ok:false,reason:'Room constraint needs upright measured object and support geometry'};
+  const toSupport=matrixFromTransform(anchor.roomPose).invert()
+    .multiply(matrixFromTransform(webFloorPose))
+    .multiply(matrixFromTransform(transform));
+  const halfX=bounds.size.x*spawnScale/2,halfZ=bounds.size.z*spawnScale/2;
+  const corners=[[-halfX,-halfZ],[halfX,-halfZ],[halfX,halfZ],[-halfX,halfZ]]
+    .map(([x,z])=>new THREE.Vector3(x,0,z).applyMatrix4(toSupport));
+  const feet=new THREE.Vector3(0,0,0).applyMatrix4(toSupport);
+  if(![feet,...corners].every(point=>Number.isFinite(point.y)&&Math.abs(point.y)<=.08))
+    return {ok:false,reason:'Object feet do not meet the measured support plane'};
+  if(!footprintInsideBoundary(corners,anchor.surface.boundary))
+    return {ok:false,reason:'Object footprint extends beyond the measured room surface'};
+  return {ok:true};
+}
+
+const VOLUME_EPSILON=.005;
+const AREA_EPSILON=1e-10;
+const boxEdges=[[0,1],[0,2],[0,4],[1,3],[1,5],[2,3],
+  [2,6],[3,7],[4,5],[4,6],[5,7],[6,7]];
+const same2=(a,b)=>Math.hypot(a.x-b.x,a.z-b.z)<VOLUME_EPSILON;
+const orient2=(a,b,c)=>cross2({x:b.x-a.x,z:b.z-a.z},
+  {x:c.x-a.x,z:c.z-a.z});
+const signedArea2=polygon=>polygon.reduce((sum,point,index)=>{
+  const next=polygon[(index+1)%polygon.length];
+  return sum+point.x*next.z-next.x*point.z;
+},0);
+const samePoint2=(a,b)=>Math.hypot(a.x-b.x,a.z-b.z)<1e-9;
+function cleanPolygon(boundary){
+  const points=[];
+  for(const point of boundary)if(!points.length||!samePoint2(points.at(-1),point))
+    points.push(point);
+  if(points.length>1&&samePoint2(points[0],points.at(-1)))points.pop();
+  let changed=true;
+  while(changed&&points.length>3){
+    changed=false;
+    for(let i=0;i<points.length;i++){
+      const prev=points[(i+points.length-1)%points.length],next=points[(i+1)%points.length];
+      const current=points[i];
+      const between=(current.x-prev.x)*(current.x-next.x)+
+        (current.z-prev.z)*(current.z-next.z)<=0;
+      if(Math.abs(orient2(prev,current,next))<1e-12&&between){
+        points.splice(i,1);changed=true;break;
+      }
+    }
+  }
+  return points;
+}
+function triangulatePolygon(boundary){
+  const remaining=cleanPolygon(boundary);
+  const winding=Math.sign(signedArea2(remaining));
+  if(remaining.length<3||!winding)return null;
+  const triangles=[];
+  while(remaining.length>3){
+    let ear=false;
+    for(let i=0;i<remaining.length;i++){
+      const a=remaining[(i+remaining.length-1)%remaining.length];
+      const b=remaining[i],c=remaining[(i+1)%remaining.length];
+      if(winding*orient2(a,b,c)<=AREA_EPSILON)continue;
+      const contains=remaining.some((point,index)=>
+        index!==i&&index!==(i+remaining.length-1)%remaining.length&&
+        index!==(i+1)%remaining.length&&
+        winding*orient2(a,b,point)>=-AREA_EPSILON&&
+        winding*orient2(b,c,point)>=-AREA_EPSILON&&
+        winding*orient2(c,a,point)>=-AREA_EPSILON);
+      if(contains)continue;
+      triangles.push([a,b,c]);remaining.splice(i,1);ear=true;break;
+    }
+    if(!ear)return null;
+  }
+  triangles.push(remaining);
+  return triangles;
+}
+function clippedArea(triangle,convex){
+  const winding=Math.sign(signedArea2(convex));
+  if(!winding)return 0;
+  let polygon=triangle;
+  for(let edge=0;edge<convex.length&&polygon.length;edge++){
+    const a=convex[edge],b=convex[(edge+1)%convex.length];
+    const input=polygon;polygon=[];
+    let previous=input.at(-1),previousSide=winding*orient2(a,b,previous);
+    for(const point of input){
+      const side=winding*orient2(a,b,point);
+      const inside=side>=-AREA_EPSILON,wasInside=previousSide>=-AREA_EPSILON;
+      if(inside!==wasInside){
+        const t=previousSide/(previousSide-side);
+        polygon.push({x:previous.x+t*(point.x-previous.x),
+          z:previous.z+t*(point.z-previous.z)});
+      }
+      if(inside)polygon.push(point);
+      previous=point;previousSide=side;
+    }
+  }
+  return polygon.length<3?0:Math.abs(signedArea2(polygon))/2;
+}
+function polygonsOverlap(section,boundary){
+  if(Math.abs(signedArea2(section))/2<=AREA_EPSILON)return false;
+  const triangles=triangulatePolygon(boundary);
+  // Invalid observed geometry is not evidence of safe empty space.
+  if(!triangles)return true;
+  return triangles.some(triangle=>clippedArea(triangle,section)>AREA_EPSILON);
+}
+
+// Check the finite measured polygon, not its infinite plane or an axis-aligned
+// room box. Touching a plane at an object's top/bottom is allowed; crossing it
+// inside the polygon is not. WebXR surfaces are session observations only.
+export function volumeIntersectsMeasuredPlane(transform,bounds,spawnScale,
+  basePose,plane,{floorAligned=false}={}){
+  if(!finiteTransform(transform)||!finiteTransform(basePose)||
+     !finiteTransform(plane?.roomPose)||!finiteVector(bounds?.size)||
+     !['x','y','z'].every(axis=>bounds.size[axis]>0)||
+     !Number.isFinite(spawnScale)||spawnScale<=0||
+     plane?.source!=='webxr'||!['support','wall'].includes(plane.surface?.kind)||
+     !Array.isArray(plane.surface.boundary)||plane.surface.boundary.length<3)
+    return false;
+  const toPlane=matrixFromTransform(plane.roomPose).invert()
+    .multiply(matrixFromTransform(basePose))
+    .multiply(matrixFromTransform(transform));
+  const half={x:bounds.size.x*spawnScale/2,y:bounds.size.y*spawnScale/2,
+    z:bounds.size.z*spawnScale/2};
+  // Imported GLBs are recentered horizontally and floor aligned by loadExternal.
+  // Built-ins retain their authored vertical center.
+  const centerY=(floorAligned?bounds.size.y/2:bounds.center.y)*spawnScale;
+  const corners=[];
+  for(const x of [-half.x,half.x])for(const y of [centerY-half.y,centerY+half.y])
+    for(const z of [-half.z,half.z])
+      corners.push(new THREE.Vector3(x,y,z).applyMatrix4(toPlane));
+  const heights=corners.map(point=>point.y);
+  if(Math.min(...heights)>=-VOLUME_EPSILON||
+     Math.max(...heights)<=VOLUME_EPSILON)return false;
+  const section=[];
+  const add=point=>{if(!section.some(other=>same2(other,point)))section.push(point);};
+  for(const [i,j] of boxEdges){
+    const a=corners[i],b=corners[j];
+    if(Math.abs(a.y)<=VOLUME_EPSILON)add({x:a.x,z:a.z});
+    if(Math.abs(b.y)<=VOLUME_EPSILON)add({x:b.x,z:b.z});
+    if(a.y*b.y<0){const t=a.y/(a.y-b.y);
+      add({x:a.x+(b.x-a.x)*t,z:a.z+(b.z-a.z)*t});}
+  }
+  if(section.length<3)return false;
+  const cx=section.reduce((sum,p)=>sum+p.x,0)/section.length;
+  const cz=section.reduce((sum,p)=>sum+p.z,0)/section.length;
+  section.sort((a,b)=>Math.atan2(a.z-cz,a.x-cx)-Math.atan2(b.z-cz,b.x-cx));
+  return polygonsOverlap(section,plane.surface.boundary);
+}
+
 function extent(boundary,axis){
   const values=boundary.map(point=>point[axis]);return Math.max(...values)-Math.min(...values);
 }

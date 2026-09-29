@@ -55,6 +55,7 @@ from procedural_contract import (ProceduralError, GENERATOR_ID, VERSION,
                                  CURVED_BENCH_PARAMETERS,
                                  checked_recipe, checked_generators, available_recipe,
                                  interaction_bounds, new_recipe, revised_recipe)
+from room_plane_collision import overlapping_room_plane
 
 MAX_BODY = 1024 * 1024
 MAX_EXCHANGE_BODY = 3 * 1024 * 1024  # two bounded snapshots plus a base64 JPEG
@@ -65,6 +66,10 @@ MAX_RIGID_BODIES = 32
 MAX_PENDING = 64
 MAX_BATCH = 20
 LEASE_SECONDS = 15
+MAX_ROOM_PLANE_AGE_MS = 2000
+MAX_ROOM_SPATIAL_PLANES = 8
+MAX_ROOM_SPATIAL_BOUNDARY = 12
+MAX_ROOM_SPATIAL_BYTES = 6000
 NAME = re.compile(r"[A-Za-z0-9][A-Za-z0-9 _-]{0,63}\Z")
 OPS = {"spawn", "set_transform", "select", "duplicate", "delete", "undo", "redo", "clear", "load",
        "get_scene", "list_assets", "list_targets", "confirm_room", "set_behavior", "remove_behavior",
@@ -1361,6 +1366,27 @@ def hosted_fixture(current):
     return True
 
 
+def spatial_observation(value):
+    """Validate one ephemeral WebXR observation; it is never checkpoint data."""
+    require(type(value) is dict and set(value) ==
+            {"schemaVersion", "planeAgeMs", "trackingEpoch", "webFloorPose"} and
+            type(value["schemaVersion"]) is int and value["schemaVersion"] == 1,
+            "Invalid spatial observation")
+    age = value["planeAgeMs"]
+    require(age is None or type(age) in (int, float) and math.isfinite(age) and
+            0 <= age <= 60000, "Invalid spatial plane age")
+    epoch = value["trackingEpoch"]
+    require(type(epoch) is int and 0 <= epoch <= 9007199254740991,
+            "Invalid spatial tracking epoch")
+    pose = value["webFloorPose"]
+    if pose is not None:
+        pose = transform(pose)
+        require(all(number == 1 for number in pose["scale"].values()),
+                "Spatial web-floor pose must have unit scale")
+    return {"schemaVersion": 1, "planeAgeMs": age,
+            "trackingEpoch": epoch, "webFloorPose": pose}
+
+
 def snapshot(value):
     require(isinstance(value, dict), "Invalid snapshot")
     result = {"scene": scene(value.get("scene")),
@@ -1499,6 +1525,10 @@ def snapshot(value):
         result["pointing"] = pointing
     if room is not None:
         result["roomContext"] = room
+    if "spatialObservation" in value:
+        require(room is not None and room["mode"] == "ar",
+                "Spatial observation requires an AR runtime")
+        result["spatialObservation"] = spatial_observation(value["spatialObservation"])
     if descriptor is not None:
         require(room is not None and
                 (room["mode"] == "ar") == (descriptor["presentation"] == "ar"),
@@ -1620,8 +1650,8 @@ def scene_revision_data(value, *, include_observed_motion=False):
     if value is None:
         return None
     result = {key: item for key, item in value.items()
-              if key not in ("viewer", "pointing", "physicsStates", "rigidStates", "gameStatus",
-                             "agentGrab", "citizensState")}
+               if key not in ("viewer", "pointing", "physicsStates", "rigidStates", "gameStatus",
+                              "agentGrab", "citizensState", "spatialObservation")}
     observation = result.get("citizensObservation")
     if observation is not None and not include_observed_motion:
         residents = set(observation["residentObjectIds"])
@@ -1734,9 +1764,10 @@ def command(value, *, allow_precondition=False):
                 "load": {"scene"}}.get(op, set())
     allowed |= required
     if op == "spawn":
-        allowed |= {"anchorId", "transform", "placement"}
+        allowed |= {"anchorId", "transform", "placement", "roomConstraint"}
     if op == "set_transform":
-        allowed |= {"anchorId", "placement", "expectedAssetId", "expectedCreatorRevision"}
+        allowed |= {"anchorId", "placement", "expectedAssetId",
+                    "expectedCreatorRevision", "roomConstraint"}
     if allow_precondition and op in RESIDENT_PRECONDITION_OPS:
         allowed.add("expectedTransform")
     if allow_precondition and op == "attach_component":
@@ -1772,6 +1803,20 @@ def command(value, *, allow_precondition=False):
     if "placement" in value:
         require(value["placement"] == "surface", "Unknown placement mode")
         result["placement"] = "surface"
+    if "roomConstraint" in value:
+        constraint = value["roomConstraint"]
+        require(op in ("spawn", "set_transform") and type(constraint) is dict and
+                set(constraint) == {"anchorId", "trackingEpoch"} and
+                type(constraint["trackingEpoch"]) is int and
+                0 <= constraint["trackingEpoch"] <= 9007199254740991,
+                "Invalid room constraint")
+        result["roomConstraint"] = {
+            "anchorId": text(constraint["anchorId"], "room constraint anchorId"),
+            "trackingEpoch": constraint["trackingEpoch"]}
+        if op == "spawn":
+            require(result.get("placement") == "surface" and
+                    result.get("anchorId") == result["roomConstraint"]["anchorId"],
+                    "Surface spawn constraint must match its measured anchor")
     if "scene" in value:
         result["scene"] = scene(value["scene"])
     if "display" in value:
@@ -3286,6 +3331,150 @@ def agent_scene_summary(current, priority_ids=(), *, include_asset_details=False
             "omittedObjectCount": max(0, len(scene_objects) - len(chosen))}
 
 
+def _room_spatial_quantized_vector(value, step=.05):
+    return tuple(round(value[axis] / step) for axis in ("x", "y", "z"))
+
+
+def _room_spatial_quantized_pose(value):
+    if value is None:
+        return None
+    return (_room_spatial_quantized_vector(value["position"]),
+            _room_spatial_quantized_vector(value["rotation"], 2))
+
+
+def _room_spatial_fingerprint(state, current, planes):
+    """Bind room-aware actions to meaningful geometry, not every tracking frame."""
+    observation = current["spatialObservation"]
+    material = {"clientId": state.client_id,
+                "roomId": current["scene"]["roomId"],
+                "sceneRevision": state.revision,
+                "runtimeGeneration": state.runtime_generation,
+                "roomContext": {key: current["roomContext"].get(key) for key in
+                                ("mode", "state", "alignmentVerified")},
+                "readOnly": current.get("readOnly", False),
+                "digitalWorldVisit": current.get("digitalWorldVisit", False),
+                "trackingEpoch": observation["trackingEpoch"],
+                "webFloorPose": _room_spatial_quantized_pose(observation["webFloorPose"]),
+                "planes": [{"anchorId": item["anchorId"],
+                            "source": item["source"],
+                            "labels": item["semanticLabels"],
+                            "kind": item["surface"]["kind"],
+                            "roomPose": _room_spatial_quantized_pose(item.get("roomPose")),
+                            "boundary": [_room_spatial_quantized_vector(point) for point in
+                                         item["surface"]["boundary"]],
+                            "localBounds": ({"center": _room_spatial_quantized_vector(
+                                item["surface"]["localBounds"]["center"]),
+                                "size": _room_spatial_quantized_vector(
+                                    item["surface"]["localBounds"]["size"])}
+                                if "localBounds" in item["surface"] else None)}
+                           for item in sorted(planes, key=lambda plane: plane["anchorId"])]}
+    return hashlib.sha256(json.dumps(material, sort_keys=True, separators=(",", ":"),
+                                     ensure_ascii=True).encode("utf-8")).hexdigest()
+
+
+def room_spatial_summary(state, current, priority_anchor_ids=()):
+    """Bound a live measured-room view without persisting raw browser geometry."""
+    if current is None:
+        return {"schemaVersion": 1, "usable": False,
+                "unusableReason": "runtime-offline", "spatialToken": None,
+                "roomId": None, "sceneRevision": None, "runtimeGeneration": None,
+                "presentation": None, "mode": None, "state": None,
+                "alignmentVerified": False, "readOnly": True,
+                "digitalWorldVisit": False, "coordinateFrame": "xr-reference-space",
+                "planeAgeMs": None, "trackingEpoch": None, "webFloorPose": None,
+                "planeCount": 0, "omittedPlaneCount": 0, "planes": [],
+                "surfaceSpawnAvailable": False,
+                "surfaceSpawnReason": "runtime-offline"}
+    room = current.get("roomContext") or {}
+    descriptor = current.get("runtimeDescriptor") or {}
+    observation = current.get("spatialObservation")
+    planes = [item for item in current["anchors"] if item.get("source") == "webxr"]
+    priorities = {anchor_id: index for index, anchor_id in
+                  enumerate(priority_anchor_ids) if anchor_id}
+    planes.sort(key=lambda item: (
+        priorities.get(item["anchorId"], 1000),
+        0 if "FLOOR" in item["semanticLabels"] else 1,
+        0 if item["surface"]["kind"] == "support" else 1,
+        item["anchorId"]))
+    age = (None if observation is None or observation["planeAgeMs"] is None else
+           max(0, observation["planeAgeMs"] +
+               (state.clock() - state.last_seen) * 1000))
+    reason = None
+    if descriptor.get("client") != "matrix-web" or descriptor.get("presentation") != "ar" or room.get("mode") != "ar":
+        reason = "runtime-not-ar"
+    elif current.get("digitalWorldVisit") is True:
+        reason = "digital-world-visit-unaligned"
+    elif current.get("readOnly") is True:
+        reason = "room-read-only"
+    elif room.get("state") != "ready":
+        reason = "room-not-ready"
+    elif room.get("alignmentVerified") is not True:
+        reason = "alignment-unverified"
+    elif observation is None:
+        reason = "spatial-observation-missing"
+    elif observation["webFloorPose"] is None:
+        reason = "world-origin-unlocated"
+    elif age is None or age > MAX_ROOM_PLANE_AGE_MS:
+        reason = "tracking-stale"
+    elif not planes:
+        reason = "no-measured-planes"
+    elif not any(item.get("roomPose") is not None and
+                 (item["surface"]["boundary"] or item["surface"].get("localBounds"))
+                 for item in planes):
+        reason = "plane-geometry-unusable"
+    result = {"schemaVersion": 1, "usable": reason is None,
+              "unusableReason": reason,
+              "spatialToken": (_room_spatial_fingerprint(state, current, planes)
+                               if reason is None else None),
+              "roomId": current["scene"]["roomId"],
+              "sceneRevision": state.revision,
+              "runtimeGeneration": state.runtime_generation,
+              "presentation": descriptor.get("presentation"),
+              "mode": room.get("mode"), "state": room.get("state"),
+              "alignmentVerified": room.get("alignmentVerified") is True,
+              "readOnly": current.get("readOnly", False),
+              "digitalWorldVisit": current.get("digitalWorldVisit", False),
+              "coordinateFrame": "xr-reference-space",
+              "planeAgeMs": None if age is None else round(age),
+              "trackingEpoch": observation["trackingEpoch"] if observation else None,
+              "webFloorPose": observation["webFloorPose"] if observation else None,
+              "planeCount": len(planes), "omittedPlaneCount": len(planes),
+              "planes": [], "surfaceSpawnAvailable": False,
+              "surfaceSpawnReason": None}
+    for anchor in planes[:MAX_ROOM_SPATIAL_PLANES]:
+        surface = anchor["surface"]
+        boundary = surface["boundary"]
+        plane = {"anchorId": anchor["anchorId"], "source": anchor["source"],
+                 "kind": surface["kind"], "semanticLabels": anchor["semanticLabels"][:4],
+                 "roomPose": anchor.get("roomPose"),
+                 "surface": {"kind": surface["kind"],
+                             **({"boundary": boundary} if len(boundary) <= MAX_ROOM_SPATIAL_BOUNDARY else {}),
+                             **({"localBounds": surface["localBounds"]} if "localBounds" in surface else {})},
+                 "boundaryVertexCount": len(boundary),
+                 "geometryTruncated": len(boundary) > MAX_ROOM_SPATIAL_BOUNDARY}
+        if (result["usable"] and plane["kind"] == "support" and
+                plane["roomPose"] is not None and not plane["geometryTruncated"] and
+                len(boundary) >= 3):
+            # A target-specific guard keeps unrelated, unshown WebXR planes
+            # from invalidating a fresh placement against this support.
+            plane["spatialToken"] = _room_spatial_fingerprint(state, current, [anchor])
+        result["planes"].append(plane)
+        result["omittedPlaneCount"] = len(planes) - len(result["planes"])
+        if len(json.dumps(result, ensure_ascii=True, separators=(",", ":")).encode("utf-8")) > MAX_ROOM_SPATIAL_BYTES:
+            result["planes"].pop()
+            result["omittedPlaneCount"] += 1
+            break
+    eligible = any(plane["kind"] == "support" and
+                   plane["roomPose"] is not None and
+                   not plane["geometryTruncated"] and
+                   len(plane["surface"].get("boundary", [])) >= 3
+                   for plane in result["planes"])
+    result["surfaceSpawnAvailable"] = result["usable"] and eligible
+    result["surfaceSpawnReason"] = (result["unusableReason"] if not result["usable"] else
+                                    None if eligible else "no-bounded-support")
+    return result
+
+
 def concept_scene_fingerprint(current):
     """Ignore asset-catalog refresh and observed Citizen motion during authoring."""
     scene = scene_revision_data(current)["scene"]
@@ -3310,15 +3499,19 @@ def agent_runtime_context(state, *, include_scene=False):
                     "creatorMode": None}),
                 "room": agent_room_status(current) if current else None,
                 **({"sceneSummary": agent_scene_summary(current, include_asset_details=True)}
-                   if current and include_scene else {})}
+                    if current and include_scene else {})}
 
 
 def agent_turn_context(state, value, *, creation=False):
     """Reduce one wearer-owned semantic hit to bounded, advisory agent data."""
-    require(isinstance(value, dict) and set(value) == {"schemaVersion", "inputSource", "clientId",
-            "roomId", "selectedObjectId", "pointingTarget", "viewerFrame"},
+    common = {"schemaVersion", "inputSource", "clientId", "roomId",
+              "selectedObjectId", "pointingTarget", "viewerFrame"}
+    require(isinstance(value, dict) and
+            ((value.get("schemaVersion") == 1 and set(value) == common) or
+             (value.get("schemaVersion") == 2 and
+              set(value) == common | {"presentation", "trackingEpoch"})),
             "Invalid Matrix Agent context")
-    require(type(value["schemaVersion"]) is int and value["schemaVersion"] == 1,
+    require(type(value["schemaVersion"]) is int and value["schemaVersion"] in (1, 2),
             "Unsupported Matrix Agent context version")
     require(value["inputSource"] in ("text", "voice_transcript"), "Invalid Agent input source")
     client_id = text(value["clientId"], "Agent clientId")
@@ -3333,6 +3526,24 @@ def agent_turn_context(state, value, *, creation=False):
                 "Matrix world is not connected for spatial context", 409)
         current = state.latest
         require(current["scene"]["roomId"] == room_id, "Matrix room changed; point and retry", 409)
+        descriptor = current.get("runtimeDescriptor") or {}
+        presentation = descriptor.get("presentation")
+        if value["schemaVersion"] == 2:
+            require(value["presentation"] in ("desktop", "vr", "ar") and
+                    value["presentation"] == presentation,
+                    "Matrix presentation changed; capture current context and retry", 409)
+            epoch = value["trackingEpoch"]
+            if presentation == "ar":
+                observation = current.get("spatialObservation")
+                require(type(epoch) is int and epoch >= 0 and
+                        observation is not None and
+                        observation["trackingEpoch"] == epoch,
+                        "Matrix room tracking changed; capture current context and retry", 409)
+            else:
+                require(epoch is None, "Non-AR context must not carry room tracking", 400)
+        else:
+            require(presentation != "ar",
+                    "AR context version is stale; capture current room context and retry", 409)
         objects = {item["objectId"]: item for item in current["scene"]["objects"]}
         anchors = {item["anchorId"] for item in current["anchors"]}
         require(selected_id is None or selected_id in objects,
@@ -3360,10 +3571,14 @@ def agent_turn_context(state, value, *, creation=False):
             frame = checked["frames"][0]
         priority_ids = [identifier for identifier in
                         (selected_id, target["objectId"] if target else None) if identifier]
+        priority_anchors = [identifier for identifier in
+                            (target["anchorId"] if target else None,
+                             objects[selected_id]["anchorId"] if selected_id else None)
+                            if identifier]
         summary = agent_scene_summary(current, priority_ids,
                                       include_asset_details=creation)
         summarized = {item["objectId"]: item for item in summary["objects"]}
-        return {"schemaVersion": 1, "kind": "matrix_spatial_context",
+        return {"schemaVersion": value["schemaVersion"], "kind": "matrix_spatial_context",
                 "online": True, "inputSource": value["inputSource"], "roomId": room_id,
                 "sceneRevision": state.revision,
                 "hostWorldId": state.host_world_id,
@@ -3373,7 +3588,8 @@ def agent_turn_context(state, value, *, creation=False):
                 "room": agent_room_status(current),
                 "selectedObject": summarized[selected_id] if selected_id else None,
                 "pointingTarget": target, "viewerFrame": frame,
-                "sceneSummary": summary}
+                 "sceneSummary": summary,
+                 "roomSpatial": room_spatial_summary(state, current, priority_anchors)}
 
 
 _CONCEPT_NEGATED_CLAUSE = re.compile(
@@ -3555,7 +3771,11 @@ def agent_portal_turn(state, body):
                     "Selected concept changed; review and select the intended version again", 409)
         require(concept_reference_matches(body["text"], selected),
                 "Requested concept version is not selected; select it first", 409)
-    context = (agent_turn_context(state, body["context"], creation=selected is not None)
+    composing = bool(re.search(
+        r"\b(?:build|create|compose|reorganize|arrange|fit|make)\b|\bturn\b.{0,80}\binto\b",
+        body["text"], re.IGNORECASE))
+    context = (agent_turn_context(state, body["context"],
+                                  creation=selected is not None or composing)
                if "context" in body
                else agent_runtime_context(state, include_scene=selected is not None))
     if selected is None:
@@ -3835,6 +4055,20 @@ class State:
         """Subsequent typed actions each carry their own current scene revision."""
         with self.lock:
             self.concept_build_guard = None
+
+    def agent_room_spatial(self, anchor_id=None):
+        """Read current, bounded WebXR planes without exposing raw room scans."""
+        if anchor_id is not None:
+            anchor_id = text(anchor_id, "anchor_id")
+        with self.lock:
+            self.expire()
+            current = self.latest if self.online() and self.latest is not None else None
+            if current is not None and anchor_id is not None:
+                require(any(item["anchorId"] == anchor_id and
+                            item.get("source") == "webxr" for item in current["anchors"]),
+                        "Requested measured room surface is unavailable", 409)
+            return room_spatial_summary(self, current,
+                                        (anchor_id,) if anchor_id is not None else ())
 
     def agent_portal_status(self, session_id, cursor=0):
         """Reconcile only exact terminal turns before reporting concept builds."""
@@ -4244,6 +4478,19 @@ class State:
                                 result["outcome"], issued["op"], issued, current)
                         else:
                             result.pop("outcome", None)
+                    elif issued["op"] == "spawn" and "roomConstraint" in issued:
+                        if result["ok"]:
+                            outcome = result.get("outcome")
+                            require(type(outcome) is dict and
+                                    set(outcome) == {"kind", "supportAnchorId", "anchorId", "transform"} and
+                                    outcome["kind"] == "room-surface-spawn" and
+                                    outcome["supportAnchorId"] == issued["anchorId"] and
+                                    outcome["anchorId"] == "web-floor",
+                                    "Surface spawn receipt lacks its durable placement")
+                            result["outcome"] = {**outcome,
+                                                 "transform": transform(outcome["transform"])}
+                        else:
+                            result.pop("outcome", None)
                     else:
                         result.pop("outcome", None)
                     del self.pending[result["requestId"]]
@@ -4522,6 +4769,22 @@ class State:
                         else:
                             require(item["expectedEnvironment"] is not None,
                                     "This world has no panorama to remove", 409)
+                if item["op"] == "spawn" and "roomConstraint" in item:
+                    constraint = item["roomConstraint"]
+                    spatial = room_spatial_summary(self, self.latest,
+                                                   (constraint["anchorId"],))
+                    mode = self.latest.get("creatorMode") or {}
+                    require(spatial["usable"] and
+                            spatial["trackingEpoch"] == constraint["trackingEpoch"] and
+                            any(plane["anchorId"] == constraint["anchorId"] and
+                                plane["kind"] == "support" and
+                                plane["roomPose"] is not None and
+                                not plane["geometryTruncated"] and
+                                len(plane["surface"].get("boundary", [])) >= 3
+                                for plane in spatial["planes"]) and
+                            mode.get("mode") == "creator" and
+                            mode.get("simulation") == "paused" and not self.pending,
+                            "Surface spawn room constraint changed; recapture and replan", 409)
                 if item["op"] in {"list_world_archives", "start_new_world", "restore_world_archive"}:
                     current = self.latest
                     mode = current.get("creatorMode") or {}
@@ -4850,6 +5113,30 @@ class State:
                 elif item["op"] == "set_transform":
                     obj = next((obj for obj in self.latest["scene"]["objects"]
                                 if obj["objectId"] == item["objectId"]), None)
+                    if "roomConstraint" in item:
+                        constraint = item["roomConstraint"]
+                        spatial = room_spatial_summary(self, self.latest,
+                                                       (constraint["anchorId"],))
+                        require(spatial["usable"] and
+                                spatial["trackingEpoch"] == constraint["trackingEpoch"] and
+                                any(plane["anchorId"] == constraint["anchorId"] and
+                                    plane["kind"] == "support" and
+                                    plane["roomPose"] is not None and
+                                    not plane["geometryTruncated"] and
+                                    len(plane["surface"].get("boundary", [])) >= 3
+                                    for plane in spatial["planes"]),
+                                "Room constraint changed; recapture and replan", 409)
+                        require("expectedAssetId" in item and
+                                obj is not None and obj["anchorId"] == "web-floor" and
+                                not any(key in obj for key in ("physics", "rigidBody")) and
+                                obj.get("component", {}).get("status") != "running" and
+                                not any(behavior.get("enabled") and not behavior.get("paused")
+                                        for behavior in obj.get("behaviors", [])) and
+                                not any(resident["objectId"] == item["objectId"]
+                                        for resident in
+                                        (self.latest.get("citizensState") or {}).get("residents", [])) and
+                                self.latest.get("agentGrab") is None,
+                                "Room-constrained move needs a static virtual-floor object", 409)
                     if "expectedAssetId" in item:
                         mode = self.latest.get("creatorMode") or {}
                         require(web_virtual_floor_ready(self.latest) and
@@ -5040,6 +5327,109 @@ class State:
                 self.agent_move_ids.popitem(last=False)
             return self.agent_move_status(request_id)
 
+    def agent_move_room(self, value):
+        """Move an existing virtual object against one fresh measured AR support."""
+        required = {"room_id", "scene_revision", "spatial_token", "anchor_id",
+                    "object_id", "expected_asset_id", "position"}
+        require(type(value) is dict and required <= set(value) <=
+                required | {"rotation", "scale"}, "Invalid Matrix room move request")
+        room_id = text(value["room_id"], "room_id")
+        anchor_id = text(value["anchor_id"], "anchor_id")
+        object_id = text(value["object_id"], "object_id")
+        asset_id = text(value["expected_asset_id"], "expected_asset_id")
+        revision = value["scene_revision"]
+        token = value["spatial_token"]
+        require(type(revision) is int and revision >= 0, "Invalid scene revision")
+        require(type(token) is str and GLB_SHA.fullmatch(token) is not None,
+                "Invalid room spatial token")
+        require(type(value["position"]) is dict and
+                set(value["position"]) == {"x", "y", "z"},
+                "Invalid Matrix room move position")
+        position = vector(value["position"], "position")
+        rotation = None
+        if "rotation" in value:
+            require(type(value["rotation"]) is dict and
+                    set(value["rotation"]) == {"x", "y", "z"},
+                    "Invalid Matrix room move rotation")
+            rotation = vector(value["rotation"], "rotation")
+        scale = None
+        if "scale" in value:
+            require(type(value["scale"]) is dict and
+                    set(value["scale"]) == {"x", "y", "z"},
+                    "Invalid Matrix room move scale")
+            scale = vector(value["scale"], "scale", True)
+        with self.lock:
+            self.expire()
+            require(self.online() and self.latest is not None,
+                    self.room_unavailable_message(), 409)
+            current = self.latest
+            require(current["scene"]["roomId"] == room_id and self.revision == revision,
+                    "Matrix scene changed; inspect the current room and retry", 409)
+            spatial = room_spatial_summary(self, current, (anchor_id,))
+            require(spatial["usable"],
+                    "Verified fresh AR room geometry is unavailable: " +
+                    str(spatial["unusableReason"]), 409)
+            bounded_anchor = next((plane for plane in spatial["planes"]
+                                   if plane["anchorId"] == anchor_id and
+                                   plane["kind"] == "support" and
+                                   plane["roomPose"] is not None and
+                                   not plane["geometryTruncated"] and
+                                   len(plane["surface"].get("boundary", [])) >= 3), None)
+            require(bounded_anchor is not None,
+                    "Target support is absent from bounded room context", 409)
+            require(token in (spatial["spatialToken"], bounded_anchor["spatialToken"]),
+                    "Target support or room origin changed; recapture and replan placement", 409)
+            mode = current.get("creatorMode") or {}
+            require(mode.get("mode") == "creator" and mode.get("simulation") == "paused" and
+                    not current.get("readOnly") and not current.get("digitalWorldVisit") and
+                    not self.pending,
+                    "Room-constrained move requires paused Creator Mode and no pending edit", 409)
+            item = next((item for item in current["scene"]["objects"]
+                         if item["objectId"] == object_id), None)
+            require(item is not None and item["assetId"] == asset_id and
+                    item["anchorId"] == "web-floor" and
+                    not any(key in item for key in ("physics", "rigidBody")) and
+                    item.get("component", {}).get("status") != "running" and
+                    not any(behavior.get("enabled") and not behavior.get("paused")
+                            for behavior in item.get("behaviors", [])) and
+                    not any(resident["objectId"] == object_id for resident in
+                            (current.get("citizensState") or {}).get("residents", [])) and
+                    current.get("agentGrab") is None,
+                    "Room-constrained move needs a static virtual-floor object", 409)
+            asset = next((asset for asset in current["assets"]
+                          if asset["assetId"] == asset_id), None)
+            require(asset is not None and "localBounds" in asset,
+                    "Room-constrained move needs measured asset bounds", 409)
+            transform = copy.deepcopy(item["transform"])
+            transform["position"] = position
+            if rotation is not None:
+                transform["rotation"] = rotation
+            if scale is not None:
+                transform["scale"] = scale
+            require(abs(transform["rotation"]["x"]) <= .01 and
+                    abs(transform["rotation"]["z"]) <= .01,
+                    "Room-constrained support fit requires an upright object", 409)
+            require(overlapping_room_plane(transform, asset,
+                                           spatial["webFloorPose"],
+                                           current["anchors"], anchor_id) is None,
+                    "Object volume intersects another measured room surface", 409)
+            queued = self.queue([{"op": "set_transform", "objectId": object_id,
+                                  "transform": transform,
+                                  "expectedTransform": copy.deepcopy(item["transform"]),
+                                  "expectedAssetId": asset_id,
+                                  "expectedCreatorRevision": mode["revision"],
+                                  "roomConstraint": {"anchorId": anchor_id,
+                                                     "trackingEpoch": spatial["trackingEpoch"]}}])["commands"][0]
+            request_id = queued["requestId"]
+            self.agent_move_ids[request_id] = {"roomId": room_id, "objectId": object_id,
+                                               "assetId": asset_id, "transform": transform,
+                                               "constraintAnchorId": anchor_id,
+                                               "clientId": self.client_id,
+                                               "runtimeGeneration": self.runtime_generation}
+            while len(self.agent_move_ids) > 64:
+                self.agent_move_ids.popitem(last=False)
+            return self.agent_move_status(request_id)
+
     def agent_move_status(self, request_id):
         require(isinstance(request_id, str) and re.fullmatch(r"[0-9a-f]{32}", request_id),
                 "Invalid Matrix move receipt ID")
@@ -5050,17 +5440,33 @@ class State:
             receipt = next((item for item in reversed(self.results) if item["requestId"] == request_id), None)
             result = {"requestId": request_id, "roomId": issued["roomId"],
                       "objectId": issued["objectId"], "sceneRevision": self.revision}
+            if "constraintAnchorId" in issued:
+                result["constraintAnchorId"] = issued["constraintAnchorId"]
             if receipt is None:
                 result["status"] = "queued" if request_id in self.pending else "unconfirmed"
             elif receipt["ok"]:
-                observed = self.latest and self.latest["scene"]["roomId"] == issued["roomId"] and next(
+                guarded = "constraintAnchorId" in issued
+                same_runtime = (self.client_id == issued.get("clientId") and
+                                self.runtime_generation == issued.get("runtimeGeneration"))
+                current_room = self.latest["scene"]["roomId"] if self.latest else None
+                carried_to_desktop = (guarded and same_runtime and
+                                      issued["roomId"].startswith("webxr-session-") and
+                                      current_room == "web-virtual-room-v1" and
+                                      (self.latest.get("runtimeDescriptor") or {}).get("client") == "matrix-web" and
+                                      (self.latest.get("runtimeDescriptor") or {}).get("presentation") == "desktop")
+                room_observed = (current_room == issued["roomId"] and
+                                 (not guarded or same_runtime)) or carried_to_desktop
+                observed = (room_observed and
+                            (not guarded or receipt.get("objectId") == issued["objectId"]) and next(
                     (item for item in self.latest["scene"]["objects"]
                      if item["objectId"] == issued["objectId"] and
                      item["assetId"] == issued["assetId"] and item["anchorId"] == "web-floor" and
-                     item["transform"] == issued["transform"]), None)
+                     item["transform"] == issued["transform"]), None))
                 result["status"] = "succeeded" if observed else "unconfirmed"
                 if observed:
                     result["transform"] = copy.deepcopy(observed["transform"])
+                    if carried_to_desktop:
+                        result["observedRoomId"] = current_room
             elif "outcome unknown" in receipt["error"]:
                 result["status"] = "unconfirmed"
             else:
@@ -5152,6 +5558,124 @@ class State:
                 self.agent_spawn_ids.popitem(last=False)
             return self.agent_spawn_status(request_id)
 
+    def agent_spawn_surface(self, value):
+        """Queue one measured-support spawn with a fresh room-context token."""
+        required = {"room_id", "scene_revision", "spatial_token", "asset_id",
+                    "anchor_id", "transform"}
+        require(type(value) is dict and set(value) == required,
+                "Invalid Matrix surface spawn request")
+        room_id = text(value["room_id"], "room_id")
+        asset_id = text(value["asset_id"], "asset_id")
+        anchor_id = text(value["anchor_id"], "anchor_id")
+        revision = value["scene_revision"]
+        token = value["spatial_token"]
+        require(type(revision) is int and revision >= 0,
+                "Invalid scene revision")
+        require(type(token) is str and GLB_SHA.fullmatch(token) is not None,
+                "Invalid room spatial token")
+        pose = transform(value["transform"])
+        require(abs(pose["rotation"]["x"]) <= .01 and
+                abs(pose["rotation"]["z"]) <= .01 and
+                pose["position"]["y"] >= 0,
+                "Surface placement needs an upright object and nonnegative clearance", 409)
+        with self.lock:
+            self.expire()
+            require(self.online() and self.latest is not None,
+                    self.room_unavailable_message(), 409)
+            current = self.latest
+            require(current["scene"]["roomId"] == room_id and self.revision == revision,
+                    "Matrix scene changed; inspect the current room and retry", 409)
+            spatial = room_spatial_summary(self, current, (anchor_id,))
+            require(spatial["usable"],
+                    "Verified fresh AR room geometry is unavailable: " +
+                    str(spatial["unusableReason"]), 409)
+            bounded_anchor = next((plane for plane in spatial["planes"]
+                                   if plane["anchorId"] == anchor_id and
+                                   plane["kind"] == "support" and
+                                   plane["roomPose"] is not None and
+                                   not plane["geometryTruncated"] and
+                                   len(plane["surface"].get("boundary", [])) >= 3), None)
+            require(bounded_anchor is not None,
+                    "Target support is absent from bounded room context; recapture a visible target", 409)
+            require(token in (spatial["spatialToken"], bounded_anchor["spatialToken"]),
+                    "Target support or room origin changed; recapture and replan placement", 409)
+            mode = current.get("creatorMode") or {}
+            require(mode.get("mode") == "creator" and mode.get("simulation") == "paused" and
+                    not current.get("readOnly") and not current.get("digitalWorldVisit") and
+                    not self.pending,
+                    "Surface placement requires paused Creator Mode and no pending edit", 409)
+            anchor = next((item for item in current["anchors"]
+                           if item["anchorId"] == anchor_id), None)
+            require(anchor is not None and anchor.get("source") == "webxr" and
+                    anchor.get("roomPose") is not None and
+                    anchor["surface"]["kind"] == "support" and
+                    len(anchor["surface"]["boundary"]) >= 3,
+                    "Measured WebXR support target is unavailable", 409)
+            asset = next((item for item in current["assets"]
+                          if item["assetId"] == asset_id), None)
+            require(asset is not None and "localBounds" in asset and
+                    asset_id != "matrix:procedural",
+                    "Asset has no measured bounds in the connected browser", 409)
+            if "sha256" in asset:
+                registered = next((item for item in self.web_assets.list()
+                                   if item.get("assetId") == asset_id), None)
+                require(registered is not None and
+                        registered.get("sha256") == asset["sha256"],
+                        "Registered GLB is unavailable in the Matrix catalog", 409)
+                try:
+                    self.web_assets.file(asset["sha256"])
+                except WebAssetError as error:
+                    raise APIError(409, str(error)) from None
+            else:
+                require(not asset_id.startswith(("web:", "matrix:")),
+                        "Built-in asset is unavailable in the connected Web runtime", 409)
+            # Cheap necessary footprint check. The browser tests the entire
+            # rotated rectangle against the possibly concave measured polygon.
+            boundary = anchor["surface"]["boundary"]
+            bounds = asset["localBounds"]
+            factor = asset.get("spawnScale", 1)
+            half_x = bounds["size"]["x"] * pose["scale"]["x"] * factor / 2
+            half_z = bounds["size"]["z"] * pose["scale"]["z"] * factor / 2
+            yaw = math.radians(pose["rotation"]["y"])
+            cos_yaw, sin_yaw = math.cos(yaw), math.sin(yaw)
+            ext_x = abs(half_x * cos_yaw) + abs(half_z * sin_yaw)
+            ext_z = abs(half_x * sin_yaw) + abs(half_z * cos_yaw)
+            require(min(point["x"] for point in boundary) - 1e-5 <=
+                    pose["position"]["x"] - ext_x and
+                    pose["position"]["x"] + ext_x <=
+                    max(point["x"] for point in boundary) + 1e-5 and
+                    min(point["z"] for point in boundary) - 1e-5 <=
+                    pose["position"]["z"] - ext_z and
+                    pose["position"]["z"] + ext_z <=
+                    max(point["z"] for point in boundary) + 1e-5,
+                    "Object footprint exceeds measured support bounds", 409)
+            expected = copy.deepcopy(pose)
+            if "sha256" not in asset:
+                expected["position"]["y"] -= ((bounds["center"]["y"] -
+                                                   bounds["size"]["y"] / 2) *
+                                                  pose["scale"]["y"] * factor)
+            require(overlapping_room_plane(expected, asset, anchor["roomPose"],
+                                           current["anchors"], anchor_id) is None,
+                    "Object volume intersects another measured room surface", 409)
+            queued = self.queue([{"op": "spawn", "assetId": asset_id,
+                                  "anchorId": anchor_id, "transform": pose,
+                                  "placement": "surface",
+                                  "roomConstraint": {"anchorId": anchor_id,
+                                                     "trackingEpoch": spatial["trackingEpoch"]}}])["commands"][0]
+            request_id = queued["requestId"]
+            self.agent_spawn_ids[request_id] = {
+                "roomId": room_id, "assetId": asset_id, "anchorId": anchor_id,
+                "transform": expected, "durableSurface": True,
+                "clientId": self.client_id,
+                "runtimeGeneration": self.runtime_generation,
+                "requestSceneRevision": revision,
+                "issuedAt": time.time(),
+                "existingObjectIds": {item["objectId"] for item in
+                                      current["scene"]["objects"]}}
+            while len(self.agent_spawn_ids) > 64:
+                self.agent_spawn_ids.popitem(last=False)
+            return self.agent_spawn_status(request_id)
+
     def agent_spawn_status(self, request_id):
         require(isinstance(request_id, str) and re.fullmatch(r"[0-9a-f]{32}", request_id),
                 "Invalid Matrix spawn receipt ID")
@@ -5162,6 +5686,9 @@ class State:
             receipt = next((item for item in reversed(self.results) if item["requestId"] == request_id), None)
             result = {"requestId": request_id, "roomId": issued["roomId"],
                       "assetId": issued["assetId"], "sceneRevision": self.revision}
+            if issued.get("durableSurface"):
+                result["supportAnchorId"] = issued["anchorId"]
+                result["anchorId"] = "web-floor"
             if receipt is None:
                 result["status"] = "queued" if request_id in self.pending else "unconfirmed"
             elif not receipt["ok"]:
@@ -5170,15 +5697,40 @@ class State:
                     result["error"] = receipt["error"][:200]
             else:
                 object_id = receipt.get("objectId")
-                observed = (self.latest and self.latest["scene"]["roomId"] == issued["roomId"] and
+                durable = issued.get("durableSurface", False)
+                outcome = receipt.get("outcome")
+                surface_outcome = (durable and type(outcome) is dict and
+                                   set(outcome) == {"kind", "supportAnchorId", "anchorId", "transform"} and
+                                   outcome["kind"] == "room-surface-spawn" and
+                                   outcome["supportAnchorId"] == issued["anchorId"] and
+                                   outcome["anchorId"] == "web-floor")
+                same_runtime = (self.client_id == issued.get("clientId") and
+                                self.runtime_generation == issued.get("runtimeGeneration"))
+                current_room = self.latest["scene"]["roomId"] if self.latest else None
+                carried_to_desktop = (durable and same_runtime and
+                                      issued["roomId"].startswith("webxr-session-") and
+                                      current_room == "web-virtual-room-v1" and
+                                      (self.latest.get("runtimeDescriptor") or {}).get("client") == "matrix-web" and
+                                      (self.latest.get("runtimeDescriptor") or {}).get("presentation") == "desktop")
+                room_observed = ((current_room == issued["roomId"] and
+                                  (not durable or same_runtime)) or carried_to_desktop)
+                expected_anchor = "web-floor" if durable else issued.get("anchorId", "web-floor")
+                expected_transform = outcome["transform"] if surface_outcome else issued["transform"]
+                observed = (self.latest and room_observed and
+                            (not durable or surface_outcome) and
                             isinstance(object_id, str) and
                             object_id not in issued.get("existingObjectIds", ()) and
                             next((item for item in self.latest["scene"]["objects"]
                             if item["objectId"] == object_id and item["assetId"] == issued["assetId"] and
-                            item["anchorId"] == "web-floor" and item["transform"] == issued["transform"]), None))
+                             item["anchorId"] == expected_anchor and
+                             item["transform"] == expected_transform), None))
                 result["status"] = "succeeded" if observed else "unconfirmed"
                 if observed:
                     result["objectId"] = object_id
+                    if durable:
+                        result["transform"] = copy.deepcopy(expected_transform)
+                        if carried_to_desktop:
+                            result["observedRoomId"] = current_room
             return result
 
     def agent_list_procedural_generators(self):

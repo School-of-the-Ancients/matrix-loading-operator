@@ -1,4 +1,5 @@
 """Authenticated Matrix Agent Portal API on an isolated loopback service."""
+import copy
 import json
 from pathlib import Path
 import tempfile
@@ -11,7 +12,8 @@ from unittest.mock import patch
 from agent_portal import AgentPortal, build_matrix_turn_message
 from agent_session import _mcp_approval_description
 from matrix_tool_bridge import scene_summary
-from server import APIError, Server, State, agent_runtime_context, agent_turn_context, snapshot
+from server import (APIError, Server, State, agent_runtime_context, agent_turn_context,
+                    scene_revision_data, snapshot)
 from test_agent_portal import FakeBackend
 from test_web_assets import glb
 from web_assets import WebAssetCatalog
@@ -192,7 +194,7 @@ class AgentPortalHTTPTests(unittest.TestCase):
         self.assertIn("Live runtime identity and presentation: unknown", sent)
         self.assertIn("available typed Matrix tools", sent)
         self.assertNotIn("matrix_move_object sets position", sent)
-        self.assertLess(len(sent), 2000)
+        self.assertLess(len(sent), 4000)
         encoded = sent.split("<matrix_spatial_context>", 1)[1].split("</matrix_spatial_context>", 1)[0]
         grounded = json.loads(encoded)
         self.assertEqual(grounded["sceneRevision"], 7)
@@ -203,6 +205,205 @@ class AgentPortalHTTPTests(unittest.TestCase):
         self.assertNotIn("Virtual room", sent)
         status = self.post("/api/agent/status", {"sessionId": session_id})[1]
         self.assertEqual(status["transcript"][-1]["user"], "Put this over there")
+
+    def test_room_spatial_uses_current_measured_planes_and_rejects_stale_ar_context(self):
+        point = lambda x=0, y=0, z=0: {"x": x, "y": y, "z": z}
+        pose = lambda x=0, y=0, z=0: {
+            "position": point(x, y, z), "rotation": point(), "scale": point(1, 1, 1)}
+        room = {"scene": {"schemaVersion": 1, "roomId": "webxr-session-149",
+                          "objects": [{"objectId": "tower-1", "assetId": "tower",
+                                       "anchorId": "web-floor", "transform": pose()}]},
+                "assets": [{"assetId": "tower", "displayName": "Tower",
+                            "localBounds": {"center": point(0, 1, 0), "size": point(1, 2, 1)}}],
+                "anchors": [{"anchorId": "web-floor", "displayName": "Virtual floor"},
+                            {"anchorId": "floor-1", "displayName": "Measured floor",
+                             "source": "webxr", "semanticLabels": ["FLOOR"],
+                             "surface": {"kind": "support", "boundary": [
+                                 point(-2, 0, -2), point(2, 0, -2),
+                                 point(2, 0, 2), point(-2, 0, 2)]},
+                             "roomPose": pose()}],
+                "roomContext": {"mode": "ar", "state": "ready",
+                                "alignmentVerified": True, "message": "Room ready"},
+                "runtimeDescriptor": {"schemaVersion": 1, "client": "matrix-web",
+                                      "renderer": "threejs-webxr", "presentation": "ar"},
+                "creatorMode": {"schemaVersion": 1, "mode": "creator",
+                                "simulation": "paused", "revision": 0},
+                "spatialObservation": {"schemaVersion": 1, "planeAgeMs": 50,
+                                       "trackingEpoch": 7, "webFloorPose": pose()}}
+        self.state.latest = snapshot(room)
+        self.state.client_id = "web-client"
+        self.state.last_seen = self.state.clock()
+        self.state.revision = 12
+        context = {"schemaVersion": 2, "inputSource": "text", "clientId": "web-client",
+                   "roomId": "webxr-session-149", "selectedObjectId": "tower-1",
+                   "pointingTarget": None, "viewerFrame": None,
+                   "presentation": "ar", "trackingEpoch": 7}
+        grounded = agent_turn_context(self.state, context, creation=True)
+        spatial = grounded["roomSpatial"]
+        self.assertTrue(spatial["usable"])
+        self.assertTrue(spatial["surfaceSpawnAvailable"])
+        self.assertEqual(spatial["coordinateFrame"], "xr-reference-space")
+        self.assertEqual(spatial["planes"][0]["anchorId"], "floor-1")
+        self.assertEqual(spatial["planes"][0]["surface"]["boundary"],
+                         room["anchors"][1]["surface"]["boundary"])
+        self.assertEqual(spatial["sceneRevision"], 12)
+        self.assertEqual(len(spatial["spatialToken"]), 64)
+        self.assertIn("localBounds", grounded["sceneSummary"]["objects"][0])
+        self.assertNotIn("roomSpatial", agent_runtime_context(self.state))
+        self.assertNotIn("roomSpatial", agent_runtime_context(self.state, include_scene=True))
+        self.assertEqual(self.state.agent_room_spatial()["spatialToken"], spatial["spatialToken"])
+        with self.assertRaises(APIError) as old:
+            agent_turn_context(self.state, {key: item for key, item in context.items()
+                                            if key not in ("presentation", "trackingEpoch")}
+                               | {"schemaVersion": 1})
+        self.assertEqual(old.exception.status, 409)
+        with self.assertRaises(APIError) as changed:
+            agent_turn_context(self.state, {**context, "trackingEpoch": 6})
+        self.assertEqual(changed.exception.status, 409)
+        with self.assertRaises(APIError) as mode:
+            agent_turn_context(self.state, {**context, "presentation": "vr"})
+        self.assertEqual(mode.exception.status, 409)
+        refined = snapshot(room)
+        refined["anchors"][1]["roomPose"]["position"]["x"] = .4
+        self.assertEqual(scene_revision_data(self.state.latest), scene_revision_data(refined))
+        self.state.latest = refined
+        self.assertNotEqual(self.state.agent_room_spatial()["spatialToken"], spatial["spatialToken"])
+        self.assertNotEqual(self.state.agent_room_spatial()["planes"][0]["spatialToken"],
+                            spatial["planes"][0]["spatialToken"])
+        move = {"room_id": spatial["roomId"], "scene_revision": spatial["sceneRevision"],
+                "spatial_token": spatial["spatialToken"], "anchor_id": "floor-1",
+                "object_id": "tower-1", "expected_asset_id": "tower",
+                "position": point(1, 0, 0)}
+        with self.assertRaises(APIError) as stale_move:
+            self.state.agent_move_room(move)
+        self.assertEqual(stale_move.exception.status, 409)
+        self.assertFalse(self.state.pending)
+        self.state.latest["roomContext"]["alignmentVerified"] = False
+        self.assertEqual(self.state.agent_room_spatial()["unusableReason"], "alignment-unverified")
+        self.state.latest["roomContext"]["alignmentVerified"] = True
+        self.state.last_seen -= 3
+        self.assertEqual(self.state.agent_room_spatial()["unusableReason"], "tracking-stale")
+        with self.assertRaises(APIError) as stale_tracking:
+            self.state.agent_move_room({**move, "spatial_token": "0" * 64})
+        self.assertEqual(stale_tracking.exception.status, 409)
+        self.state.last_seen = self.state.clock()
+        fresh = self.state.agent_room_spatial()
+        target_token = fresh["planes"][0]["spatialToken"]
+        other = copy.deepcopy(self.state.latest["anchors"][1])
+        other["anchorId"] = "floor-2"
+        other["roomPose"]["position"]["x"] = 1
+        self.state.latest["anchors"].append(other)
+        changed_other = self.state.agent_room_spatial()
+        self.assertNotEqual(changed_other["spatialToken"], fresh["spatialToken"])
+        self.assertEqual(changed_other["planes"][0]["spatialToken"], target_token)
+        queued = self.state.agent_move_room({**move, "spatial_token": target_token})
+        self.assertEqual(queued["status"], "queued")
+        self.assertEqual(queued["constraintAnchorId"], "floor-1")
+        self.assertEqual(self.state.pending[queued["requestId"]]["roomConstraint"],
+                         {"anchorId": "floor-1", "trackingEpoch": 7})
+        self.state.pending.clear()
+        fresh = self.state.agent_room_spatial()
+        spawned = self.state.agent_spawn_surface({
+            "room_id": fresh["roomId"], "scene_revision": fresh["sceneRevision"],
+            "spatial_token": fresh["spatialToken"], "asset_id": "tower",
+            "anchor_id": "floor-1", "transform": pose()})
+        self.assertEqual(spawned["status"], "queued")
+        spawn_command = self.state.pending[spawned["requestId"]]
+        self.assertEqual(spawn_command["placement"], "surface")
+        self.assertEqual(spawn_command["roomConstraint"],
+                         {"anchorId": "floor-1", "trackingEpoch": 7})
+        self.state.pending.clear()
+        for index in range(9):
+            extra = copy.deepcopy(self.state.latest["anchors"][1])
+            extra["anchorId"] = f"floor-extra-{index}"
+            extra["roomPose"]["position"]["x"] = index + 3
+            self.state.latest["anchors"].append(extra)
+        table = copy.deepcopy(self.state.latest["anchors"][1])
+        table["anchorId"] = "table-1"
+        table["semanticLabels"] = ["TABLE"]
+        table["roomPose"]["position"]["y"] = .7
+        self.state.latest["anchors"].append(table)
+        self.assertNotIn("table-1", [item["anchorId"] for item in
+                                     self.state.agent_room_spatial()["planes"]])
+        targeted = self.state.agent_room_spatial("table-1")
+        self.assertEqual(targeted["planes"][0]["anchorId"], "table-1")
+        table_token = targeted["planes"][0]["spatialToken"]
+        table_move = {**move, "anchor_id": "table-1",
+                      "scene_revision": targeted["sceneRevision"],
+                      "spatial_token": table_token,
+                      "position": point(1, .7, 0)}
+        targeted_move = self.state.agent_move_room(table_move)
+        self.assertEqual(targeted_move["status"], "queued")
+        self.state.pending.clear()
+        after_move = self.state.agent_room_spatial("table-1")
+        targeted_spawn = self.state.agent_spawn_surface({
+            "room_id": after_move["roomId"], "scene_revision": after_move["sceneRevision"],
+            "spatial_token": after_move["planes"][0]["spatialToken"], "asset_id": "tower",
+            "anchor_id": "table-1", "transform": pose()})
+        self.assertEqual(targeted_spawn["status"], "queued")
+        self.state.pending.clear()
+        after_spawn = self.state.agent_room_spatial("table-1")
+        table_move.update(scene_revision=after_spawn["sceneRevision"],
+                          spatial_token=after_spawn["planes"][0]["spatialToken"])
+        table["roomPose"]["position"]["x"] = .9
+        with self.assertRaises(APIError) as stale_table:
+            self.state.agent_move_room(table_move)
+        self.assertEqual(stale_table.exception.status, 409)
+        table["roomPose"]["position"]["x"] = .4
+        self.state.latest["spatialObservation"]["webFloorPose"]["position"]["x"] = .4
+        with self.assertRaises(APIError) as stale_origin:
+            self.state.agent_move_room(table_move)
+        self.assertEqual(stale_origin.exception.status, 409)
+        self.state.latest["spatialObservation"]["webFloorPose"]["position"]["x"] = 0
+        self.state.latest["spatialObservation"]["trackingEpoch"] = 8
+        with self.assertRaises(APIError) as stale_epoch:
+            self.state.agent_move_room(table_move)
+        self.assertEqual(stale_epoch.exception.status, 409)
+        with self.assertRaises(APIError) as stale_spawn:
+            self.state.queue([{key: item for key, item in spawn_command.items()
+                               if key != "requestId"}])
+        self.assertEqual(stale_spawn.exception.status, 409)
+        self.state.results.append({"requestId": queued["requestId"], "ok": True,
+                                   "objectId": "tower-1", "error": ""})
+        self.state.latest["scene"]["objects"][0]["transform"]["position"] = point(1, 0, 0)
+        self.state.latest["scene"]["roomId"] = "web-virtual-room-v1"
+        self.state.latest["roomContext"] = {"mode": "white-room", "state": "ready",
+                                             "alignmentVerified": False}
+        self.state.latest["runtimeDescriptor"]["presentation"] = "desktop"
+        self.state.latest["anchors"] = [room["anchors"][0]]
+        del self.state.latest["spatialObservation"]
+        carried = self.state.agent_move_status(queued["requestId"])
+        self.assertEqual(carried["status"], "succeeded")
+        self.assertEqual(carried["observedRoomId"], "web-virtual-room-v1")
+        self.state.client_id = "different-client"
+        self.assertEqual(self.state.agent_move_status(queued["requestId"])["status"],
+                         "unconfirmed")
+        self.state.client_id = "web-client"
+        self.state.results[-1]["objectId"] = "other-object"
+        self.assertEqual(self.state.agent_move_status(queued["requestId"])["status"],
+                         "unconfirmed")
+
+    def test_spatial_observation_schema_is_ar_only_and_does_not_change_scene_revision(self):
+        base = {"scene": {"schemaVersion": 1, "roomId": "webxr-session-149", "objects": []},
+                "assets": [], "anchors": [{"anchorId": "web-floor", "displayName": "Virtual floor"}],
+                "roomContext": {"mode": "ar", "state": "ready",
+                                "alignmentVerified": False, "message": "Tracking"}}
+        observation = {"schemaVersion": 1, "planeAgeMs": 10, "trackingEpoch": 2,
+                       "webFloorPose": None}
+        first = snapshot({**base, "spatialObservation": observation})
+        second = snapshot({**base, "spatialObservation": {**observation,
+                                                         "planeAgeMs": 500,
+                                                         "trackingEpoch": 3}})
+        self.assertEqual(scene_revision_data(first), scene_revision_data(second))
+        for malformed in ({**observation, "planeAgeMs": -1},
+                          {**observation, "trackingEpoch": True},
+                          {**observation, "extra": "untrusted"}):
+            with self.subTest(malformed=malformed), self.assertRaises(APIError):
+                snapshot({**base, "spatialObservation": malformed})
+        with self.assertRaises(APIError):
+            snapshot({**base, "roomContext": {"mode": "white-room", "state": "ready",
+                                              "alignmentVerified": False},
+                      "spatialObservation": observation})
 
     def test_text_turn_without_spatial_opt_in_gets_fresh_runtime_metadata_only(self):
         room = {"scene": {"schemaVersion": 1, "roomId": "web-virtual-room-v1",
@@ -289,8 +490,13 @@ class AgentPortalHTTPTests(unittest.TestCase):
                     "runtimeDescriptor": {"schemaVersion": 1, "client": "matrix-web",
                                           "renderer": "threejs-webxr",
                                           "presentation": presentation}}
+            if presentation == "ar":
+                room["spatialObservation"] = {"schemaVersion": 1, "planeAgeMs": 0,
+                                              "trackingEpoch": 3, "webFloorPose": None}
             self.state.latest = snapshot(room)
-            grounded = agent_turn_context(self.state, context)
+            request_context = ({**context, "schemaVersion": 2, "presentation": "ar",
+                                "trackingEpoch": 3} if presentation == "ar" else context)
+            grounded = agent_turn_context(self.state, request_context)
             message = build_matrix_turn_message("Operator, load Asset 29", grounded, enabled)
             self.assertIn(f"{presentation} presentation", message)
             self.assertEqual(grounded["capabilityVersions"]["rigidSchemaVersion"], 1)
