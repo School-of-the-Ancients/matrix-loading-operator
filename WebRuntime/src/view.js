@@ -1698,6 +1698,8 @@ export class MatrixView {
   selectPlacementPoint(anchorId,position,source='raycast'){
     try{
       const selected=selectedPointAt(this.world,anchorId,position,this.roomTrackingEpoch,source);
+      this.advanceSelectedPointEpoch();
+      if(this.isAR)selected.trackingEpoch=this.roomTrackingEpoch;
       // The destination and the selected object are independent, as in the
       // Unity room snapshot. Keep "that" selected while pinning "there".
       if(!this.world.selection.objectId)
@@ -1712,6 +1714,8 @@ export class MatrixView {
     if(!current)throw Error('Select a current surface point with the ray first');
     const updated=selectedPointAt(this.world,current.anchorId,{x,y:0,z},
       this.roomTrackingEpoch,'adjusted');
+    this.advanceSelectedPointEpoch();
+    if(this.isAR)updated.trackingEpoch=this.roomTrackingEpoch;
     this.selectedPoint=updated;this.world.selectedPlacement=updated;
     if(!this.world.selection.objectId)
       this.world.setSelection('',updated.position,updated.anchorId);
@@ -1719,10 +1723,19 @@ export class MatrixView {
     return this.selectedPlacementTarget();
   }
   clearSelectedPoint(){
+    if(this.selectedPoint)this.advanceSelectedPointEpoch();
     this.selectedPoint=null;this.world.selectedPlacement=null;
     if(!this.world.selection.objectId)
       this.world.setSelection('',{x:0,y:0,z:-2},'web-floor');
     this.refreshSelectedPointMarker();this.onSelectedPointChange();
+  }
+  advanceSelectedPointEpoch(){
+    // A queued room command may still be on the PC when the marker moves.
+    // Invalidate its room constraint locally before the next exchange arrives.
+    if(this.isAR&&this.world.spatial){
+      this.roomTrackingEpoch++;
+      this.world.spatial.trackingEpoch=this.roomTrackingEpoch;
+    }
   }
   selectedPlacementTarget(){
     return agentSelectedPoint(this.world,this.selectedPoint,this.roomTrackingEpoch);
