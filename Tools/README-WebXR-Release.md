@@ -15,8 +15,11 @@ source and locked production Node dependencies for the headless host, prebuilt
 `RELEASE-README.md`. The v0.7 client API example and synthetic fixture stay in
 their original paths. It omits other test fixtures, credentials, browser storage,
 local scenes/catalogs, room imagery, Agent sessions, speech models, and Blender
-installation/state. Example `WebRuntime/art` source remains available, as in
-v0.7, but is not a registered runtime catalog.
+installation/state. Editable examples under `WebRuntime/art` remain in the
+source repository but are omitted from the public ZIP. Their PNG metadata,
+Blender files, and authoring scripts can contain local workstation paths; the
+runtime does not load these examples as a catalog. The generated
+`RELEASE-README.md` links to the examples at the frozen source commit.
 
 ## Build
 
