@@ -94,10 +94,52 @@ class ReleaseBuilderTests(unittest.TestCase):
             with self.assertRaisesRegex(ValueError, "WebRuntime/art"):
                 builder.verify_extracted(archive_path, manifest, None, 0.1)
             for disguised in ("WebRuntime/Art/editable.blend",
-                              "WebRuntime\\art\\editable.blend"):
+                              "WebRuntime\\art\\editable.blend",
+                              "./WebRuntime/art/editable.blend",
+                              "WebRuntime//art/editable.blend",
+                              "WebRuntime/./art/editable.blend"):
                 with self.subTest(disguised=disguised), self.assertRaisesRegex(
                         ValueError, "WebRuntime/art"):
                     builder.reject_private_art([disguised])
+                with self.subTest(extraction=disguised):
+                    with zipfile.ZipFile(archive_path, "w") as archive:
+                        archive.writestr(disguised, payload)
+                    disguised_manifest = {disguised: hashlib.sha256(payload).hexdigest()}
+                    with self.assertRaisesRegex(ValueError, "WebRuntime/art"):
+                        builder.verify_extracted(archive_path, disguised_manifest, None, 0.1)
+
+    def test_release_paths_reject_traversal_and_noncanonical_zip_entries(self):
+        for unsafe in ("../WebRuntime/src/host_world.js",
+                       "WebRuntime/../WebRuntime/src/host_world.js",
+                       "/WebRuntime/src/host_world.js",
+                       "C:/WebRuntime/src/host_world.js"):
+            with self.subTest(unsafe=unsafe):
+                self.assertFalse(builder.eligible_source(PurePosixPath(unsafe)))
+                with self.assertRaisesRegex(ValueError, "Unsafe release path"):
+                    builder.reject_private_art([unsafe])
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            payload = b"safe source"
+            archive_path = root / "noncanonical.zip"
+            for disguised in ("./WebRuntime/src/host_world.js",
+                              "WebRuntime//src/host_world.js",
+                              "WebRuntime/./src/host_world.js"):
+                with self.subTest(disguised=disguised):
+                    with zipfile.ZipFile(archive_path, "w") as archive:
+                        archive.writestr(disguised, payload)
+                    manifest = {disguised: hashlib.sha256(payload).hexdigest()}
+                    with self.assertRaisesRegex(ValueError, "unsafe or corrupt"):
+                        builder.verify_extracted(archive_path, manifest, None, 0.1)
+            for unsafe in ("../WebRuntime/src/host_world.js",
+                           "WebRuntime/../WebRuntime/src/host_world.js",
+                           "/WebRuntime/src/host_world.js",
+                           "C:/WebRuntime/src/host_world.js"):
+                with self.subTest(extraction=unsafe):
+                    with zipfile.ZipFile(archive_path, "w") as archive:
+                        archive.writestr(unsafe, payload)
+                    manifest = {unsafe: hashlib.sha256(payload).hexdigest()}
+                    with self.assertRaisesRegex(ValueError, "Unsafe release path"):
+                        builder.verify_extracted(archive_path, manifest, None, 0.1)
 
     def test_demo_copies_only_explicit_checkpoint_and_referenced_catalog(self):
         with tempfile.TemporaryDirectory() as temporary:

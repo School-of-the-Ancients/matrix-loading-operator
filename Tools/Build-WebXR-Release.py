@@ -56,9 +56,19 @@ FIXED_ZIP_TIME = (2026, 1, 1, 0, 0, 0)
 PRIVATE_ART_PREFIX = "WebRuntime/art/"
 
 
+def canonical_release_path(raw: str) -> PurePosixPath:
+    """Match extraction's separator/dot handling and reject traversal."""
+    path = PurePosixPath(raw.replace("\\", "/"))
+    if (not path.parts or path.is_absolute() or ".." in path.parts or
+            re.match(r"^[A-Za-z]:", raw)):
+        raise ValueError(f"Unsafe release path: {raw}")
+    return path
+
+
 def reject_private_art(paths) -> None:
     """Keep editable examples out of public bytes, even if copied later."""
-    normalized = (path.replace("\\", "/").casefold() for path in paths)
+    normalized = (canonical_release_path(path).as_posix().casefold()
+                  for path in paths)
     if any(path == PRIVATE_ART_PREFIX[:-1].casefold() or
            path.startswith(PRIVATE_ART_PREFIX.casefold()) for path in normalized):
         raise ValueError("Public release must not contain WebRuntime/art")
@@ -111,6 +121,10 @@ def committed_source(repo: Path, ref: str, destination: Path) -> str:
 
 
 def eligible_source(relative: PurePosixPath) -> bool:
+    try:
+        relative = canonical_release_path(relative.as_posix())
+    except ValueError:
+        return False
     path = relative.as_posix()
     if path in ROOT_FILES or path in DOC_FILES or path in COMPAT_FILES:
         return True
@@ -446,8 +460,8 @@ def verify_extracted(archive_path: Path, hashes: dict[str, str],
             if set(archive.namelist()) != set(hashes):
                 raise ValueError("ZIP inventory differs from SHA manifest")
             for entry in archive.infolist():
-                name = PurePosixPath(entry.filename)
-                if (name.is_absolute() or ".." in name.parts or
+                name = canonical_release_path(entry.filename)
+                if (name.as_posix() != entry.filename or
                         digest(archive.read(entry)) != hashes[entry.filename]):
                     raise ValueError(f"ZIP entry is unsafe or corrupt: {entry.filename}")
             archive.extractall(root)
