@@ -124,7 +124,8 @@ function runtimeCopy(world){
     physicsBodies:world.physicsBodies,
     physicsVerification:world.physicsVerification,
     renderedVerification:world.renderedVerification,
-    authoredGeneration:world.authoredGeneration});
+    authoredGeneration:world.authoredGeneration,
+    placementWorldEpoch:world.placementWorldEpoch});
   return {...state,rigidSnapshot:world.rigidPhysics?.snapshot()??null};
 }
 
@@ -132,7 +133,8 @@ function restoreRuntime(world,copy){
   for(const key of ['scene','game','citizens','selection','virtualScene','originBinding',
     'originAnchorHandle','arEntryContent','undo','redo','creatorMode','controlStates','rigidGravity',
     'pendingRigidMotion',
-    'physicsBodies','physicsVerification','renderedVerification','authoredGeneration'])
+    'physicsBodies','physicsVerification','renderedVerification','authoredGeneration',
+    'placementWorldEpoch'])
     world[key]=copy[key];
   world.physicsSceneReference=world.scene;
   if(world.rigidPhysics&&copy.rigidSnapshot){

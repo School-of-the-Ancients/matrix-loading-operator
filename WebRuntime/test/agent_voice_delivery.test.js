@@ -1,6 +1,23 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {deliverAgentVoiceTranscript} from '../src/agent_voice_delivery.js';
+import {verifyAgentContextAtDelivery} from '../src/agent_context.js';
+
+test('voice steer retains transcript when a pinned point moves during transcription',async()=>{
+  const pin=x=>({anchorId:'table-1',position:{x,y:0,z:.1},source:'raycast'});
+  const captured={roomId:'room-1',presentation:'ar',trackingEpoch:7,
+    selectedObjectId:'chair-1',selectedPlacement:pin(.2)};
+  const current={...captured,selectedPlacement:pin(.7)};
+  const input={value:''};let steers=0;
+  await assert.rejects(deliverAgentVoiceTranscript({
+    agentClient:{async restore(){return {activeTurnId:'turn-1'};},
+      async steer(){steers++;}},input,transcript:'Put it there',context:captured,
+    resolveContext:()=>verifyAgentContextAtDelivery(captured,current),
+    deliverWhenIdle:async()=>{throw Error('must not start a new turn');}}),
+  /Selected point or object changed/);
+  assert.equal(steers,0);
+  assert.equal(input.value,'Put it there');
+});
 
 test('voice recorded while idle joins a text turn that starts during transcription',async()=>{
   const input={value:''},calls=[];

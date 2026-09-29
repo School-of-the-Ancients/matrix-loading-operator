@@ -1,6 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {MatrixWorld} from '../src/protocol.js';
+import {selectedPointAt,currentSelectedPoint} from '../src/selected_point.js';
 import {createCitizensDemo} from '../src/citizens.js';
 import {recordGameEvent} from '../src/game.js';
 import {createRigidPhysics} from '../src/physics_rigid.js';
@@ -259,6 +260,27 @@ test('active-save failure rolls back world and copies while retaining the verifi
   assert.equal(tab.getItem(TAB_WORLD_KEY),oldTab);
   assert.equal(durable.getItem(WORLD_KEY),oldDurable);
   assert.deepEqual(worldArchives(durable)[0].world,before);
+});
+
+test('same-room world replacement invalidates a pinned point but rollback retains it',()=>{
+  const tab=storage(),durable=storage();
+  const world=new MatrixWorld(()=> 'selected-point-world');
+  const originalScene=world.scene;
+  const originalEpoch=world.placementWorldEpoch;
+  const point=selectedPointAt(world,'web-floor',{x:.7,y:0,z:-.4},null);
+  world.selectedPlacement=point;
+  assert.equal(saveStoredWorld(storedBrowserWorld(world),tab,durable),'');
+  durable.failNext(WORLD_KEY);
+  assert.throws(()=>startNewWorld(world,tab,durable,'Failed change'),
+    /active world was restored/);
+  assert.deepEqual(world.scene,originalScene);
+  assert.equal(world.placementWorldEpoch,originalEpoch);
+  assert.equal(currentSelectedPoint(world,point,null),point);
+  startNewWorld(world,tab,durable,'New world');
+  assert.equal(world.scene.roomId,originalScene.roomId);
+  assert.notEqual(world.placementWorldEpoch,originalEpoch);
+  assert.equal(currentSelectedPoint(world,point,null),null);
+  assert.deepEqual(world.snapshot().selection,world.selection);
 });
 
 test('paused Creator Mode and complete AR archival are required',()=>{
