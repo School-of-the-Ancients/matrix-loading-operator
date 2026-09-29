@@ -85,3 +85,34 @@ test('malformed expected concept identity is rejected before an Agent turn',asyn
     {conceptId:id,version:2},'native-file'),/Unknown concept creation mode/);
   assert.deepEqual(calls,[]);
 });
+
+test('only an explicit reviewed capture ID reaches one Agent turn',async()=>{
+  const calls=[],context={schemaVersion:1,roomId:'web-room'};
+  const client=new AgentClient(async(path,body)=>{
+    calls.push([path,body]);
+    if(path==='/api/agent/turn')return {sessionId:id,turnId:'turn-1',activity:'working'};
+    return status();
+  },storage({[AGENT_SESSION_KEY]:id}));
+  const captureId='b'.repeat(32);
+  await client.send('Review this view',context,null,'auto',captureId);
+  await client.send('Ordinary follow-up',context);
+  assert.deepEqual(calls.filter(([path])=>path==='/api/agent/turn').map(([,body])=>body),[
+    {sessionId:id,text:'Review this view',context,captureId},
+    {sessionId:id,text:'Ordinary follow-up',context}
+  ]);
+  assert.deepEqual(client.storage.writes,[],'capture ID is never stored in browser session storage');
+});
+
+test('capture ID needs request-time Matrix context and cannot share a concept turn',async()=>{
+  const calls=[];
+  const client=new AgentClient(async(path,body)=>{calls.push([path,body]);return status();},
+    storage({[AGENT_SESSION_KEY]:id}));
+  const captureId='b'.repeat(32),context={schemaVersion:1,roomId:'web-room'};
+  for(const args of [
+    ['Review',null,null,'auto',captureId],
+    ['Review',context,null,'auto','wrong'],
+    ['Review',context,null,'auto',123],
+    ['Review',context,{conceptId:id,version:1},'auto',captureId]
+  ])await assert.rejects(client.send(...args),/reviewed capture needs a Matrix context/);
+  assert.deepEqual(calls,[]);
+});

@@ -7,6 +7,101 @@ import {applyPCWorld} from '../src/world_checkpoint.js';
 import {storedWorld} from '../src/scene_store.js';
 import {executeWorldSlotCommand} from '../src/world_slots.js';
 
+test('a never-settling read-only status fetch times out and permits a later poll',async()=>{
+  const previousStorage=globalThis.sessionStorage,previousFetch=globalThis.fetch;
+  globalThis.sessionStorage={getItem:()=>null,setItem:()=>{}};
+  try{
+    const bridge=new MatrixBridge(new MatrixWorld(),()=>'',()=>{});
+    let calls=0,stalledSignal;
+    globalThis.fetch=async(_path,options)=>{
+      if(++calls===1){stalledSignal=options.signal;return new Promise(()=>{});}
+      return {ok:true,json:async()=>({capture:{status:'ready'}})};
+    };
+    await assert.rejects(bridge.request('/api/state',undefined,{timeoutMs:20}),
+      error=>error.name==='TimeoutError'&&/api\/state timed out/.test(error.message));
+    assert.equal(stalledSignal.aborted,true);
+    assert.deepEqual(await bridge.request('/api/state',undefined,{timeoutMs:20}),
+      {capture:{status:'ready'}});
+    assert.equal(calls,2);
+    await assert.rejects(bridge.request('/api/capture',{mode:'mixed'},{timeoutMs:20}),
+      /only for read-only GETs/);
+  }finally{globalThis.fetch=previousFetch;globalThis.sessionStorage=previousStorage;}
+});
+
+test('a stalled exchange times out without losing receipts or applying a late response',async()=>{
+  const previousStorage=globalThis.sessionStorage;
+  globalThis.sessionStorage={getItem:()=>null,setItem:()=>{}};
+  try{
+    const world=new MatrixWorld(()=> 'must-not-spawn');
+    const events=[],requests=[];
+    const bridge=new MatrixBridge(world,()=>'',event=>events.push(event));
+    bridge.running=true;bridge.exchangeTimeoutMs=20;
+    const receipt={requestId:'already-applied',ok:true,objectId:'existing'};
+    bridge.receipts.set(receipt.requestId,receipt);
+    let resolveFirst;
+    bridge.request=(_path,body,{signal})=>{
+      requests.push({body,signal});
+      return requests.length===1?new Promise(resolve=>{resolveFirst=resolve;}):
+        Promise.resolve({commands:[]});
+    };
+    await bridge.tick(true);
+    assert.equal(requests[0].signal.aborted,true);
+    assert.equal(bridge.inFlight,false);
+    assert.equal(bridge.receipts.get(receipt.requestId),receipt,
+      'an uncertain exchange must keep its receipt for reconciliation');
+    assert.equal(events.at(-1).online,false);
+    await bridge.tick(true);
+    assert.deepEqual(requests[1].body.results,[receipt]);
+    assert.equal(bridge.receipts.size,0);
+    assert.equal(events.at(-1).online,true);
+    resolveFirst({commands:[{requestId:'late-spawn',op:'spawn',assetId:'orb',anchorId:'web-floor',
+      transform:{position:{x:0,y:0,z:-2},rotation:{x:0,y:0,z:0},scale:{x:1,y:1,z:1}}}]});
+    await Promise.resolve();
+    assert.equal(world.scene.objects.length,0,'a late response must never execute commands');
+  }finally{globalThis.sessionStorage=previousStorage;}
+});
+
+test('a never-settling capture produces an error receipt and releases the capture slot',async()=>{
+  const previousStorage=globalThis.sessionStorage;
+  globalThis.sessionStorage={getItem:()=>null,setItem:()=>{}};
+  try{
+    const bridge=new MatrixBridge(new MatrixWorld(),()=>'',()=>{});
+    bridge.captureTimeoutMs=20;
+    bridge.request=async()=>({commands:[],capture:{captureId:'stalled-capture',revision:4,mode:'mixed'}});
+    bridge.getCapture=()=>new Promise(()=>{});
+    await bridge.exchange(null);
+    assert.equal(bridge.captureInFlight,true);
+    await new Promise(resolve=>setTimeout(resolve,30));
+    assert.equal(bridge.captureInFlight,false);
+    assert.equal(bridge.captureReceipt.captureId,'stalled-capture');
+    assert.equal(bridge.captureReceipt.revision,4);
+    assert.equal(bridge.captureReceipt.ok,false);
+    assert.match(bridge.captureReceipt.error,/timed out/);
+  }finally{globalThis.sessionStorage=previousStorage;}
+});
+
+test('page-hidden cancellation discards a late camera capture result',async()=>{
+  const previousStorage=globalThis.sessionStorage;
+  globalThis.sessionStorage={getItem:()=>null,setItem:()=>{}};
+  try{
+    const bridge=new MatrixBridge(new MatrixWorld(),()=>'',()=>{});
+    bridge.request=async()=>({commands:[],capture:{captureId:'hidden-capture',revision:5,mode:'mixed'}});
+    let resolveCapture;
+    bridge.getCapture=()=>new Promise(resolve=>{resolveCapture=resolve;});
+    await bridge.exchange(null);
+    await Promise.resolve();
+    bridge.cancelCapture('Page became hidden during capture');
+    await new Promise(resolve=>setTimeout(resolve,0));
+    const receipt=bridge.captureReceipt;
+    assert.equal(bridge.captureInFlight,false);
+    assert.equal(receipt.ok,false);
+    assert.match(receipt.error,/Page became hidden/);
+    resolveCapture({captureId:'hidden-capture',revision:5,ok:true});
+    await Promise.resolve();
+    assert.equal(bridge.captureReceipt,receipt,'a late image cannot replace the cancellation receipt');
+  }finally{globalThis.sessionStorage=previousStorage;}
+});
+
 test('read-only entity queries return receipts without resetting the live view',async()=>{
   const previousStorage=globalThis.sessionStorage;
   globalThis.sessionStorage={getItem:()=>null,setItem:()=>{}};

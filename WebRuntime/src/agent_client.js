@@ -3,6 +3,7 @@ import {validCreationMode} from './creation_mode.js';
 
 export const AGENT_SESSION_KEY='matrix-agent-session-id';
 const SESSION_ID=/^[0-9a-f]{32}$/;
+const CAPTURE_ID=/^[0-9a-f]{32}$/;
 
 export class AgentClient {
   constructor(request,storage,onChange=()=>{}){
@@ -40,7 +41,7 @@ export class AgentClient {
     try{return await this.restore();}
     finally{this.polling=false;}
   }
-  async send(text,context=null,expectedConcept=null,creationMode='auto'){
+  async send(text,context=null,expectedConcept=null,creationMode='auto',captureId=null){
     if(!this.sessionId)await this.connect();
     if(typeof text!=='string'||!text.trim()||text.length>16000)throw Error('Enter a message up to 16000 characters.');
     if(expectedConcept&&(!SESSION_ID.test(expectedConcept.conceptId||'')||
@@ -48,9 +49,12 @@ export class AgentClient {
       throw Error('Selected concept identity is invalid. Refresh and choose the version again.');
     if(expectedConcept&&!validCreationMode(creationMode))
       throw Error('Unknown concept creation mode.');
+    if(captureId!==null&&(typeof captureId!=='string'||!CAPTURE_ID.test(captureId)||!context||expectedConcept))
+      throw Error('A reviewed capture needs a Matrix context and cannot accompany a selected concept.');
     try{
       await this.request('/api/agent/turn',{sessionId:this.sessionId,text,
         ...(context?{context}:{}),
+        ...(captureId?{captureId}:{}),
         ...(expectedConcept?{expectedConceptId:expectedConcept.conceptId,
           expectedConceptVersion:expectedConcept.version,creationMode}:{})});
       return await this.restore();

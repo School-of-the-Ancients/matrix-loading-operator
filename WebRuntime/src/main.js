@@ -3,7 +3,8 @@ import {MatrixWorld} from './protocol.js';
 import {MatrixView} from './view.js';
 import {MatrixBridge} from './bridge.js';
 import {VoiceRecorder} from './voice.js';
-import {CameraStream} from './camera_stream.js';
+import {CameraStream,bindCameraPageLifecycle} from './camera_stream.js';
+import {bindXRPageLifecycle} from './xr_session.js';
 import {AgentClient,agentActivityLabel} from './agent_client.js';
 import {ConceptUI} from './concept_ui.js';
 import {PanoramaUI} from './panorama_ui.js';
@@ -79,8 +80,11 @@ const feedback=(message,isError=false)=>{
   $('feedback').textContent=[message,warning].filter(Boolean).join('\n');
   $('feedback').classList.toggle('error',isError||!!warning);
 };
-const view=new MatrixView($('view'),world,()=>{discardProposal();scaleUI?.refreshTargets();citizensPanel?.render();feedback(`Selected ${world.selection.objectId||'placement point'} at ${Object.values(world.selection.position).join(', ')} m.`);},()=>$('token').value.trim(),message=>feedback(message,true),(id,position)=>{discardProposal();const delivered=deliverMovedObject(world,id);if(delivered)speakReply(delivered);renderScene();feedback(delivered||`Moved ${id.slice(0,8)} to ${Object.values(position).join(', ')} m. Undo and Save are available.`);},()=>{if(!view.isAR)cameraStream.stop();if(!view.isAR||!world.spatial?.originUnavailable){roomResetArmedUntil=0;roomRecoveryChoice='';}updateCameraControls();discardProposal();renderScene();},beginVoice,endVoice,()=>{$('speak-replies').checked=!$('speak-replies').checked;view.setVoiceOutputEnabled($('speak-replies').checked);unlockReplyAudio();},reviewView,newChat);
+const view=new MatrixView($('view'),world,()=>{discardProposal();scaleUI?.refreshTargets();citizensPanel?.render();feedback(`Selected ${world.selection.objectId||'placement point'} at ${Object.values(world.selection.position).join(', ')} m.`);},()=>$('token').value.trim(),message=>feedback(message,true),(id,position)=>{discardProposal();const delivered=deliverMovedObject(world,id);if(delivered)speakReply(delivered);renderScene();feedback(delivered||`Moved ${id.slice(0,8)} to ${Object.values(position).join(', ')} m. Undo and Save are available.`);},()=>{if(!view.isAR){cameraStream.stop();bridge.cancelCapture();}if(!view.isAR||!world.spatial?.originUnavailable){roomResetArmedUntil=0;roomRecoveryChoice='';}updateCameraControls();discardProposal();renderScene();},beginVoice,endVoice,()=>{$('speak-replies').checked=!$('speak-replies').checked;view.setVoiceOutputEnabled($('speak-replies').checked);unlockReplyAudio();},reviewView,newChat);
 view.onPanelAction=panelAction;
+view.onXRHidden=()=>{cameraStream.stop();bridge.cancelCapture();updateCameraControls();};
+bindCameraPageLifecycle(cameraStream,document,window,()=>{bridge.cancelCapture();updateCameraControls();});
+bindXRPageLifecycle(()=>view.xrControls,document,window);
 view.xrEntryBlocker=()=>pendingWorld||pcWorldBusy||worldSwitchBusy?
   'Finish world recovery or checkpoint restore before entering XR.':'';
 function setConceptCreationMode(mode){
@@ -273,21 +277,24 @@ function updateCameraControls(){
   const active=cameraStream.active;
   $('enable-camera').disabled=!view.isAR||cameraBusy;
   $('enable-camera').textContent=active?'Stop environment camera':'Enable environment camera for AI review';
+  $('review-view').textContent=active&&view.isAR?
+    'Share camera + virtual view with Codex':'Share virtual view with Codex';
   $('camera-status').textContent=!view.isAR?'Enter AR to test the Quest environment camera.':
-    active?`${capability.reason} Review View sends a labeled camera and virtual pair.`:
+    active?`${capability.reason} Share View sends one labeled camera and virtual image to Codex.`:
     capability.reason;
-  view.setOperatorCameraStatus(!view.isAR?'Enter AR to test':active?'Active · review sends two labeled views':
+  view.setOperatorCameraStatus(!view.isAR?'Enter AR to test':active?'Active · SEND VIEW shares camera + virtual image with CODEX':
     capability.mixedStatus==='denied'?'Permission denied':capability.mixedStatus==='error'?'Camera unavailable':'Enable to test',active);
 }
 async function toggleCamera(){
   if(cameraBusy)return;
-  if(cameraStream.active){cameraStream.stop();updateCameraControls();feedback('Environment camera stopped. Visual review is virtual only.');return;}
+  if(cameraStream.active){cameraStream.stop();bridge.cancelCapture();updateCameraControls();feedback('Environment camera stopped. Visual review is virtual only.');return;}
   if(!view.isAR){feedback('Enter AR before testing the environment camera.',true);return;}
   cameraBusy=true;updateCameraControls();
   try{
     await cameraStream.enable();
-    feedback('Environment camera available. Review View will send a labeled real camera and virtual pair.');
-  }catch(error){feedback(`${error.message} Virtual-only visual review remains available.`,true);}
+    feedback('Environment camera available. SEND VIEW will share one labeled camera and virtual image with CODEX.');
+  }catch(error){feedback(!view.isAR?'AR ended. Camera stopped; virtual-only review remains available.':
+    `${error.message} Virtual-only visual review remains available.`,true);}
   finally{cameraBusy=false;updateCameraControls();bridge.tick(true);}
 }
 
@@ -773,43 +780,60 @@ async function propose(){
 let reviewBusy=false;
 async function captureAndWait(mode){
     const requested=await bridge.request('/api/capture',{mode});
-    let ready=null;
-    for(let attempt=0;attempt<(mode==='mixed'?110:50);attempt++){
-      const state=await bridge.request('/api/state');
+    const deadline=performance.now()+(mode==='mixed'?44000:20000);
+    while(performance.now()<deadline){
+      let state;
+      try{state=await bridge.request('/api/state',undefined,
+        {timeoutMs:Math.max(1,Math.min(3000,Math.ceil(deadline-performance.now())))});}
+      catch(error){if(error?.name!=='TimeoutError')throw error;continue;}
       const capture=state.capture;
       if(capture?.captureId!==requested.captureId)throw Error('Capture was replaced; please retry review');
       if(capture.status==='error'||capture.status==='stale')throw Error(capture.error||'Capture failed');
-      if(capture.status==='ready'){ready=capture;break;}
-      await new Promise(resolve=>setTimeout(resolve,400));
+      if(capture.status==='ready')return capture;
+      await new Promise(resolve=>setTimeout(resolve,Math.min(400,Math.max(0,deadline-performance.now()))));
     }
-    if(!ready)throw Error('Rendered view capture timed out');
-    return ready;
+    throw Error('Rendered view capture timed out');
 }
 async function reviewView(){
   if(reviewBusy)return;
   reviewBusy=true;unlockReplyAudio();
   try{
+    if(pendingWorld)throw Error('Finish saved-world recovery before sharing a view.');
+    view.showOperatorAgentMode();
+    if(!agentClient.status||agentClient.error)await agentClient.connect();
+    if(agentClient.status?.activeTurnId)throw Error('Wait for the current CODEX turn or stop it first.');
     let mode=cameraStream.active&&view.isAR?'mixed':'virtual';
-    feedback(mode==='mixed'?'Capturing environment camera and virtual view…':'Capturing the virtual view…');
-    view.setOperatorStatus(mode==='mixed'?'Capturing two labeled views for visual review…':
-      'Capturing virtual objects and room outlines for visual review…');
+    feedback(mode==='mixed'?'Capturing environment camera and virtual view for CODEX…':
+      'Capturing a virtual-only view for CODEX; no physical camera pixels…');
+    view.setOperatorStatus(mode==='mixed'?'Capturing two labeled views to share with CODEX…':
+      'Capturing a virtual-only view to share with CODEX…');
     let ready;
     try{ready=await captureAndWait(mode);}
     catch(error){
       if(mode!=='mixed')throw error;
-      feedback(`Environment camera capture failed: ${error.message}. Retrying virtual-only review.`,true);
+      feedback(`Environment camera capture failed: ${error.message}. Retrying with a virtual-only image; no physical pixels will be shared.`,true);
       mode='virtual';
       // The service rate-limits capture requests even after a failed mixed image.
       await new Promise(resolve=>setTimeout(resolve,2200));
       ready=await captureAndWait(mode);
     }
-    feedback('Reviewing the rendered view with Codex…');view.setOperatorStatus('Reviewing the captured virtual scene…');
-    const request=mode==='mixed'?
-      'Review the two labeled views: a separate Quest environment-camera frame and a Three.js virtual render. They are side by side and NOT spatially calibrated or pixel aligned. Identify visible room and virtual objects qualitatively; use room-plane measurements for geometry. Propose only supported corrections.':
-      'Review the current rendered virtual scene for visible scale, floor alignment, and placement problems. The image excludes physical camera pixels; use room-plane measurements for physical context. If the scene looks good, say so. Propose only supported corrections.';
-    const blenderPlacement=await captureBlenderRequestContext(world,view,bridge);
-    const result=await bridge.request('/api/plan',{text:request,mode:'codex-cli',captureId:ready.captureId,conversation});
-    await showProposal(result,request,blenderPlacement);
+    const physical=ready.source==='webxr_camera_pair'&&ready.mode==='mixed'&&
+      ready.includesPhysicalCamera===true&&ready.includesPassthrough===false&&
+      ready.layout?.calibrated===false;
+    const virtual=ready.source==='webxr_virtual_center_eye'&&ready.mode==='virtual'&&
+      ready.includesPhysicalCamera===false&&ready.includesPassthrough===false;
+    if((mode==='mixed'&&!physical)||(mode==='virtual'&&!virtual))
+      throw Error('The captured image source did not match the selected review mode. Capture again.');
+    const context=captureAgentContext(world,view,bridge.clientId,'text');
+    const request=physical?
+      'Review the one image I explicitly shared. Its left panel is an uncalibrated environment-camera frame and its right panel is a Matrix virtual render. Identify visible physical details and virtual objects separately. The panels are not pixel aligned; use measured room planes, not camera pixels, for spatial constraints. Do not change the world.':
+      'Review the one virtual-only Matrix image I explicitly shared. It contains virtual objects and may show room outlines, but no physical camera pixels. Describe the visible virtual composition without claiming to see my physical room. Use measured room planes for physical constraints. Do not change the world.';
+    view.setOperatorStatus(physical?'Sharing one labeled physical-camera and virtual image with CODEX…':
+      'Sharing one virtual-only image with CODEX; no physical pixels…');
+    await agentClient.send(request,context,null,'auto',ready.captureId);
+    const message=physical?'Shared one labeled camera + virtual image with CODEX. The views are not calibrated.':
+      'Shared one virtual-only image with CODEX. No physical room pixels were included.';
+    feedback(message);view.setOperatorStatus(message);
   }catch(error){feedback(error.message,true);view.setOperatorStatus(`Visual review failed: ${error.message}`,'error');}
   finally{reviewBusy=false;}
 }

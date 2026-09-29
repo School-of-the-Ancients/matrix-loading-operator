@@ -193,7 +193,7 @@ export function operatorPanel({createImage=()=>new Image()}={}){
     button('toggle-world',mode==='world'?'CHAT':'WORLD',404,35,120,72,
       mode==='world'||mode==='archives');
     button('toggle-mode',mode==='modes'?'CHAT':creatorMode.mode==='play'?'PLAY':'CREATE',535,35,124,72,mode==='modes');
-    button(proposal&&mode!=='proposal'?'open-proposal':'review-view',proposal&&mode!=='proposal'?'PROPOSAL':'REVIEW VIEW',670,35,130,72);
+    button(proposal&&mode!=='proposal'?'open-proposal':'review-view',proposal&&mode!=='proposal'?'PROPOSAL':'SEND VIEW',670,35,130,72);
     button('hide-panel','HIDE',812,35,164,72);
     ctx.fillStyle='#8bb8c2';ctx.font='bold 21px sans-serif';ctx.fillText(originLabel,55,123);
     ctx.font='19px sans-serif';ctx.fillText('STICK CLICK: RECALL · HIDE · SHOW',540,123);
@@ -619,7 +619,7 @@ export class MatrixView {
     };
     this.xrControls=new XRSessionController(navigator.xr,this.renderer.xr,refresh,message=>{
       entryStatus.textContent=message;this.onAssetError(message);
-    });
+    },()=>this.onXRHidden?.());
     const add=(mode,label,options)=>{
       const button=document.createElement('button');entries.push({button,mode,label});
       button.addEventListener('click',()=>{
@@ -1771,8 +1771,8 @@ export class MatrixView {
     const horizontal=direction.clone().setY(0);if(horizontal.length()<.01)horizontal.set(0,0,-1);horizontal.normalize();
     return {frames:[{anchorId:'web-floor',position:plain(position),forward:plain(horizontal),lookDirection:plain(direction.normalize())}]};
   }
-  captureVirtual(request,clientId){
-    const width=960,height=720,started=performance.now();
+  renderVirtualFrame(request,clientId,width,height){
+    const started=performance.now();
     const camera=new THREE.PerspectiveCamera(70,width/height,.02,100);
     if(this.renderer.xr.isPresenting){
       if(!this.hasFreshXrViewer())throw Error('Tracked headset view is not ready');
@@ -1805,36 +1805,40 @@ export class MatrixView {
     const image=context.createImageData(width,height);
     for(let y=0;y<height;y++)image.data.set(pixels.subarray((height-1-y)*width*4,(height-y)*width*4),y*width*4);
     context.putImageData(image,0,0);
+    const forward=new THREE.Vector3(0,0,-1).applyQuaternion(camera.quaternion).normalize();
+    const euler=new THREE.Euler().setFromQuaternion(camera.quaternion,'XYZ');
+    const snapshot=this.world.snapshot(this.viewer());
+    const virtual={captureId:request.captureId,revision:request.revision,clientId,mode:'virtual',ok:true,
+      mimeType:'image/jpeg',width,height,source:'webxr_virtual_center_eye',includesPassthrough:false,
+      snapshot,
+      camera:{position:plain(camera.position),rotation:plain(new THREE.Vector3(...['x','y','z'].map(axis=>THREE.MathUtils.radToDeg(euler[axis])))),
+        forward:plain(forward),fieldOfView:camera.fov,aspect:width/height,nearClip:camera.near,farClip:camera.far},
+      spatialProvenance:{source:'virtual',roomId:snapshot.scene.roomId,anchorCount:snapshot.anchors.length,
+        alignmentVerified:false,depthOcclusion:false,physicalDepthIncluded:false},
+      renderMs:rendered-started,frameTimeMs:0};
+    return {canvas,virtual,renderedAtMs:rendered};
+  }
+  captureVirtual(request,clientId){
+    const {canvas,virtual,renderedAtMs}=this.renderVirtualFrame(request,clientId,960,720);
     let encoded='';
     for(const quality of [.75,.55,.35]){
       encoded=canvas.toDataURL('image/jpeg',quality).split(',')[1]||'';
       if(encoded.length<=4*Math.ceil(512*1024/3))break;
     }
     if(!encoded||encoded.length>4*Math.ceil(512*1024/3))throw Error('Rendered view exceeds 512 KiB');
-    const forward=new THREE.Vector3(0,0,-1).applyQuaternion(camera.quaternion).normalize();
-    const euler=new THREE.Euler().setFromQuaternion(camera.quaternion,'XYZ');
-    const snapshot=this.world.snapshot(this.viewer());
-    return {captureId:request.captureId,revision:request.revision,clientId,mode:'virtual',ok:true,
-      mimeType:'image/jpeg',dataBase64:encoded,width,height,source:'webxr_virtual_center_eye',includesPassthrough:false,
-      capturedAtUtc:new Date().toISOString(),snapshot,
-      camera:{position:plain(camera.position),rotation:plain(new THREE.Vector3(...['x','y','z'].map(axis=>THREE.MathUtils.radToDeg(euler[axis])))),
-        forward:plain(forward),fieldOfView:camera.fov,aspect:width/height,nearClip:camera.near,farClip:camera.far},
-      spatialProvenance:{source:'virtual',roomId:snapshot.scene.roomId,anchorCount:snapshot.anchors.length,
-        alignmentVerified:false,depthOcclusion:false,physicalDepthIncluded:false},
-      renderMs:rendered-started,encodeMs:performance.now()-rendered,frameTimeMs:0};
+    return {...virtual,dataBase64:encoded,capturedAtUtc:new Date().toISOString(),
+      encodeMs:performance.now()-renderedAtMs};
   }
   async captureCameraPair(request,clientId,cameraStream){
     const started=performance.now();
-    const cameraFrame=cameraStream.captureFrame();
-    const virtual=this.captureVirtual(request,clientId);
-    const image=new Image();
-    image.src=`data:image/jpeg;base64,${virtual.dataBase64}`;
-    await image.decode();
+    const {canvas:cameraFrame,cameraFrameCapturedAtUtc,copiedAtMonotonicMs}=cameraStream.captureFrame();
     const width=1280,height=480,half=width/2;
+    // Render the right panel at its final size, then JPEG-encode the pair once.
+    const {canvas:virtualFrame,virtual}=this.renderVirtualFrame(request,clientId,half,height);
     const canvas=document.createElement('canvas');canvas.width=width;canvas.height=height;
     const context=canvas.getContext('2d');if(!context)throw Error('Camera composite canvas unavailable');
     context.drawImage(cameraFrame,0,0,half,height);
-    context.drawImage(image,half,0,half,height);
+    context.drawImage(virtualFrame,half,0,half,height);
     context.fillStyle='rgba(0,0,0,.78)';context.fillRect(0,0,width,38);
     context.fillStyle='#ffffff';context.font='bold 23px sans-serif';
     context.fillText('QUEST ENVIRONMENT CAMERA · UNCALIBRATED',12,27);
@@ -1845,13 +1849,15 @@ export class MatrixView {
       if(encoded.length<=4*Math.ceil(512*1024/3))break;
     }
     if(!encoded||encoded.length>4*Math.ceil(512*1024/3))throw Error('Camera and virtual view exceed 512 KiB');
+    const pairedAt=performance.now();
     return {...virtual,mode:'mixed',source:'webxr_camera_pair',includesPhysicalCamera:true,
       includesPassthrough:false,dataBase64:encoded,width,height,capturedAtUtc:new Date().toISOString(),
+      cameraFrameCapturedAtUtc,cameraToPairMs:Math.max(0,pairedAt-copiedAtMonotonicMs),
       spatialProvenance:{source:'webxr_room_planes',roomId:virtual.snapshot.scene.roomId,
         anchorCount:virtual.snapshot.anchors.length,alignmentVerified:!!this.world.spatial?.alignmentVerified,
         depthOcclusion:false,physicalDepthIncluded:false},
       layout:{kind:'side-by-side',cameraPanel:[0,0,half,height],virtualPanel:[half,0,half,height],
-        calibrated:false},renderMs:virtual.renderMs,encodeMs:performance.now()-started-virtual.renderMs};
+        calibrated:false},renderMs:virtual.renderMs,encodeMs:pairedAt-started-virtual.renderMs};
   }
   animate(time,frame){
     const delta=this.lastFrameTime===null?0:Math.max(0,Math.min(.1,(time-this.lastFrameTime)/1000));

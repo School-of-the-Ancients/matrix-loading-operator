@@ -129,8 +129,10 @@ test('WORLD panel labels the active XR mode and its exit control ends that sessi
       target.sub(controller.position).normalize());
     scene.updateMatrixWorld(true);
     let ended=0;
-    const session={end:async()=>{ended++;}};
-    const rendererXR={addEventListener(){},getSession:()=>session};
+    const session=new EventTarget();
+    let current=session;
+    session.end=async()=>{ended++;current=null;session.dispatchEvent(new Event('end'));};
+    const rendererXR={addEventListener(){},getSession:()=>current};
     const view=Object.create(MatrixView.prototype);
     view.grab=null;view.raycaster=new THREE.Raycaster();view.operatorPanel=panel;
     view.xrControls=new XRSessionController({},rendererXR);
