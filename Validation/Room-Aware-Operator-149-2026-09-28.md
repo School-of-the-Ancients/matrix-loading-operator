@@ -1,11 +1,13 @@
 # Room-aware Operator #149 — WebXR review
 
 This review began on `codex/room-aware-149` from `main` at `db2142a`.
-PR #159 subsequently merged as `1ad61d0`, and panorama voice routing PR #162
-merged as `704068c`. This branch is now rebased onto `704068c`; its room-aware
-implementation commit is `1515241`. The combined source includes generated
-panoramas, natural spoken panorama routing, and room-aware Operator context.
-Rebase validation below is separate from Quest wearer proof.
+PR #159 subsequently merged as `1ad61d0`, panorama voice routing PR #162
+merged as `704068c`, and release privacy PR #164 merged as `88c05e0`.
+The current #160 branch includes those merged changes and the durable surface
+placement described in `Durable-AR-Surface-149-2026-09-28.md`. The historical
+review results below retain their original source revisions. Run the current
+head procedure below for Quest acceptance; earlier wearer checks do not prove
+the current branch.
 
 ## Implemented contract
 
@@ -25,14 +27,14 @@ Rebase validation below is separate from Quest wearer proof.
   read can prioritize a chosen anchor; both validators and their queue rechecks
   use the same priority so a table remains available in a dense room.
   A physical camera frame is never a metric room measurement.
-- `matrix_spawn_on_surface` places a new session-local object on a measured
-  support through the usual Matrix queue and observed receipt.
+- `matrix_spawn_on_surface` places a new canonical `web-floor` object on a
+  measured support through the usual Matrix queue and observed receipt.
   `matrix_move_with_room_constraint` moves an existing virtual-floor object
   while retaining its object ID. The browser checks its complete footprint
   against the latest measured support sample and tracking epoch at execution
-  time, including after small plane-boundary changes. A moved virtual
-  object remains in the digital scene when AR ends; plane-anchored additions
-  do not.
+  time, including after small plane-boundary changes. The new and moved
+  digital objects retain their IDs and transforms after AR exit and
+  save/reopen. Measured WebXR plane IDs and geometry remain temporary.
 - Ordinary text turns without spatial opt-in retain the existing small
   runtime context. The PC-owned Agent can separately request the bounded
   private `matrix_room_spatial_context` read while the AR runtime is connected;
@@ -46,7 +48,43 @@ Rebase validation below is separate from Quest wearer proof.
   there." Ordinary catalog placement and digital moves retain their planner
   route. The direct Agent text panel's context checkbox remains explicit.
 
-## Wearer review sequence
+## Current-head Quest wearer review sequence
+
+Use a fresh isolated service from the exact #160/#161 integrated source and
+record its commit and URL. Keep its private scene, asset, environment, and
+Agent state separate from older review services. In Quest VR, restore the
+private six-object lab candidate or a reviewed equivalent and inspect the
+same object IDs. On entering AR, a checkpoint without this room's origin may
+hide its old overlay. Use **Archive and place world here**, confirm the local
+archive, then confirm the visible plane outlines align before selecting
+**Outlines align — enable AR editing**. Do not infer alignment from passthrough
+alone.
+
+1. Ask Operator for a placement that crosses a measured shelf or wall plane.
+   Confirm a readable rejection occurs before any edit and the scene IDs and
+   transforms remain unchanged. Measured planes cannot establish clearance
+   from unmeasured furniture; the wearer must assess physical TV clearance.
+2. Ask Operator to create one clear object on a measured support. Verify a
+   succeeded `matrix_spawn_on_surface` receipt, its new object ID, the chosen
+   support, and the resolved `web-floor` transform. Then move an existing
+   virtual-floor object with `matrix_move_with_room_constraint`; verify a
+   succeeded receipt, unchanged object ID, and visible fit. Inspect the final
+   scene after each receipt.
+3. Reuse an intentionally stale room token after a tracking epoch or support
+   change. Confirm a 409 rejection without a queued edit or changed object.
+   Do not retry a denied or uncertain mutation without a fresh read and
+   review.
+4. Save, Exit AR, reopen, and compare both object IDs and transforms with the
+   receipts. Check them again in VR. The measured support is a transient
+   observation; the accepted objects are persistent digital `web-floor`
+   entities. Record the current room alignment separately on AR return.
+
+Record Quest Browser and OS versions, presentation, room plane count,
+origin/alignment status, tracking changes, exact receipts, object IDs, and
+wearer-visible VR/AR results. Keep private room polygons and camera pixels
+out of this record. Camera sharing and recovery have their own #26 checklist.
+
+## Historical wearer review sequence
 
 The original isolated #160 desktop review used `http://127.0.0.1:18966/web/`
 before #150 merged. The combined review port was
@@ -80,10 +118,10 @@ evidence.
    It should refresh `matrix_room_spatial_context`, use the current token, and
    obtain a succeeded `matrix_move_with_room_constraint` receipt. Confirm that
    the object visibly fits the measured support and keeps its ID. A separate
-   `matrix_spawn_on_surface` can test session-local measured placement.
+   `matrix_spawn_on_surface` was originally planned as session-local placement.
 5. Exit AR, then save and reopen to verify the digital composition and moved
-   virtual object. Do not expect the session-local measured-plane spawn to
-   survive AR exit.
+   virtual object. This historical expectation for a temporary surface spawn
+   was superseded by durable `web-floor` placement on the current branch.
 
 Record Quest Browser version, presentation, room plane count, origin/alignment
 status, tracking loss or relocalization, exact receipts, observed object IDs,
