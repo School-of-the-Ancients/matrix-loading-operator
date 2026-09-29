@@ -296,8 +296,8 @@ def build_matrix_turn_message(user_text: str, context: dict,
                      "Matrix mutations. Re-read the world/room identity and scene revision "
                      "before the first edit; if the source changed, stop and replan. Refresh "
                      "the revision after each successful receipt. Save and reopen to verify "
-                     "persistent digital additions; measured-plane additions live only in "
-                     "the current AR session.")
+                     "persistent digital additions, including objects spawned against measured "
+                     "AR surfaces. The measured support IDs and geometry remain session-only.")
     if re.search(r"\b(?:physical|my room|living room|real room|wall|table|surface|"
                  r"room.aware|fit.*room|reorganiz\w*.*room)\b", user_text, re.IGNORECASE):
         lines.append("For a physical-room request, recapture matrix_room_spatial_context "
