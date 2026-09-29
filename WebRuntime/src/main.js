@@ -7,6 +7,7 @@ import {CameraStream,bindCameraPageLifecycle} from './camera_stream.js';
 import {bindXRPageLifecycle} from './xr_session.js';
 import {AgentClient,agentActivityLabel} from './agent_client.js';
 import {deliverAgentVoiceTranscript} from './agent_voice_delivery.js';
+import {deliverAgentTextDraft} from './agent_text_delivery.js';
 import {ConceptUI} from './concept_ui.js';
 import {PanoramaUI} from './panorama_ui.js';
 import {loadCreationMode,saveCreationMode,creationModeFromPanelAction} from './creation_mode.js';
@@ -487,10 +488,12 @@ function renderAgent(){
   agentAttentionKey=revealAgentAttention($('section-agent'),agentAttentionKey,
     status?.activeTurnId,pending);
   $('agent-connect').disabled=agentActionBusy;
-  $('agent-send').textContent=status?.activeTurnId?'Add to current turn':'Send to Codex';
-  $('agent-send-hint').textContent=status?.activeTurnId?
+  const sendLabel=status?.activeTurnId?'Add to current turn':'Send to Codex';
+  if($('agent-send').textContent!==sendLabel)$('agent-send').textContent=sendLabel;
+  const sendHint=status?.activeTurnId?
     'Add an instruction while Codex works. It stays in this turn; earlier world changes are not undone.':
     'Send starts a turn in this Codex conversation.';
+  if($('agent-send-hint').textContent!==sendHint)$('agent-send-hint').textContent=sendHint;
   $('agent-send').disabled=agentActionBusy||!status||!!agentClient.error;
   $('agent-stop').disabled=agentActionBusy||!status?.activeTurnId;
   $('agent-approve').disabled=agentActionBusy||pending?.reviewable!==true;
@@ -609,28 +612,33 @@ function sendAgent(){
     agentAction(async()=>{
       const context=$('agent-include-context').checked?
         captureAgentContext(world,view,bridge.clientId,'text'):null;
-      await agentClient.steer(text,context,turnId);
-      $('agent-input').value='';
+      await deliverAgentTextDraft($('agent-input'),text,submitted=>
+        agentClient.steer(submitted,context,turnId));
       feedback('Added to the current Codex turn. Check Matrix receipts before repeating an action.');
     });
     return;
   }
   if(parsePanoramaIntent(text)){
-    agentAction(async()=>{const message=await panoramaUI.handleText(text);
-      $('agent-input').value='';feedback(message);view.setOperatorStatus(message);});
+    agentAction(async()=>{const message=await deliverAgentTextDraft($('agent-input'),text,
+      submitted=>panoramaUI.handleText(submitted));
+      feedback(message);view.setOperatorStatus(message);});
     return;
   }
   if(parseConceptIntent(text)){
-    agentAction(async()=>{const message=await conceptUI.handleText(text);
-      $('agent-input').value='';feedback(message);view.setOperatorStatus(message);});
+    agentAction(async()=>{const message=await deliverAgentTextDraft($('agent-input'),text,
+      submitted=>conceptUI.handleText(submitted));
+      feedback(message);view.setOperatorStatus(message);});
     return;
   }
   agentAction(async()=>{
-    const expectedConcept=await conceptUI.expectedBuild(text);
-    const context=$('agent-include-context').checked||expectedConcept?
-      captureAgentContext(world,view,bridge.clientId,'text'):null;
-    await agentClient.send(text,context,expectedConcept,creationMode);$('agent-input').value='';
-    feedback(context?'Sent to Codex with Matrix spatial context.':'Sent to Codex.');});
+    const withContext=await deliverAgentTextDraft($('agent-input'),text,async submitted=>{
+      const expectedConcept=await conceptUI.expectedBuild(submitted);
+      const context=$('agent-include-context').checked||expectedConcept?
+        captureAgentContext(world,view,bridge.clientId,'text'):null;
+      await agentClient.send(submitted,context,expectedConcept,creationMode);
+      return !!context;
+    });
+    feedback(withContext?'Sent to Codex with Matrix spatial context.':'Sent to Codex.');});
 }
 function decideAgent(approve){
   const pending=agentClient.status?.pendingApprovals?.[0];
