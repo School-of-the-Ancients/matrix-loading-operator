@@ -16,12 +16,28 @@ export function checkedARLayoutOffset(value){
   return {x:value.x,z:value.z,yawDegrees:value.yawDegrees};
 }
 
-export function adjustedARLayoutOffset(current,action){
+export function webFloorLayoutPivot(objects){
+  const placed=objects.filter(object=>object.anchorId==='web-floor');
+  if(!placed.length)return {x:0,z:0};
+  return {x:placed.reduce((sum,object)=>sum+object.transform.position.x,0)/placed.length,
+    z:placed.reduce((sum,object)=>sum+object.transform.position.z,0)/placed.length};
+}
+
+function rotatedXZ(point,yawDegrees){
+  const radians=THREE.MathUtils.degToRad(yawDegrees);
+  return {x:point.x*Math.cos(radians)+point.z*Math.sin(radians),
+    z:-point.x*Math.sin(radians)+point.z*Math.cos(radians)};
+}
+
+export function adjustedARLayoutOffset(current,action,pivot={x:0,z:0}){
   const offset=checkedARLayoutOffset(current);
   if(action==='layout-turn-left'||action==='layout-turn-right'){
     const delta=action==='layout-turn-left'?TURN_STEP:-TURN_STEP;
     const yaw=((offset.yawDegrees+delta+180)%360+360)%360-180;
-    return {...offset,yawDegrees:yaw};
+    const before=rotatedXZ(pivot,offset.yawDegrees);
+    const after=rotatedXZ(pivot,yaw);
+    return checkedARLayoutOffset({x:offset.x+before.x-after.x,
+      z:offset.z+before.z-after.z,yawDegrees:yaw});
   }
   const direction={
     'layout-forward':{x:0,z:-1},'layout-back':{x:0,z:1},

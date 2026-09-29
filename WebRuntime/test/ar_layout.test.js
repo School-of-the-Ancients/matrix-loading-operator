@@ -3,7 +3,8 @@ import assert from 'node:assert/strict';
 import * as THREE from 'three';
 import {MatrixWorld} from '../src/protocol.js';
 import {MatrixView} from '../src/view.js';
-import {adjustedARLayoutOffset,checkedARLayoutOffset,composeARLayoutPose} from '../src/ar_layout.js';
+import {adjustedARLayoutOffset,checkedARLayoutOffset,composeARLayoutPose,
+  webFloorLayoutPivot} from '../src/ar_layout.js';
 import {storedWorld,storedBrowserWorld,saveStoredWorld,loadStoredWorld,
   restoreStoredWorld,saveCheckpoint,loadCheckpoint} from '../src/scene_store.js';
 import {ROOM_ANCHOR_KEY,archiveAndRebaseRoom,roomArchives} from '../src/room_origin.js';
@@ -37,6 +38,71 @@ test('whole-layout steps compose with the tracked anchor, with bounded yaw and t
   assert.throws(()=>checkedARLayoutOffset({x:11,z:0,yawDegrees:0}),/Invalid saved/);
   assert.throws(()=>adjustedARLayoutOffset({x:10,z:0,yawDegrees:0},'layout-right'),
     /Invalid saved/);
+});
+
+test('AR turn keeps the authored object group centered under a tracked 90-degree anchor',()=>{
+  const previousStorage=globalThis.localStorage,local=storage();
+  globalThis.localStorage=local;local.setItem(ROOM_ANCHOR_KEY,'handle-1');
+  try{
+    let nextId=0;
+    const world=new MatrixWorld(()=>`object-${++nextId}`);
+    for(const position of [{x:-1,y:0,z:-2},{x:1,y:0,z:-3}])
+      assert.equal(world.execute({requestId:`spawn-${++nextId}`,op:'spawn',assetId:'orb',
+        anchorId:'web-floor',transform:{...transform,position}}).ok,true);
+    world.originBinding='ar';world.originAnchorHandle='handle-1';world.enterAR();
+    world.setOriginLocated(true);
+    world.spatial.alignmentVerified=true;
+    world.spatial.layoutReviewPending=false;
+    const digitalBefore=storedWorld(world);
+    const pivot=webFloorLayoutPivot(world.scene.objects);
+    assert.deepEqual(pivot,{x:0,z:-2.5});
+    assert.deepEqual(webFloorLayoutPivot([{anchorId:'measured-table',
+      transform:{position:{x:100,z:100}}}]),{x:0,z:0});
+    const root=new THREE.Group();
+    composeARLayoutPose(root,anchorPose,world.arLayoutOffset);
+    root.updateMatrixWorld(true);
+    const centerBefore=root.localToWorld(new THREE.Vector3(pivot.x,0,pivot.z));
+    const objectBefore=root.localToWorld(new THREE.Vector3(-1,0,-2));
+    const view={world,isAR:true,readOnly:false,roomAnchorLocated:true,
+      roomAnchorPersistent:true,roomAnchorPose:anchorPose,roomTrackingEpoch:4,
+      lastPlaneObservedAt:performance.now(),virtualFloorRoot:root,
+      clearSelectedPoint(){},onRuntimeChange(){}};
+    const turned=MatrixView.prototype.adjustARLayout.call(view,'layout-turn-right');
+    root.updateMatrixWorld(true);
+    const centerAfter=root.localToWorld(new THREE.Vector3(pivot.x,0,pivot.z));
+    const objectAfter=root.localToWorld(new THREE.Vector3(-1,0,-2));
+    assert.equal(turned.yawDegrees,-15);
+    assert.ok(centerBefore.distanceTo(centerAfter)<1e-9,
+      'turning keeps the group center fixed in the tracked room');
+    assert.ok(objectBefore.distanceTo(objectAfter)>.2,
+      'individual objects actually turn around the group center');
+    assert.deepEqual(storedWorld(world),digitalBefore);
+    assert.equal(view.roomTrackingEpoch,5);
+    assert.equal(world.spatial.alignmentVerified,false);
+    assert.equal(world.spatial.layoutReviewPending,true);
+    const reopened=new MatrixWorld();
+    restoreStoredWorld(reopened,storedBrowserWorld(world));
+    const reopenedRoot=new THREE.Group();
+    composeARLayoutPose(reopenedRoot,anchorPose,reopened.arLayoutOffset);
+    assert.ok(root.position.distanceTo(reopenedRoot.position)<1e-9);
+    assert.ok(1-Math.abs(root.quaternion.dot(reopenedRoot.quaternion))<1e-9,
+      'saved anchor-bound pivot correction reopens to the same room pose');
+    let offset={x:0,z:0,yawDegrees:0};
+    for(let turn=0;turn<24;turn++)
+      offset=adjustedARLayoutOffset(offset,'layout-turn-right',pivot);
+    assert.equal(offset.yawDegrees,0);
+    assert.ok(Math.abs(offset.x)<1e-10&&Math.abs(offset.z)<1e-10,
+      'repeated turns do not drift the group center');
+    world.arLayoutOffset={x:10,z:0,yawDegrees:0};
+    assert.throws(()=>MatrixView.prototype.adjustARLayout.call(view,'layout-turn-left'),
+      /Invalid saved AR layout offset/);
+    assert.deepEqual(world.arLayoutOffset,{x:10,z:0,yawDegrees:0},
+      'an out-of-bounds turn leaves the saved placement unchanged');
+    assert.equal(view.roomTrackingEpoch,5);
+  }finally{
+    if(previousStorage===undefined)delete globalThis.localStorage;
+    else globalThis.localStorage=previousStorage;
+  }
 });
 
 test('AR layout adjustment invalidates pins and room approval, then survives Exit AR and reopen',()=>{

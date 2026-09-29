@@ -1,5 +1,5 @@
 import * as THREE from 'three';
-import {adjustedARLayoutOffset,composeARLayoutPose} from './ar_layout.js';
+import {adjustedARLayoutOffset,composeARLayoutPose,webFloorLayoutPivot} from './ar_layout.js';
 import {GLTFLoader} from 'three/addons/loaders/GLTFLoader.js';
 import {XRSessionController} from './xr_session.js';
 import {beginGrab,moveGrab,moveGrabThumbstick,rotateGrabThumbstick,sampleHeldMotion,heldReleaseMotion,finishGrab,beginPointerGrab,movePointerGrab,movePointerGrabVertical,finishPointerGrab,moveDesktopCamera} from './grab.js';
@@ -270,7 +270,7 @@ export function operatorPanel({createImage=()=>new Image()}={}){
       ctx.fillText('Place the digital layout in this room',55,180);
       ctx.font='23px sans-serif';ctx.fillStyle='#8bb8c2';
       ctx.fillText(`Offset x ${offset.x.toFixed(2)} m · z ${offset.z.toFixed(2)} m · yaw ${offset.yawDegrees}°`,55,225);
-      ctx.fillText('Move 0.25 m or turn 15° per tap. Object IDs and authored poses stay the same.',55,265,925);
+      ctx.fillText('Move 0.25 m; turn 15° around object group. Authored poses stay the same.',55,265,925);
       ctx.fillText('Room outlines do not prove object support or clearance; inspect each object.',55,300,925);
       if(worldInfo.canPlaceLayout){
         button('layout-forward','FORWARD',55,315,440,60);
@@ -936,7 +936,8 @@ export class MatrixView {
        this.grab||this.pointerGrab||this.world.agentGrab||
        this.world.rigidPhysics?.states().some(state=>state.held))
       throw Error('Pause Creator Mode and release held objects before placing the digital layout');
-    const next=adjustedARLayoutOffset(this.world.arLayoutOffset,action);
+    const next=adjustedARLayoutOffset(this.world.arLayoutOffset,action,
+      webFloorLayoutPivot(this.world.scene.objects));
     this.world.arLayoutOffset=next;
     this.appliedARLayoutKey=JSON.stringify(next);
     this.appliedARWorldEpoch=this.world.placementWorldEpoch;
