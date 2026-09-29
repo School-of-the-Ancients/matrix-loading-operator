@@ -338,6 +338,7 @@ test('AR snapshot reports age only after a detected-planes observation',t=>{
 
 test('room alignment requires a located anchor and expires when its pose is lost',()=>{
   const world=new MatrixWorld();world.enterAR();world.setSpatialAnchors([anchor]);
+  assert.match(world.snapshot().roomContext.message,/room alignment is not verified/);
   assert.match(world.execute({requestId:'early-confirm',op:'confirm_room'}).error,/tracked room origin/);
   const view=Object.create(MatrixView.prototype);
   Object.assign(view,{world,isAR:true,roomAnchor:{anchorSpace:{}},
@@ -350,8 +351,11 @@ test('room alignment requires a located anchor and expires when its pose is lost
   assert.deepEqual(world.snapshot().spatialObservation.webFloorPose.position,{x:1,y:0,z:2});
   assert.equal(world.execute({requestId:'tracked-confirm',op:'confirm_room'}).ok,true);
   assert.equal(world.snapshot().roomContext.alignmentVerified,true);
+  assert.match(world.snapshot().roomContext.message,/Saved room origin is tracked and outlines were confirmed/);
+  assert.doesNotMatch(world.snapshot().roomContext.message,/unanchored previews/);
   world.spatial.originObservedAt=performance.now()-2100;
   assert.equal(world.snapshot().roomContext.alignmentVerified,false);
+  assert.match(world.snapshot().roomContext.message,/room alignment is not verified/);
   assert.equal(world.snapshot().spatialObservation.webFloorPose,null);
   assert.match(world.execute({requestId:'stale-origin-spawn',op:'spawn',assetId:'orb',
     anchorId:anchor.anchorId,placement:'surface',transform}).error,/current room alignment/);

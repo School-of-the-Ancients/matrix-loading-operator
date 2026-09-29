@@ -153,3 +153,30 @@ paths are fixed.
 ## Source status
 
 The Meta browser passthrough page predates this review and describes the compositor boundary. The Meta Camera Access guide was updated September 4, 2026. The W3C Media Capture and Streams and WebXR Device API documents are specifications, while Raw Camera Access is a separate draft feature; none is a Quest 3 Browser 152 hardware acceptance report. [Issue #26](https://github.com/School-of-the-Ancients/matrix-loading-operator/issues/26) explicitly requires this versioned hardware check and treats qualitative physical-camera context and aligned overlay as different capability levels.
+
+## Combined 18980 Quest follow-up
+
+The isolated 18980 service ran stacked PR #161 source `1e5df03` for the
+camera follow-up. After the wearer stopped the environment camera, they
+explicitly shared a virtual-only view. The PC service recorded one 960×720
+JPEG (12,168 bytes) with `source: webxr_virtual_center_eye`, `mode: virtual`,
+`includesPhysicalCamera: false`, and `includesPassthrough: false`. Its Agent
+turn completed, described virtual Matrix features only, made no physical-room
+or metric fit claim, and made no world edit. The temporary turn-capture
+directory was empty after completion. The wearer then hid and returned to
+Quest Browser, reported a clean AR exit, and found Matrix controls responsive.
+No second view was shared after that return, so fresh capture provenance after
+hide/return was not directly tested.
+
+The service was later restarted on source `4e7c6b0`, retaining the same Browser
+origin and private state. The camera implementation was unchanged; this source
+adds the room-move approval description fix. The wearer re-entered aligned AR
+for a separate room-aware move, then exited AR, reloaded the page, and entered
+VR. The wearer reported four visible objects and responsive world controls.
+PC inspection matched all four live object IDs and transforms to the newly
+saved checkpoint. This supports XR exit/re-entry and same-origin world
+continuity on the combined source. It does not demonstrate another physical
+camera frame after the restart, a new mixed share after hide/return, a denied
+camera permission fallback, or calibrated physical overlay. The earlier 18974
+mixed-camera result remains the direct physical-frame evidence for this PR.
+Private camera pixels and room geometry are excluded from this note.

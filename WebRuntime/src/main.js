@@ -85,13 +85,13 @@ const feedback=(message,isError=false)=>{
 };
 const view=new MatrixView($('view'),world,()=>{discardProposal();scaleUI?.refreshTargets();citizensPanel?.render();feedback(`Selected ${world.selection.objectId||'placement point'} at ${Object.values(world.selection.position).join(', ')} m.`);},()=>$('token').value.trim(),message=>feedback(message,true),(id,position)=>{discardProposal();const delivered=deliverMovedObject(world,id);if(delivered)speakReply(delivered);renderScene();feedback(delivered||`Moved ${id.slice(0,8)} to ${Object.values(position).join(', ')} m. Undo and Save are available.`);},()=>{if(!view.isAR){cameraStream.stop();bridge.cancelCapture();}if(!view.isAR||!world.spatial?.originUnavailable){roomResetArmedUntil=0;roomRecoveryChoice='';}updateCameraControls();discardProposal();renderScene();},beginVoice,endVoice,()=>{$('speak-replies').checked=!$('speak-replies').checked;view.setVoiceOutputEnabled($('speak-replies').checked);unlockReplyAudio();},reviewView,newChat);
 view.onPanelAction=panelAction;
-view.onXRHidden=()=>{cameraStream.stop();bridge.cancelCapture();updateCameraControls();};
-bindCameraPageLifecycle(cameraStream,document,window,()=>{bridge.cancelCapture();updateCameraControls();});
-bindXRPageLifecycle(()=>view.xrControls,document,window);
 view.onSelectedPointChange=()=>{
   updateSelectedPointEditor();
   if(view.selectedPlacementTarget())$('agent-include-context').checked=true;
 };
+view.onXRHidden=()=>{cameraStream.stop();bridge.cancelCapture();updateCameraControls();};
+bindCameraPageLifecycle(cameraStream,document,window,()=>{bridge.cancelCapture();updateCameraControls();});
+bindXRPageLifecycle(()=>view.xrControls,document,window);
 view.xrEntryBlocker=()=>pendingWorld||pcWorldBusy||worldSwitchBusy?
   'Finish world recovery or checkpoint restore before entering XR.':'';
 function setConceptCreationMode(mode){
