@@ -1247,6 +1247,12 @@ export class MatrixWorld {
             observedAnchor.roomPose,this.spatial.webFloorPose):null;
           if(durable&&!validTransform(durable))
             throw Error('Measured placement cannot be stored in the digital world');
+          if(durable&&durable.rotation.x===0&&durable.rotation.z===0){
+            const asset=this.asset(command.assetId);
+            const fit=footprintFitsRoomSupport(durable,asset.localBounds,
+              asset.spawnScale||1,this.spatial.webFloorPose,observedAnchor);
+            if(!fit.ok)throw Error(fit.reason);
+          }
           if(durable)this.assertNoMeasuredPlaneOverlap(durable,command.assetId,
             this.spatial.webFloorPose,command.anchorId);
           object={objectId:this.idFactory(),assetId:command.assetId,

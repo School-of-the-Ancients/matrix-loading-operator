@@ -586,6 +586,17 @@ class AgentPortalHTTPTests(unittest.TestCase):
         changed_other = self.state.agent_room_spatial()
         self.assertNotEqual(changed_other["spatialToken"], fresh["spatialToken"])
         self.assertEqual(changed_other["planes"][0]["spatialToken"], target_token)
+        # A surface spawn that was stored with canonical upright yaw must be
+        # movable later without the Agent supplying another rotation.
+        self.state.latest["scene"]["objects"][0]["transform"]["rotation"]["y"] = 113.17
+        canonical_move = self.state.agent_move_room({**move, "spatial_token": target_token})
+        self.assertEqual(canonical_move["status"], "queued")
+        self.assertEqual(self.state.pending[canonical_move["requestId"]]["transform"]["rotation"],
+                         point(0, 113.17, 0))
+        self.state.pending.clear()
+        self.state.latest["scene"]["objects"][0]["transform"]["rotation"]["y"] = 0
+        move["scene_revision"] = self.state.revision
+        target_token = self.state.agent_room_spatial()["planes"][0]["spatialToken"]
         queued = self.state.agent_move_room({**move, "spatial_token": target_token})
         self.assertEqual(queued["status"], "queued")
         self.assertEqual(queued["constraintAnchorId"], "floor-1")
