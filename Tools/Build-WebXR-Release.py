@@ -29,6 +29,7 @@ import zipfile
 ROOT = Path(__file__).resolve().parents[1]
 REPOSITORY = "https://github.com/School-of-the-Ancients/matrix-loading-operator"
 VERSION = re.compile(r"[A-Za-z0-9][A-Za-z0-9._-]{0,79}\Z")
+FINAL_VERSION = re.compile(r"v[0-9]+\.[0-9]+\.[0-9]+\Z")
 WORLD_NAME = re.compile(r"[A-Za-z0-9][A-Za-z0-9 _-]{0,63}\Z")
 SHA = re.compile(r"[0-9a-f]{64}\Z")
 ROOT_FILES = (
@@ -86,6 +87,11 @@ def run(*command: str, cwd: Path | None = None, env: dict | None = None) -> str:
 
 def digest(data: bytes) -> str:
     return hashlib.sha256(data).hexdigest()
+
+
+def release_type(version: str) -> str:
+    kind = "release" if FINAL_VERSION.fullmatch(version) else "prerelease"
+    return f"WebXR PC and Quest Browser {kind}"
 
 
 def file_digest(path: Path) -> str:
@@ -575,7 +581,7 @@ def build(args: argparse.Namespace) -> dict:
         shutil.copyfile(staged_zip, artifact)
     manifest = {
         "schema_version": 1, "release": args.version,
-        "release_type": "WebXR PC and Quest Browser prerelease",
+        "release_type": release_type(args.version),
         "repository": REPOSITORY, "source_commit": commit,
         "builder_sha256": file_digest(Path(__file__)),
         "artifact": {"file": artifact.name, "bytes": artifact.stat().st_size,

@@ -22,6 +22,14 @@ SPEC.loader.exec_module(builder)
 
 
 class ReleaseBuilderTests(unittest.TestCase):
+    def test_stable_version_is_labeled_release(self):
+        self.assertEqual(builder.release_type("v1.0.0"),
+                         "WebXR PC and Quest Browser release")
+        for version in ("v0.8.0-preview.1", "v1.0.0-rehearsal"):
+            with self.subTest(version=version):
+                self.assertEqual(builder.release_type(version),
+                                 "WebXR PC and Quest Browser prerelease")
+
     def test_source_allowlist_keeps_owner_and_excludes_private_state(self):
         self.assertTrue(builder.eligible_source(
             PurePosixPath("ControlService/agent_session.py")))
