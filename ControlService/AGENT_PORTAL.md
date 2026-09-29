@@ -107,7 +107,20 @@ automatically XR-reviewable. Broader useful approval descriptions need their own
 reviewed allowlist before wearer acceptance is complete.
 The `/web/` Operator shows a compact Agent page with recent text, activity,
 Approve/Deny, Stop, and a PC speech transcription path that sends spoken text
-to the same Codex conversation. The browser stores only an opaque Matrix
+to the same Codex conversation. While Codex is working, **Add to current turn**
+and the XR voice control use the native app-server `turn/steer` request with the
+observed active turn ID. The added instruction appears in the same Portal
+transcript entry. It does not start a second turn or cancel the first one. Stop
+still interrupts the turn. An instruction can affect work Codex has yet to do;
+it cannot undo a tool action or Matrix receipt that already happened. The
+steered prompt tells Codex to inspect fresh scene state and receipts before
+another mutation or retry. If the turn has finished, is stopping, or cannot
+be steered, the addition fails and the text stays in the browser input for a
+deliberate follow-up. A failed or uncertain delivery is never retried
+automatically. Native image generation turns cannot accept this text steer;
+image and camera inputs remain explicit separate turn inputs.
+
+The browser stores only an opaque Matrix
 session ID; when a service bearer token is configured, it must be re-entered
 after page refresh. The Agent Portal enables the PC-local Matrix MCP tool
 allowlist when its bridge and dependencies are present. Codex can also use its
@@ -132,7 +145,9 @@ target-inspection guidance based on enabled tools and observed capabilities.
 A world change requires an available typed Matrix tool and a
 matching runtime receipt, followed by an observed state check. Desktop text
 attaches spatial context only when the wearer selects the checkbox; in-world
-speech captures it at recording start.
+speech captures it when the recording is sent. A voice addition binds to the
+active turn seen when recording begins, so a turn that finishes during
+transcription does not silently turn the addition into a new request.
 
 The same Codex thread persists across turns and resumes after a supported
 service restart. Its older conversation can contain outdated capability claims;

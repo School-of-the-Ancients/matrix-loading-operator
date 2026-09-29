@@ -390,10 +390,17 @@ export function operatorPanel({createImage=()=>new Image()}={}){
         button('agent-stop','STOP',554,636,210,90);
         button('next','NEXT',776,636,213,90);
       }else{
-        button(agent.active?'agent-stop':agent.connected?'voice':'agent-connect',
-          agent.active?'STOP TURN':agent.connected?voiceInputLabel:'CONNECT CODEX',35,636,472,90,agent.active);
-        button('pin',pinLabel,519,636,210,90);
-        button('next','NEXT',741,636,248,90);
+        if(agent.active){
+          button('voice',voiceInputLabel==='HOLD TO SPEAK'?'HOLD TO ADD':voiceInputLabel,
+            35,636,472,90,true);
+          button('agent-stop','STOP TURN',519,636,210,90);
+          button('next','NEXT',741,636,248,90);
+        }else{
+          button(agent.connected?'voice':'agent-connect',
+            agent.connected?voiceInputLabel:'CONNECT CODEX',35,636,472,90);
+          button('pin',pinLabel,519,636,210,90);
+          button('next','NEXT',741,636,248,90);
+        }
       }
     }else if(mode==='concepts'||mode==='panoramas'){
       button(mode==='panoramas'?'panorama-back':'concept-back','BACK TO CODEX',35,636,472,90,true);

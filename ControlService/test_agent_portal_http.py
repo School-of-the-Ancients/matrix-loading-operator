@@ -66,11 +66,23 @@ class AgentPortalHTTPTests(unittest.TestCase):
         self.assertNotEqual(self.state.path("agent_portal"), self.state.agent_portal.path)
         self.assertNotIn("native-thread-id", json.dumps(opened))
         self.assertNotIn(self.token, json.dumps(opened))
-        self.assertEqual(self.post("/api/agent/turn", {"sessionId": session_id, "text": "Place this there"})[0], 200)
+        code, started = self.post("/api/agent/turn", {"sessionId": session_id, "text": "Place this there"})
+        self.assertEqual(code, 200)
+        steer = {"sessionId": session_id, "turnId": started["turnId"],
+                 "text": "And add some lighting"}
+        self.assertEqual(self.post("/api/agent/steer", steer, auth=False)[0], 401)
+        self.assertEqual(self.post("/api/agent/steer", steer,
+                                   origin="https://other.example")[0], 403)
+        self.assertEqual(self.post("/api/agent/steer", {**steer, "extra": 1})[0], 400)
+        self.assertEqual(self.post("/api/agent/steer", {**steer, "turnId": "wrong"})[0], 409)
+        self.assertEqual(self.post("/api/agent/steer", steer)[1]["turnId"],
+                         started["turnId"])
         self.assertEqual(self.post("/api/agent/status", {"sessionId": "wrong", "cursor": 0})[0], 404)
         self.assertEqual(self.post("/api/agent/status", {"sessionId": session_id, "cursor": "bad"})[0], 400)
         code, status = self.post("/api/agent/status", {"sessionId": session_id, "cursor": 0})
         self.assertEqual(code, 200)
+        self.assertEqual(len(status["transcript"]), 1)
+        self.assertIn("And add some lighting", status["transcript"][0]["user"])
         pending = status["pendingApprovals"][0]
         self.assertEqual(self.post("/api/agent/approval", {"sessionId": session_id,
                      "turnId": "wrong", "approvalId": pending["approvalId"], "approve": True})[0], 409)

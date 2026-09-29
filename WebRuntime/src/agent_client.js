@@ -60,6 +60,20 @@ export class AgentClient {
       return await this.restore();
     }catch(error){this._fail(error);throw error;}
   }
+  async steer(text,context=null,turnId=this.status?.activeTurnId){
+    if(!this.sessionId||!turnId)throw Error('No active Codex turn can accept an instruction.');
+    if(typeof text!=='string'||!text.trim()||text.length>16000)
+      throw Error('Enter an instruction up to 16000 characters.');
+    let accepted;
+    try{
+      accepted=await this.request('/api/agent/steer',{sessionId:this.sessionId,turnId,text,
+        ...(context?{context}:{})});
+      if(accepted?.turnId!==turnId)throw Error('Could not confirm the added instruction.');
+    }catch(error){this._fail(error);throw error;}
+    // A failed status refresh cannot undo an acknowledged native steer.
+    try{return await this.restore();}
+    catch{return accepted;}
+  }
   async transcribe(audioBase64){
     if(!this.sessionId)await this.connect();
     try{

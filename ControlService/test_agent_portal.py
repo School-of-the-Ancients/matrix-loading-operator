@@ -27,6 +27,7 @@ class FakeBackend:
         self.resume_calls = []
         self.start_calls = 0
         self.sent_texts = []
+        self.steered_texts = []
 
     def start(self):
         pass
@@ -60,6 +61,11 @@ class FakeBackend:
 
     def poll(self, cursor):
         return len(self.events), [item for item in self.events if item["sequence"] > cursor]
+
+    def steer(self, conversation_id, turn_id, text):
+        assert conversation_id == "native-thread-id"
+        assert turn_id == f"native-turn-{self.turn_number}"
+        self.steered_texts.append(text)
 
     def pending_approvals(self):
         return [self.approval] if self.approval else []
@@ -156,6 +162,53 @@ class AgentPortalTests(unittest.TestCase):
                 "cameraFrameCapturedAtUtc": "2026-09-28T11:59:59.900Z",
                 "cameraToPairMs": 100, "content": "physical left; virtual right",
                 "captureId": "a" * 32, **changes}
+
+    def test_steer_keeps_one_turn_and_persists_added_instruction(self):
+        portal = self.portal()
+        session_id = portal.open()["sessionId"]
+        started = portal.send_text(session_id, "Arrange this room")
+        backend = self.backends[-1]
+        turn_id = started["turnId"]
+        with self.assertRaises(AgentPortalError) as stale:
+            portal.steer_text(session_id, "wrong-turn", "Add lighting")
+        self.assertEqual(stale.exception.status, 409)
+        steered = portal.steer_text(session_id, turn_id,
+                                   "And add any other stuff to make it look cool")
+        self.assertEqual(steered["turnId"], turn_id)
+        self.assertEqual(backend.turn_number, 1)
+        self.assertEqual(len(backend.steered_texts), 1)
+        self.assertIn("do not duplicate a completed or uncertain action",
+                      backend.steered_texts[0])
+        status = portal.status(session_id)
+        self.assertEqual(status["activeTurnId"], turn_id)
+        self.assertEqual(len(status["transcript"]), 1)
+        self.assertIn("[Added while working]", status["transcript"][0]["user"])
+        self.assertIn("make it look cool", status["transcript"][0]["user"])
+        saved = json.loads((Path(self.temp.name) / "agent_portal.json").read_text())
+        self.assertIn("make it look cool", saved["transcript"][0]["user"])
+        portal.decide(session_id, backend.approval["approvalId"], turn_id, True)
+        self.wait_for(portal, session_id,
+                      lambda value: value["transcript"][-1]["status"] == "completed")
+        with self.assertRaises(AgentPortalError) as finished:
+            portal.steer_text(session_id, turn_id, "One more thing")
+        self.assertEqual(finished.exception.status, 409)
+
+    def test_steer_failure_does_not_start_or_record_another_turn(self):
+        portal = self.portal()
+        session_id = portal.open()["sessionId"]
+        turn_id = portal.send_text(session_id, "Build a room")["turnId"]
+        backend = self.backends[-1]
+        def uncertain_delivery(conversation_id, turn_id, text):
+            backend.steered_texts.append(text)
+            raise RuntimeError("native reply was lost")
+        with patch.object(backend, "steer", side_effect=uncertain_delivery):
+            with self.assertRaises(AgentPortalError) as failed:
+                portal.steer_text(session_id, turn_id, "Add some lamps")
+        self.assertEqual(failed.exception.status, 502)
+        self.assertEqual(backend.turn_number, 1)
+        self.assertEqual(len(backend.steered_texts), 1)
+        self.assertEqual(portal.status(session_id)["transcript"][0]["user"],
+                         "Build a room")
 
     def test_camera_capture_attaches_once_without_persisting_and_cleans_on_completion(self):
         backend = CaptureBackend(self.persisted)

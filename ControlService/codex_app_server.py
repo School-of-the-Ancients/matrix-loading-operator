@@ -468,6 +468,15 @@ class AppServerTransport:
     def turn_interrupt(self, thread_id: str, turn_id: str) -> None:
         self.request("turn/interrupt", {"threadId": thread_id, "turnId": turn_id})
 
+    def turn_steer(self, thread_id: str, turn_id: str, text: str) -> None:
+        if not isinstance(text, str) or not text.strip() or len(text) > 16000:
+            raise ValueError("Steer text must be 1–16000 characters")
+        result = self.request("turn/steer", {"threadId": thread_id,
+                                             "expectedTurnId": turn_id,
+                                             "input": [{"type": "text", "text": text}]})
+        if not isinstance(result, dict) or result.get("turnId") != turn_id:
+            raise AppServerError("Codex app-server returned a different steered turn")
+
     @staticmethod
     def _id_from(result: Any, key: str) -> str:
         value = result.get(key) if isinstance(result, dict) else None

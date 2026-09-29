@@ -80,6 +80,11 @@ for line in sys.stdin:
     elif method == "turn/interrupt":
         send({"id": message["id"], "result": {}})
         send({"method": "turn/completed", "params": {"threadId": "thread-test", "turn": {"id": message["params"]["turnId"], "status": "interrupted"}}})
+    elif method == "turn/steer":
+        assert message["params"] == {"threadId": "thread-test",
+                                     "expectedTurnId": "turn-" + str(turn_count),
+                                     "input": [{"type": "text", "text": "Add some color"}]}
+        send({"id": message["id"], "result": {"turnId": "turn-" + str(turn_count)}})
     elif "id" in message and "result" in message:
         if message["id"] in (777, 778):
             assert message["result"] == ({"action": "accept", "content": {}} if message["id"] == 777
@@ -126,6 +131,7 @@ class AppServerTransportTests(unittest.TestCase):
         self.assertEqual(turn_id, "turn-1")
         pending = self.wait_for_approval(901)
         self.assertEqual(pending[0]["params"]["turnId"], turn_id)
+        self.transport.turn_steer(thread_id, turn_id, "Add some color")
         with self.assertRaises(AppServerError):
             self.transport.respond_approval(901, thread_id, "wrong-turn", "accept")
         with self.assertRaises(ValueError):
@@ -162,6 +168,10 @@ class AppServerTransportTests(unittest.TestCase):
             self.transport.turn_start("thread-test", " ", **ORDINARY_POLICY)
         with self.assertRaises(ValueError):
             self.transport.turn_start("thread-test", "x" * 16001, **ORDINARY_POLICY)
+        with self.assertRaises(ValueError):
+            self.transport.turn_steer("thread-test", "turn-1", " ")
+        with self.assertRaises(ValueError):
+            self.transport.turn_steer("thread-test", "turn-1", "x" * 16001)
         with self.assertRaises(TypeError):
             self.transport.turn_start("thread-test", "No implicit policy")
         for sandbox, approval_policy in (("invalid", "on-request"),

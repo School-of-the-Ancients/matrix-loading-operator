@@ -762,6 +762,49 @@ class AgentPortal:
                     **({"buildRequestId": concept_context["buildRequestId"]}
                        if concept_context is not None else {})}
 
+    def steer_text(self, session_id: str, turn_id: str, value: str,
+                   context: dict | None = None) -> dict:
+        """Add one instruction to the current native turn without starting another."""
+        with self.lock:
+            self._require_session(session_id)
+            self._refresh()
+            if not isinstance(value, str) or not value.strip() or len(value) > 16000:
+                raise AgentPortalError(400, "Agent instruction must be 1–16000 characters")
+            if (turn_id != self._active_turn or turn_id == self._stopping_turn or
+                    turn_id in self._native_turns):
+                raise AgentPortalError(409, "That Agent turn can no longer accept an instruction")
+            message = value
+            if context is not None:
+                if not isinstance(context, dict) or context.get("kind") not in (
+                        "matrix_spatial_context", "matrix_runtime_context"):
+                    raise AgentPortalError(400, "Invalid Matrix turn context")
+                message = build_matrix_turn_message(
+                    value, context, getattr(self._backend, "enabled_matrix_tools", ()))
+            message = ("Additional instruction for this active Matrix turn. Preserve work already "
+                       "done. Before another world mutation or retry, inspect fresh Matrix state "
+                       "and matching receipts; do not duplicate a completed or uncertain action.\n"
+                       + message)
+            if len(message) > 16000:
+                raise AgentPortalError(400, "Agent instruction plus context exceeds 16000 characters")
+            try:
+                self._backend.steer(self._conversation_id, turn_id, message)
+            except Exception as error:
+                self.last_error = str(error)
+                # The native request may have reached Codex even if its reply was lost.
+                # Never retry it automatically or start a replacement turn.
+                raise AgentPortalError(502, "Could not confirm the added instruction; inspect the current turn before retrying") from None
+            turn = self._transcript[-1]
+            visible = turn["user"] + "\n\n[Added while working]\n" + value
+            if len(visible) > 16000:
+                turn["userTruncated"] = True
+                visible = visible[-16000:]
+            turn["user"] = visible
+            try:
+                self._persist()
+            except AgentPortalError:
+                raise AgentPortalError(507, "Instruction reached Codex but its Agent Portal transcript could not be saved; inspect the turn before retrying") from None
+            return {"sessionId": self._session_id, "turnId": turn_id, "activity": self._activity}
+
     def _review_pc_commands(self) -> None:
         """Wait for explicit terminal input without holding the browser's lock."""
         while not self._stop.wait(0.1):
