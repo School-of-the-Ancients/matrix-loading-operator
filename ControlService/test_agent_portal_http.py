@@ -459,6 +459,8 @@ class AgentPortalHTTPTests(unittest.TestCase):
         room = {"scene": {"schemaVersion": 1, "roomId": "webxr-session-149",
                           "objects": [{"objectId": "tower-1", "assetId": "tower",
                                        "anchorId": "web-floor", "transform": pose()}]},
+                "selection": {"anchorId": "floor-1", "objectId": "tower-1",
+                              "position": point(.4, 0, -.2)},
                 "assets": [{"assetId": "tower", "displayName": "Tower",
                             "localBounds": {"center": point(0, 1, 0), "size": point(1, 2, 1)}}],
                 "anchors": [{"anchorId": "web-floor", "displayName": "Virtual floor"},
@@ -505,6 +507,14 @@ class AgentPortalHTTPTests(unittest.TestCase):
                          selected["selectedPlacement"])
         self.assertEqual(selected_context["roomSpatial"]["planes"][0]["anchorId"],
                          "floor-1")
+        self.state.latest["selection"]["position"] = point(.7, 0, -.2)
+        with self.assertRaises(APIError) as moved_pin:
+            agent_turn_context(self.state, selected)
+        self.assertEqual(moved_pin.exception.status, 409)
+        self.state.latest["selection"]["position"] = point(.4, 0, -.2)
+        with self.assertRaises(APIError) as changed_object:
+            agent_turn_context(self.state, {**selected, "selectedObjectId": None})
+        self.assertEqual(changed_object.exception.status, 409)
         with self.assertRaises(APIError):
             agent_turn_context(self.state, {**selected,
                 "selectedPlacement": {**selected["selectedPlacement"],

@@ -1,6 +1,29 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {captureAgentContext} from '../src/agent_context.js';
+import {captureAgentContext,verifyAgentContextAtDelivery} from '../src/agent_context.js';
+
+test('voice transcription cannot deliver a former pin after it moves on the same support',async()=>{
+  const world={runtimePresentation:'ar',scene:{roomId:'room-1',objects:[
+    {objectId:'chair-1',anchorId:'web-floor'}]},selection:{objectId:'chair-1'}};
+  let pin={anchorId:'table-1',position:{x:.2,y:0,z:.1},source:'raycast'};
+  const view={roomTrackingEpoch:7,pointingTarget:()=>null,
+    selectedPlacementTarget:()=>pin,viewer:()=>({frames:[]})};
+  const captured=captureAgentContext(world,view,'client-1','voice_transcript');
+  let finishTranscription;
+  const transcribing=new Promise(resolve=>{finishTranscription=resolve;});
+  const deliver=(async()=>{
+    await transcribing;
+    return verifyAgentContextAtDelivery(captured,
+      captureAgentContext(world,view,'client-1','voice_transcript'));
+  })();
+  pin={anchorId:'table-1',position:{x:.7,y:0,z:.1},source:'raycast'};
+  finishTranscription();
+  await assert.rejects(deliver,/Selected point or object changed/);
+  pin={anchorId:'table-1',position:{x:.2,y:0,z:.1},source:'raycast'};
+  assert.deepEqual(verifyAgentContextAtDelivery(captured,
+    captureAgentContext(world,view,'client-1','voice_transcript')).selectedPlacement,
+    captured.selectedPlacement);
+});
 
 test('captures selected object and a distinct pointing hit at send time',()=>{
   const world={runtimePresentation:'ar',scene:{roomId:'webxr-session-1',objects:[{objectId:'chair-1',anchorId:'floor-1'}]},

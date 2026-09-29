@@ -3594,6 +3594,11 @@ def agent_turn_context(state, value, *, creation=False):
             anchor_id = text(placement["anchorId"], "placement anchorId")
             point = vector(placement["position"], "position")
             require(abs(point["y"]) <= .02, "Selected placement must lie on its support")
+            current_selection = current.get("selection") or {}
+            require(current_selection.get("anchorId") == anchor_id and
+                    current_selection.get("objectId") == (selected_id or "") and
+                    current_selection.get("position") == point,
+                    "Selected Matrix point or object changed; aim and select again", 409)
             if presentation == "ar":
                 support = next((item for item in current["anchors"]
                                 if item["anchorId"] == anchor_id and

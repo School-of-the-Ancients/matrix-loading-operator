@@ -12,7 +12,7 @@ import {loadCreationMode,saveCreationMode,creationModeFromPanelAction} from './c
 import {parsePanoramaIntent,parseConceptIntent,isSelectedConceptBuildRequest,
   stopPlannerConceptFallback,plannerVoiceFallbackAllowed} from './concept_intent.js';
 import {validEnvironmentAsset,sameEnvironment} from './environment.js';
-import {captureAgentContext} from './agent_context.js';
+import {captureAgentContext,verifyAgentContextAtDelivery} from './agent_context.js';
 import {bindBlenderRequestContext,captureBlenderPlacement,
   captureBlenderRequestContext,queueBlenderPlacement,
   registeredBlenderAsset} from './blender_placement.js';
@@ -85,6 +85,7 @@ view.onPanelAction=panelAction;
 view.onSelectedPointChange=()=>{
   updateSelectedPointEditor();
   if(view.selectedPlacementTarget())$('agent-include-context').checked=true;
+  void bridge.tick(true);
 };
 view.onXRHidden=()=>{cameraStream.stop();bridge.cancelCapture();updateCameraControls();};
 bindCameraPageLifecycle(cameraStream,document,window,()=>{bridge.cancelCapture();updateCameraControls();});
@@ -608,6 +609,11 @@ async function agentAction(action){
   catch(error){feedback(`Codex Agent: ${error.message}`,true);}
   finally{agentActionBusy=false;renderAgent();}
 }
+async function currentAgentContextForSend(captured){
+  await bridge.sync();
+  return verifyAgentContextAtDelivery(captured,
+    captureAgentContext(world,view,bridge.clientId,captured.inputSource));
+}
 function sendAgent(){
   const text=$('agent-input').value.trim();
   if(!text){feedback('Enter a message for Codex first.',true);return;}
@@ -623,6 +629,7 @@ function sendAgent(){
   }
   agentAction(async()=>{
     const expectedConcept=await conceptUI.expectedBuild(text);
+    if($('agent-include-context').checked||expectedConcept)await bridge.sync();
     const context=$('agent-include-context').checked||expectedConcept?
       captureAgentContext(world,view,bridge.clientId,'text'):null;
     await agentClient.send(text,context,expectedConcept,creationMode);$('agent-input').value='';
@@ -753,9 +760,10 @@ async function sendToAgentFromChat(text,context){
   if(!agentClient.status||agentClient.error)await agentClient.connect();
   if(agentClient.status?.activeTurnId)throw Error('Wait for the current CODEX turn or stop it first.');
   const expectedConcept=await conceptUI.expectedBuild(text);
-  if(/\b(?:in front of me|ahead of me|where i am pointing)\b/i.test(text)&&!context?.viewerFrame)
+  const currentContext=await currentAgentContextForSend(context);
+  if(/\b(?:in front of me|ahead of me|where i am pointing)\b/i.test(text)&&!currentContext.viewerFrame)
     throw Error('Current viewer tracking is unavailable. Restore tracking, then send this spatial request again.');
-  await agentClient.send(text,context,expectedConcept,creationMode);
+  await agentClient.send(text,currentContext,expectedConcept,creationMode);
   const message='Sent this request to CODEX with the current Matrix context. Review its tools and Matrix receipts in the CODEX panel.';
   feedback(message);view.setOperatorStatus(message);
 }
@@ -1406,6 +1414,7 @@ async function endVoice(){
   if(voiceStarting){voiceStopRequested=true;return;}
   if(!voiceRecording)return;
   voiceRecording=false;voiceJob='finalizing';voiceButtons();voiceStatus('Finishing recording…');
+  let agentTranscriptStaged=false;
   try{const audioBase64=await recorder.stop();
     voiceAgentContext=captureAgentContext(world,view,bridge.clientId,'voice_transcript');
     voiceStatus('Transcribing on PC…');
@@ -1421,11 +1430,16 @@ async function endVoice(){
         const message=await conceptUI.handleText(transcript);
         voiceStatus(message);return;
       }
-      if(/\b(?:in front of me|ahead of me|where i am pointing)\b/i.test(transcript)&&
-          !voiceAgentContext.viewerFrame)
-        throw Error('Current viewer tracking is unavailable. Restore tracking, then say the spatial request again.');
+      const input=$('agent-input'),previous=input.value;
+      const staged=previous.trim()?`${previous.trimEnd()}\n${transcript}`:transcript;
+      input.value=staged;agentTranscriptStaged=true;
       const expectedConcept=await conceptUI.expectedBuild(transcript);
-      await agentClient.send(transcript,voiceAgentContext,expectedConcept,creationMode);
+      const currentContext=await currentAgentContextForSend(voiceAgentContext);
+      if(/\b(?:in front of me|ahead of me|where i am pointing)\b/i.test(transcript)&&
+          !currentContext.viewerFrame)
+        throw Error('Current viewer tracking is unavailable. Restore tracking, then say the spatial request again.');
+      await agentClient.send(transcript,currentContext,expectedConcept,creationMode);
+      if(input.value===staged)input.value=previous;
       voiceStatus('Sent to Codex with Matrix spatial context.');
     }else{
       if(!agentClient.status||agentClient.error){
@@ -1464,7 +1478,9 @@ async function endVoice(){
       voiceJob=job.jobId;voiceButtons();await pollVoice(voiceJob);
     }
   }
-  catch(error){voiceStatus(error.message,true);}
+  catch(error){voiceStatus(agentTranscriptStaged?
+    `${error.message} Transcript kept in the Codex Agent input; inspect before retrying.`:
+    error.message,true);}
   finally{voiceJob=null;voiceSnapshot=null;voiceAgentContext=null;voiceBlenderPlacement=null;voiceButtons();}
 }
 async function pollVoice(jobId){
