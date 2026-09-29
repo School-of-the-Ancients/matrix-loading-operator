@@ -462,7 +462,9 @@ class AgentPortalTests(unittest.TestCase):
         self.assertIn("Refresh matrix_room_spatial_context with the chosen support anchor ID", message)
         self.assertIn("Supply the target support plane's spatialToken", message)
         self.assertIn("matrix_move_with_room_constraint", message)
-        self.assertIn("measured-plane additions live only in the current AR session", message)
+        self.assertIn("objects spawned against measured AR surfaces", message)
+        self.assertIn("measured support IDs and geometry remain session-only", message)
+        self.assertNotIn("measured-plane additions live only", message)
         unverified = build_matrix_turn_message(
             "Reorganize the forest to fit my room",
             {**context, "roomSpatial": {"schemaVersion": 1, "usable": False,

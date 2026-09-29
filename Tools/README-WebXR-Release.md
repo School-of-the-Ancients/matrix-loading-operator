@@ -1,8 +1,10 @@
-# Freeze a WebXR/PC preview
+# Freeze a WebXR/PC release
 
 `Build-WebXR-Release.py` packages a **committed Git revision**, builds all three
 Vite routes from that revision, and verifies the resulting ZIP after extraction.
 It does not tag, upload, publish, or copy local browser/PC state by default.
+The manifest labels a stable version such as `v1.0.0` as a release and a
+suffixed version such as `v1.0.0-rehearsal` as a prerelease.
 The filenames and root-level bundle layout follow v0.7:
 
 - `Matrix-WebXR-PC-VERSION.zip`
@@ -28,8 +30,8 @@ the intended branch. In PowerShell, from the repository root:
 
 ```powershell
 $commit = (git rev-parse HEAD).Trim()
-python Tools/Build-WebXR-Release.py --version v0.8.0-preview.1 `
-  --commit $commit --output .\work\release-v0.8.0-preview.1
+python Tools/Build-WebXR-Release.py --version v1.0.0 `
+  --commit $commit --output .\work\release-v1.0.0
 ```
 
 The tool exports that commit with `git archive`, runs `npm ci` and the Vite
@@ -41,7 +43,7 @@ routes, checks an advancing Ada/Bo observation, and checks owner/view token
 separation. Failed build or smoke checks do not produce release assets. A
 `--force` rebuild replaces files of the same version only after a successful
 new package has been staged. Review the manifest and ZIP before creating a
-tag or draft prerelease. The package includes no claimed Quest acceptance;
+tag or draft release. The package includes no claimed Quest acceptance;
 record separate VR/AR wearer evidence for the frozen commit.
 
 ## Optional sanitized demo
@@ -52,8 +54,8 @@ nested Citizens v15, and the catalog must contain exactly its referenced
 registered GLBs, each matching its SHA-256. For example:
 
 ```powershell
-python Tools/Build-WebXR-Release.py --version v0.8.0-preview.1 `
-  --commit $commit --output .\work\release-v0.8.0-preview.1 `
+python Tools/Build-WebXR-Release.py --version v1.0.0 `
+  --commit $commit --output .\work\release-v1.0.0 `
   --demo-checkpoint .\sanitized\scenes\world_checkpoints\AdaBo.json `
   --demo-assets .\sanitized\web_assets
 ```
