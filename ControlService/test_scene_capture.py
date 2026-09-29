@@ -91,6 +91,8 @@ class CaptureTests(unittest.TestCase):
         value = capture_result(self.state, source="webxr_camera_pair", mode="mixed",
                                includesPhysicalCamera=True, includesPassthrough=False,
                                dataBase64=base64.b64encode(raw).decode(), width=1280, height=480,
+                               cameraFrameCapturedAtUtc="2026-09-21T12:34:55.900Z",
+                               cameraToPairMs=100,
                                layout={"kind": "side-by-side", "cameraPanel": [0, 0, 640, 480],
                                        "virtualPanel": [640, 0, 640, 480], "calibrated": False},
                                spatialProvenance={"source": "webxr_room_planes", "roomId": "webxr-session-test",
@@ -103,6 +105,13 @@ class CaptureTests(unittest.TestCase):
         self.assertFalse(image["includesPassthrough"])
         self.assertIn("not pixel aligned", image["content"])
         self.assertNotIn("physicalCamera", image)
+        self.assertEqual(image["cameraFrameCapturedAtUtc"], "2026-09-21T12:34:55.900Z")
+        self.assertEqual(image["cameraToPairMs"], 100)
+
+        with self.assertRaisesRegex(scene_capture.CaptureError, "incomplete"):
+            scene_capture.image({**value, "cameraToPairMs": None})
+        with self.assertRaisesRegex(scene_capture.CaptureError, "after or too far"):
+            scene_capture.image({**value, "cameraFrameCapturedAtUtc": "2026-09-21T12:34:57Z"})
 
     def test_webxr_camera_pair_rejects_a_false_alignment_claim(self):
         self.state.request_capture({})

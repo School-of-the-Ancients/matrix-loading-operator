@@ -235,6 +235,16 @@ def image(value):
               and width == 1280 and height == 480,
               "WebXR camera pair must be an uncalibrated, labeled side-by-side image")
         result["layout"] = layout
+        frame_stamp = value.get("cameraFrameCapturedAtUtc")
+        frame_elapsed = value.get("cameraToPairMs")
+        check((frame_stamp is None) == (frame_elapsed is None),
+              "WebXR camera frame timing is incomplete")
+        if frame_stamp is not None:
+            frame_time = utc_stamp(frame_stamp, "camera frame copy timestamp")
+            check(0 <= (parsed - frame_time).total_seconds() <= 60,
+                  "WebXR camera frame copy time is after or too far before the pair")
+            result["cameraFrameCapturedAtUtc"] = frame_stamp
+            result["cameraToPairMs"] = number(frame_elapsed, "cameraToPairMs", 0, 60000)
     provenance = value.get("spatialProvenance")
     check(provenance is None or isinstance(provenance, dict), "Invalid spatial provenance")
     if mixed or provenance and provenance.get("source"):
