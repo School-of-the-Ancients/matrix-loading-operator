@@ -53,6 +53,25 @@ FORBIDDEN_DEMO_KEYS = re.compile(
     r"room.?image|room.?scan", re.IGNORECASE,
 )
 FIXED_ZIP_TIME = (2026, 1, 1, 0, 0, 0)
+PRIVATE_ART_PREFIX = "WebRuntime/art/"
+
+
+def canonical_release_path(raw: str) -> PurePosixPath:
+    """Match extraction's separator/dot handling and reject traversal."""
+    path = PurePosixPath(raw.replace("\\", "/"))
+    if (not path.parts or path.is_absolute() or ".." in path.parts or
+            re.match(r"^[A-Za-z]:", raw)):
+        raise ValueError(f"Unsafe release path: {raw}")
+    return path
+
+
+def reject_private_art(paths) -> None:
+    """Keep editable examples out of public bytes, even if copied later."""
+    normalized = (canonical_release_path(path).as_posix().casefold()
+                  for path in paths)
+    if any(path == PRIVATE_ART_PREFIX[:-1].casefold() or
+           path.startswith(PRIVATE_ART_PREFIX.casefold()) for path in normalized):
+        raise ValueError("Public release must not contain WebRuntime/art")
 
 
 def run(*command: str, cwd: Path | None = None, env: dict | None = None) -> str:
@@ -102,11 +121,17 @@ def committed_source(repo: Path, ref: str, destination: Path) -> str:
 
 
 def eligible_source(relative: PurePosixPath) -> bool:
+    try:
+        relative = canonical_release_path(relative.as_posix())
+    except ValueError:
+        return False
     path = relative.as_posix()
     if path in ROOT_FILES or path in DOC_FILES or path in COMPAT_FILES:
         return True
     if path.startswith("ControlService/"):
         return (len(relative.parts) == 2 and
+                (relative.suffix != ".json" or
+                 relative.name == "content-config.example.json") and
                 not relative.name.startswith("test_") and
                 not FORBIDDEN_NAMES.search(relative.name))
     if path.startswith("WebRuntime/"):
@@ -116,7 +141,7 @@ def eligible_source(relative: PurePosixPath) -> bool:
                 "package-lock.json", "vite.config.js", "README.md",
                 "QUEST3_ACCEPTANCE.md", "BLENDER_AUTHORING_TIERS.md",
             }
-        return (relative.parts[1] in {"src", "art"} and
+        return (relative.parts[1] == "src" and
                 not FORBIDDEN_NAMES.search(relative.name))
     return False
 
@@ -252,6 +277,79 @@ def release_readme(version: str, commit: str, versions: dict,
             "directories before starting the service.\n" if demo_name else
             "No world checkpoint or asset catalog is included. Start a fresh "
             "hosted AdaBo fixture, or supply a separately reviewed data export.\n")
+    interactive = """## Start the interactive Creator and Operator world (v1)
+
+From this extracted bundle, keep writable data outside the bundle. In PowerShell,
+copy `ControlService/content-config.example.json` once to a private PC directory,
+then edit that copy:
+
+```powershell
+$data = (New-Item -ItemType Directory -Force -Path (Join-Path $env:LOCALAPPDATA 'MatrixWebXR-v1')).FullName
+$config = Join-Path $data 'content-config.json'
+if (-not (Test-Path -LiteralPath $config)) {
+    Copy-Item .\\ControlService\\content-config.example.json $config
+}
+$env:MATRIX_CONTENT_CONFIG = $config
+$env:MATRIX_CONTENT_CACHE = Join-Path $data 'content-cache'
+$tokenBytes = New-Object byte[] 32
+[Security.Cryptography.RandomNumberGenerator]::Create().GetBytes($tokenBytes)
+$env:SANDBOX_TOKEN = [Convert]::ToBase64String($tokenBytes)
+Set-Clipboard -Value $env:SANDBOX_TOKEN
+.\\Start-CodexControlService.ps1 -Port 18796 `
+    -Scenes (Join-Path $data 'scenes') `
+    -WebAssets (Join-Path $data 'web_assets') `
+    -WebEnvironments (Join-Path $data 'web_environments')
+```
+
+The generated `SANDBOX_TOKEN` is the interactive world owner token. Before the
+foreground launcher starts, the example copies its value to the PC clipboard.
+Paste it into the PC `/web/` **Service token** field, or enter the same value in
+Quest Browser's `/web/` field. The field says "Kept only in this tab"; re-enter
+the token after a page refresh, then choose **Start or resume Codex**. Clear the
+PC clipboard after entry. This is not the separate hosted-world view token.
+Keep its value out of README files and review logs.
+
+The launcher keeps its original defaults when these three directory options are
+omitted. Sign in with the PC Codex CLI first. The example config has ComfyUI
+disabled and no workflows. To use ComfyUI, enable its provider in the private
+copy, set the URL of a reachable worker, and point it to a reviewed image API
+graph stored outside this bundle. Configure the prompt and seed node/input IDs;
+relative workflow paths resolve beside the private config. Never put worker
+credentials, a configured graph, generated images, or the cache in this ZIP.
+
+Before a Quest run, test the configured provider with authenticated
+`POST /api/content/providers/test` and its provider ID. `ok: true`, a nonzero
+`nodeCount`, and a nonzero `configuredWorkflowCount` show worker reachability
+and node listing; only an actual completed image job proves generation. See
+[ControlService/AGENT_PORTAL.md](ControlService/AGENT_PORTAL.md) for the #91
+concept workflow and [Docs/Matrix-Environments.md](Docs/Matrix-Environments.md)
+for #150 panorama rules.
+
+Open `http://127.0.0.1:18796/web/` on the PC, or run
+`adb reverse tcp:18796 tcp:18796` for Quest Browser. Choose a free port and use
+the same value in the launcher, URL, and USB mapping.
+On the desktop `/web/` page, after connecting to Codex, use
+**VISUAL CONCEPTS → Image source** to select the option beginning **ComfyUI**
+before entering VR.
+The menu appears when multiple sources are available; with only ComfyUI, its
+name appears in that row instead. The default can be Codex GPT Image, so a
+configured ComfyUI worker alone does not select it for the 2D concept request.
+In **CODEX → IMAGE PREVIEWS**, generate at least two concept versions, explicitly
+select one, then ask the existing Agent to build from that image. Confirm the
+resulting Matrix action through its exact receipt and scene
+inspection. For a panorama, generate and preview a 2:1 version, select it, then
+register and apply it in Creator Mode. A preview or registration alone does not
+change the background; confirm the succeeded environment receipt and saved
+world. Keep the matching external asset and panorama catalogs with checkpoints.
+
+Quest push-to-talk can use optional local Whisper. The bundle includes
+`Setup-LocalSpeech.ps1` but no speech runtime or model. Run
+`.\\Setup-LocalSpeech.ps1 -Root $data` to install those in the external data
+directory, then pass `-SpeechRoot $data` to the launcher on restart. An existing
+external installation can use that same launcher option. Text requests work
+without local speech.
+
+""" if version.startswith("v1.") else ""
     return f"""# Matrix WebXR PC bundle — {version}
 
 Frozen source: `{commit}`. The bundle preserves the v0.7 root-level service and
@@ -283,8 +381,11 @@ addition to the hosted fixture, or Bo can use its one addition for a bounded
 procedural/Blender seat. These are mutually exclusive in this release.
 
 {demo}
-The release excludes credentials, private worlds, room images, Agent history,
-browser storage, speech models, Blender installations, and Blender job state.
+{interactive}The release excludes credentials, private worlds, room images, Agent history,
+browser storage, speech models, Blender installations, Blender job state, and
+editable WebRuntime/art examples. The examples remain available in the frozen
+[source repository]({REPOSITORY}/tree/{commit}/WebRuntime/art); they are not
+registered runtime assets in this bundle.
 The hosted owner resumes the last complete checkpoint, without downtime catch-up.
 See Docs/Persistent-World-Host.md and Docs/Versions-And-Submissions.md.
 """
@@ -292,11 +393,11 @@ See Docs/Persistent-World-Host.md and Docs/Versions-And-Submissions.md.
 
 def add_zip(bundle: Path, target: Path) -> dict[str, str]:
     hashes: dict[str, str] = {}
+    files = sorted(source for source in bundle.rglob("*") if source.is_file())
+    reject_private_art(source.relative_to(bundle).as_posix() for source in files)
     with zipfile.ZipFile(target, "w", compression=zipfile.ZIP_DEFLATED,
                          compresslevel=9) as archive:
-        for source in sorted(bundle.rglob("*")):
-            if not source.is_file():
-                continue
+        for source in files:
             name = source.relative_to(bundle).as_posix()
             info = zipfile.ZipInfo(name, FIXED_ZIP_TIME)
             info.compress_type = zipfile.ZIP_DEFLATED
@@ -355,11 +456,12 @@ def verify_extracted(archive_path: Path, hashes: dict[str, str],
     with tempfile.TemporaryDirectory(prefix="matrix-release-verify-") as temp:
         root = Path(temp)
         with zipfile.ZipFile(archive_path) as archive:
+            reject_private_art(archive.namelist())
             if set(archive.namelist()) != set(hashes):
                 raise ValueError("ZIP inventory differs from SHA manifest")
             for entry in archive.infolist():
-                name = PurePosixPath(entry.filename)
-                if (name.is_absolute() or ".." in name.parts or
+                name = canonical_release_path(entry.filename)
+                if (name.as_posix() != entry.filename or
                         digest(archive.read(entry)) != hashes[entry.filename]):
                     raise ValueError(f"ZIP entry is unsafe or corrupt: {entry.filename}")
             archive.extractall(root)
@@ -486,7 +588,8 @@ def build(args: argparse.Namespace) -> dict:
         "exclusions": ["credentials and private world state",
                        "Quest room imagery and browser storage",
                        "Agent sessions and transcripts", "local speech models",
-                       "Blender installation and unfinished Blender job state"],
+                       "Blender installation and unfinished Blender job state",
+                       "editable WebRuntime/art examples"],
     }
     manifest_path.write_text(json.dumps(manifest, indent=2, sort_keys=True) + "\n",
                              encoding="utf-8", newline="\n")
