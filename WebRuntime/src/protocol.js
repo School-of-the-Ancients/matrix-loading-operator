@@ -340,6 +340,7 @@ export class MatrixWorld {
     // Browser world provenance is separate from the renderer-neutral scene.
     this.originBinding='virtual';
     this.originAnchorHandle=null;
+    this.arLayoutOffset={x:0,z:0,yawDegrees:0};
     this.arEntryContent=null;
     this.selection={anchorId:ANCHOR_ID,objectId:'',position:{x:0,y:0,z:-2}};
     this.selectedPlacement=null;
@@ -367,9 +368,9 @@ export class MatrixWorld {
     if(this.rigidPhysics&&this.rigidSceneReference!==this.scene)
       this.rebuildRigidPhysics({preserve:false});
     const anchors=this.availableAnchors();
-    const alignmentVerified=!!(this.spatial?.alignmentVerified&&this.originFresh()&&this.planeFresh());
+    const alignmentVerified=!!(this.spatial?.alignmentVerified&&!this.spatial.layoutReviewPending&&this.originFresh()&&this.planeFresh());
     const context=this.spatial?{mode:'ar',state:this.spatial.originUnavailable||this.spatial.stale?'missing':'ready',message:this.digitalWorldVisit?(this.spatial.originUnavailable?'AR view origin is not tracked. The digital world continues; its overlay is hidden until tracking is available.':this.spatial.anchors.length?`Visiting the digital world in AR with ${this.spatial.anchors.length} room plane(s). The overlay uses a tracked view anchor; physical collision is not implied.`:'Visiting the digital world in AR with a tracked view anchor. Room planes are unavailable; physical collision is not implied.'):
-        this.spatial.originUnavailable?'Saved room origin is unavailable. The old world is hidden and editing is paused until it is restored or explicitly archived for a new room.':this.spatial.stale?'A plane holding a scene object is no longer tracked; keep the scene for recovery and recheck the room.':alignmentVerified?`${this.spatial.anchors.length} WebXR room plane(s) detected. Saved room origin is tracked and outlines were confirmed. Persistent virtual-floor objects follow that origin; measured planes do not prove physical clearance.`:this.spatial.anchors.length?`${this.spatial.anchors.length} WebXR room plane(s) detected. Persistent virtual-floor objects remain visible, but room alignment is not verified.`:'Waiting for Quest room planes. Persistent virtual-floor objects remain visible; room alignment is not verified.',alignmentVerified}
+        this.spatial.originUnavailable?'Saved room origin is unavailable. The old world is hidden and editing is paused until it is restored or explicitly archived for a new room.':this.spatial.stale?'A plane holding a scene object is no longer tracked; keep the scene for recovery and recheck the room.':this.spatial.layoutReviewPending?'Digital layout placement needs wearer clearance review before room outlines can be confirmed. Object support and clearance have not been verified.':alignmentVerified?`${this.spatial.anchors.length} WebXR room plane(s) detected. Saved room origin is tracked and outlines were confirmed. Persistent virtual-floor objects follow that origin; measured planes do not prove physical clearance.`:this.spatial.anchors.length?`${this.spatial.anchors.length} WebXR room plane(s) detected. Persistent virtual-floor objects remain visible, but room alignment is not verified.`:'Waiting for Quest room planes. Persistent virtual-floor objects remain visible; room alignment is not verified.',alignmentVerified}
       :{mode:'white-room',state:'ready',message:'Browser virtual floor; physical room alignment is not verified.',alignmentVerified:false};
     const descriptor=this.runtimePresentation==='host'?
       {schemaVersion:1,client:'matrix-world-host',renderer:'none',presentation:'host'}:
@@ -825,7 +826,7 @@ export class MatrixWorld {
       this.digitalWorldVisit=true;
       this.spatial={anchors:[],observedAnchors:[],alignmentVerified:false,originUnavailable:true,
         originLocated:false,originObservedAt:null,planeObservedAt:null,
-        trackingEpoch:0,webFloorPose:null};
+        trackingEpoch:0,webFloorPose:null,layoutReviewPending:false};
       return;
     }
     this.physicsBodies.clear();this.physicsVerification.clear();
@@ -835,7 +836,10 @@ export class MatrixWorld {
     this.physicsSceneReference=this.scene;
     this.spatial={anchors:[],observedAnchors:[],alignmentVerified:false,originUnavailable:false,
       originLocated:false,originObservedAt:null,planeObservedAt:null,
-      trackingEpoch:0,webFloorPose:null};
+      trackingEpoch:0,webFloorPose:null,
+      layoutReviewPending:this.originBinding==='ar'&&
+        (this.scene.objects.length>0||this.scene.environment!==undefined||
+          this.game!==null||this.citizens!=null)};
     this.resetAROriginBaseline();
     this.undo=[];this.redo=[];
   }
@@ -867,7 +871,11 @@ export class MatrixWorld {
     const saved=this.virtualScene;
     saved.scene.objects=clone(this.scene.objects.filter(object=>object.anchorId===ANCHOR_ID));
     this.scene=saved.scene;
-    if(!this.scene.objects.length&&this.game===null){this.originBinding='virtual';this.originAnchorHandle=null;}
+    if(!this.scene.objects.length&&this.game===null&&
+       this.scene.environment===undefined&&this.citizens==null){
+      this.originBinding='virtual';this.originAnchorHandle=null;
+      this.arLayoutOffset={x:0,z:0,yawDegrees:0};
+    }
     this.physicsBodies.clear();this.physicsVerification.clear();
     this.renderedVerification.clear();this.physicsSceneReference=this.scene;
     this.selection=this.selection.anchorId===ANCHOR_ID?this.selection:saved.selection;
@@ -1214,6 +1222,8 @@ export class MatrixWorld {
               unlockedObjectIds:clone(this.game.state.unlockedObjectIds||[])}:null};
           break;}
         case 'confirm_room':
+          if(this.spatial?.layoutReviewPending)
+            throw Error('Review digital layout clearance in the headset before confirming room outlines');
           if(!this.spatial||this.digitalWorldVisit||this.spatial.stale||
               this.spatial.originUnavailable||!this.originFresh()||!this.planeFresh()||
              !this.spatial.anchors.some(anchor=>anchor.surface.kind==='support'))
@@ -1237,6 +1247,12 @@ export class MatrixWorld {
             observedAnchor.roomPose,this.spatial.webFloorPose):null;
           if(durable&&!validTransform(durable))
             throw Error('Measured placement cannot be stored in the digital world');
+          if(durable&&durable.rotation.x===0&&durable.rotation.z===0){
+            const asset=this.asset(command.assetId);
+            const fit=footprintFitsRoomSupport(durable,asset.localBounds,
+              asset.spawnScale||1,this.spatial.webFloorPose,observedAnchor);
+            if(!fit.ok)throw Error(fit.reason);
+          }
           if(durable)this.assertNoMeasuredPlaneOverlap(durable,command.assetId,
             this.spatial.webFloorPose,command.anchorId);
           object={objectId:this.idFactory(),assetId:command.assetId,

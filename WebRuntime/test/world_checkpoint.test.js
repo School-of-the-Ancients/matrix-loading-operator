@@ -2,7 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import {MatrixWorld} from '../src/protocol.js';
 import {selectedPointAt,currentSelectedPoint} from '../src/selected_point.js';
-import {applyPCWorld} from '../src/world_checkpoint.js';
+import {applyPCWorld,captureWorldRestoreGuard} from '../src/world_checkpoint.js';
 import {storedWorld} from '../src/scene_store.js';
 import {startGame} from '../src/game.js';
 import {createCitizensDemo} from '../src/citizens.js';
@@ -15,6 +15,12 @@ const spec={kind:'game',title:'Orb delivery',summary:'Deliver an orb.',
     {roleId:'zone',kind:'delivery-zone',assetId:'pedestal',count:1}],
   rules:[{event:'release-near',actorRoleId:'pickup',targetRoleId:'zone',distanceMeters:.5,scorePoints:1}],
   objectives:[{kind:'delivered-count',roleId:'pickup',targetCount:1}]};
+
+test('prepared world restore rejects an AR layout change during its wait',()=>{
+  const world=current(),unchanged=captureWorldRestoreGuard(world);
+  world.arLayoutOffset={x:.25,z:0,yawDegrees:0};
+  assert.throws(unchanged,/World changed while checkpoint restore/);
+});
 
 function current(){
   const world=new MatrixWorld(()=> 'current-orb');
@@ -48,6 +54,8 @@ test('failed PC exchange leaves the prior scene, game, selection and undo state 
   const world=current(),before=storedWorld(world),selection=structuredClone(world.selection),
     undo=structuredClone(world.undo),redo=structuredClone(world.redo);
   world.originBinding='ar';
+  world.originAnchorHandle='old-room-handle';
+  world.arLayoutOffset={x:.25,z:-.5,yawDegrees:15};
   await assert.rejects(applyPCWorld(world,saved(),async()=>{throw Error('connection lost');}),
     /connection lost/);
   assert.deepEqual(storedWorld(world),before);
@@ -55,6 +63,8 @@ test('failed PC exchange leaves the prior scene, game, selection and undo state 
   assert.deepEqual(world.undo,undo);
   assert.deepEqual(world.redo,redo);
   assert.equal(world.originBinding,'ar');
+  assert.equal(world.originAnchorHandle,'old-room-handle');
+  assert.deepEqual(world.arLayoutOffset,{x:.25,z:-.5,yawDegrees:15});
 });
 
 test('PC restore invalidates a pinned point only after the exchange succeeds',async()=>{

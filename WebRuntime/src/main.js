@@ -202,8 +202,14 @@ function updateWorldControls(){
   const canRetryOrigin=originUnavailable&&(view.roomAnchorHandleAvailable||view.roomAnchorCreationFailed);
   const canConfirm=!!world.spatial&&!world.digitalWorldVisit&&!originUnavailable&&
     world.originFresh()&&world.planeFresh()&&
-    !world.spatial.alignmentVerified&&!world.spatial.stale&&
+    !world.spatial.alignmentVerified&&!world.spatial.layoutReviewPending&&
+    !world.spatial.stale&&
     world.spatial.anchors.some(anchor=>anchor.surface?.kind==='support');
+  const canPlaceLayout=!!view.isAR&&!world.digitalWorldVisit&&!originUnavailable&&
+    !world.spatial?.stale&&world.originFresh()&&view.roomAnchorLocated&&
+    view.roomAnchorPersistent&&world.originBinding==='ar'&&!!world.originAnchorHandle&&
+    creator.mode==='creator'&&creator.simulation==='paused'&&!pendingWorld&&
+    !pcWorldBusy&&!worldSwitchBusy;
   $('confirm-room').disabled=!canConfirm;
   for(const id of ['undo','redo','clear','save','restore'])
     $(id).disabled=(world.digitalWorldVisit||originUnavailable)||!!pendingWorld||pcWorldBusy||worldSwitchBusy||
@@ -241,6 +247,8 @@ function updateWorldControls(){
   const archiveIndex=archives.findIndex(item=>item.archiveId===selectedArchiveId);
   const selectedArchive=archives[archiveIndex];
   view.setOperatorWorldInfo({objects:world.scene.objects.length,canConfirm,restoreArmed:performance.now()<restoreArmedUntil,
+    canPlaceLayout,arLayoutOffset:world.arLayoutOffset,
+    layoutReviewPending:!!world.spatial?.layoutReviewPending,
     environmentLabel:environment?`Panorama: ${environmentLabel}${view.isAR?' · AR hidden':''}`:
       'Panorama: none',
     originUnavailable,resetAvailable,canRetryOrigin,
@@ -254,7 +262,8 @@ function updateWorldControls(){
       selectedArchiveId===archiveRestoreId,
     alignment:!world.spatial?'Virtual room':world.digitalWorldVisit?
       originUnavailable?'AR visit view unavailable':view.roomAnchorLocated?'Digital world overlay anchored':'Digital world preview':
-      originUnavailable?'Room origin unavailable':world.spatial.alignmentVerified?'AR room aligned':
+      originUnavailable?'Room origin unavailable':world.spatial.layoutReviewPending?'Digital layout review required':
+      world.spatial.alignmentVerified?'Room outlines confirmed':
       canConfirm?'Check outlines, then confirm':'Waiting for room planes'});
   $('retry-room-origin').classList.toggle('hidden',!canRetryOrigin);
   $('reset-room-origin').classList.toggle('hidden',!resetAvailable);
@@ -268,6 +277,7 @@ function updateWorldControls(){
     resetAvailable?canRetryOrigin?'Saved world hidden. Retry, place it here explicitly, or archive and start empty.':
       'Saved world hidden. Archive and place it here or start empty.':
     originUnavailable?'Waiting for a tracked room anchor; editing is paused.':
+    world.spatial?.layoutReviewPending?'Review the digital layout and physical clearance in the headset before confirming room outlines.':
     view.roomAnchorLocated?'Room origin tracked.':'Room origin has not been tracked yet.';
   let hasArchives=false;
   try{hasArchives=roomArchives(localStorage).length>0;}
@@ -1005,8 +1015,11 @@ async function applyProposal(){
 }
 async function confirmRoom(){
   if($('confirm-room').disabled)return;
-  const result=await call('/api/command',{op:'confirm_room'},'Room alignment confirmation queued.');
-  if(result)view.setOperatorStatus('Room alignment confirmation queued. Wait for the runtime receipt.');
+  if(world.spatial?.layoutReviewPending){
+    feedback('Review the digital layout and its physical clearance in the headset first.',true);return;
+  }
+  const result=await call('/api/command',{op:'confirm_room'},'Measured room outline confirmation queued.');
+  if(result)view.setOperatorStatus('Measured room outline confirmation queued. Wait for the runtime receipt.');
 }
 async function saveWorld(){
   if(world.digitalWorldVisit){feedback('Leave the AR visit before making a manual checkpoint. Browser progress continues to save.',true);return;}
@@ -1022,7 +1035,7 @@ async function saveWorld(){
   catch(error){feedback(`World checkpoint could not be saved: ${error.message}`,true);return;}
   const warning=saveCheckpoint(value.scene,value.game,localStorage,value.originBinding,
     value.originAnchorHandle,value.citizens??null,value.creatorMode,value.rigidGravity,
-    value.controlStates,value.rigidMotion);
+    value.controlStates,value.rigidMotion,value.arLayoutOffset);
   if(warning){feedback(warning,true);view.setOperatorWorldNotice('Browser checkpoint failed.','error');return;}
   view.setOperatorWorldNotice('Saved in browser · saving PC scene backup…','pending');
   const name=`WebWorld_${new Date().toISOString().replace(/[-:T.Z]/g,'').slice(0,14)}`;
@@ -1318,6 +1331,34 @@ function changeCreatorMode(action){
 }
 
 function panelAction(action){
+  if(/^layout-(forward|back|left|right|turn-left|turn-right)$/.test(action)){
+    if(pendingWorld||pcWorldBusy||worldSwitchBusy||bridge.inFlight||
+       bridge.receiptWaiters.size||bridge.commandGuards.size||
+       agentClient?.status?.activeTurnId||agentClient?.status?.pendingApprovals?.length||
+       agentActionBusy||voiceJob||proposal||gameProposal||pendingBlenderReceiptIds.size){
+      feedback('Finish the active Operator turn or world exchange before placing the digital layout.',true);return;
+    }
+    try{
+      const offset=view.adjustARLayout(action);
+      discardProposal();
+      bridge.rejectPendingOnNextExchange=
+        'Digital layout moved before this command ran; inspect the room and retry';
+      void bridge.tick(true);
+      const message=`Digital layout x ${offset.x.toFixed(2)} m, z ${offset.z.toFixed(2)} m, yaw ${offset.yawDegrees}°. Check object clearance and room outlines before measured edits.`;
+      const durable=confirmedDurableWorld();
+      feedback(durable?message:
+        `${message} Browser save was not verified; keep this tab open and inspect the save warning.`,
+      !durable);
+    }catch(error){feedback(error.message,true);}
+    return;
+  }
+  if(action==='confirm-layout'){
+    try{
+      view.confirmARLayoutReview();
+      feedback('Digital layout review recorded for this AR session. Check room outlines, then confirm them separately to enable measured edits.');
+    }catch(error){feedback(error.message,true);}
+    return;
+  }
   const panoramaRetry=/^panorama-retry-([1-9]\d*)$/.exec(action);
   if(panoramaRetry){
     agentAction(()=>panoramaUI._run(()=>panoramaUI.retryPreviewVersion(Number(panoramaRetry[1]))));

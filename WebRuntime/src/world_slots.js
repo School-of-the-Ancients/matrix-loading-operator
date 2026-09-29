@@ -116,6 +116,7 @@ function runtimeCopy(world){
     citizens:world.citizens??null,selection:world.selection,
     virtualScene:world.virtualScene,
     originBinding:world.originBinding,originAnchorHandle:world.originAnchorHandle,
+    arLayoutOffset:world.arLayoutOffset,
     arEntryContent:world.arEntryContent,undo:world.undo,
     redo:world.redo,creatorMode:world.creatorMode,
     controlStates:world.controlStates,
@@ -131,7 +132,7 @@ function runtimeCopy(world){
 
 function restoreRuntime(world,copy){
   for(const key of ['scene','game','citizens','selection','virtualScene','originBinding',
-    'originAnchorHandle','arEntryContent','undo','redo','creatorMode','controlStates','rigidGravity',
+    'originAnchorHandle','arLayoutOffset','arEntryContent','undo','redo','creatorMode','controlStates','rigidGravity',
     'pendingRigidMotion',
     'physicsBodies','physicsVerification','renderedVerification','authoredGeneration',
     'placementWorldEpoch'])

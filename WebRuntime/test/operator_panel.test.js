@@ -296,6 +296,112 @@ test('XR WORLD panel can select, create and restore archived worlds with guarded
   }
 });
 
+test('XR layout page exposes movement then separate clearance and room-outline decisions',()=>{
+  const context={fillRect(){},strokeRect(){},fillText(){},measureText(){return {width:0};}};
+  const previousDocument=globalThis.document;
+  globalThis.document={createElement:kind=>{
+    assert.equal(kind,'canvas');return {width:0,height:0,getContext:()=>context};
+  }};
+  try{
+    const panel=operatorPanel(),hit=(x,y)=>panel.hit({x:x/1024,y:1-y/768});
+    panel.setXRMode('ar');panel.toggleWorld();
+    panel.setWorldInfo({objects:4,alignment:'Digital layout review required',
+      canPlaceLayout:true,layoutReviewPending:true,
+      arLayoutOffset:{x:.25,z:-.5,yawDegrees:15}});
+    assert.equal(hit(500,365),'open-layout');
+    panel.openLayout();
+    assert.equal(hit(200,345),'layout-forward');
+    assert.equal(hit(730,345),'layout-back');
+    assert.equal(hit(200,415),'layout-left');
+    assert.equal(hit(730,415),'layout-right');
+    assert.equal(hit(250,485),'layout-turn-left');
+    assert.equal(hit(730,485),'layout-turn-right');
+    assert.equal(hit(500,560),'confirm-layout');
+    assert.equal(hit(500,680),'voice','room review leaves the voice footer usable');
+    panel.setWorldInfo({objects:4,alignment:'Check outlines',canPlaceLayout:true,
+      canConfirm:true,layoutReviewPending:false,
+      arLayoutOffset:{x:.25,z:-.5,yawDegrees:15}});
+    assert.equal(hit(500,560),'confirm-room');
+    panel.toggleWorld();
+    assert.equal(hit(200,365),'confirm-room','outlines can be confirmed from WORLD');
+    assert.equal(hit(800,365),'open-layout','layout can still be adjusted from WORLD');
+    panel.openLayout();
+    panel.setWorldInfo({objects:4,alignment:'Room origin unavailable',
+      canPlaceLayout:false,layoutReviewPending:false,
+      arLayoutOffset:{x:.25,z:-.5,yawDegrees:15}});
+    assert.equal(hit(200,345),null,'tracking loss hides movement controls');
+  }finally{
+    if(previousDocument===undefined)delete globalThis.document;
+    else globalThis.document=previousDocument;
+  }
+});
+
+test('XR room-review controls paint separately from the fixed footer',()=>{
+  const drawn=[];
+  let rect=null;
+  const context={
+    fillRect(x,y,w,h){rect={x,y,w,h};},strokeRect(){},
+    fillText(label,x,y){
+      if(rect&&x===rect.x+rect.w/2&&y===rect.y+rect.h/2)
+        drawn.push({label:String(label),...rect});
+    },measureText(){return {width:0};}
+  };
+  const previousDocument=globalThis.document;
+  globalThis.document={createElement:kind=>{
+    assert.equal(kind,'canvas');return {width:0,height:0,getContext:()=>context};
+  }};
+  try{
+    const panel=operatorPanel(),hit=(x,y)=>panel.hit({x:x/1024,y:1-y/768});
+    panel.setXRMode('ar');panel.toggleWorld();
+    const pending={objects:4,alignment:'Digital layout review required',
+      canPlaceLayout:true,layoutReviewPending:true,
+      arLayoutOffset:{x:0,z:0,yawDegrees:0}};
+    const footer=new Set(['HOLD TO SPEAK','PIN TO WALL','VOICE ON','NEXT']);
+    const verify=expected=>{
+      const controls=drawn.filter(item=>expected.has(item.label));
+      assert.equal(controls.length,expected.size);
+      const footerRects=drawn.filter(item=>footer.has(item.label));
+      assert.equal(footerRects.length,footer.size);
+      for(const item of controls){
+        assert.ok(item.y+item.h<636,`${item.label} must end above the footer`);
+        assert.equal(hit(item.x+item.w/2,item.y+item.h/2),
+          expected.get(item.label),`${item.label} hit rectangle matches its painted button`);
+        for(const fixed of footerRects)
+          assert.ok(item.x+item.w<=fixed.x||fixed.x+fixed.w<=item.x||
+            item.y+item.h<=fixed.y||fixed.y+fixed.h<=item.y,
+          `${item.label} overlaps ${fixed.label}`);
+      }
+    };
+    drawn.length=0;panel.setWorldInfo(pending);
+    verify(new Map([['REVIEW DIGITAL LAYOUT','open-layout']]));
+    drawn.length=0;panel.setWorldInfo({...pending,layoutReviewPending:false,
+      canConfirm:true,alignment:'Check outlines'});
+    verify(new Map([
+      ['OUTLINES MATCH — ENABLE MEASURED EDITS','confirm-room'],
+      ['MOVE / TURN LAYOUT','open-layout']
+    ]));
+    panel.setWorldInfo(pending);
+    drawn.length=0;panel.openLayout();
+    verify(new Map([
+      ['FORWARD','layout-forward'],['BACK','layout-back'],
+      ['LEFT','layout-left'],['RIGHT','layout-right'],
+      ['TURN LEFT','layout-turn-left'],['TURN RIGHT','layout-turn-right'],
+      ['I CHECKED SCENE CLEARANCE','confirm-layout']
+    ]));
+    drawn.length=0;panel.setWorldInfo({...pending,layoutReviewPending:false,
+      canConfirm:true,alignment:'Check outlines'});
+    verify(new Map([
+      ['FORWARD','layout-forward'],['BACK','layout-back'],
+      ['LEFT','layout-left'],['RIGHT','layout-right'],
+      ['TURN LEFT','layout-turn-left'],['TURN RIGHT','layout-turn-right'],
+      ['OUTLINES MATCH · ENABLE MEASURED EDITS','confirm-room']
+    ]));
+  }finally{
+    if(previousDocument===undefined)delete globalThis.document;
+    else globalThis.document=previousDocument;
+  }
+});
+
 test('Hide remains reachable on every Operator page',()=>{
   const context={fillRect(){},strokeRect(){},fillText(){},measureText(){return {width:0};}};
   const previousDocument=globalThis.document;

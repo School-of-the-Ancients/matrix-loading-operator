@@ -12,6 +12,7 @@ export function captureWorldRestoreGuard(world){
     controlStates:world.controlStates,rigidGravity:world.rigidGravity,
     undo:world.undo,redo:world.redo,
     originBinding:world.originBinding,originAnchorHandle:world.originAnchorHandle,
+    arLayoutOffset:world.arLayoutOffset,
     agentGrab:world.agentGrab,pendingRigidMotion:world.pendingRigidMotion,
     spatial:world.spatial?{originUnavailable:world.spatial.originUnavailable,
       stale:world.spatial.stale}:null});
@@ -51,6 +52,7 @@ export async function applyPCWorld(world,saved,sync){
   const previous={scene:structuredClone(world.scene),game:structuredClone(world.game),
     citizens:structuredClone(world.citizens??null),selection:structuredClone(world.selection),
     originBinding:world.originBinding,originAnchorHandle:world.originAnchorHandle,
+    arLayoutOffset:world.arLayoutOffset,
     undo:structuredClone(world.undo),redo:structuredClone(world.redo),
     creatorMode:structuredClone(world.creatorMode),rigidGravity:structuredClone(world.rigidGravity),
     pendingRigidMotion:structuredClone(world.pendingRigidMotion),
@@ -76,6 +78,7 @@ export async function applyPCWorld(world,saved,sync){
     world.controlStates=previous.controlStates;
     world.originBinding=previous.originBinding;
     world.originAnchorHandle=previous.originAnchorHandle;
+    world.arLayoutOffset=previous.arLayoutOffset;
     world.selection=previous.selection;world.undo=previous.undo;world.redo=previous.redo;
     world.physicsBodies=previous.physicsBodies;
     world.physicsVerification=previous.physicsVerification;

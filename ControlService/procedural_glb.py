@@ -40,6 +40,17 @@ def boxes_for(spec):
             (-width / 2, height * .82, -depth / 2, width / 2, height, depth / 2, 1)]
 
 
+def local_bounds_for(spec):
+    """Measure the generated boxes in the GLB's own metre-space coordinates."""
+    boxes = boxes_for(spec)
+    low = [min(box[axis] for box in boxes) for axis in range(3)]
+    high = [max(box[axis + 3] for box in boxes) for axis in range(3)]
+    return {"center": {axis: (low[index] + high[index]) / 2
+                       for index, axis in enumerate(("x", "y", "z"))},
+            "size": {axis: high[index] - low[index]
+                     for index, axis in enumerate(("x", "y", "z"))}}
+
+
 def build_glb(spec):
     positions, normals, colors, indices = [], [], [], []
     palette = PALETTES[spec["palette"]]

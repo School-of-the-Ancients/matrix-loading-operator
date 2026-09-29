@@ -1,8 +1,17 @@
 import {storedWorld} from './scene_store.js';
+import {checkedARLayoutOffset,DEFAULT_AR_LAYOUT_OFFSET} from './ar_layout.js';
 
 export const ROOM_ANCHOR_KEY='matrix-web-room-anchor-v1';
 export const ROOM_ARCHIVES_KEY='matrix-web-room-archives-v1';
 const MAX_ARCHIVES=3;
+const hasLayout=offset=>JSON.stringify(offset)!==JSON.stringify(DEFAULT_AR_LAYOUT_OFFSET);
+function validArchiveLayout(item){
+  if(!Object.hasOwn(item,'arLayoutOffset'))return true;
+  try{
+    return typeof item.anchorHandle==='string'&&!!item.anchorHandle&&
+      hasLayout(checkedARLayoutOffset(item.arLayoutOffset));
+  }catch{return false;}
+}
 
 export function hasWorldToProtect(world){
   return world.scene.objects.length>0||world.scene.environment!==undefined||
@@ -17,7 +26,7 @@ export function roomArchives(storage){
   catch{throw Error('Room recovery archive is invalid; export it before resetting the room');}
   if(!Array.isArray(archives)||archives.length>MAX_ARCHIVES||
      !archives.every(item=>item?.version===1&&typeof item.archiveId==='string'&&
-       item.world?.scene&&Object.hasOwn(item.world,'game')&&
+       item.world?.scene&&Object.hasOwn(item.world,'game')&&validArchiveLayout(item)&&
        (item.world.version===2&&!Object.hasOwn(item.world,'citizens')||
         item.world.version===3&&item.world.citizens!==null&&
           typeof item.world.citizens==='object'&&!Array.isArray(item.world.citizens))))
@@ -39,9 +48,15 @@ function archiveAndStartRoom(world,storage,keepWorld){
     throw Error('Session-only physical objects cannot be archived; exit AR and retry recovery before resetting the room');
   const archives=roomArchives(storage);
   if(archives.length>=MAX_ARCHIVES)throw Error('Three room recovery archives already exist; export them before resetting again');
+  const oldLayout=checkedARLayoutOffset(world.arLayoutOffset);
+  const oldHandle=(world.originBinding==='ar'&&world.originAnchorHandle)||
+    storage.getItem(ROOM_ANCHOR_KEY)||null;
+  if(hasLayout(oldLayout)&&
+     (world.originBinding!=='ar'||!world.originAnchorHandle))
+    throw Error('AR layout has no verified room anchor to archive');
   const archive={version:1,archiveId:crypto.randomUUID(),archivedAtUtc:new Date().toISOString(),
-    anchorHandle:(world.originBinding==='ar'&&world.originAnchorHandle)||
-      storage.getItem(ROOM_ANCHOR_KEY)||null,world:storedWorld(world)};
+    anchorHandle:oldHandle,world:storedWorld(world),
+    ...(hasLayout(oldLayout)?{arLayoutOffset:oldLayout}:{})};
   const serialized=JSON.stringify([...archives,archive]);
   storage.setItem(ROOM_ARCHIVES_KEY,serialized);
   if(storage.getItem(ROOM_ARCHIVES_KEY)!==serialized)throw Error('Room archive could not be verified');
@@ -58,12 +73,14 @@ function archiveAndStartRoom(world,storage,keepWorld){
   }
   world.originBinding=keepWorld?'ar':'virtual';
   world.originAnchorHandle=null;
+  world.arLayoutOffset={...DEFAULT_AR_LAYOUT_OFFSET};
   world.resetAROriginBaseline();
   world.selection={anchorId:'web-floor',objectId:'',position:{x:0,y:0,z:-2}};
   if(world.virtualScene)world.virtualScene.selection=structuredClone(world.selection);
   world.undo=[];world.redo=[];
   if(world.virtualScene){world.virtualScene.undo=[];world.virtualScene.redo=[];}
   world.spatial.alignmentVerified=false;
+  world.spatial.layoutReviewPending=keepWorld&&hasWorldToProtect(world);
   world.spatial.stale=false;
   // The new room remains read-only until its new anchor has a tracked pose.
   world.spatial.originUnavailable=true;

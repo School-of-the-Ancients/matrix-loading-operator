@@ -302,6 +302,7 @@ test('AR virtual-floor world switches retain origin provenance and roll back saf
   const {world}=completedWorld();
   world.enterAR();
   world.originBinding='ar';world.originAnchorHandle='saved-room-handle';
+  world.arLayoutOffset={x:.5,z:-.25,yawDegrees:15};
   const original=storedBrowserWorld(world);
   assert.equal(saveStoredWorld(original,tab,durable),'');
   const beforeScene=structuredClone(world.scene);
@@ -315,6 +316,7 @@ test('AR virtual-floor world switches retain origin provenance and roll back saf
   const next=startNewWorld(world,tab,durable,'AR playground');
   assert.equal(world.scene.objects.length,0);
   assert.equal(world.originBinding,'ar');
+  assert.deepEqual(world.arLayoutOffset,{x:0,z:0,yawDegrees:0});
   restoreWorldArchive(world,next.archived.archiveId,tab,durable,'AR empty world');
   assert.deepEqual(storedBrowserWorld(world),original);
 });

@@ -6,6 +6,7 @@ import {createCreatorMode,restoredCreatorMode} from './creator_mode.js';
 import {validateControlStates} from './protocol.js';
 import {RigidPhysics,eulerDegreesToQuaternion} from './physics_rigid.js';
 import {matchingEnvironmentAsset} from './environment.js';
+import {checkedARLayoutOffset,DEFAULT_AR_LAYOUT_OFFSET} from './ar_layout.js';
 export const TAB_SCENE_KEY='matrix-web-scene';
 export const DURABLE_SCENE_KEY='matrix-web-scene-v1';
 export const WORLD_KEY='matrix-web-world-v2';
@@ -23,6 +24,13 @@ const validEnvelope=value=>value&&value.scene&&typeof value.scene==='object'&&
   (value.version===2?!Object.hasOwn(value,'citizens'):
     value.version===3&&Object.hasOwn(value,'citizens')&&value.citizens!==null&&
       typeof value.citizens==='object'&&!Array.isArray(value.citizens));
+
+function checkedSavedARLayout(value,binding=value.originBinding,anchorHandle=value.originAnchorHandle){
+  const offset=checkedARLayoutOffset(value.arLayoutOffset);
+  if(Object.hasOwn(value,'arLayoutOffset')&&(binding!=='ar'||!anchorHandle))
+    throw Error('Saved AR layout has no verified room anchor');
+  return offset;
+}
 
 function retiresCitizensBinding(previous,next){
   if(previous?.version!==3||next?.version!==3)return false;
@@ -157,15 +165,21 @@ export function storedWorld(world){
 // scene/game/Citizens envelope is intentionally renderer-neutral and exact.
 export function storedBrowserWorld(world){
   world.markAROriginIfChanged();
+  const arLayoutOffset=checkedARLayoutOffset(world.arLayoutOffset);
+  const hasLayout=JSON.stringify(arLayoutOffset)!==JSON.stringify(DEFAULT_AR_LAYOUT_OFFSET);
+  if(hasLayout&&(world.originBinding!=='ar'||!world.originAnchorHandle))
+    throw Error('AR layout needs its verified room anchor before saving');
   return {...storedWorld(world),originBinding:world.originBinding,
     ...(world.originBinding==='ar'&&world.originAnchorHandle?
-      {originAnchorHandle:world.originAnchorHandle}:{})};
+      {originAnchorHandle:world.originAnchorHandle}:{}),
+    ...(hasLayout?{arLayoutOffset}:{})};
 }
 
 export function saveStoredWorld(value,tabStorage,durableStorage){
   let json,latest;
   try{
     if(!validEnvelope(value))throw Error('Invalid world save envelope');
+    checkedSavedARLayout(value);
     if(Object.hasOwn(value,'rigidMotion'))checkedRigidMotion(value.scene,value.rigidMotion);
     latest=loadStoredWorld(tabStorage,durableStorage);
     lastSavedAtMs=Math.max(lastSavedAtMs,savedAt(latest?.value));
@@ -374,6 +388,7 @@ export function restoreStoredWorld(world,value,{waitForWebAssets=false,validateO
   const anchorHandle=value.originAnchorHandle??null;
   if(anchorHandle!==null&&(binding!=='ar'||typeof anchorHandle!=='string'||!anchorHandle))
     throw Error('Invalid world origin anchor handle');
+  const arLayoutOffset=checkedSavedARLayout(value,binding,anchorHandle);
   if(world.spatial&&hasSavedWorldContent(value)&&binding==='unknown')
     throw Error('Saved world has an unverified room origin; restore it in VR before rebasing');
   if(world.spatial&&binding==='ar'&&hasSavedWorldContent(value)&&
@@ -430,6 +445,7 @@ export function restoreStoredWorld(world,value,{waitForWebAssets=false,validateO
     controlStates:world.controlStates,pendingRigidMotion:world.pendingRigidMotion,
     agentGrab:world.agentGrab,
     originBinding:world.originBinding,originAnchorHandle:world.originAnchorHandle,
+    arLayoutOffset:world.arLayoutOffset,
     undo:world.undo,redo:world.redo,authoredGeneration:world.authoredGeneration,
     placementWorldEpoch:world.placementWorldEpoch,
     rigidSceneReference:world.rigidSceneReference,
@@ -450,6 +466,7 @@ export function restoreStoredWorld(world,value,{waitForWebAssets=false,validateO
     world.originBinding=world.spatial&&world.originBinding==='ar'?'ar':binding;
     world.originAnchorHandle=world.spatial&&world.originBinding==='ar'&&binding!=='ar'?
       world.originAnchorHandle:anchorHandle;
+    world.arLayoutOffset=arLayoutOffset;
     world.undo=[];world.redo=[];
   }catch(error){
     world.scene=previous.scene;
@@ -464,6 +481,7 @@ export function restoreStoredWorld(world,value,{waitForWebAssets=false,validateO
     world.agentGrab=previous.agentGrab;
     world.originBinding=previous.originBinding;
     world.originAnchorHandle=previous.originAnchorHandle;
+    world.arLayoutOffset=previous.arLayoutOffset;
     world.undo=previous.undo;world.redo=previous.redo;
     world.authoredGeneration=previous.authoredGeneration;
     world.placementWorldEpoch=previous.placementWorldEpoch;
@@ -480,8 +498,12 @@ const hasSavedWorldContent=value=>value.scene.objects?.length>0||
 
 export function saveCheckpoint(scene,game,storage,originBinding,originAnchorHandle,
   citizens=null,creatorMode=undefined,rigidGravity=undefined,controlStates=undefined,
-  rigidMotion=undefined){
+  rigidMotion=undefined,arLayoutOffset=undefined){
   try{
+    const layout=checkedARLayoutOffset(arLayoutOffset);
+    const hasLayout=JSON.stringify(layout)!==JSON.stringify(DEFAULT_AR_LAYOUT_OFFSET);
+    if(hasLayout&&(originBinding!=='ar'||!originAnchorHandle))
+      throw Error('AR layout needs its verified room anchor before saving');
     if(scene.objects.some(object=>object.rigidBody?.type==='dynamic')&&!rigidMotion)
       throw Error('Moving-body state is required for a new world checkpoint');
     storage.setItem(CHECKPOINT_KEY,JSON.stringify({version:citizens==null?2:3,scene,game,
@@ -494,7 +516,8 @@ export function saveCheckpoint(scene,game,storage,originBinding,originAnchorHand
       controlSchemaVersion:1,controlStates:validateControlStates(controlStates,scene)}:{}),
     ...(rigidMotion?{rigidMotion:checkedRigidMotion(scene,rigidMotion)}:{}),
     ...(originBinding?{originBinding}:{}),
-    ...(originBinding==='ar'&&originAnchorHandle?{originAnchorHandle}:{})}));return '';}
+    ...(originBinding==='ar'&&originAnchorHandle?{originAnchorHandle}:{}),
+    ...(hasLayout?{arLayoutOffset:layout}:{})}));return '';}
   catch(error){return `World checkpoint could not be saved: ${error.message}`;}
 }
 

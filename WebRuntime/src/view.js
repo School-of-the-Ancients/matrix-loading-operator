@@ -1,4 +1,5 @@
 import * as THREE from 'three';
+import {adjustedARLayoutOffset,composeARLayoutPose,webFloorLayoutPivot} from './ar_layout.js';
 import {GLTFLoader} from 'three/addons/loaders/GLTFLoader.js';
 import {XRSessionController} from './xr_session.js';
 import {beginGrab,moveGrab,moveGrabThumbstick,rotateGrabThumbstick,sampleHeldMotion,heldReleaseMotion,finishGrab,beginPointerGrab,movePointerGrab,movePointerGrabVertical,finishPointerGrab,moveDesktopCamera} from './grab.js';
@@ -233,10 +234,17 @@ export function operatorPanel({createImage=()=>new Image()}={}){
       }
       if(worldInfo.originUnavailable&&worldInfo.canRetryOrigin)
         button('retry-room-origin','RETRY SAVED ROOM ORIGIN',55,328,914,76,true);
-      else if(worldInfo.canConfirm)button('confirm-room','OUTLINES ALIGN — ENABLE EDITING',55,328,914,76,true);
+      else if(worldInfo.canConfirm&&worldInfo.canPlaceLayout){
+        button('confirm-room','OUTLINES MATCH — ENABLE MEASURED EDITS',55,328,600,76,true);
+        button('open-layout','MOVE / TURN LAYOUT',670,328,300,76);
+      }
+      else if(worldInfo.canConfirm)button('confirm-room','OUTLINES MATCH — ENABLE MEASURED EDITS',55,328,914,76,true);
+      else if(worldInfo.canPlaceLayout)
+        button('open-layout',worldInfo.layoutReviewPending?'REVIEW DIGITAL LAYOUT':
+          'MOVE / TURN DIGITAL LAYOUT',55,328,914,76,true);
       else {ctx.fillStyle='#8bb8c2';ctx.font='24px sans-serif';ctx.fillText(
         worldInfo.originUnavailable?worldInfo.resetAvailable?'Old world hidden. Choose a new room deliberately.':'Waiting for a tracked room anchor.':
-        worldInfo.alignment==='AR room aligned'?'Room confirmed; measured editing enabled.':
+        worldInfo.alignment==='Room outlines confirmed'?'Room outlines confirmed; inspect each object for clearance.':
         'Room confirmation appears when AR support planes are detected.',55,380);}
       ctx.fillStyle='#8bb8c2';ctx.font='21px sans-serif';
       ctx.fillText(`Camera: ${cameraStatus.slice(0,75)}`,55,424);
@@ -255,6 +263,31 @@ export function operatorPanel({createImage=()=>new Image()}={}){
         button('redo','REDO',55,535,285,76);
         button('toggle-archives','WORLDS',370,535,285,76);
         button('toggle-camera',cameraActive?'STOP CAMERA':'ENABLE CAMERA',685,535,285,76);
+      }
+    }else if(mode==='layout'){
+      const offset=worldInfo.arLayoutOffset||{x:0,z:0,yawDegrees:0};
+      ctx.fillStyle='#dff7f8';ctx.font='bold 33px sans-serif';
+      ctx.fillText('Place the digital layout in this room',55,180);
+      ctx.font='23px sans-serif';ctx.fillStyle='#8bb8c2';
+      ctx.fillText(`Offset x ${offset.x.toFixed(2)} m · z ${offset.z.toFixed(2)} m · yaw ${offset.yawDegrees}°`,55,225);
+      ctx.fillText('Move 0.25 m; turn 15° around object group. Authored poses stay the same.',55,265,925);
+      ctx.fillText('Room outlines do not prove object support or clearance; inspect each object.',55,300,925);
+      if(worldInfo.canPlaceLayout){
+        button('layout-forward','FORWARD',55,315,440,60);
+        button('layout-back','BACK',525,315,445,60);
+        button('layout-left','LEFT',55,385,440,60);
+        button('layout-right','RIGHT',525,385,445,60);
+        button('layout-turn-left','TURN LEFT',55,455,440,60);
+        button('layout-turn-right','TURN RIGHT',525,455,445,60);
+        if(worldInfo.layoutReviewPending)
+          button('confirm-layout','I CHECKED SCENE CLEARANCE',55,525,914,70,true);
+        else if(worldInfo.canConfirm)
+          button('confirm-room','OUTLINES MATCH · ENABLE MEASURED EDITS',55,525,914,70,true);
+        else {ctx.fillStyle='#8bb8c2';ctx.font='21px sans-serif';
+          ctx.fillText('After placement, check outlines and confirm on the World panel.',55,580,920);}
+      }else{
+        ctx.fillStyle='#ffad8d';ctx.font='23px sans-serif';
+        ctx.fillText('Room anchor, tracking, or Creator Mode is unavailable. Return to World.',55,390,920);
       }
     }else if(mode==='archives'){
       ctx.fillStyle='#dff7f8';ctx.font='bold 36px sans-serif';
@@ -428,7 +461,8 @@ export function operatorPanel({createImage=()=>new Image()}={}){
     paint();
   };
   const setPinLabel=next=>{pinLabel=next;paint();};
-  const setXRMode=next=>{xrMode=next;if(mode==='world')paint();};
+  const setXRMode=next=>{xrMode=next;if(!next&&mode==='layout')mode='world';
+    if(mode==='world'||mode==='layout')paint();};
   const setVoiceLabel=next=>{voiceLabel=next;paint();};
   const setVoiceInputLabel=next=>{if(voiceInputLabel!==next){voiceInputLabel=next;paint();}};
   const setOriginLabel=next=>{if(originLabel!==next){originLabel=next;paint();}};
@@ -488,6 +522,7 @@ export function operatorPanel({createImage=()=>new Image()}={}){
     if(creationMode!==next){creationMode=next;if(mode==='agent')paint();}
   };
   const toggleWorld=()=>{mode=mode==='world'?'chat':'world';page=0;paint();};
+  const openLayout=()=>{if(worldInfo.canPlaceLayout){mode='layout';page=0;paint();}};
   const toggleArchives=()=>{mode=mode==='archives'?'world':'archives';page=0;paint();};
   const toggleModePage=()=>{mode=mode==='modes'?'chat':'modes';page=0;paint();};
   const toggleAgent=()=>{if(mode==='concepts'||mode==='panoramas'){mode='agent';paint();return;}
@@ -508,7 +543,7 @@ export function operatorPanel({createImage=()=>new Image()}={}){
   paint();
   return {group,mesh,setMessage,setPinLabel,setXRMode,setVoiceLabel,setOriginLabel,setConversationCount,
     setProposal,setWorldInfo,setWorldNotice,setGameStatus,setCreatorMode,setWarning,setCameraStatus,
-    setAgentStatus,setConceptGallery,setPanoramaGallery,setCreationMode,setVoiceInputLabel,toggleWorld,toggleArchives,
+    setAgentStatus,setConceptGallery,setPanoramaGallery,setCreationMode,setVoiceInputLabel,toggleWorld,openLayout,toggleArchives,
     toggleModePage,toggleAgent,toggleConcepts,togglePanoramas,previousConcept,nextConcept,
     previousPanorama,nextPanorama,isAgentMode,openProposal,hit,nextPage};
 }
@@ -551,6 +586,8 @@ export class MatrixView {
     this.world=world;this.onSelection=onSelection;this.getToken=getToken;this.onAssetError=onAssetError;this.onSceneEdit=onSceneEdit;this.onRuntimeChange=onRuntimeChange;this.onVoiceStart=onVoiceStart;this.onVoiceEnd=onVoiceEnd;this.onVoiceOutputToggle=onVoiceOutputToggle;this.onVisualReview=onVisualReview;this.onNewChat=onNewChat;this.onPanelAction=()=>{};this.onFrame=()=>{};this.onAssetReadinessChange=()=>{};this.onPhysicsContacts=()=>{};this.onPlayInteraction=()=>{};
     this.readOnly=options.readOnly===true;
     this.observationStale=false;
+    this.appliedARLayoutKey=JSON.stringify(world.arLayoutOffset);
+    this.appliedARWorldEpoch=world.placementWorldEpoch;
     this.container=container;this.objectRoots=new Map();this.anchorRoots=new Map();this.planeOutlines=new Map();this.planeIds=new WeakMap();this.nextPlaneId=0;this.hitSource=null;this.reticleVisible=false;this.xrViewer=null;this.xrViewerCapturedAt=0;this.roomTrackingEpoch=0;this.reticleAnchorId='';this.lastPlaneTime=0;this.lastPlaneObservedAt=null;
     this.modelCache=new Map();this.environmentTextures=new Map();
     this.environmentLoads=new Map();this.environmentFailures=new Map();
@@ -654,6 +691,8 @@ export class MatrixView {
     const session=this.renderer.xr.getSession();this.isAR=session.environmentBlendMode!=='opaque';
     advanceRoomTrackingEpoch(this);
     this.xrViewer=null;this.xrViewerCapturedAt=0;
+    this.appliedARLayoutKey=JSON.stringify(this.world.arLayoutOffset);
+    this.appliedARWorldEpoch=this.world.placementWorldEpoch;
     this.world.runtimePresentation=this.isAR?'ar':'vr';
     document.getElementById('xr-exit').textContent=this.isAR?'Exit AR':'Exit VR';
     if(session.domOverlayState)document.getElementById('xr-overlay').style.display='';
@@ -661,7 +700,7 @@ export class MatrixView {
     this.operatorPanel.group.visible=!this.readOnly;
     this.operatorMount={kind:'head'};this.operatorPanel.setPinLabel(this.isAR?'PIN TO WALL':'PIN HERE');
     this.operatorThumbstickHeld=false;
-    this.sessionStartedAt=performance.now();this.roomCaptureRequested=false;this.virtualFloorCalibrated=false;this.roomAnchorCreationFailed=false;this.roomAnchorRestoreFailed=false;this.roomAnchorLocated=false;this.roomPoseMissingSince=0;this.lastPlaneTime=0;
+    this.sessionStartedAt=performance.now();this.roomCaptureRequested=false;this.virtualFloorCalibrated=false;this.roomAnchorCreationFailed=false;this.roomAnchorRestoreFailed=false;this.roomAnchorLocated=false;this.roomAnchorPose=null;this.roomPoseMissingSince=0;this.lastPlaneTime=0;
     if(this.isAR)this.world.enterAR({visitDigitalWorld:this.world.canVisitDigitalWorld()});
     publishSpatialObservation(this);
     this.restoreRoomAnchor(session);
@@ -684,7 +723,7 @@ export class MatrixView {
   }
   restoreRoomAnchor(session){
     if(!this.isAR)return;
-    this.roomAnchor=null;this.roomAnchorPending=false;this.roomAnchorPersistent=false;this.roomAnchorRestoredHandle=null;this.roomAnchorHandleAvailable=false;this.roomPoseMissingSince=0;
+    this.roomAnchor=null;this.roomAnchorPending=false;this.roomAnchorPersistent=false;this.roomAnchorRestoredHandle=null;this.roomAnchorHandleAvailable=false;this.roomAnchorPose=null;this.roomPoseMissingSince=0;
     // A digital world visit gets a fresh view anchor. The existing saved AR
     // room handle belongs to physical placement, not to the digital scene.
     if(this.world.digitalWorldVisit){
@@ -765,7 +804,7 @@ export class MatrixView {
   }
   startNewRoomOrigin(){
     if(!this.isAR||!this.world.spatial?.originUnavailable)throw Error('Room origin reset requires an unavailable AR origin');
-    this.roomAnchor=null;this.roomAnchorPending=false;this.roomAnchorPersistent=false;this.roomAnchorRestoredHandle=null;
+    this.roomAnchor=null;this.roomAnchorPending=false;this.roomAnchorPersistent=false;this.roomAnchorRestoredHandle=null;this.roomAnchorPose=null;
     this.roomAnchorRestoreFailed=false;this.roomAnchorCreationFailed=false;this.roomAnchorLocated=false;this.roomAnchorHandleAvailable=false;this.roomPoseMissingSince=0;
     setRoomContentVisible(this,false);
   }
@@ -775,7 +814,8 @@ export class MatrixView {
     const yaw=Math.atan2(-forward.x,-forward.z);
     const orientation=new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(0,1,0),yaw);
     const position=new THREE.Vector3(head.x,floorHeight,head.z);
-    this.virtualFloorRoot.position.copy(position);this.virtualFloorRoot.quaternion.copy(orientation);
+    composeARLayoutPose(this.virtualFloorRoot,{transform:{position,orientation}},
+      this.world.arLayoutOffset);
     this.roomAnchorPending=true;
     const session=frame.session;
     let created;
@@ -803,6 +843,8 @@ export class MatrixView {
           const newlyBound=this.world.originBinding!=='ar'||this.world.originAnchorHandle!==handle;
           this.world.originBinding='ar';
           this.world.originAnchorHandle=handle;
+          if(newlyBound&&hasWorldToProtect(this.world))
+            this.world.spatial.layoutReviewPending=true;
           if(newlyBound&&hasWorldToProtect(this.world))this.onRuntimeChange();
         }
       }
@@ -821,6 +863,7 @@ export class MatrixView {
     if(!pose){
       if(!this.isAR)return;
       if(!this.roomPoseMissingSince){this.roomPoseMissingSince=performance.now();advanceRoomTrackingEpoch(this);}
+      this.roomAnchorPose=null;
       this.world.setOriginLocated(false);
       if(this.roomAnchorLocated||this.world.digitalWorldVisit&&
          !this.world.spatial?.originUnavailable){
@@ -842,9 +885,12 @@ export class MatrixView {
     }
     const wasUnavailable=!!this.world.spatial?.originUnavailable;
     this.roomPoseMissingSince=0;this.roomAnchorRestoreFailed=false;
-    this.virtualFloorRoot.position.copy(v3(pose.transform.position));
-    const {x,y,z,w}=pose.transform.orientation;
-    this.virtualFloorRoot.quaternion.set(x,y,z,w);
+    const {position,orientation}=pose.transform;
+    this.roomAnchorPose={transform:{
+      position:{x:position.x,y:position.y,z:position.z},
+      orientation:{x:orientation.x,y:orientation.y,z:orientation.z,w:orientation.w}}};
+    const layoutChanged=MatrixView.prototype.refreshARLayoutFromWorld.call(this);
+    composeARLayoutPose(this.virtualFloorRoot,this.roomAnchorPose,this.world.arLayoutOffset);
     this.roomAnchorLocated=true;
     this.virtualFloorCalibrated=true;
     const newlyBound=!this.world.digitalWorldVisit&&!!this.roomAnchorRestoredHandle&&
@@ -856,7 +902,63 @@ export class MatrixView {
     this.world.setOriginLocated(true);
     publishSpatialObservation(this);
     setRoomContentVisible(this,true);
-    if(wasUnavailable||newlyBound)this.onRuntimeChange();
+    if(wasUnavailable||newlyBound||layoutChanged)this.onRuntimeChange();
+  }
+  refreshARLayoutFromWorld(){
+    if(!this.isAR||!this.world.spatial||!this.roomAnchorLocated||!this.roomAnchorPose)
+      return false;
+    const key=JSON.stringify(this.world.arLayoutOffset);
+    const epoch=this.world.placementWorldEpoch;
+    if(this.appliedARLayoutKey===undefined||this.appliedARWorldEpoch===undefined){
+      this.appliedARLayoutKey=key;this.appliedARWorldEpoch=epoch;return false;
+    }
+    if(key===this.appliedARLayoutKey&&epoch===this.appliedARWorldEpoch)return false;
+    this.appliedARLayoutKey=key;
+    this.appliedARWorldEpoch=epoch;
+    composeARLayoutPose(this.virtualFloorRoot,this.roomAnchorPose,this.world.arLayoutOffset);
+    advanceRoomTrackingEpoch(this);
+    this.clearSelectedPoint();
+    this.world.spatial.alignmentVerified=false;
+    this.world.spatial.layoutReviewPending=true;
+    publishSpatialObservation(this);
+    return true;
+  }
+  adjustARLayout(action){
+    if(this.readOnly||!this.isAR||this.world.digitalWorldVisit||
+       !this.world.spatial||this.world.spatial.originUnavailable||this.world.spatial.stale||
+       !this.roomAnchorLocated||!this.roomAnchorPose||!this.roomAnchorPersistent||
+       this.world.originBinding!=='ar'||!this.world.originAnchorHandle||
+       !this.world.originFresh())
+      throw Error('Wait for a tracked persistent AR room origin before placing the digital layout');
+    if(localStorage.getItem(ROOM_ANCHOR_KEY)!==this.world.originAnchorHandle)
+      throw Error('Saved room anchor changed; recover it before placing the digital layout');
+    if(this.world.creatorMode.mode!=='creator'||this.world.creatorMode.simulation!=='paused'||
+       this.grab||this.pointerGrab||this.world.agentGrab||
+       this.world.rigidPhysics?.states().some(state=>state.held))
+      throw Error('Pause Creator Mode and release held objects before placing the digital layout');
+    const next=adjustedARLayoutOffset(this.world.arLayoutOffset,action,
+      webFloorLayoutPivot(this.world.scene.objects));
+    this.world.arLayoutOffset=next;
+    this.appliedARLayoutKey=JSON.stringify(next);
+    this.appliedARWorldEpoch=this.world.placementWorldEpoch;
+    composeARLayoutPose(this.virtualFloorRoot,this.roomAnchorPose,next);
+    advanceRoomTrackingEpoch(this);
+    this.clearSelectedPoint();
+    this.world.spatial.alignmentVerified=false;
+    this.world.spatial.layoutReviewPending=true;
+    publishSpatialObservation(this);
+    this.onRuntimeChange();
+    return next;
+  }
+  confirmARLayoutReview(){
+    if(this.readOnly||!this.isAR||!this.world.spatial?.layoutReviewPending||
+       this.world.spatial.originUnavailable||this.world.spatial.stale||
+       !this.roomAnchorLocated||!this.roomAnchorPersistent||!this.world.originFresh()||
+       this.world.originBinding!=='ar'||!this.world.originAnchorHandle||
+       localStorage.getItem(ROOM_ANCHOR_KEY)!==this.world.originAnchorHandle)
+      throw Error('A tracked persistent room anchor is required to review this digital layout');
+    this.world.spatial.layoutReviewPending=false;
+    this.onRuntimeChange();
   }
   onSessionEnd(){
     advanceRoomTrackingEpoch(this);
@@ -870,7 +972,7 @@ export class MatrixView {
     for(const ray of this.controllerRays)ray.visible=false;
     this.hitSource?.cancel();this.hitSource=null;this.reticle.visible=false;this.reticleVisible=false;this.reticleAnchorId='';
     this.xrViewer=null;this.xrViewerCapturedAt=0;this.planeIds=new WeakMap();this.nextPlaneId=0;this.clearPlanes();this.isAR=false;
-    this.roomAnchor=null;this.roomAnchorPending=false;this.roomAnchorPersistent=false;this.roomAnchorRestoredHandle=null;this.roomAnchorRestoreFailed=false;this.roomAnchorLocated=false;this.roomAnchorHandleAvailable=false;this.roomPoseMissingSince=0;
+    this.roomAnchor=null;this.roomAnchorPending=false;this.roomAnchorPersistent=false;this.roomAnchorRestoredHandle=null;this.roomAnchorRestoreFailed=false;this.roomAnchorLocated=false;this.roomAnchorHandleAvailable=false;this.roomAnchorPose=null;this.roomPoseMissingSince=0;
     setRoomContentVisible(this,true);this.virtualFloorRoot.position.set(0,0,0);this.virtualFloorRoot.quaternion.identity();this.virtualFloorCalibrated=false;
     this.world.leaveAR();this.world.runtimePresentation='desktop';this.sync();this.onRuntimeChange();
     document.getElementById('xr-overlay').style.display='none';document.getElementById('xr-exit').textContent='Exit AR';this.floor.visible=true;this.grid.visible=true;
@@ -1022,6 +1124,7 @@ export class MatrixView {
     }
   }
   sync(){
+    MatrixView.prototype.refreshARLayoutFromWorld.call(this);
     this.syncEnvironment();
     if(this.grab?.rigid)this.world.releaseRigidGrab?.(this.grab.objectId);
     if(this.pointerGrab?.rigid)this.world.releaseRigidGrab?.(this.pointerGrab.objectId);
@@ -1581,6 +1684,7 @@ export class MatrixView {
       if(action==='review-view')this.onVisualReview();
       else if(action==='exit-xr')void this.exitXR();
       else if(action==='toggle-world')this.operatorPanel.toggleWorld();
+      else if(action==='open-layout')this.operatorPanel.openLayout();
       else if(action==='toggle-archives')this.operatorPanel.toggleArchives();
       else if(action==='toggle-mode')this.operatorPanel.toggleModePage();
       else if(action==='toggle-agent')this.operatorPanel.toggleAgent();

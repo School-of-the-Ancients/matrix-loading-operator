@@ -8,6 +8,7 @@ import {storedWorld,storedBrowserWorld,saveStoredWorld,loadStoredWorld,
 import {viewerPose,planeData,insideBoundary,footprintInsideBoundary,
   footprintFitsRoomSupport,volumeIntersectsMeasuredPlane,
   matchPlaneAnchor,samePlaneShape,measuredFloorHeight} from '../src/spatial.js';
+import {surfaceToVirtualTransform} from '../src/room_surface_placement.js';
 
 const boundary=[{x:-2,y:0,z:-2},{x:2,y:0,z:-2},{x:2,y:0,z:2},{x:-2,y:0,z:2}];
 const anchor={anchorId:'webxr-plane-1',displayName:'FLOOR',source:'webxr',semanticLabels:['FLOOR'],
@@ -164,6 +165,72 @@ test('room-aware spawn retains the same AR pose through a rotated origin and sav
   assert.deepEqual(reopened.scene.objects,saved.scene.objects);
   assert.equal(reopened.scene.objects[0].objectId,placed.objectId);
   assert.equal(reopened.originAnchorHandle,'current-room-handle');
+});
+
+test('tracked room Euler wrap stores an upright measured spawn that can move by the same ID',()=>{
+  let sequence=0;
+  const world=new MatrixWorld(()=>`upright-${++sequence}`);
+  const floor={position:{x:-.874,y:-1.112,z:-.489},
+    rotation:{x:-179.91,y:-23.79,z:179.99},scale:{x:1,y:1,z:1}};
+  const support={...anchor,anchorId:'webxr-plane-7',displayName:'TABLE',
+    semanticLabels:['TABLE'],roomPose:{position:{x:.91,y:-.318,z:-.2},
+      rotation:{x:0,y:-43.02,z:0},scale:{x:1,y:1,z:1}},
+    surface:{kind:'support',boundary:[{x:-1.125,y:0,z:.307},
+      {x:1.125,y:0,z:.307},{x:1.125,y:0,z:-.307},
+      {x:-1.125,y:0,z:-.307}]}};
+  const at=position=>({position,rotation:{x:0,y:0,z:0},
+    scale:{x:.28,y:.28,z:.28}});
+  const first=at({x:.548,y:0,z:.016});
+  const durable=surfaceToVirtualTransform(first,support.roomPose,floor);
+  assert.equal(durable.rotation.x,0);
+  assert.equal(durable.rotation.z,0);
+  assert.ok(Math.abs(durable.rotation.y-113.17)<.2,
+    'the equivalent YXZ yaw is near 113 degrees, not the wrapped XYZ y value');
+  const q=pose=>new THREE.Quaternion().setFromEuler(new THREE.Euler(
+    ...['x','y','z'].map(axis=>THREE.MathUtils.degToRad(pose.rotation[axis])),'XYZ'));
+  const exact=q(floor).invert().multiply(q(support.roomPose)).multiply(q(first));
+  assert.ok(THREE.MathUtils.radToDeg(exact.angleTo(q(durable)))<.15,
+    'upright normalization preserves the observed facing within tracked pose precision');
+  world.enterAR();world.setSpatialAnchors([support]);world.setOriginLocated(true);
+  world.setSpatialObservation({planeObservedAt:performance.now(),trackingEpoch:2,
+    webFloorPose:floor});
+  assert.equal(world.execute({requestId:'upright-confirm',op:'confirm_room'}).ok,true);
+  const placed=world.execute({requestId:'upright-spawn',op:'spawn',assetId:'orb',
+    anchorId:support.anchorId,placement:'surface',transform:first,
+    roomConstraint:{anchorId:support.anchorId,trackingEpoch:2}});
+  assert.equal(placed.ok,true,placed.error);
+  assert.deepEqual(world.requireObject(placed.objectId).transform,durable);
+  const second={...durable,position:surfaceToVirtualTransform(
+    at({x:-.436,y:0,z:.053}),support.roomPose,floor).position};
+  assert.deepEqual(second.rotation,durable.rotation,
+    'a move that omits rotation keeps the canonical stored yaw');
+  const moved=world.execute({requestId:'upright-move',op:'set_transform',
+    objectId:placed.objectId,transform:second,
+    roomConstraint:{anchorId:support.anchorId,trackingEpoch:2}});
+  assert.equal(moved.ok,true,moved.error);
+  assert.equal(world.scene.objects.length,1);
+  assert.equal(world.scene.objects[0].objectId,placed.objectId);
+  assert.deepEqual(world.scene.objects[0].transform,second);
+  const saved=storedWorld(world);
+  world.leaveAR();
+  assert.deepEqual(world.scene.objects,saved.scene.objects);
+});
+
+test('surface spawn preserves genuinely tilted support orientation',()=>{
+  const world=new MatrixWorld();
+  const tilted={...anchor,roomPose:{...anchor.roomPose,
+    rotation:{x:25,y:0,z:0}}};
+  world.enterAR();world.setSpatialAnchors([tilted]);world.setOriginLocated(true);
+  world.setSpatialObservation({planeObservedAt:performance.now(),trackingEpoch:3,
+    webFloorPose:transform});
+  assert.equal(world.execute({requestId:'tilted-confirm',op:'confirm_room'}).ok,true);
+  const placed=world.execute({requestId:'tilted-spawn',op:'spawn',assetId:'orb',
+    anchorId:tilted.anchorId,placement:'surface',transform,
+    roomConstraint:{anchorId:tilted.anchorId,trackingEpoch:3}});
+  assert.equal(placed.ok,true,placed.error);
+  assert.equal(world.scene.objects.length,1);
+  assert.ok(Math.abs(world.scene.objects[0].transform.rotation.x)>20,
+    'a real slope keeps its measured orientation');
 });
 
 test('guarded placement uses the latest boundary even when display smoothing keeps the old plane',()=>{
@@ -483,6 +550,37 @@ test('surface footprint uses the horizontally recentered GLB bounds',()=>{
   assert.equal(valid.ok,true,'the recentered visible model fits');
   assert.equal(world.requireObject(valid.objectId).transform.position.y,0,
     'an imported GLB is already floor aligned by the renderer');
+});
+
+test('generated GLB needs registered metre bounds before measured table placement',()=>{
+  const digest='a'.repeat(64),assetId=`web:review-table-token:${digest.slice(0,12)}`;
+  const asset={assetId,displayName:'Review Table Token',description:'Copper pedestal',
+    spawnScale:1,sha256:digest,byteLength:4048,
+    url:`/api/web/assets/${digest}.glb`};
+  const world=new MatrixWorld(()=> 'table-token');
+  world.registerAssets([asset]);
+  world.enterAR();
+  const table={...anchor,anchorId:'table-review',displayName:'TABLE',
+    surface:{kind:'support',boundary:[{x:-1.125,y:0,z:-.307},
+      {x:1.125,y:0,z:-.307},{x:1.125,y:0,z:.307},{x:-1.125,y:0,z:.307}]}};
+  world.setSpatialAnchors([table]);world.setOriginLocated(true);
+  world.setSpatialObservation({planeObservedAt:performance.now(),trackingEpoch:7,
+    webFloorPose:anchor.roomPose});
+  assert.equal(world.execute({requestId:'confirm-table',op:'confirm_room'}).ok,true);
+  const command=requestId=>({requestId,op:'spawn',assetId,anchorId:table.anchorId,
+    placement:'surface',transform:{...transform,position:{x:.635,y:0,z:-.001},
+      scale:{x:.28,y:.28,z:.28}},
+    roomConstraint:{anchorId:table.anchorId,trackingEpoch:7}});
+  const denied=world.execute(command('without-bounds'));
+  assert.match(denied.error,/no measured bounds/);
+  assert.equal(world.scene.objects.length,0);
+  world.registerAssets([{...asset,localBounds:{center:{x:0,y:.25,z:0},
+    size:{x:.5,y:.5,z:.2}}}]);
+  const placed=world.execute(command('with-bounds'));
+  assert.equal(placed.ok,true,placed.error);
+  assert.equal(placed.outcome.supportAnchorId,table.anchorId);
+  assert.equal(world.scene.objects[0].objectId,placed.objectId);
+  assert.equal(world.scene.objects[0].assetId,assetId);
 });
 
 test('moving, duplicating, or loading a support object cannot bypass footprint validation',()=>{

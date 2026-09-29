@@ -578,6 +578,27 @@ test('startup recovery rejects old pending commands once, then accepts new comma
   }finally{globalThis.sessionStorage=previousStorage;}
 });
 
+test('layout change rejects a queued world switch before it can replace the placed scene',async()=>{
+  const previousStorage=globalThis.sessionStorage;
+  globalThis.sessionStorage={getItem:()=>null,setItem:()=>{}};
+  try{
+    const world=new MatrixWorld(()=> 'placed-object');
+    const pose={position:{x:0,y:0,z:-2},rotation:{x:0,y:0,z:0},scale:{x:1,y:1,z:1}};
+    assert.equal(world.execute({requestId:'initial',op:'spawn',assetId:'orb',
+      anchorId:'web-floor',transform:pose}).ok,true);
+    const before=structuredClone(world.scene);
+    const bridge=new MatrixBridge(world,()=>'',()=>{});
+    bridge.onWorldSlotCommand=()=>{throw Error('queued world switch must not execute');};
+    bridge.rejectPendingOnNextExchange=
+      'Digital layout moved before this command ran; inspect the room and retry';
+    bridge.request=async()=>({commands:[{requestId:'old-world-switch',op:'start_new_world'}]});
+    await bridge.exchange(null);
+    assert.deepEqual(world.scene,before);
+    assert.equal(bridge.receipts.get('old-world-switch').ok,false);
+    assert.match(bridge.receipts.get('old-world-switch').error,/Digital layout moved/);
+  }finally{globalThis.sessionStorage=previousStorage;}
+});
+
 test('typed archive receipts are read only and a world switch rejects old-batch commands',async()=>{
   const previousStorage=globalThis.sessionStorage;
   const values=new Map();

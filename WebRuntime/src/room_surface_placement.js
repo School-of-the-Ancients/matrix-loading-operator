@@ -17,9 +17,17 @@ export function surfaceToVirtualTransform(surfaceTransform,roomPose,webFloorPose
     .multiply(matrix(surfaceTransform));
   const position=new THREE.Vector3(),rotation=new THREE.Quaternion(),scale=new THREE.Vector3();
   inVirtual.decompose(position,rotation,scale);
-  const euler=new THREE.Euler().setFromQuaternion(rotation,'XYZ');
+  // The tracked floor can serialize an upright yaw as XYZ x/z near 180 degrees.
+  // Normalize small tracking tilt to the equivalent floor-upright yaw, so a
+  // later measured-support move can use the stored transform unchanged. Keep a
+  // genuinely tilted support's exact orientation instead of flattening it.
+  const yaw=new THREE.Euler().setFromQuaternion(rotation,'YXZ').y;
+  const upright=new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(0,1,0),yaw);
+  const nearUpright=rotation.angleTo(upright)<=THREE.MathUtils.degToRad(.25);
+  const full=new THREE.Euler().setFromQuaternion(rotation,'XYZ');
   return {position:plain(position),
-    rotation:Object.fromEntries(['x','y','z'].map(axis=>
-      [axis,rounded(THREE.MathUtils.radToDeg(euler[axis]))])),
+    rotation:nearUpright?{x:0,y:rounded(THREE.MathUtils.radToDeg(yaw)),z:0}:
+      Object.fromEntries(['x','y','z'].map(axis=>
+        [axis,rounded(THREE.MathUtils.radToDeg(full[axis]))])),
     scale:plain(scale)};
 }
