@@ -6,6 +6,7 @@ import {VoiceRecorder} from './voice.js';
 import {CameraStream,bindCameraPageLifecycle} from './camera_stream.js';
 import {bindXRPageLifecycle} from './xr_session.js';
 import {AgentClient,agentActivityLabel} from './agent_client.js';
+import {deliverAgentVoiceTranscript} from './agent_voice_delivery.js';
 import {ConceptUI} from './concept_ui.js';
 import {PanoramaUI} from './panorama_ui.js';
 import {loadCreationMode,saveCreationMode,creationModeFromPanelAction} from './creation_mode.js';
@@ -1432,6 +1433,7 @@ async function endVoice(){
   if(voiceStarting){voiceStopRequested=true;return;}
   if(!voiceRecording)return;
   voiceRecording=false;voiceJob='finalizing';voiceButtons();voiceStatus('Finishing recording…');
+  let voiceTranscriptStaged=false;
   try{const audioBase64=await recorder.stop();
     voiceAgentContext=captureAgentContext(world,view,bridge.clientId,'voice_transcript');
     voiceStatus('Transcribing on PC…');
@@ -1439,26 +1441,27 @@ async function endVoice(){
       voiceJob='agent-transcribe';voiceButtons();
       const transcript=await agentClient.transcribe(audioBase64);
       voiceStatus(`Heard: ${transcript}`);
-      if(voiceSteerTurnId){
-        $('agent-input').value=transcript;
-        await agentClient.steer(transcript,voiceAgentContext,voiceSteerTurnId);
-        $('agent-input').value='';
-        voiceStatus('Added to the current Codex turn.');return;
-      }
-      if(parsePanoramaIntent(transcript)){
-        const message=await panoramaUI.handleText(transcript);
-        voiceStatus(message);return;
-      }
-      if(parseConceptIntent(transcript)){
-        const message=await conceptUI.handleText(transcript);
-        voiceStatus(message);return;
-      }
-      if(/\b(?:in front of me|ahead of me|where i am pointing)\b/i.test(transcript)&&
-          !voiceAgentContext.viewerFrame)
-        throw Error('Current viewer tracking is unavailable. Restore tracking, then say the spatial request again.');
-      const expectedConcept=await conceptUI.expectedBuild(transcript);
-      await agentClient.send(transcript,voiceAgentContext,expectedConcept,creationMode);
-      voiceStatus('Sent to Codex with Matrix spatial context.');
+      voiceTranscriptStaged=true;
+      const delivered=await deliverAgentVoiceTranscript({agentClient,input:$('agent-input'),
+        transcript,context:voiceAgentContext,capturedTurnId:voiceSteerTurnId,
+        deliverWhenIdle:async()=>{
+          if(parsePanoramaIntent(transcript)){
+            const message=await panoramaUI.handleText(transcript);
+            voiceStatus(message);return 'handled';
+          }
+          if(parseConceptIntent(transcript)){
+            const message=await conceptUI.handleText(transcript);
+            voiceStatus(message);return 'handled';
+          }
+          if(/\b(?:in front of me|ahead of me|where i am pointing)\b/i.test(transcript)&&
+              !voiceAgentContext.viewerFrame)
+            throw Error('Current viewer tracking is unavailable. Restore tracking, then say the spatial request again.');
+          const expectedConcept=await conceptUI.expectedBuild(transcript);
+          await agentClient.send(transcript,voiceAgentContext,expectedConcept,creationMode);
+          return 'sent';
+        }});
+      if(delivered==='steered')voiceStatus('Added to the current Codex turn.');
+      else if(delivered==='sent')voiceStatus('Sent to Codex with Matrix spatial context.');
     }else{
       if(!agentClient.status||agentClient.error){
         try{await agentClient.connect();await conceptUI.refresh();}
@@ -1496,7 +1499,9 @@ async function endVoice(){
       voiceJob=job.jobId;voiceButtons();await pollVoice(voiceJob);
     }
   }
-  catch(error){voiceStatus(error.message,true);}
+  catch(error){voiceStatus(voiceTranscriptStaged?
+    `${error.message} Transcript kept in the Codex Agent input; inspect before retrying.`:
+    error.message,true);}
   finally{voiceJob=null;voiceSnapshot=null;voiceAgentContext=null;voiceBlenderPlacement=null;
     voiceSteerTurnId=null;voiceButtons();}
 }
