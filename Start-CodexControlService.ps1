@@ -6,7 +6,10 @@ param(
     [ValidateSet('reviewed', 'automatic')][string]$AgentApprovals = 'reviewed',
     [ValidateSet('default', 'unelevated')][string]$WindowsSandbox = 'default',
     [string]$ContentLibrary,
-    [string]$SpeechRoot
+    [string]$SpeechRoot,
+    [string]$Scenes,
+    [string]$WebAssets,
+    [string]$WebEnvironments
 )
 $ErrorActionPreference = 'Stop'
 $AgentSandbox = $AgentSandbox.ToLowerInvariant()
@@ -14,6 +17,14 @@ $AgentApprovals = $AgentApprovals.ToLowerInvariant()
 $WindowsSandbox = $WindowsSandbox.ToLowerInvariant()
 if ($AgentApprovals -eq 'automatic' -and $AgentSandbox -ne 'danger-full-access') {
     throw 'Automatic Agent approvals require -AgentSandbox danger-full-access.'
+}
+function Get-ControlServiceArguments {
+    param([int]$ServicePort, [string]$ScenesPath, [string]$WebAssetsPath, [string]$WebEnvironmentsPath)
+    $arguments = @('--port', "$ServicePort")
+    if ($ScenesPath) { $arguments += @('--scenes', $ScenesPath) }
+    if ($WebAssetsPath) { $arguments += @('--web-assets', $WebAssetsPath) }
+    if ($WebEnvironmentsPath) { $arguments += @('--web-environments', $WebEnvironmentsPath) }
+    return $arguments
 }
 if (Get-NetTCPConnection -State Listen -LocalPort $Port -ErrorAction SilentlyContinue) {
     throw "Port $Port is already in use. Stop the existing Operator service before starting this one."
@@ -93,7 +104,9 @@ try {
     Write-Host "Archived Unity Operator: http://127.0.0.1:$Port/legacy/operator"
     Write-Host 'Keep this terminal open. Ctrl+C stops the service.'
     if ($AgentApprovals -eq 'reviewed') { Write-Host 'Review each AI proposal before applying it.' }
-    & $python (Join-Path $PSScriptRoot 'ControlService\server.py') --port $Port
+    $serviceArgs = @(Get-ControlServiceArguments -ServicePort $Port -ScenesPath $Scenes `
+        -WebAssetsPath $WebAssets -WebEnvironmentsPath $WebEnvironments)
+    & $python (Join-Path $PSScriptRoot 'ControlService\server.py') @serviceArgs
     $serviceExitCode = $LASTEXITCODE
 } finally {
     foreach ($name in $names) { [Environment]::SetEnvironmentVariable($name, $previous[$name], 'Process') }
