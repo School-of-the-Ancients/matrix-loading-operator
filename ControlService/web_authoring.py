@@ -7,7 +7,7 @@ import threading
 import time
 import uuid
 
-from procedural_glb import PALETTES, SHAPES, build_glb
+from procedural_glb import PALETTES, SHAPES, build_glb, local_bounds_for
 from web_assets import WebAssetError
 
 
@@ -81,7 +81,8 @@ class WebAuthoringJobs:
                     description = (f"Procedural {spec['palette']} {spec['shape']}; "
                                    f"{spec['width']} × {spec['height']} × {spec['depth']} m. "
                                    + spec["brief"])
-                    asset = self.catalog.register(source, spec["name"], description[:500])
+                    asset = self.catalog.register(source, spec["name"], description[:500],
+                                                  local_bounds=local_bounds_for(spec))
                 update = {"phase": "ready", "asset": asset}
             except (OSError, WebAssetError, ValueError) as error:
                 update = {"phase": "error", "error": str(error)[:300]}

@@ -12,6 +12,7 @@ from unittest.mock import patch
 
 from server import Server, State
 from codex_provider import CodexConfig
+from procedural_glb import build_glb
 from test_web_assets import glb
 
 
@@ -191,12 +192,20 @@ class WebRuntimeContractTests(unittest.TestCase):
         self.assertEqual(job["phase"], "ready", job)
         self.assertGreaterEqual(job["elapsedMs"], 0)
         asset = job["asset"]
+        self.assertEqual(asset["spawnScale"], 1)
+        self.assertEqual(asset["localBounds"],
+                         {"center": {"x": 0, "y": 1.1, "z": 0},
+                          "size": {"x": 1.8, "y": 2.2, "z": .5}})
+        self.assertEqual(self.server.state.web_assets.list()[0]["localBounds"],
+                         asset["localBounds"],
+                         "measured geometry must survive registration for AR support guards")
         code, data = self.get(asset["url"])
         self.assertEqual(code, 200)
         self.assertEqual(data[:4], b"glTF")
         current = copy.deepcopy(SNAPSHOT)
         current["assets"].append({key: asset[key] for key in
-                                  ("assetId", "displayName", "description", "spawnScale")})
+                                  ("assetId", "displayName", "description", "spawnScale",
+                                   "localBounds")})
         code, _ = self.post("/api/exchange", {"clientId": "web-client", "snapshot": current,
                                               "results": [], "captureSupported": False})
         self.assertEqual(code, 200)
@@ -210,6 +219,31 @@ class WebRuntimeContractTests(unittest.TestCase):
                                                       "results": [], "captureSupported": False})
         self.assertEqual(code, 200)
         self.assertEqual(delivered["commands"][0]["assetId"], asset["assetId"])
+
+    def test_web_authoring_repairs_missing_bounds_on_the_same_registered_glb(self):
+        spec = {"name": "Review Table Token", "brief": "Small table review",
+                "shape": "pedestal", "palette": "copper",
+                "width": .5, "height": .5, "depth": .2}
+        source = Path(self.temp.name) / "review-token.glb"
+        source.write_bytes(build_glb(spec))
+        original = self.server.state.web_assets.register(source, spec["name"])
+        self.assertNotIn("localBounds", original)
+        code, job = self.post("/api/web/authoring", spec)
+        self.assertEqual(code, 200, job)
+        for _ in range(100):
+            code, raw = self.get("/api/web/authoring/" + job["jobId"])
+            job = json.loads(raw)
+            if job["phase"] in ("ready", "error"):
+                break
+            time.sleep(.02)
+        self.assertEqual(job["phase"], "ready", job)
+        self.assertEqual(job["asset"]["assetId"], original["assetId"])
+        bounds = {"center": {"x": 0, "y": .25, "z": 0},
+                  "size": {"x": .5, "y": .5, "z": .2}}
+        self.assertEqual(job["asset"]["localBounds"], bounds)
+        registered = self.server.state.web_assets.list()
+        self.assertEqual(len(registered), 1)
+        self.assertEqual(registered[0]["localBounds"], bounds)
 
     def test_bad_authoring_recipe_is_rejected_before_queueing(self):
         code, body = self.post("/api/web/authoring", {"name": "Bad Gate", "brief": "", "shape": "arch",

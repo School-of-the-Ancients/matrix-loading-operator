@@ -485,6 +485,37 @@ test('surface footprint uses the horizontally recentered GLB bounds',()=>{
     'an imported GLB is already floor aligned by the renderer');
 });
 
+test('generated GLB needs registered metre bounds before measured table placement',()=>{
+  const digest='a'.repeat(64),assetId=`web:review-table-token:${digest.slice(0,12)}`;
+  const asset={assetId,displayName:'Review Table Token',description:'Copper pedestal',
+    spawnScale:1,sha256:digest,byteLength:4048,
+    url:`/api/web/assets/${digest}.glb`};
+  const world=new MatrixWorld(()=> 'table-token');
+  world.registerAssets([asset]);
+  world.enterAR();
+  const table={...anchor,anchorId:'table-review',displayName:'TABLE',
+    surface:{kind:'support',boundary:[{x:-1.125,y:0,z:-.307},
+      {x:1.125,y:0,z:-.307},{x:1.125,y:0,z:.307},{x:-1.125,y:0,z:.307}]}};
+  world.setSpatialAnchors([table]);world.setOriginLocated(true);
+  world.setSpatialObservation({planeObservedAt:performance.now(),trackingEpoch:7,
+    webFloorPose:anchor.roomPose});
+  assert.equal(world.execute({requestId:'confirm-table',op:'confirm_room'}).ok,true);
+  const command=requestId=>({requestId,op:'spawn',assetId,anchorId:table.anchorId,
+    placement:'surface',transform:{...transform,position:{x:.635,y:0,z:-.001},
+      scale:{x:.28,y:.28,z:.28}},
+    roomConstraint:{anchorId:table.anchorId,trackingEpoch:7}});
+  const denied=world.execute(command('without-bounds'));
+  assert.match(denied.error,/no measured bounds/);
+  assert.equal(world.scene.objects.length,0);
+  world.registerAssets([{...asset,localBounds:{center:{x:0,y:.25,z:0},
+    size:{x:.5,y:.5,z:.2}}}]);
+  const placed=world.execute(command('with-bounds'));
+  assert.equal(placed.ok,true,placed.error);
+  assert.equal(placed.outcome.supportAnchorId,table.anchorId);
+  assert.equal(world.scene.objects[0].objectId,placed.objectId);
+  assert.equal(world.scene.objects[0].assetId,assetId);
+});
+
 test('moving, duplicating, or loading a support object cannot bypass footprint validation',()=>{
   let nextId=0;
   const world=new MatrixWorld(()=>String(++nextId));world.enterAR();
