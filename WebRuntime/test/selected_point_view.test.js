@@ -3,6 +3,44 @@ import assert from 'node:assert/strict';
 import * as THREE from 'three';
 import {MatrixView} from '../src/view.js';
 import {captureAgentContext} from '../src/agent_context.js';
+import {MatrixWorld} from '../src/protocol.js';
+
+test('two AR pin clicks keep alignment and reject an old queued room target',()=>{
+  const identity={position:{x:0,y:0,z:0},rotation:{x:0,y:0,z:0},
+    scale:{x:1,y:1,z:1}};
+  const boundary=[{x:-1,y:0,z:-1},{x:1,y:0,z:-1},
+    {x:1,y:0,z:1},{x:-1,y:0,z:1}];
+  const world=new MatrixWorld();
+  world.enterAR();
+  world.setSpatialAnchors([{anchorId:'table-1',displayName:'TABLE',source:'webxr',
+    semanticLabels:['TABLE'],surface:{kind:'support',boundary},roomPose:identity}]);
+  world.setOriginLocated(true);
+  world.setSpatialObservation({planeObservedAt:performance.now(),trackingEpoch:4,
+    webFloorPose:identity});
+  assert.equal(world.execute({requestId:'confirm-room',op:'confirm_room'}).ok,true);
+  const view=Object.create(MatrixView.prototype);
+  view.world=world;view.isAR=true;view.roomTrackingEpoch=4;
+  view.selectedPoint=null;
+  view.refreshSelectedPointMarker=()=>{};view.onSelectedPointChange=()=>{};
+  view.highlight=()=>{};view.onSelection=()=>{};
+  view.onAssetError=message=>{throw Error(message);};
+  view.selectPlacementPoint('table-1',{x:.2,y:0,z:.1});
+  assert.equal(view.roomTrackingEpoch,5);
+  assert.equal(world.spatial.alignmentVerified,true);
+  view.selectPlacementPoint('table-1',{x:.4,y:0,z:.1});
+  assert.equal(view.roomTrackingEpoch,6);
+  assert.equal(world.spatial.trackingEpoch,6);
+  assert.equal(world.spatial.alignmentVerified,true);
+  assert.deepEqual(view.selectedPlacementTarget().position,{x:.4,y:0,z:.1});
+  assert.throws(()=>world.assertCurrentRoomConstraint(
+    {anchorId:'table-1',trackingEpoch:5},'table-1'),
+    /Room observation changed/);
+  const placed=world.execute({requestId:'fresh-target',op:'spawn',assetId:'orb',
+    anchorId:'table-1',placement:'surface',
+    transform:{...identity,position:{x:.4,y:0,z:.1}},
+    roomConstraint:{anchorId:'table-1',trackingEpoch:6}});
+  assert.equal(placed.ok,true,placed.error);
+});
 
 test('successive controller ray hits move one visible marker while hover and object selection stay separate',()=>{
   const boundary=[{x:-1,y:0,z:-1},{x:1,y:0,z:-1},

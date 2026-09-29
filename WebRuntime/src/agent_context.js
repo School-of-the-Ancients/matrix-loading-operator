@@ -31,3 +31,19 @@ export function captureAgentContext(world,view,clientId,inputSource){
     presentation,trackingEpoch,selectedObjectId,selectedPlacement,
     pointingTarget,viewerFrame};
 }
+
+const samePlacement=(a,b)=>a===null&&b===null||!!a&&!!b&&
+  a.anchorId===b.anchorId&&a.source===b.source&&
+  ['x','y','z'].every(axis=>a.position?.[axis]===b.position?.[axis]);
+
+// An async voice transcription, connection, or concept lookup must not deliver
+// a request against a point that the wearer has moved in the meantime.
+export function verifyAgentContextAtDelivery(captured,current){
+  if(captured.roomId!==current.roomId||
+     captured.presentation!==current.presentation||
+     captured.trackingEpoch!==current.trackingEpoch||
+     captured.selectedObjectId!==current.selectedObjectId||
+     !samePlacement(captured.selectedPlacement,current.selectedPlacement))
+    throw Error('Selected point or object changed while preparing this request. Review the current target and send again.');
+  return current;
+}
