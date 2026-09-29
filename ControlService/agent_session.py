@@ -259,10 +259,26 @@ def _new_matrix_approval_summary(tool, arguments):
                 if "scale" in arguments:
                     size = arguments["scale"]
                     optional += f", scale ({size['x']},{size['y']},{size['z']})"
-                return (f"Move {arguments['expected_asset_id']} ({arguments['object_id']}) to "
-                        f"web-floor ({point['x']},{point['y']},{point['z']}){optional} "
-                        f"constrained by measured AR surface {arguments['anchor_id']} "
-                        f"in {arguments['room_id']} rev {arguments['scene_revision']}.")
+                summary = (f"Move {arguments['expected_asset_id']} ({arguments['object_id']}) to "
+                           f"web-floor ({point['x']},{point['y']},{point['z']}){optional} "
+                           f"constrained by measured AR surface {arguments['anchor_id']} "
+                           f"in {arguments['room_id']} rev {arguments['scene_revision']}.")
+                if len(summary) <= MAX_XR_APPROVAL_SUMMARY:
+                    return summary
+                # Real measured coordinates can carry full float precision. Keep
+                # every reviewed value exact while shortening only the prose.
+                compact = (f"Move {arguments['expected_asset_id']} "
+                           f"({arguments['object_id']}) web-floor "
+                           f"({point['x']},{point['y']},{point['z']})")
+                if "rotation" in arguments:
+                    turn = arguments["rotation"]
+                    compact += f" rot({turn['x']},{turn['y']},{turn['z']})"
+                if "scale" in arguments:
+                    size = arguments["scale"]
+                    compact += f" scale({size['x']},{size['y']},{size['z']})"
+                compact += (f" AR support {arguments['anchor_id']} "
+                            f"room {arguments['room_id']} rev {arguments['scene_revision']}.")
+                return compact if len(compact) <= MAX_XR_APPROVAL_SUMMARY else None
         elif tool == "matrix_spawn_on_surface":
             if (_xr_context(arguments, {"spatial_token", "asset_id", "anchor_id", "transform"}) and
                     arguments["room_id"].startswith("webxr-session-") and

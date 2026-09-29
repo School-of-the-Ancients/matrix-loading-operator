@@ -7,6 +7,7 @@ from types import SimpleNamespace
 from unittest.mock import patch
 
 from agent_session import (LocalCodexAgentBackend, MatrixMCPUnavailableError,
+                           MAX_XR_APPROVAL_SUMMARY,
                            normalize_event, _approval_description,
                            _mcp_approval_description, _xr_game_summary)
 from codex_provider import CodexConfig
@@ -370,6 +371,32 @@ class AgentSessionTests(unittest.TestCase):
                 self.assertLessEqual(len(summary), 240)
                 self.assertIn(expected, summary)
                 self.assertNotIn("secret", summary)
+
+    def test_full_precision_room_move_has_exact_reviewable_summary(self):
+        arguments = {
+            "room_id": "webxr-session-cfa9ca360b07404db610a2f9093da7d7",
+            "scene_revision": 34, "spatial_token": "a" * 64,
+            "anchor_id": "webxr-plane-19",
+            "object_id": "de87ed720f2647138e670fd7eff4007b",
+            "expected_asset_id": "orb",
+            "position": {"x": 0.8462137443175046, "y": 0.809008350294348,
+                         "z": 0.5110085988338813},
+            "rotation": {"x": 0, "y": 79.39, "z": 0},
+        }
+        params = {"serverName": "matrix_webxr", "mode": "form",
+                  "message": 'Allow the matrix_webxr MCP server to run tool "matrix_move_with_room_constraint"?',
+                  "_meta": {"codex_approval_kind": "mcp_tool_call",
+                            "tool_params": arguments}}
+        summary, reviewable = _mcp_approval_description(params)
+        self.assertTrue(reviewable, summary)
+        self.assertLessEqual(len(summary), MAX_XR_APPROVAL_SUMMARY)
+        for value in (arguments["room_id"], arguments["anchor_id"],
+                      arguments["object_id"], arguments["expected_asset_id"],
+                      *(str(number) for number in arguments["position"].values()),
+                      *(str(number) for number in arguments["rotation"].values()),
+                      str(arguments["scene_revision"])):
+            self.assertIn(value, summary)
+        self.assertNotIn(arguments["spatial_token"], summary)
 
     def test_creator_tool_approvals_reject_unreviewable_or_malformed_requests(self):
         def allowed(tool, arguments):
