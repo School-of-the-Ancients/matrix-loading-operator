@@ -234,7 +234,14 @@ export function operatorPanel({createImage=()=>new Image()}={}){
       }
       if(worldInfo.originUnavailable&&worldInfo.canRetryOrigin)
         button('retry-room-origin','RETRY SAVED ROOM ORIGIN',55,328,914,76,true);
+      else if(worldInfo.canConfirm&&worldInfo.canPlaceLayout){
+        button('confirm-room','OUTLINES MATCH — ENABLE MEASURED EDITS',55,328,600,76,true);
+        button('open-layout','MOVE / TURN LAYOUT',670,328,300,76);
+      }
       else if(worldInfo.canConfirm)button('confirm-room','OUTLINES MATCH — ENABLE MEASURED EDITS',55,328,914,76,true);
+      else if(worldInfo.canPlaceLayout)
+        button('open-layout',worldInfo.layoutReviewPending?'REVIEW DIGITAL LAYOUT':
+          'MOVE / TURN DIGITAL LAYOUT',55,328,914,76,true);
       else {ctx.fillStyle='#8bb8c2';ctx.font='24px sans-serif';ctx.fillText(
         worldInfo.originUnavailable?worldInfo.resetAvailable?'Old world hidden. Choose a new room deliberately.':'Waiting for a tracked room anchor.':
         worldInfo.alignment==='Room outlines confirmed'?'Room outlines confirmed; inspect each object for clearance.':
@@ -257,9 +264,6 @@ export function operatorPanel({createImage=()=>new Image()}={}){
         button('toggle-archives','WORLDS',370,535,285,76);
         button('toggle-camera',cameraActive?'STOP CAMERA':'ENABLE CAMERA',685,535,285,76);
       }
-      if(worldInfo.canPlaceLayout)
-        button('open-layout',worldInfo.layoutReviewPending?'REVIEW DIGITAL LAYOUT':
-          'MOVE / TURN DIGITAL LAYOUT',55,640,914,76,true);
     }else if(mode==='layout'){
       const offset=worldInfo.arLayoutOffset||{x:0,z:0,yawDegrees:0};
       ctx.fillStyle='#dff7f8';ctx.font='bold 33px sans-serif';
@@ -269,18 +273,18 @@ export function operatorPanel({createImage=()=>new Image()}={}){
       ctx.fillText('Move 0.25 m or turn 15° per tap. Object IDs and authored poses stay the same.',55,265,925);
       ctx.fillText('Room outlines do not prove object support or clearance; inspect each object.',55,300,925);
       if(worldInfo.canPlaceLayout){
-        button('layout-forward','FORWARD',370,325,285,76);
-        button('layout-left','LEFT',55,415,285,76);
-        button('layout-right','RIGHT',685,415,285,76);
-        button('layout-back','BACK',370,505,285,76);
-        button('layout-turn-left','TURN LEFT',55,595,440,76);
-        button('layout-turn-right','TURN RIGHT',525,595,445,76);
+        button('layout-forward','FORWARD',55,315,440,60);
+        button('layout-back','BACK',525,315,445,60);
+        button('layout-left','LEFT',55,385,440,60);
+        button('layout-right','RIGHT',525,385,445,60);
+        button('layout-turn-left','TURN LEFT',55,455,440,60);
+        button('layout-turn-right','TURN RIGHT',525,455,445,60);
         if(worldInfo.layoutReviewPending)
-          button('confirm-layout','I CHECKED SCENE CLEARANCE',55,685,914,65,true);
+          button('confirm-layout','I CHECKED SCENE CLEARANCE',55,525,914,70,true);
         else if(worldInfo.canConfirm)
-          button('confirm-room','OUTLINES MATCH · ENABLE MEASURED EDITS',55,685,914,65,true);
+          button('confirm-room','OUTLINES MATCH · ENABLE MEASURED EDITS',55,525,914,70,true);
         else {ctx.fillStyle='#8bb8c2';ctx.font='21px sans-serif';
-          ctx.fillText('After placement, check outlines and confirm on the World panel.',55,725,920);}
+          ctx.fillText('After placement, check outlines and confirm on the World panel.',55,580,920);}
       }else{
         ctx.fillStyle='#ffad8d';ctx.font='23px sans-serif';
         ctx.fillText('Room anchor, tracking, or Creator Mode is unavailable. Return to World.',55,390,920);
