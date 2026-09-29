@@ -16,28 +16,30 @@
     <button id="toggle-sidebar" class="sidebar-toggle" type="button" aria-controls="world-operator-panel" aria-expanded="true">Hide controls</button>
     <aside id="world-operator-panel" class="panel">
       <div class="panel-title"><span>WORLD OPERATOR</span><span id="object-count">0 objects</span></div>
-      <p class="hint">Describe the experience to Operator, inspect its objects and rules, then enter Play/Test. Desktop: WASD moves, right-drag looks, left-drag grabs a dynamic body, and click activates a labeled world control. In VR or AR, open the in-world Operator panel with either thumbstick; use the controller trigger to grab a dynamic body or activate a labeled control. Return to Creator Mode to revise the same world.</p>
-      <p class="hint"><a href="/web/citizens.html" target="_blank" rel="noopener">Open the isolated AI Citizens desktop demo</a> to watch two seeded residents choose activities and share a chair.</p>
-      <p class="hint"><a href="/web/hosted.html" target="_blank" rel="noopener">Visit a PC-hosted Citizens world</a> from desktop, VR, or AR with a separate read-only world view token.</p>
-      <section class="creator-controls" aria-label="Creator and Play/Test mode">
-        <strong id="creator-mode-status" role="status">Creator Mode · simulation paused</strong>
+      <p class="hint panel-intro">Choose a section to work on this world.</p>
+      <p id="feedback" role="status">Starting runtime…</p>
+      <details id="section-mode" class="panel-section creator-controls">
+        <summary class="panel-title"><span>CREATOR / PLAY</span><strong id="creator-mode-status" role="status">Creator Mode · simulation paused</strong></summary>
+        <div class="section-content">
         <div class="row"><button id="enter-play" type="button">Enter Play/Test</button><button id="enter-creator" type="button" disabled>Return to Creator</button></div>
         <div class="row"><button id="stop-play" type="button" disabled>Stop / Pause</button><button id="resume-play" type="button" disabled>Resume Play</button></div>
-      </section>
-      <p id="game-status" class="hint" role="status">No game running.</p>
-      <label for="token">Service token <small>(only if configured)</small></label>
-      <input id="token" type="password" autocomplete="off" placeholder="Kept only in this tab" />
-      <section class="agent-panel" aria-labelledby="agent-heading">
-        <div class="panel-title"><span id="agent-heading">CODEX AGENT PORTAL</span><span id="agent-activity">Not connected</span></div>
+        <p id="game-status" class="hint" role="status">No game running.</p>
+        </div>
+      </details>
+      <details id="section-agent" class="panel-section agent-panel">
+        <summary class="panel-title"><span id="agent-heading">CODEX AGENT PORTAL</span><span id="agent-activity">Not connected</span></summary>
+        <div class="section-content">
         <p class="hint">One continuing Codex conversation on your PC. Use this for world creation, interaction, and reusable capability development.</p>
         <p id="agent-access" class="hint">Access mode appears after connection.</p>
         <button id="agent-connect">Start or resume Codex</button>
         <label for="agent-input">Message to Codex</label>
         <textarea id="agent-input" rows="3" placeholder="Create a physics playground with a ramp, grabbable objects, and a challenge."></textarea>
-        <label class="check-label"><input id="agent-include-context" type="checkbox" /> Attach selected object, pinned destination, and current pointing hit</label>
+        <label class="check-label"><input id="agent-include-context" type="checkbox" /> Attach selected object and current pointing hit</label>
         <div class="row"><button id="agent-send" class="primary">Send to Codex</button><button id="agent-stop" disabled>Stop turn</button></div>
-        <section id="concept-panel" class="concept-panel" aria-labelledby="concept-heading">
-          <div class="panel-title"><span id="concept-heading">VISUAL CONCEPTS</span><span id="concept-summary">No concept selected</span></div>
+        <p id="agent-send-hint" class="hint" role="status">Send starts a turn in this Codex conversation.</p>
+        <details id="concept-panel" class="concept-panel panel-section section-nested">
+          <summary class="panel-title"><span id="concept-heading">VISUAL CONCEPTS</span><span id="concept-summary">No concept selected</span></summary>
+          <div class="section-content">
           <p class="hint">Generate an image first, choose a version, then ask Codex to build from that design. New versions keep earlier images.</p>
           <label for="concept-prompt">Image description</label>
           <textarea id="concept-prompt" rows="2" placeholder="A futuristic forest temple at dusk"></textarea>
@@ -64,9 +66,11 @@
           <label for="concept-notes">Notes for the selected design</label>
           <textarea id="concept-notes" rows="2" placeholder="Keep the layered roof; use a smaller entrance"></textarea>
           <button id="concept-save-notes" type="button">Save design notes</button>
-        </section>
-        <section id="panorama-panel" class="concept-panel panorama-panel" aria-labelledby="panorama-heading">
-          <div class="panel-title"><span id="panorama-heading">PANORAMA BACKGROUNDS</span><span id="panorama-summary">No panorama version selected</span></div>
+          </div>
+        </details>
+        <details id="panorama-panel" class="concept-panel panorama-panel panel-section section-nested">
+          <summary class="panel-title"><span id="panorama-heading">PANORAMA BACKGROUNDS</span><span id="panorama-summary">No panorama version selected</span></summary>
+          <div class="section-content">
           <p class="hint">Say “Create a panorama of a moonlit forest with distant mountains,” or type a surrounding scene below. Preview and choose a generated version, then apply it to this world. The panorama appears in desktop and VR; passthrough AR keeps your physical room visible.</p>
           <label for="panorama-prompt">Surrounding scene</label>
           <textarea id="panorama-prompt" rows="2" placeholder="A moonlit forest surrounding the garden, seamless 360° horizon"></textarea>
@@ -83,16 +87,79 @@
           <input id="panorama-yaw" type="number" min="0" max="359" step="1" value="0" />
           <div class="row"><button id="panorama-apply" class="primary" type="button" disabled>Use selected panorama</button><button id="panorama-remove" type="button" disabled>Remove panorama</button></div>
           <p id="panorama-apply-status" class="hint" role="status" aria-live="polite">Apply in paused Creator Mode on desktop or VR.</p>
-        </section>
+          </div>
+        </details>
         <div id="agent-approval" class="proposal hidden" role="alert">
           <div class="proposal-label">APPROVAL REQUIRED</div>
           <p id="agent-approval-summary"></p>
           <div class="row"><button id="agent-approve" class="primary">Approve once</button><button id="agent-deny">Deny</button></div>
         </div>
         <div id="agent-transcript" class="agent-transcript" aria-live="polite">Connect to start a Codex conversation.</div>
-      </section>
-      <section class="citizens-panel" aria-labelledby="citizens-heading">
-        <div class="panel-title"><span id="citizens-heading">AI CITIZENS</span><span>Shared Matrix world</span></div>
+        </div>
+      </details>
+      <details id="section-planner" class="panel-section">
+        <summary class="panel-title"><span>OPERATOR PLANNER &amp; VOICE</span><span>Requests and proposals</span></summary>
+        <div class="section-content">
+      <label for="mode">Planner</label>
+      <select id="mode"><option value="offline-rules">Offline commands</option><option value="codex-cli">Codex AI on PC</option></select>
+      <label for="prompt">Request</label>
+      <textarea id="prompt" rows="3" placeholder="Put a table here with four chairs."></textarea>
+      <button id="propose" class="primary">Create proposal</button>
+      <button id="blender-request">Create requested object in Blender</button>
+      <div class="row"><button id="new-chat">New conversation</button><span id="conversation-status" class="asset-count">0 recent turns in this tab</span></div>
+      <div class="row voice-row"><button id="voice-button">Tap to speak</button><span id="voice-status" role="status">Local speech on PC</span></div>
+      <label class="check-label"><input id="speak-replies" type="checkbox" checked> Speak Operator replies aloud</label>
+      <label class="check-label"><input id="auto-apply-safe" type="checkbox" checked> Automatically apply safe scene requests</label>
+      <div id="proposal" class="proposal hidden" aria-live="polite">
+        <div class="proposal-label">REVIEW BEFORE APPLY</div>
+        <p id="proposal-summary"></p>
+        <pre id="proposal-commands"></pre>
+        <div class="row"><button id="apply" class="primary">Apply proposal</button><button id="discard">Discard</button></div>
+      </div>
+        </div>
+      </details>
+      <details id="section-room" class="panel-section">
+        <summary class="panel-title"><span>AR ROOM &amp; CAMERA</span><span>Alignment and view</span></summary>
+        <div class="section-content">
+      <button id="review-view">Review current view with AI</button>
+      <button id="enable-camera" disabled>Enable environment camera for AI review</button>
+      <p id="camera-status" class="hint" role="status">Enter AR to test the Quest environment camera.</p>
+      <button id="confirm-room" disabled>Outlines align — enable AR editing</button>
+      <div class="target-point-panel" aria-labelledby="target-point-heading">
+        <strong id="target-point-heading">Selected destination</strong>
+        <p id="target-point-status" role="status">Aim at a support surface and click or press trigger to pin a point.</p>
+        <div class="target-point-coordinates">
+          <label for="target-point-x">X <small>metres on surface</small><input id="target-point-x" type="number" step="0.01" disabled></label>
+          <label for="target-point-z">Z <small>metres on surface</small><input id="target-point-z" type="number" step="0.01" disabled></label>
+        </div>
+        <div class="row"><button id="target-point-set" type="button" disabled>Move marker</button><button id="target-point-clear" type="button" disabled>Clear marker</button></div>
+      </div>
+      <p id="room-origin-status" class="hint" role="status">Room origin status appears in AR.</p>
+      <div class="row"><button id="retry-room-origin" class="hidden">Retry saved room origin</button><button id="rebase-room-origin" class="hidden">Archive and place world here</button><button id="reset-room-origin" class="hidden">Archive and start empty</button></div>
+      <button id="download-room-archives" class="hidden">Download room recovery archives</button>
+      <button id="clear-room-archives" class="hidden">Clear local recovery archives after export</button>
+        </div>
+      </details>
+      <details id="section-world" class="panel-section">
+        <summary class="panel-title"><span>WORLD &amp; SAVES</span><span>Assets and checkpoints</span></summary>
+        <div class="section-content">
+      <div class="row"><button id="refresh-assets">Refresh assets</button><span id="asset-count" class="asset-count">7 built-in</span></div>
+      <p id="environment-status" class="hint" role="status">Panorama: none. Desktop and VR use the neutral background.</p>
+      <div class="row"><button id="undo">Undo</button><button id="redo">Redo</button><button id="clear">Clear</button></div>
+      <label for="world-save-name">PC world checkpoint · scene, game and Citizens progress</label>
+      <div class="row"><input id="world-save-name" placeholder="World name" /><button id="save-pc-world">Save world</button></div>
+      <div class="row"><select id="pc-worlds" aria-label="PC world checkpoints"><option value="">PC world checkpoints</option></select><button id="restore-pc-world">Restore world</button></div>
+      <label for="world-archive-name">Browser world archives · complete worlds</label>
+      <div class="row"><input id="world-archive-name" placeholder="Archive name (optional)" /><button id="new-world" type="button">Archive + new world</button></div>
+      <div class="row"><select id="world-archives" aria-label="Browser world archives"><option value="">No archived worlds</option></select><button id="restore-archive" type="button">Restore archive</button></div>
+      <label for="save-name">Legacy PC scene-only backup</label>
+      <div class="row"><input id="save-name" placeholder="Scene name" /><button id="save">Save scene</button></div>
+      <div class="row"><select id="saved-scenes" aria-label="Saved scenes"><option value="">Saved scenes</option></select><button id="restore">Restore scene</button></div>
+        </div>
+      </details>
+      <details id="section-citizens" class="panel-section citizens-panel">
+        <summary class="panel-title"><span id="citizens-heading">AI CITIZENS</span><span>Shared Matrix world</span></summary>
+        <div class="section-content">
         <p class="hint">Start a seeded two-resident fixture on an empty desktop floor, or select a built-in chair/table, a registered static GLB with a reviewed rest/eat interaction, or a reviewed procedural curved bench with a rest interaction. Pause and select the complementary station to add it to the same world. Browser save and PC world checkpoints preserve both bindings.</p>
         <p class="hint">Residents weigh hunger, energy, fun, and social need. A resident may choose a conversation when a peer is available; only a completed interaction raises social need. At fullness 15 or below, a reachable meal may interrupt optional rest or exploration travel, or an optional chair wait, when the station can be released safely. The interruption grants no need benefit; eating raises fullness only after a checked Matrix interaction.</p>
         <label for="citizens-seed">Scenario seed</label>
@@ -161,9 +228,11 @@
         <ul id="citizens-social-events" class="citizens-list" aria-label="Social session outcomes"></ul>
         <h3>Relationships</h3><ul id="citizens-relationships" class="citizens-list"></ul>
         <h3>Recent decisions</h3><ol id="citizens-log" class="citizens-list citizens-log"></ol>
-      </section>
-      <section class="scale-panel" aria-labelledby="scale-heading">
-        <div class="panel-title"><span id="scale-heading">BLOCK SCALE LAB</span><span>Desktop · built-in block</span></div>
+        </div>
+      </details>
+      <details id="section-scale" class="panel-section scale-panel">
+        <summary class="panel-title"><span id="scale-heading">BLOCK SCALE LAB</span><span>Desktop · built-in block</span></summary>
+        <div class="section-content">
         <p id="scale-discovery" class="hint">Checking the Matrix experiment capability…</p>
         <div class="row"><a href="/clients" target="_blank" rel="noopener">Open /clients for pairing and Apply</a></div>
         <label for="scale-code">One-use pairing code</label>
@@ -181,55 +250,18 @@
         <p id="scale-status" role="status">Pair to start. Each proposal needs owner review on /clients.</p>
         <pre id="scale-proposal"></pre>
         <pre id="scale-observation">No confirmed scale observation yet.</pre>
-      </section>
-      <div class="separator"></div>
-      <label for="mode">Planner</label>
-      <select id="mode"><option value="offline-rules">Offline commands</option><option value="codex-cli">Codex AI on PC</option></select>
-      <label for="prompt">Request</label>
-      <textarea id="prompt" rows="3" placeholder="Put a table here with four chairs."></textarea>
-      <button id="propose" class="primary">Create proposal</button>
-      <button id="blender-request">Create requested object in Blender</button>
-      <button id="review-view">Review current view with AI</button>
-      <button id="enable-camera" disabled>Enable environment camera for AI review</button>
-      <p id="camera-status" class="hint" role="status">Enter AR to test the Quest environment camera.</p>
-      <button id="confirm-room" disabled>Outlines align — enable AR editing</button>
-      <div class="target-point-panel" aria-labelledby="target-point-heading">
-        <strong id="target-point-heading">Selected destination</strong>
-        <p id="target-point-status" role="status">Aim at a support surface and click or press trigger to pin a point.</p>
-        <div class="target-point-coordinates">
-          <label for="target-point-x">X <small>metres on surface</small><input id="target-point-x" type="number" step="0.01" disabled></label>
-          <label for="target-point-z">Z <small>metres on surface</small><input id="target-point-z" type="number" step="0.01" disabled></label>
         </div>
-        <div class="row"><button id="target-point-set" type="button" disabled>Move marker</button><button id="target-point-clear" type="button" disabled>Clear marker</button></div>
-      </div>
-      <p id="room-origin-status" class="hint" role="status">Room origin status appears in AR.</p>
-      <div class="row"><button id="retry-room-origin" class="hidden">Retry saved room origin</button><button id="rebase-room-origin" class="hidden">Archive and place world here</button><button id="reset-room-origin" class="hidden">Archive and start empty</button></div>
-      <button id="download-room-archives" class="hidden">Download room recovery archives</button>
-      <button id="clear-room-archives" class="hidden">Clear local recovery archives after export</button>
-      <div class="row"><button id="new-chat">New conversation</button><span id="conversation-status" class="asset-count">0 recent turns in this tab</span></div>
-      <div class="row voice-row"><button id="voice-button">Tap to speak</button><span id="voice-status" role="status">Local speech on PC</span></div>
-      <label class="check-label"><input id="speak-replies" type="checkbox" checked> Speak Operator replies aloud</label>
-      <label class="check-label"><input id="auto-apply-safe" type="checkbox" checked> Automatically apply safe scene requests</label>
-      <div id="proposal" class="proposal hidden" aria-live="polite">
-        <div class="proposal-label">REVIEW BEFORE APPLY</div>
-        <p id="proposal-summary"></p>
-        <pre id="proposal-commands"></pre>
-        <div class="row"><button id="apply" class="primary">Apply proposal</button><button id="discard">Discard</button></div>
-      </div>
-      <div class="separator"></div>
-      <div class="row"><button id="refresh-assets">Refresh assets</button><span id="asset-count" class="asset-count">7 built-in</span></div>
-      <p id="environment-status" class="hint" role="status">Panorama: none. Desktop and VR use the neutral background.</p>
-      <div class="row"><button id="undo">Undo</button><button id="redo">Redo</button><button id="clear">Clear</button></div>
-      <label for="world-save-name">PC world checkpoint · scene, game and Citizens progress</label>
-      <div class="row"><input id="world-save-name" placeholder="World name" /><button id="save-pc-world">Save world</button></div>
-      <div class="row"><select id="pc-worlds" aria-label="PC world checkpoints"><option value="">PC world checkpoints</option></select><button id="restore-pc-world">Restore world</button></div>
-      <label for="world-archive-name">Browser world archives · complete worlds</label>
-      <div class="row"><input id="world-archive-name" placeholder="Archive name (optional)" /><button id="new-world" type="button">Archive + new world</button></div>
-      <div class="row"><select id="world-archives" aria-label="Browser world archives"><option value="">No archived worlds</option></select><button id="restore-archive" type="button">Restore archive</button></div>
-      <label for="save-name">Legacy PC scene-only backup</label>
-      <div class="row"><input id="save-name" placeholder="Scene name" /><button id="save">Save scene</button></div>
-      <div class="row"><select id="saved-scenes" aria-label="Saved scenes"><option value="">Saved scenes</option></select><button id="restore">Restore scene</button></div>
-      <p id="feedback" role="status">Starting runtime…</p>
+      </details>
+      <details id="section-help" class="panel-section">
+        <summary class="panel-title"><span>HELP &amp; CONNECTION</span><span>Controls and demos</span></summary>
+        <div class="section-content">
+          <p class="hint">Describe the experience to Operator, inspect its objects and rules, then enter Play/Test. Desktop: WASD moves, right-drag looks, left-drag grabs a dynamic body, and click activates a labeled world control. In VR or AR, open the in-world Operator panel with either thumbstick; use the controller trigger to grab a dynamic body or activate a labeled control. Return to Creator Mode to revise the same world.</p>
+          <label for="token">Service token <small>(only if configured)</small></label>
+          <input id="token" type="password" autocomplete="off" placeholder="Kept only in this tab" />
+          <p class="hint"><a href="/web/citizens.html" target="_blank" rel="noopener">Open the isolated AI Citizens desktop demo</a> to watch two seeded residents choose activities and share a chair.</p>
+          <p class="hint"><a href="/web/hosted.html" target="_blank" rel="noopener">Visit a PC-hosted Citizens world</a> from desktop, VR, or AR with a separate read-only world view token.</p>
+        </div>
+      </details>
     </aside>
     <div class="xr-buttons" id="xr-buttons"></div>
     <div class="view-label" id="view-label">DESKTOP · VIRTUAL ROOM</div>
