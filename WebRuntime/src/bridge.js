@@ -136,6 +136,7 @@ export class MatrixBridge {
       if(rejectPending||worldSwitched)
         result={requestId:command.requestId,ok:false,
           error:worldSwitched?'World changed during this command batch; inspect the new world before retrying':
+            typeof rejectPending==='string'?rejectPending:
             'Command outcome unknown after saved-world recovery; inspect the restored scene before retrying',objectId:''};
       else if(Object.hasOwn(command,'requiresSuccessOf')){
         const predecessor=command.requiresSuccessOf;
