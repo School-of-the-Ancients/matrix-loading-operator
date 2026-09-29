@@ -214,3 +214,48 @@ Quest VR; enter AR and verify room alignment against visible outlines; make
 one measured, room-constrained move of an existing object with a succeeded
 receipt and stable ID; verify the physical fit; reject a stale room token
 without an edit; then exit AR, save, and reopen with that move preserved.
+
+## Current stacked Quest review on 18980
+
+The isolated Quest 3 service ran combined PR #161 runtime source `4e7c6b0`,
+which contains PR #160 room-aware head `ce5a555`. Its private scene, catalog,
+and Agent state were preserved across a controlled same-origin restart. The
+wearer restored a separate four-object lab, saw all four in VR, then entered
+AR, restored the saved origin, confirmed that outlines aligned, and enabled
+editing. The initial **Archive and place world here** action had carried the
+facing-relative VR arrangement into AR; it did not automatically fit the
+whole composition to physical furniture. The wearer identified the center of
+one real table as clear for the existing orb. Measured support IDs changed
+between AR entries, so each attempt reidentified the table from current room
+data rather than reusing an earlier plane ID.
+
+An initial Agent move reached a generic, unreviewable approval because a
+full-precision coordinate made its otherwise bounded description exceed the
+240-character review limit. That approval was denied, and no move was queued.
+The room-move formatter now retains every exact ID and numeric value while
+shortening its prose when necessary; the same target produces a 212-character
+reviewable description in the regression test. On the restarted source, the
+Agent read fresh scene and support context, and one reviewed
+`matrix_move_with_room_constraint` call returned succeeded receipt
+`9debf2aa5c30435cbedc9b41d7abe620`. The observed four-object scene kept
+the orb's ID, asset, and scale, stored it on `web-floor`, and made it upright.
+The wearer confirmed that it visibly fit the second real table at a sensible
+height and orientation, without visible physical overlap. Measured planes
+alone could not establish clearance from unmeasured objects.
+
+A separate, deliberate negative probe used an older scene revision and invalid
+spatial token. Its single typed move call returned HTTP 409 **Matrix scene
+changed** before a request ID or queued command; the revision and all four
+object transforms stayed unchanged. After Exit AR, the wearer saved a named
+PC world checkpoint `Table`, reloaded the same Browser origin, and entered VR.
+The checkpoint and live VR scene have exactly the same four IDs, assets,
+anchors, and transforms, including the moved orb. The wearer independently
+confirmed all four objects visible in VR. The VR arrangement is
+facing-relative; this does not assert a physical AR fit after reload.
+
+This run verifies a current-source, receipt-backed existing-object move,
+wearer-reported physical fit, stale-context rejection, and digital persistence.
+A new `matrix_spawn_on_surface` was not performed in this four-object Quest
+session; its durable `web-floor` behavior remains covered by automated tests
+and the separate earlier-head review record. Private room polygons and camera
+pixels are excluded from this note.
