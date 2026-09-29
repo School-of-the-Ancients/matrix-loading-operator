@@ -296,6 +296,41 @@ test('XR WORLD panel can select, create and restore archived worlds with guarded
   }
 });
 
+test('XR layout page exposes movement then separate clearance and room-outline decisions',()=>{
+  const context={fillRect(){},strokeRect(){},fillText(){},measureText(){return {width:0};}};
+  const previousDocument=globalThis.document;
+  globalThis.document={createElement:kind=>{
+    assert.equal(kind,'canvas');return {width:0,height:0,getContext:()=>context};
+  }};
+  try{
+    const panel=operatorPanel(),hit=(x,y)=>panel.hit({x:x/1024,y:1-y/768});
+    panel.setXRMode('ar');panel.toggleWorld();
+    panel.setWorldInfo({objects:4,alignment:'Digital layout review required',
+      canPlaceLayout:true,layoutReviewPending:true,
+      arLayoutOffset:{x:.25,z:-.5,yawDegrees:15}});
+    assert.equal(hit(500,675),'open-layout');
+    panel.openLayout();
+    assert.equal(hit(500,360),'layout-forward');
+    assert.equal(hit(180,455),'layout-left');
+    assert.equal(hit(820,455),'layout-right');
+    assert.equal(hit(500,540),'layout-back');
+    assert.equal(hit(250,630),'layout-turn-left');
+    assert.equal(hit(730,630),'layout-turn-right');
+    assert.equal(hit(500,715),'confirm-layout');
+    panel.setWorldInfo({objects:4,alignment:'Check outlines',canPlaceLayout:true,
+      canConfirm:true,layoutReviewPending:false,
+      arLayoutOffset:{x:.25,z:-.5,yawDegrees:15}});
+    assert.equal(hit(500,715),'confirm-room');
+    panel.setWorldInfo({objects:4,alignment:'Room origin unavailable',
+      canPlaceLayout:false,layoutReviewPending:false,
+      arLayoutOffset:{x:.25,z:-.5,yawDegrees:15}});
+    assert.equal(hit(500,360),null,'tracking loss hides movement controls');
+  }finally{
+    if(previousDocument===undefined)delete globalThis.document;
+    else globalThis.document=previousDocument;
+  }
+});
+
 test('Hide remains reachable on every Operator page',()=>{
   const context={fillRect(){},strokeRect(){},fillText(){},measureText(){return {width:0};}};
   const previousDocument=globalThis.document;

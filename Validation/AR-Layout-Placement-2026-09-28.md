@@ -11,7 +11,7 @@ The clearance review is the wearer's observation. Moving a pre-existing layout d
 ## Automated and desktop evidence
 
 - Focused AR layout, origin, world-slot, and checkpoint checks: **55/55 passed**. They cover anchor × offset composition, old pin and epoch invalidation, separate layout/outline confirmation, same object IDs and local transforms, browser save/Exit AR/reopen, both different-offset and same-offset active AR checkpoint replacement, recovery archive reset, manual checkpoint provenance, and failed PC rollback. The full suite also includes queued world-switch rejection in the bridge test.
-- Full WebRuntime suite on the refreshed v1.1 stack: **737/737 passed**. Full ControlService suite: **895/895 passed** (one non-failing socket `ResourceWarning`). Production Vite build passed (bundle `view-QHxCC7Ip.js`). The release-builder checks passed **11/11**. The existing large JavaScript chunk warning remains.
+- Full WebRuntime suite on the refreshed v1.1 stack: **738/738 passed**, including in-headset panel hit targets for movement and the separate review buttons. Full ControlService suite: **895/895 passed** (one non-failing socket `ResourceWarning`). Production Vite build passed (bundle `view-QHxCC7Ip.js`). The release-builder checks passed **11/11**. The existing large JavaScript chunk warning remains.
 - No desktop browser or Quest wearer has yet operated these new layout controls. Source tests and a build do not prove headset button legibility, real-room alignment, or clearance.
 
 ## Quest 3 wearer gate on the isolated v1.1 review service
