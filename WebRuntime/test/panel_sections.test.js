@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {readFileSync} from 'node:fs';
-import {initializePanelSections,revealPanelSection} from '../src/panel_sections.js';
+import {initializePanelSections,revealPanelSection,revealAgentAttention} from '../src/panel_sections.js';
 
 function details(id,open=false,parentElement=null){
   const listeners=new Map();
@@ -40,6 +40,23 @@ test('bad or unavailable UI storage leaves native default sections usable',()=>{
   assert.equal(agent.open,true);
   assert.doesNotThrow(()=>agent.toggle());
   assert.equal(agent.open,false);
+});
+
+test('a new Agent approval reopens a manually collapsed active-turn section once',()=>{
+  const agent=details('section-agent');
+  let key=revealAgentAttention(agent,'','turn-1',null);
+  assert.equal(agent.open,true,'active turn opens the section');
+  agent.open=false;
+  key=revealAgentAttention(agent,key,'turn-1',null);
+  assert.equal(agent.open,false,'status polls preserve a manual collapse');
+  const approval={turnId:'turn-1',approvalId:42};
+  key=revealAgentAttention(agent,key,'turn-1',approval);
+  assert.equal(agent.open,true,'approval transition reveals the review controls');
+  agent.open=false;
+  key=revealAgentAttention(agent,key,'turn-1',approval);
+  assert.equal(agent.open,false,'same approval does not repeatedly force expansion');
+  key=revealAgentAttention(agent,key,'turn-1',{...approval,approvalId:43});
+  assert.equal(agent.open,true,'a later approval also opens the section');
 });
 
 test('main browser controls remain in the intended expandable sections',()=>{
