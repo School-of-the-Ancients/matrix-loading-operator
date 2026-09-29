@@ -21,3 +21,10 @@ export function revealPanelSection(section){
     if(current.tagName==='DETAILS')current.open=true;
   }
 }
+
+export function revealAgentAttention(section,previousKey,activeTurnId,pending){
+  const key=pending?`approval:${pending.turnId??''}:${pending.approvalId??''}`:
+    activeTurnId?`turn:${activeTurnId}`:'';
+  if(key&&key!==previousKey)revealPanelSection(section);
+  return key;
+}

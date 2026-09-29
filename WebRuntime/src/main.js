@@ -34,7 +34,7 @@ import {archiveAndClearRoom,archiveAndRebaseRoom,roomArchives,
 import {BlockScaleUI} from './block_scale_ui.js';
 import {CitizensPanel} from './citizens_panel.js';
 import {citizensFurnitureReadiness} from './citizens.js';
-import {initializePanelSections,revealPanelSection} from './panel_sections.js';
+import {initializePanelSections,revealPanelSection,revealAgentAttention} from './panel_sections.js';
 
 const $=id=>document.getElementById(id);
 initializePanelSections($('world-operator-panel'),sessionStorage);
@@ -67,7 +67,7 @@ let persistenceWarning='',restoreWarning='';
 let cameraBusy=false;
 const recorder=new VoiceRecorder();let voiceStarting=false,voiceRecording=false,voiceStopRequested=false,voiceJob=null,voiceSnapshot=null,voiceDestination='planner',voiceAgentContext=null,voiceBlenderPlacement=null;
 let replyContext=null,replySource=null;
-let agentClient=null,conceptUI=null,panoramaUI=null,agentActionBusy=false,agentVoiceStatus='',agentNeedsAttention=false;
+let agentClient=null,conceptUI=null,panoramaUI=null,agentActionBusy=false,agentVoiceStatus='',agentAttentionKey='';
 let creationMode=loadCreationMode(sessionStorage);
 const pendingBlenderReceiptIds=new Set();
 function unlockReplyAudio(){
@@ -480,9 +480,8 @@ function renderAgent(){
   $('agent-connect').textContent=status?'Reconnect Codex':'Start or resume Codex';
   $('agent-approval').classList.toggle('hidden',!pending);
   $('agent-approval-summary').textContent=agentApprovalText(pending);
-  const needsAttention=!!pending||!!status?.activeTurnId;
-  if(needsAttention&&!agentNeedsAttention)revealPanelSection($('section-agent'));
-  agentNeedsAttention=needsAttention;
+  agentAttentionKey=revealAgentAttention($('section-agent'),agentAttentionKey,
+    status?.activeTurnId,pending);
   $('agent-connect').disabled=agentActionBusy;
   $('agent-send').disabled=agentActionBusy||!status||!!agentClient.error||!!status.activeTurnId;
   $('agent-stop').disabled=agentActionBusy||!status?.activeTurnId;
