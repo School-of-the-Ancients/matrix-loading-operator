@@ -2,6 +2,7 @@ import './style.css';
 import {MatrixWorld} from './protocol.js';
 import {MatrixView} from './view.js';
 import {MatrixBridge} from './bridge.js';
+import {LatencyTrace} from './latency_trace.js';
 import {VoiceRecorder} from './voice.js';
 import {CameraStream,bindCameraPageLifecycle} from './camera_stream.js';
 import {bindXRPageLifecycle} from './xr_session.js';
@@ -39,6 +40,10 @@ import {citizensFurnitureReadiness} from './citizens.js';
 import {initializePanelSections,revealPanelSection,revealAgentAttention} from './panel_sections.js';
 
 const $=id=>document.getElementById(id);
+const latencyTrace=new URLSearchParams(location.search).get('latency')==='1'?new LatencyTrace():null;
+const pendingVisibleTraces=[];
+if(latencyTrace)window.matrixLatencyTrace=Object.freeze({
+  snapshot:()=>latencyTrace.snapshot(),clear:()=>latencyTrace.clear()});
 initializePanelSections($('world-operator-panel'),sessionStorage);
 const sidebarToggle=$('toggle-sidebar');
 sidebarToggle.addEventListener('click',()=>{
@@ -400,6 +405,8 @@ const bridge=new MatrixBridge(world,()=>$('token').value.trim(),event=>{
     lastConnectionOnline=event.online;
   }
   if(event.type==='receipt'){
+    if(latencyTrace&&event.visibleMutation&&event.traceId)
+      pendingVisibleTraces.push({traceId:event.traceId,requestId:event.result.requestId});
     if(pendingBlenderReceiptIds.has(event.result.requestId)){
       feedback(`Blender spawn ${event.result.requestId} has a browser receipt; checking the PC acknowledgement.`,
         !event.result.ok);
@@ -421,6 +428,10 @@ const bridge=new MatrixBridge(world,()=>$('token').value.trim(),event=>{
     feedback(message,!event.result.ok);lastOperatorReply=lastOperatorReply?`${lastOperatorReply}\n\n${message}`:message;operatorMessageUntil=Infinity;view.setOperatorStatus(lastOperatorReply,event.result.ok?'idle':'error');
   }
 });
+bridge.latencyTrace=latencyTrace;
+view.onRendered=()=>{
+  for(const info of pendingVisibleTraces.splice(0))latencyTrace?.begin('frame.visible',info)('ok');
+};
 bridge.prepareEnvironment=environment=>view.prepareEnvironment(environment);
 bridge.onWorldSlotCommand=async command=>{
   if(command.op==='list_world_archives')
@@ -498,6 +509,7 @@ function agentApprovalText(pending){
   return `${pending.summary||'Codex action needs PC review.'}${guidance}`;
 }
 function renderAgent(){
+  latencyTrace?.ingestService(agentClient?.status?.latencyTrace);
   const status=agentClient?.status,turns=status?.transcript||[],pending=status?.pendingApprovals?.[0];
   const activity=agentClient?.error?'Connection needs attention':status?agentActivityLabel(status.activity):'Not connected';
   $('agent-activity').textContent=activity;
@@ -645,6 +657,7 @@ async function currentAgentContextForSend(captured){
 function sendAgent(){
   const text=$('agent-input').value.trim();
   if(!text){feedback('Enter a message for Codex first.',true);return;}
+  latencyTrace?.submit();
   if(agentClient.status?.activeTurnId){
     const turnId=agentClient.status.activeTurnId;
     agentAction(async()=>{
@@ -1474,6 +1487,7 @@ function voiceButtons(){
 async function beginVoice(){
   if(voiceStarting||voiceRecording)return;
   if(voiceJob){voiceStatus('Finish the current voice request before speaking again.',true,false);return;}
+  latencyTrace?.submit();
   voiceDestination=view.isOperatorAgentMode()?'agent':'planner';
   if(voiceDestination==='agent'&&(!agentClient?.status||agentClient.error)){
     voiceStatus('Reconnect to Codex first.',true);return;
@@ -1483,15 +1497,19 @@ async function beginVoice(){
   catch(error){voiceStatus(`Could not capture Matrix context: ${error.message}`,true);return;}
   unlockReplyAudio();
   voiceStarting=true;voiceStopRequested=false;voiceButtons();voiceStatus('Requesting microphone…');
-  try{await recorder.start();voiceRecording=true;voiceSnapshot=world.snapshot(view.viewer());voiceStatus('Recording… release the controller or tap Send.');}
+  const finishMicTrace=latencyTrace?.begin('microphone.acquire');
+  let micOutcome='failed';
+  try{await recorder.start();micOutcome='ok';voiceRecording=true;voiceSnapshot=world.snapshot(view.viewer());voiceStatus('Recording… release the controller or tap Send.');}
   catch(error){voiceStatus(error.message,true);}
-  finally{voiceStarting=false;voiceButtons();if(voiceStopRequested&&voiceRecording)endVoice();}
+  finally{finishMicTrace?.(micOutcome);voiceStarting=false;voiceButtons();if(voiceStopRequested&&voiceRecording)endVoice();}
 }
 async function endVoice(){
   if(voiceStarting){voiceStopRequested=true;return;}
   if(!voiceRecording)return;
   voiceRecording=false;voiceJob='finalizing';voiceButtons();voiceStatus('Finishing recording…');
   let voiceTranscriptStaged=false;
+  const finishVoiceTrace=latencyTrace?.begin('voice.finalize-and-deliver');
+  let voiceOutcome='ok';
   try{const audioBase64=await recorder.stop();
     voiceAgentContext=captureAgentContext(world,view,bridge.clientId,'voice_transcript');
     voiceStatus('Transcribing on PC…');
@@ -1559,10 +1577,10 @@ async function endVoice(){
       voiceJob=job.jobId;voiceButtons();await pollVoice(voiceJob);
     }
   }
-  catch(error){voiceStatus(voiceTranscriptStaged?
+  catch(error){voiceOutcome='failed';voiceStatus(voiceTranscriptStaged?
     `${error.message} Transcript kept in the Codex Agent input; inspect before retrying.`:
     error.message,true);}
-  finally{voiceJob=null;voiceSnapshot=null;voiceAgentContext=null;voiceBlenderPlacement=null;
+  finally{finishVoiceTrace?.(voiceOutcome);voiceJob=null;voiceSnapshot=null;voiceAgentContext=null;voiceBlenderPlacement=null;
     voiceSteerTurnId=null;voiceButtons();}
 }
 async function pollVoice(jobId){
