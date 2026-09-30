@@ -2,6 +2,7 @@ import './style.css';
 import {MatrixWorld} from './protocol.js';
 import {MatrixView} from './view.js';
 import {MatrixBridge} from './bridge.js';
+import {LatencyTrace} from './latency_trace.js';
 import {VoiceRecorder} from './voice.js';
 import {CameraStream,bindCameraPageLifecycle} from './camera_stream.js';
 import {bindXRPageLifecycle} from './xr_session.js';
@@ -39,6 +40,9 @@ import {citizensFurnitureReadiness} from './citizens.js';
 import {initializePanelSections,revealPanelSection,revealAgentAttention} from './panel_sections.js';
 
 const $=id=>document.getElementById(id);
+const latencyTrace=new URLSearchParams(location.search).get('latency')==='1'?new LatencyTrace():null;
+if(latencyTrace)window.matrixLatencyTrace=Object.freeze({
+  snapshot:()=>latencyTrace.snapshot(),clear:()=>latencyTrace.clear()});
 initializePanelSections($('world-operator-panel'),sessionStorage);
 const sidebarToggle=$('toggle-sidebar');
 sidebarToggle.addEventListener('click',()=>{
@@ -421,6 +425,7 @@ const bridge=new MatrixBridge(world,()=>$('token').value.trim(),event=>{
     feedback(message,!event.result.ok);lastOperatorReply=lastOperatorReply?`${lastOperatorReply}\n\n${message}`:message;operatorMessageUntil=Infinity;view.setOperatorStatus(lastOperatorReply,event.result.ok?'idle':'error');
   }
 });
+bridge.latencyTrace=latencyTrace;
 bridge.prepareEnvironment=environment=>view.prepareEnvironment(environment);
 bridge.onWorldSlotCommand=async command=>{
   if(command.op==='list_world_archives')
@@ -1483,15 +1488,19 @@ async function beginVoice(){
   catch(error){voiceStatus(`Could not capture Matrix context: ${error.message}`,true);return;}
   unlockReplyAudio();
   voiceStarting=true;voiceStopRequested=false;voiceButtons();voiceStatus('Requesting microphone…');
-  try{await recorder.start();voiceRecording=true;voiceSnapshot=world.snapshot(view.viewer());voiceStatus('Recording… release the controller or tap Send.');}
+  const finishMicTrace=latencyTrace?.begin('microphone.acquire');
+  let micOutcome='failed';
+  try{await recorder.start();micOutcome='ok';voiceRecording=true;voiceSnapshot=world.snapshot(view.viewer());voiceStatus('Recording… release the controller or tap Send.');}
   catch(error){voiceStatus(error.message,true);}
-  finally{voiceStarting=false;voiceButtons();if(voiceStopRequested&&voiceRecording)endVoice();}
+  finally{finishMicTrace?.(micOutcome);voiceStarting=false;voiceButtons();if(voiceStopRequested&&voiceRecording)endVoice();}
 }
 async function endVoice(){
   if(voiceStarting){voiceStopRequested=true;return;}
   if(!voiceRecording)return;
   voiceRecording=false;voiceJob='finalizing';voiceButtons();voiceStatus('Finishing recording…');
   let voiceTranscriptStaged=false;
+  const finishVoiceTrace=latencyTrace?.begin('voice.finalize-and-deliver');
+  let voiceOutcome='ok';
   try{const audioBase64=await recorder.stop();
     voiceAgentContext=captureAgentContext(world,view,bridge.clientId,'voice_transcript');
     voiceStatus('Transcribing on PC…');
@@ -1559,10 +1568,10 @@ async function endVoice(){
       voiceJob=job.jobId;voiceButtons();await pollVoice(voiceJob);
     }
   }
-  catch(error){voiceStatus(voiceTranscriptStaged?
+  catch(error){voiceOutcome='failed';voiceStatus(voiceTranscriptStaged?
     `${error.message} Transcript kept in the Codex Agent input; inspect before retrying.`:
     error.message,true);}
-  finally{voiceJob=null;voiceSnapshot=null;voiceAgentContext=null;voiceBlenderPlacement=null;
+  finally{finishVoiceTrace?.(voiceOutcome);voiceJob=null;voiceSnapshot=null;voiceAgentContext=null;voiceBlenderPlacement=null;
     voiceSteerTurnId=null;voiceButtons();}
 }
 async function pollVoice(jobId){
