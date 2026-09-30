@@ -389,6 +389,7 @@ def scene_summary(state) -> dict:
                 "physicsStates": snapshot.get("physicsStates", [])[:16] if online else [],
                 "objects": [{"objectId": item["objectId"], "assetId": item["assetId"],
                              "anchorId": item["anchorId"], "transform": item["transform"],
+                             "manipulation": item.get("manipulation", "grabbable"),
                              **({"animation": item["animation"]} if "animation" in item else {}),
                              **({"physics": item["physics"]} if "physics" in item else {}),
                              **({"rigidBody": item["rigidBody"]} if "rigidBody" in item else {}),
@@ -407,13 +408,13 @@ def scene_summary(state) -> dict:
 
 
 CONCEPT_SCENE_MUTATIONS = frozenset({
-    "/move", "/move-room", "/spawn", "/spawn-surface", "/spawn-builtin", "/procedural", "/bind-game",
+    "/manipulation", "/move", "/move-room", "/spawn", "/spawn-surface", "/spawn-builtin", "/procedural", "/bind-game",
     "/update-game", "/display", "/control", "/rigid", "/entity-action",
     "/world-archive", "/bind-animation", "/component-action", "/physics",
     "/interaction", "/scale", "/environment"})
 
 BRIDGE_POST_PATHS = frozenset({
-    "/move", "/move-room", "/spawn", "/spawn-surface", "/spawn-builtin", "/procedural", "/bind-game", "/update-game",
+    "/manipulation", "/move", "/move-room", "/spawn", "/spawn-surface", "/spawn-builtin", "/procedural", "/bind-game", "/update-game",
     "/display", "/control", "/rigid", "/inspect-entity", "/entity-action",
     "/world-archive", "/bind-animation", "/register-glb", "/publish-component",
     "/component-action", "/scale", "/physics", "/interaction", "/concept-build",
@@ -482,6 +483,12 @@ class _Handler(BaseHTTPRequestHandler):
             except Exception as error:
                 self._send_json(getattr(error, "status", 500),
                                 {"error": str(error) if hasattr(error, "status") else "Matrix tool failed"})
+        elif re.fullmatch(r"/manipulations/[0-9a-f]{32}", self.path):
+            try:
+                self._send_json(200, self.server.state.agent_manipulation_status(self.path.rsplit('/', 1)[1]))
+            except Exception as error:
+                self._send_json(getattr(error, 'status', 500),
+                                {'error': str(error) if hasattr(error, 'status') else 'Matrix tool failed'})
         elif re.fullmatch(r"/moves/[0-9a-f]{32}", self.path):
             try:
                 self._send_json(200, self.server.state.agent_move_status(self.path.rsplit("/", 1)[1]))
@@ -763,6 +770,12 @@ class _Handler(BaseHTTPRequestHandler):
                 while result["status"] == "queued" and time.monotonic() < deadline:
                     time.sleep(.1)
                     result = self.server.state.agent_spawn_status(result["requestId"])
+            elif self.path == "/manipulation":
+                result = self.server.state.agent_set_manipulation(value)
+                deadline = time.monotonic() + MOVE_WAIT
+                while result['status'] == 'queued' and time.monotonic() < deadline:
+                    time.sleep(.1)
+                    result = self.server.state.agent_manipulation_status(result['requestId'])
             elif self.path == "/move-room":
                 result = self.server.state.agent_move_room(value)
                 deadline = time.monotonic() + MOVE_WAIT
@@ -805,3 +818,15 @@ class MatrixToolBridge:
         self._server.shutdown()
         self._server.server_close()
         self._thread.join(timeout=2)
+
+
+def manipulation_action(url, token, value):
+    if not url.endswith('/scene'):
+        raise ValueError('Invalid Matrix tool bridge URL')
+    return _request_json(url[:-6] + '/manipulation', token, value)
+
+
+def manipulation_status(url, token, request_id):
+    if not url.endswith('/scene') or type(request_id) is not str or not re.fullmatch(r'[0-9a-f]{32}', request_id):
+        raise ValueError('Invalid manipulation receipt ID')
+    return _request_json(url[:-6] + '/manipulations/' + request_id, token)

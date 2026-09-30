@@ -20,6 +20,20 @@ POSE = {"position": {"x": 0, "y": 0, "z": -2}, "rotation": {"x": 0, "y": 0, "z":
 
 
 class WorldCheckpointTests(unittest.TestCase):
+    def test_manipulation_policy_survives_pc_checkpoint(self):
+        world=copy.deepcopy(self.world)
+        world['scene']['objects'][0]['manipulation']='environment'
+        active=copy.deepcopy(self.snapshot);active['scene']=copy.deepcopy(world['scene'])
+        self.state.exchange({'clientId':'browser','snapshot':active,'results':[]})
+        self.assertTrue(self.state.save_world_checkpoint('LockedRoom',world)['saved'])
+        path=self.scenes / 'world_checkpoints' / 'LockedRoom.json'
+        saved=json.loads(path.read_text())
+        self.assertEqual(saved['world']['scene']['objects'][0]['manipulation'],'environment')
+        restarted=State(self.scenes,web_assets_directory=self.assets)
+        restarted.exchange({'clientId':'browser','snapshot':active,'results':[]})
+        restored=restarted.load_world_checkpoint('LockedRoom')['world']
+        self.assertEqual(restored['scene']['objects'][0]['manipulation'],'environment')
+
     def setUp(self):
         self.temp = tempfile.TemporaryDirectory()
         self.root = Path(self.temp.name)

@@ -8,7 +8,8 @@ result into the local acceptance record. Use
 discards unfinished spans from the previous journey.
 
 The export holds at most 256 completed spans in browser memory. It is not
-saved with a world or sent to the PC service. Stage names are fixed; prompts,
+saved with a world. Browser exports stay local; only the opaque trace ID is
+sent to the PC service to correlate its bounded timing records. Stage names are fixed; prompts,
 transcripts, audio, images, tokens, request bodies, error text, scene data,
 object IDs, session IDs and arbitrary URL paths are excluded. Opaque random
 trace IDs correlate submissions across clocks; typed command IDs link queue,

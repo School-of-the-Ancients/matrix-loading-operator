@@ -1,3 +1,4 @@
+import {validManipulation,manipulationPolicy,canDirectManipulate} from './manipulation.js';
 // This is the browser adapter for Matrix scene schema 1 and the existing
 // /api/exchange command set. Keep changes to this contract coordinated with
 // ControlService/server.py and the archived native contract at
@@ -152,7 +153,7 @@ const validExpectedTransform=transform=>
   exactKeys(transform,['position','rotation','scale'])&&
   ['position','rotation','scale'].every(key=>exactKeys(transform[key],['x','y','z']))&&
   validTransform(transform);
-const expectedTransformOps=new Set(['set_transform','set_behavior','remove_behavior',
+const expectedTransformOps=new Set(['set_manipulation','set_transform','set_behavior','remove_behavior',
   'attach_component','stop_component','remove_component','bind_animation',
   'set_physics','remove_physics','set_interaction','remove_interaction',
   'delete','duplicate','select','update_procedural','set_rigid_body','remove_rigid_body',
@@ -694,6 +695,7 @@ export class MatrixWorld {
     this.rigidSceneReference=this.scene;
   }
   beginRigidGrab(objectId){
+    if(!canDirectManipulate(this.scene.objects.find(item=>item.objectId===objectId)))return false;
     if(!this.rigidPhysics||!this.scene.objects.some(item=>
       item.objectId===objectId&&item.rigidBody?.type==='dynamic'))return false;
     return this.rigidPhysics.beginGrab(objectId);
@@ -1062,7 +1064,7 @@ export class MatrixWorld {
          !['get_scene','get_environment','list_assets','list_targets','inspect_entity','select'].includes(op))
         throw Error('Wait for rigid simulation to restore before editing the world');
       if(this.creatorMode.mode==='play'&&recordHistory&&
-         ['spawn','create_procedural','update_procedural','duplicate','set_transform',
+         ['set_manipulation','spawn','create_procedural','update_procedural','duplicate','set_transform',
           'set_behavior','remove_behavior','attach_component','stop_component',
           'remove_component','bind_animation','set_physics','remove_physics',
           'set_rigid_body','remove_rigid_body','set_gravity','set_interaction',
@@ -1073,7 +1075,7 @@ export class MatrixWorld {
       if(this.spatial?.originUnavailable&&!citizenVisitAction&&
          !['get_scene','get_environment','list_assets','list_targets','inspect_entity'].includes(op))
         throw Error('Saved room origin is unavailable; restore it or archive the old world before editing');
-      if(this.spatial?.stale&&!citizenVisitAction&&['spawn','duplicate','set_transform','set_behavior','remove_behavior','attach_component','stop_component','remove_component','bind_animation','set_physics','remove_physics','set_interaction','remove_interaction','set_display','remove_display','set_control','remove_control','activate_control','delete','load','undo','redo','select','create_procedural','update_procedural','set_rigid_body','remove_rigid_body','set_gravity','bind_game','update_game','begin_grab','move_grab','release_grab','set_environment','remove_environment'].includes(op))
+      if(this.spatial?.stale&&!citizenVisitAction&&['set_manipulation','spawn','duplicate','set_transform','set_behavior','remove_behavior','attach_component','stop_component','remove_component','bind_animation','set_physics','remove_physics','set_interaction','remove_interaction','set_display','remove_display','set_control','remove_control','activate_control','delete','load','undo','redo','select','create_procedural','update_procedural','set_rigid_body','remove_rigid_body','set_gravity','bind_game','update_game','begin_grab','move_grab','release_grab','set_environment','remove_environment'].includes(op))
         throw Error('Room tracking is stale; editing is paused until the room is recovered');
       if(this.spatial&&['set_environment','remove_environment'].includes(op))
         throw Error('Leave AR to edit the panorama; passthrough remains visible in AR');
@@ -1100,11 +1102,11 @@ export class MatrixWorld {
           throw Error('Object transform changed since command was queued');
       }
       if(Object.hasOwn(command,'expectedAssetId')){
-        if(op!=='set_transform'||!validId(command.expectedAssetId)||
+        if(!['set_transform','set_manipulation'].includes(op)||!validId(command.expectedAssetId)||
            this.requireObject(command.objectId).assetId!==command.expectedAssetId)
           throw Error('Object asset changed since command was queued');
       }
-      if(op==='set_transform'&&Object.hasOwn(command,'expectedCreatorRevision')){
+      if(['set_transform','set_manipulation'].includes(op)&&Object.hasOwn(command,'expectedCreatorRevision')){
         if(!Number.isSafeInteger(command.expectedCreatorRevision)||
            command.expectedCreatorRevision!==this.creatorMode.revision||
            this.creatorMode.mode!=='creator'||this.creatorMode.simulation!=='paused')
@@ -1122,7 +1124,7 @@ export class MatrixWorld {
            command.expectedTargetTransform))
           throw Error('Component target transform changed since command was queued');
       }
-      const mutation=['spawn','duplicate','set_transform','set_behavior','remove_behavior','attach_component','stop_component','remove_component','bind_animation','set_physics','remove_physics','set_interaction','remove_interaction','set_display','remove_display','set_control','remove_control','delete','clear','load','create_procedural','update_procedural','set_rigid_body','remove_rigid_body','set_environment','remove_environment'].includes(op);
+      const mutation=['set_manipulation','spawn','duplicate','set_transform','set_behavior','remove_behavior','attach_component','stop_component','remove_component','bind_animation','set_physics','remove_physics','set_interaction','remove_interaction','set_display','remove_display','set_control','remove_control','delete','clear','load','create_procedural','update_procedural','set_rigid_body','remove_rigid_body','set_environment','remove_environment'].includes(op);
       // Local finite simulation steps use the same validation and receipt path
       // without filling the user's scene Undo history with each movement tick.
       const before=mutation&&recordHistory?clone(this.scene):null;
@@ -1640,6 +1642,19 @@ export class MatrixWorld {
             rigidMutationStarted=true;
             this.scene.objects.push(duplicate);result.objectId=duplicate.objectId; }
           break;
+        case 'set_manipulation':
+          object=this.requireObject(command.objectId);
+          if(!validManipulation(command.manipulation)||
+             !validManipulation(command.expectedManipulation)||
+             manipulationPolicy(object)!==command.expectedManipulation||
+             !Object.hasOwn(command,'expectedTransform')||
+             !Object.hasOwn(command,'expectedAssetId')||
+             !Object.hasOwn(command,'expectedCreatorRevision')||
+             this.creatorMode.mode!=='creator'||this.creatorMode.simulation!=='paused')
+            throw Error('Manipulation policy or Creator authority changed; inspect before editing');
+          object.manipulation=command.manipulation;
+          result.objectId=object.objectId;
+          break;
         case 'set_transform':
           object=this.requireObject(command.objectId);
           if (!validTransform(command.transform)) throw Error('Invalid transform');
@@ -1876,6 +1891,7 @@ export class MatrixWorld {
     // catalog asset. A missing Web asset must not mask a corrupt later object.
     for(const o of scene.objects) {
       if(!o||!validId(o.objectId)||o.objectId===RIGID_FLOOR_ID||ids.has(o.objectId)||!anchors.some(anchor=>anchor.anchorId===o.anchorId)||!validTransform(o.transform)) throw Error('Invalid scene object');
+      if(Object.hasOwn(o,'manipulation')&&!validManipulation(o.manipulation))throw Error('Invalid manipulation policy');
       ids.add(o.objectId);
       if(o.behaviors && (!Array.isArray(o.behaviors)||o.behaviors.length>2||new Set(o.behaviors.map(b=>b.kind)).size!==o.behaviors.length||!o.behaviors.every(validBehavior))) throw Error('Invalid scene behavior');
       if(Object.hasOwn(o,'display')&&!validDisplay(o.display))throw Error('Invalid scene display');

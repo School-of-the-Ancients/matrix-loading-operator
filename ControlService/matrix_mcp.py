@@ -15,6 +15,7 @@ from matrix_tool_bridge import (animation_status, bind_animation, bind_game,
                                 list_assets, list_components, list_environments,
                                 list_procedural_generators, procedural_action, procedural_status,
                                 move_object, move_status, move_with_room_constraint,
+                                manipulation_action, manipulation_status,
                                 publish_component, read_scene, room_spatial_context,
                                 record_concept_build,
                                 register_glb, register_panorama,
@@ -891,3 +892,25 @@ def matrix_component_status(request_id: str) -> dict:
 
 if __name__ == "__main__":
     server.run(transport="stdio")
+
+
+@server.tool(annotations=ToolAnnotations(readOnlyHint=False, destructiveHint=False, idempotentHint=False))
+def matrix_set_manipulation(room_id: str, scene_revision: int, object_id: str,
+                            expected_asset_id: str, manipulation: str) -> dict:
+    """Set explicit grabbable/locked/environment policy in paused Creator Mode.
+
+    Read current identity/revision in matrix_scene_summary. Locked/environment
+    objects remain selectable but cannot be directly grabbed with pointer,
+    controller, hand or thumbsticks. Authorized intentional transform edits
+    remain possible. Ordinary existing objects default to grabbable. This
+    queues one guarded edit; succeeded requires the matching runtime receipt
+    and observed policy, and does not claim a durable save.
+    """
+    value = locals().copy()
+    return manipulation_action(os.environ["MATRIX_CONTROL_URL"], os.environ["MATRIX_CONTROL_TOKEN"], value)
+
+
+@server.tool(annotations=ToolAnnotations(readOnlyHint=True, destructiveHint=False, idempotentHint=True))
+def matrix_manipulation_status(request_id: str) -> dict:
+    """Read the bounded receipt for a previously queued manipulation policy edit."""
+    return manipulation_status(os.environ["MATRIX_CONTROL_URL"], os.environ["MATRIX_CONTROL_TOKEN"], request_id)
