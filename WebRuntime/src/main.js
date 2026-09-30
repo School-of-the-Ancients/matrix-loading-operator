@@ -41,6 +41,7 @@ import {initializePanelSections,revealPanelSection,revealAgentAttention} from '.
 
 const $=id=>document.getElementById(id);
 const latencyTrace=new URLSearchParams(location.search).get('latency')==='1'?new LatencyTrace():null;
+const pendingVisibleTraces=[];
 if(latencyTrace)window.matrixLatencyTrace=Object.freeze({
   snapshot:()=>latencyTrace.snapshot(),clear:()=>latencyTrace.clear()});
 initializePanelSections($('world-operator-panel'),sessionStorage);
@@ -404,6 +405,8 @@ const bridge=new MatrixBridge(world,()=>$('token').value.trim(),event=>{
     lastConnectionOnline=event.online;
   }
   if(event.type==='receipt'){
+    if(latencyTrace&&event.visibleMutation&&event.traceId)
+      pendingVisibleTraces.push({traceId:event.traceId,requestId:event.result.requestId});
     if(pendingBlenderReceiptIds.has(event.result.requestId)){
       feedback(`Blender spawn ${event.result.requestId} has a browser receipt; checking the PC acknowledgement.`,
         !event.result.ok);
@@ -426,6 +429,9 @@ const bridge=new MatrixBridge(world,()=>$('token').value.trim(),event=>{
   }
 });
 bridge.latencyTrace=latencyTrace;
+view.onRendered=()=>{
+  for(const info of pendingVisibleTraces.splice(0))latencyTrace?.begin('frame.visible',info)('ok');
+};
 bridge.prepareEnvironment=environment=>view.prepareEnvironment(environment);
 bridge.onWorldSlotCommand=async command=>{
   if(command.op==='list_world_archives')
@@ -503,6 +509,7 @@ function agentApprovalText(pending){
   return `${pending.summary||'Codex action needs PC review.'}${guidance}`;
 }
 function renderAgent(){
+  latencyTrace?.ingestService(agentClient?.status?.latencyTrace);
   const status=agentClient?.status,turns=status?.transcript||[],pending=status?.pendingApprovals?.[0];
   const activity=agentClient?.error?'Connection needs attention':status?agentActivityLabel(status.activity):'Not connected';
   $('agent-activity').textContent=activity;
@@ -650,6 +657,7 @@ async function currentAgentContextForSend(captured){
 function sendAgent(){
   const text=$('agent-input').value.trim();
   if(!text){feedback('Enter a message for Codex first.',true);return;}
+  latencyTrace?.submit();
   if(agentClient.status?.activeTurnId){
     const turnId=agentClient.status.activeTurnId;
     agentAction(async()=>{
@@ -1479,6 +1487,7 @@ function voiceButtons(){
 async function beginVoice(){
   if(voiceStarting||voiceRecording)return;
   if(voiceJob){voiceStatus('Finish the current voice request before speaking again.',true,false);return;}
+  latencyTrace?.submit();
   voiceDestination=view.isOperatorAgentMode()?'agent':'planner';
   if(voiceDestination==='agent'&&(!agentClient?.status||agentClient.error)){
     voiceStatus('Reconnect to Codex first.',true);return;

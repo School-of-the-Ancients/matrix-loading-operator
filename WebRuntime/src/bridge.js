@@ -29,6 +29,7 @@ export class MatrixBridge {
   async request(path, body, {signal,timeoutMs=0}={}) {
     if(timeoutMs>0&&body!==undefined)throw Error('Timed requests are available only for read-only GETs');
     const headers={}; const token=this.getToken();
+    if(this.latencyTrace)headers['X-Matrix-Trace']=this.latencyTrace.traceId;
     if(token)headers.Authorization=`Bearer ${token}`;
     if(body!==undefined)headers['Content-Type']='application/json';
     const controller=timeoutMs>0?new AbortController():null;
@@ -46,6 +47,10 @@ export class MatrixBridge {
         const response=await fetch(path,{method:body===undefined?'GET':'POST',headers,
           body:body===undefined?undefined:JSON.stringify(body),cache:'no-store',signal:controller?.signal||signal});
         const data=await response.json();
+        if(this.latencyTrace){
+          try{const trace=response.headers?.get('X-Matrix-Latency');
+            if(trace)this.latencyTrace.ingestService(JSON.parse(trace));}catch{}
+        }
         if(!response.ok)throw Error(data.error||`HTTP ${response.status}`);
         return data;
       })();
@@ -133,13 +138,15 @@ export class MatrixBridge {
           error:String(error?.message||error).slice(0,1000),objectId:''};
       }
     };
-    for(const command of data.commands||[]) {
+    for(const rawCommand of data.commands||[]) {
+      const {latencyTraceId,...command}=rawCommand;
       // A panorama fetch/decode can use most of the runtime's 15-second lease.
       // Send its receipt on the next exchange before starting another such
       // dependency. The PC retains unacknowledged commands in order.
       if(dependencyPreflightUsed)break;
       if(this.receipts.has(command.requestId))continue;
-      const finishCommandTrace=this.latencyTrace?.begin('command.apply');
+      const traceId=/^[0-9a-f]{32}$/.test(latencyTraceId||'')?latencyTraceId:this.latencyTrace?.traceId;
+      const finishCommandTrace=this.latencyTrace?.begin('command.apply',{traceId,requestId:command.requestId});
       let result;
       if(rejectPending||worldSwitched)
         result={requestId:command.requestId,ok:false,
@@ -170,7 +177,8 @@ export class MatrixBridge {
         worldSwitched=true;
       changed=changed||(result.ok&&!READ_ONLY_OPS.has(command.op));
       completed.set(command.requestId,result);
-      this.onUpdate({type:'receipt',result});
+      this.onUpdate({type:'receipt',result,...(traceId?{traceId,
+        visibleMutation:result.ok&&!READ_ONLY_OPS.has(command.op)}:{})});
     }
     if(rejectPending)this.rejectPendingOnNextExchange=false;
     if(worldSwitched)this.rejectPendingOnNextExchange=true;

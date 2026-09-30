@@ -10,7 +10,9 @@ discards unfinished spans from the previous journey.
 The export holds at most 256 completed spans in browser memory. It is not
 saved with a world or sent to the PC service. Stage names are fixed; prompts,
 transcripts, audio, images, tokens, request bodies, error text, scene data,
-object IDs, session IDs and arbitrary URL paths are excluded.
+object IDs, session IDs and arbitrary URL paths are excluded. Opaque random
+trace IDs correlate submissions across clocks; typed command IDs link queue,
+execution and rendered-frame events. These IDs are not credentials.
 
 | Stage | Measurement |
 | --- | --- |
@@ -24,8 +26,9 @@ object IDs, session IDs and arbitrary URL paths are excluded.
 | `receipts.acknowledged` | A timeline marker when a successful exchange acknowledges previously sent browser receipts |
 | `http.other` | Other requests without retaining their route or content |
 
-Times are relative to the browser's monotonic clock. Do not subtract them
-from PC timestamps. HTTP measurements include network, service and parsing
+Each event identifies its clock. Do not subtract browser and service
+timestamps; correlate by trace/command IDs and compare durations within one
+clock. Service retention is bounded to 16 runs with 128 events each. HTTP measurements include network, service and parsing
 time; they do not separate server inference from network delay. The voice
 span excludes the time the user holds the microphone and ends when the
 delivery workflow returns, which can differ between Agent and planner paths.
@@ -39,7 +42,14 @@ edit. Export after each journey to avoid evicting early spans with heartbeat
 polls. Keep confirmation receipts and outcome observations alongside timings;
 never infer completion from a request acknowledgement alone.
 
-This is preliminary instrumentation for the core v1.2 work. The sprint issue
-criteria were unavailable through the cloud GitHub API during this change;
-interruption simplification and bounded object locks are still pending.
+Service traces additionally record context assembly, prompt build/bytes, Agent
+start/first-tool/completion, human approval wait, command queue and received
+receipt stages. Browser submission and first post-mutation rendered-frame
+markers share the submission trace ID. The frame marker does not prove physical
+display timing or sensor latency.
+
+`Tools/Benchmark-Operator-Context.py` records matched prompt assembly samples
+against the exact v1.1.0 builder: bytes, p50/p95 and raw counts. This does not
+simulate model reasoning, transcription or headset acceptance. The compact
+context and lock increments build on this measurement path.
 Physical Quest/AR/VR acceptance is pending.

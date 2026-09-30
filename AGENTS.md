@@ -27,24 +27,23 @@ Do **not** rebuild the engine, create another Matrix repository, introduce a sec
 
 ## Current work
 
-Use the **Now** section of [ROADMAP.md](ROADMAP.md) and the canonical v1.0 epic [#152](https://github.com/School-of-the-Ancients/matrix-loading-operator/issues/152).
+The published baseline is v1.1.0, source `9453ef06b1873937822c1cf985115f05f72e1e20`.
+Follow [#173](https://github.com/School-of-the-Ancients/matrix-loading-operator/issues/173)
+for v1.2: measure #171, simplify #163/#171, then implement the bounded #158
+lock slice. #154/#172 are conditional after the core-loop gate; v2 #156 is
+out of scope. Use draft PRs. Do not merge or release without authorization.
 
-Complete the v1.0 critical path in order:
-
-1. #147 — grab + thumbstick transforms;
-2. #91 — ComfyUI visual ideation and selected-image context to the existing Codex Agent;
-3. #150 — persistent panorama / skybox environment;
-4. #149 — restore room-aware Operator context;
-5. #26 — Quest physical-camera context;
-6. freeze, validate and publish v1.0 from the exact tested artifact.
-
-The owner completed #150 and merged PR #159 into `main` on 2026-09-28.
-Continue #149 and #26 on that integrated baseline before the v1.0 freeze;
-see [ROADMAP.md](ROADMAP.md).
-
-Do not expand the active sprint into later milestones. #148, #20/#29, #9, #31, #32 and coursework packaging are parallel/post-v1.0 work unless the owner explicitly changes the roadmap.
-
-Continue compatible merged work; do not restart earlier milestones.
+Read [the sprint acceptance record](Validation/V1.2-Headset-Acceptance.md)
+at startup and after every goal refresh. Run automated/desktop checks during
+implementation and add physical cases to that one checklist; pending hardware
+checks do not stop unrelated cloud work. Bundle the normal wearer session
+once the candidate is frozen, rather than after every PR. An early targeted
+check is appropriate only for a hardware-dependent design blocker or suspected
+major regression; record its reason. Reuse existing evidence across resumed
+goals. Invalidate only affected checks with a recorded change/impact reason;
+keep historical identities and unaffected results. Never convert cloud tests,
+old releases or an unanswered request into a headset pass. Keep every required
+release gate in #173 open until its identified candidate passes.
 
 ## Creation
 
