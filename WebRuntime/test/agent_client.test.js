@@ -86,6 +86,30 @@ test('acknowledged steer stays accepted if the following status read fails',asyn
   assert.equal(client.error,'Status temporarily unavailable');
 });
 
+test('an admitted turn snapshot updates the browser without another status round trip',async()=>{
+  const calls=[];
+  const client=new AgentClient(async(path)=>{
+    calls.push(path);
+    if(path==='/api/agent/turn')return {...status(),turnId:'turn-1'};
+    throw Error('Redundant status request');
+  },storage({[AGENT_SESSION_KEY]:id}));
+  await client.send('Move this left');
+  assert.deepEqual(calls,['/api/agent/turn']);
+  assert.equal(client.status.activeTurnId,'turn-1');
+});
+
+test('older-service admission remains acknowledged after a failed status refresh',async()=>{
+  const calls=[];
+  const client=new AgentClient(async path=>{
+    calls.push(path);
+    if(path==='/api/agent/turn')return {sessionId:id,turnId:'turn-1',activity:'working'};
+    throw Error('Status temporarily unavailable');
+  },storage({[AGENT_SESSION_KEY]:id}));
+  assert.equal((await client.send('Make it twice as big')).turnId,'turn-1');
+  assert.deepEqual(calls,['/api/agent/turn','/api/agent/status']);
+  assert.equal(client.error,'Status temporarily unavailable');
+});
+
 test('failed resume never starts an unrelated conversation or clears its ID',async()=>{
   const store=storage({[AGENT_SESSION_KEY]:id}),calls=[];
   const client=new AgentClient(async path=>{calls.push(path);throw Error('Codex unavailable');},store);

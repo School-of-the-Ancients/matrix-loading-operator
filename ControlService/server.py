@@ -3844,11 +3844,7 @@ def agent_portal_turn(state, body):
                     "Selected concept changed; review and select the intended version again", 409)
         require(concept_reference_matches(body["text"], selected),
                 "Requested concept version is not selected; select it first", 409)
-    composing = bool(re.search(
-        r"\b(?:build|create|compose|reorganize|arrange|fit|make)\b|\bturn\b.{0,80}\binto\b",
-        body["text"], re.IGNORECASE))
-    context = (agent_turn_context(state, body["context"],
-                                  creation=selected is not None or composing)
+    context = (agent_turn_context(state, body["context"], creation=selected is not None)
                if "context" in body
                else agent_runtime_context(state, include_scene=selected is not None))
     capture_input = None

@@ -162,7 +162,7 @@ class AgentPortalHTTPTests(unittest.TestCase):
         self.assertEqual(backend.image_bytes, bytes(raw))
         self.assertIn("not pixel aligned", backend.sent_texts[-1])
         self.assertIn("physical", backend.sent_texts[-1].lower())
-        self.assertIn("Physical-room layout is currently unverified", backend.sent_texts[-1])
+        self.assertIn('"alignmentVerified":false', backend.sent_texts[-1])
         self.assertIn("cameraFrameCapturedAtUtc", backend.sent_texts[-1])
         self.assertNotIn(pair["dataBase64"], backend.sent_texts[-1])
         self.assertEqual(self.state.capture["agentTurnId"], started["turnId"])
@@ -449,8 +449,8 @@ class AgentPortalHTTPTests(unittest.TestCase):
         self.assertEqual(self.post("/api/agent/turn", body)[0], 200)
         sent = self.state.agent_portal._backend.sent_texts[-1]
         self.assertIn("User request:\nPut this over there", sent)
-        self.assertIn("Live runtime identity and presentation: unknown", sent)
-        self.assertIn("available typed Matrix tools", sent)
+        self.assertIn('"runtimeDescriptor":null', sent)
+        self.assertIn("Tool results are authoritative", sent)
         self.assertNotIn("matrix_move_object sets position", sent)
         self.assertLess(len(sent), 4000)
         encoded = sent.split("<matrix_spatial_context>", 1)[1].split("</matrix_spatial_context>", 1)[0]
@@ -730,8 +730,8 @@ class AgentPortalHTTPTests(unittest.TestCase):
                                                 "text": "Operator, load XYZ"})
         self.assertEqual(code, 200)
         sent = self.state.agent_portal._backend.sent_texts[-1]
-        self.assertIn("desktop presentation", sent)
-        self.assertIn("matrix_list_assets offset/limit pages", sent)
+        self.assertIn('"presentation":"desktop"', sent)
+        self.assertNotIn("Search all matrix_list_assets", sent)
         self.assertNotIn("private-chair", sent)
         encoded = sent.split("<matrix_runtime_context>", 1)[1].split(
             "</matrix_runtime_context>", 1)[0]
@@ -799,10 +799,10 @@ class AgentPortalHTTPTests(unittest.TestCase):
                                 "trackingEpoch": 3} if presentation == "ar" else context)
             grounded = agent_turn_context(self.state, request_context)
             message = build_matrix_turn_message("Operator, load Asset 29", grounded, enabled)
-            self.assertIn(f"{presentation} presentation", message)
+            self.assertIn(f'"presentation":"{presentation}"', message)
             self.assertEqual(grounded["capabilityVersions"]["rigidSchemaVersion"], 1)
             self.assertEqual(grounded["assetCatalogCount"], 30)
-            self.assertIn("matrix_list_assets offset/limit pages", message)
+            self.assertNotIn("Search all matrix_list_assets", message)
         preview = scene_summary(self.state)
         self.assertEqual(len(preview["assets"]), 24)
         self.assertTrue(preview["assetsTruncated"])
@@ -814,7 +814,7 @@ class AgentPortalHTTPTests(unittest.TestCase):
         self.state.latest = snapshot(old)
         grounded = agent_turn_context(self.state, context)
         self.assertIsNone(grounded["runtimeDescriptor"])
-        self.assertIn("Live runtime identity and presentation: unknown",
+        self.assertIn('"runtimeDescriptor":null',
                       build_matrix_turn_message("Operator, load Asset 29", grounded, enabled))
         with self.assertRaisesRegex(APIError, "presentation and room context disagree"):
             snapshot({**base, "runtimeDescriptor": {"schemaVersion": 1,

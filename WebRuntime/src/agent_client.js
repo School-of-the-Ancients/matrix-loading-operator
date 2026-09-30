@@ -52,12 +52,17 @@ export class AgentClient {
     if(captureId!==null&&(typeof captureId!=='string'||!CAPTURE_ID.test(captureId)||!context||expectedConcept))
       throw Error('A reviewed capture needs a Matrix context and cannot accompany a selected concept.');
     try{
-      await this.request('/api/agent/turn',{sessionId:this.sessionId,text,
+      const accepted=await this.request('/api/agent/turn',{sessionId:this.sessionId,text,
         ...(context?{context}:{}),
         ...(captureId?{captureId}:{}),
         ...(expectedConcept?{expectedConceptId:expectedConcept.conceptId,
           expectedConceptVersion:expectedConcept.version,creationMode}:{})});
-      return await this.restore();
+      if(accepted?.sessionId!==this.sessionId||!accepted?.turnId)
+        throw Error('Could not confirm the Agent submission. Inspect the current turn before retrying.');
+      if(Array.isArray(accepted.transcript))return this._update(accepted);
+      // Older services still acknowledge without a snapshot. An acknowledged
+      // turn must never be resent merely because its status refresh failed.
+      try{return await this.restore();}catch{return accepted;}
     }catch(error){this._fail(error);throw error;}
   }
   async steer(text,context=null,turnId=this.status?.activeTurnId){
