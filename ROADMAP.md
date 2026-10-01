@@ -1,6 +1,6 @@
 # Matrix roadmap
 
-Detailed requirements and acceptance stay in their owning issues; exact-build evidence stays in `Docs/` and `Validation/`. This roadmap organizes the 28 open issues reviewed on October 1, 2026. Milestone membership is planning metadata, not proof of implementation or release acceptance. No dates are promised for undated work.
+Detailed requirements and acceptance stay in their owning issues; exact-build evidence stays in `Docs/` and `Validation/`. This roadmap organizes the 28 open issues reviewed on October 1, 2026. Issue-based milestone placement is planning metadata, not proof of implementation or release acceptance. No dates are promised for undated work.
 
 ## Current baseline and acceptance gate
 
@@ -36,7 +36,7 @@ Origin migration needs authored-state export/recovery and possible room re-regis
 
 ## Deferred delivery and research tracks
 
-| Milestone | Open issues | Sequencing and boundary |
+| Issue-based roadmap track | Open issues | Sequencing and boundary |
 | --- | --- | --- |
 | v1.2 Fast simple creation | #158, #163, #171, #173, #174 | Active core acceptance only; exact-build gate above |
 | v1.3 Image to polished world | #185, #186, #187 | Next bounded sprint; full umbrella acceptance remains visible |
@@ -47,7 +47,7 @@ Origin migration needs authored-state export/recovery and possible room re-regis
 | Research and feasibility | #177, #179, #189 | SAM 3D, geospatial source/location/alignment study and hybrid glasses compute; research is not committed runtime delivery |
 | Coursework and release delivery | #24 | Exact artifacts/runbooks plus report/video/slides; verify course dates/rubric before scheduling |
 
-Native GitHub milestone objects group these issues; the existing sprint/epic issues remain the authoritative detailed scope. Do not infer completion from a milestone's percentage.
+Milestones are tracked as GitHub issues, following the existing repository convention. #173 owns the active sprint, #187 the next sprint, #184 ChatGPT integration, #188 access/hosting and #156 the later v2 roadmap. The thematic rows above are roadmap groupings, not new native GitHub Milestone objects or eight additional tracker issues. The owning issues remain authoritative for detailed scope and acceptance.
 
 ### Important cross-track dependencies
 
@@ -62,7 +62,7 @@ Native GitHub milestone objects group these issues; the existing sprint/epic iss
 
 ## Issue intake and work selection
 
-1. Review the full new/changed issue and relevant comments, current milestones, sprint trackers, related PRs and existing implementations before assigning it. Reuse an existing issue/milestone where it already owns the outcome.
+1. Review the full new/changed issue and relevant comments, current milestone issues, sprint trackers, related PRs and existing implementations before assigning it. Reuse an existing issue-based milestone where it already owns the outcome.
 2. Classify by user-visible outcome and dependency, not recency: active blocker, explicitly selected next slice, separate access/integration, later capability, research, or delivery evidence.
 3. Add to the active sprint only when explicitly selected or a genuine existing acceptance blocker; flag any material scope decision. Uncertain scope belongs in later/research, without invented dates.
 4. For broad umbrellas, record the bounded sprint slice and deferred remainder. Do not imply the full issue is completed, automatically close/reopen it, or silently discard requirements.
