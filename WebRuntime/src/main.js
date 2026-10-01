@@ -42,7 +42,6 @@ import {initializePanelSections,revealPanelSection,revealAgentAttention} from '.
 
 const $=id=>document.getElementById(id);
 const latencyTrace=new URLSearchParams(location.search).get('latency')==='1'?new LatencyTrace():null;
-const pendingVisibleTraces=[];
 if(latencyTrace)window.matrixLatencyTrace=Object.freeze({
   snapshot:()=>latencyTrace.snapshot(),clear:()=>latencyTrace.clear()});
 initializePanelSections($('world-operator-panel'),sessionStorage);
@@ -405,6 +404,7 @@ renderScene();
 const bridge=new MatrixBridge(world,()=>$('token').value.trim(),event=>{
   if(event.type==='scene'){
     renderScene();
+    latencyTrace?.sceneSynchronized(event.visibleMutations||[]);
   }
   if(event.type==='connection'){
     $('connection').textContent=event.online?'Operator connected':event.error||'Operator unavailable';
@@ -414,9 +414,6 @@ const bridge=new MatrixBridge(world,()=>$('token').value.trim(),event=>{
     lastConnectionOnline=event.online;
   }
   if(event.type==='receipt'){
-    if(latencyTrace&&event.visibleMutation&&event.traceId)
-      pendingVisibleTraces.push({traceId:event.traceId,requestId:event.result.requestId});
-      if(pendingVisibleTraces.length>256)pendingVisibleTraces.shift();
     if(pendingBlenderReceiptIds.has(event.result.requestId)){
       feedback(`Blender spawn ${event.result.requestId} has a browser receipt; checking the PC acknowledgement.`,
         !event.result.ok);
@@ -439,9 +436,7 @@ const bridge=new MatrixBridge(world,()=>$('token').value.trim(),event=>{
   }
 });
 bridge.latencyTrace=latencyTrace;
-view.onRendered=()=>{
-  for(const info of pendingVisibleTraces.splice(0))latencyTrace?.begin('frame.visible',info)('ok');
-};
+view.onRendered=()=>latencyTrace?.rendered();
 bridge.prepareEnvironment=environment=>view.prepareEnvironment(environment);
 bridge.onWorldSlotCommand=async command=>{
   if(command.op==='list_world_archives')

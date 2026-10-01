@@ -22,7 +22,7 @@ export class LatencyTrace {
   constructor({now=()=>performance.now(),capacity=256}={}){
     if(!Number.isSafeInteger(capacity)||capacity<1||capacity>256)
       throw Error('Trace capacity must be between 1 and 256.');
-    this.now=now;this.capacity=capacity;this.records=[];this.sequence=0;this.generation=0;
+    this.now=now;this.capacity=capacity;this.records=[];this.sequence=0;this.generation=0;this.pendingFrames=[];
     this.traceId=crypto.randomUUID().replaceAll('-','');
   }
   begin(stage,{traceId=this.traceId,requestId=null}={}){
@@ -58,5 +58,14 @@ export class LatencyTrace {
       if(this.records.length>this.capacity)this.records.shift();
     }
   }
-  clear(){this.records=[];this.generation++;}
+  sceneSynchronized(mutations){
+    // Only arm markers after the view has synchronized the completed batch.
+    // Receipts can arrive while a later command is still awaiting a dependency.
+    this.pendingFrames.push(...mutations.map(({traceId,requestId})=>({traceId,requestId})));
+    this.pendingFrames=this.pendingFrames.slice(-this.capacity);
+  }
+  rendered(){
+    for(const info of this.pendingFrames.splice(0))this.begin('frame.visible',info)('ok');
+  }
+  clear(){this.records=[];this.pendingFrames=[];this.generation++;}
 }

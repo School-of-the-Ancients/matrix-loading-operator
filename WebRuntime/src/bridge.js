@@ -85,6 +85,7 @@ export class MatrixBridge {
     for(const result of sent)this.receipts.delete(result.requestId);
     if(this.captureReceipt===sentCapture)this.captureReceipt=null;
     let changed=false;
+    const visibleMutations=[];
     let worldSwitched=false;
     let dependencyPreflightUsed=false;
     const completed=new Map(sent.map(result=>[result.requestId,result]));
@@ -177,12 +178,13 @@ export class MatrixBridge {
         worldSwitched=true;
       changed=changed||(result.ok&&!READ_ONLY_OPS.has(command.op));
       completed.set(command.requestId,result);
-      this.onUpdate({type:'receipt',result,...(traceId?{traceId,
-        visibleMutation:result.ok&&!READ_ONLY_OPS.has(command.op)}:{})});
+      if(traceId&&result.ok&&!READ_ONLY_OPS.has(command.op))
+        visibleMutations.push({traceId,requestId:command.requestId});
+      this.onUpdate({type:'receipt',result});
     }
     if(rejectPending)this.rejectPendingOnNextExchange=false;
     if(worldSwitched)this.rejectPendingOnNextExchange=true;
-    if(changed)this.onUpdate({type:'scene'});
+    if(changed)this.onUpdate({type:'scene',visibleMutations});
     if(data.capture&&this.getCapture&&!this.captureInFlight&&!this.captureReceipt){
       const request=data.capture;
       const job={cancel:null};

@@ -49,6 +49,14 @@ receipt stages. Browser submission and first post-mutation rendered-frame
 markers share the submission trace ID. The frame marker does not prove physical
 display timing or sensor latency.
 
+`frame.visible` is armed only after the completed command batch has synchronized
+the Three.js scene, then emitted after its next render. A receipt alone cannot
+arm it: a later panorama dependency may still be delaying that synchronization.
+It measures the rendered batch state, not separate presentation of every
+intermediate command. External GLBs may still show a loading placeholder on
+that frame; this marker does not measure completed asset loading. Clearing
+the trace also removes synchronized markers still awaiting a frame.
+
 `Tools/Benchmark-Operator-Context.py` records matched prompt assembly samples
 against the exact v1.1.0 builder: bytes, p50/p95 and raw counts. This does not
 simulate model reasoning, transcription or headset acceptance. The compact
