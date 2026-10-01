@@ -231,6 +231,18 @@ def _new_matrix_approval_summary(tool, arguments):
                         grab_pose, rigid_body_config,
                         rigid_gravity)
     try:
+        if tool == 'matrix_set_manipulation':
+            required = {'room_id', 'scene_revision', 'object_id', 'expected_asset_id', 'manipulation'}
+            if (type(arguments) is dict and set(arguments) == required and
+                    all(_xr_entity_id(arguments[k]) for k in ('room_id', 'object_id', 'expected_asset_id')) and
+                    type(arguments['scene_revision']) is int and
+                    0 <= arguments['scene_revision'] <= 9007199254740991 and
+                    type(arguments['manipulation']) is str and
+                    arguments['manipulation'] in ('grabbable', 'locked', 'environment')):
+                summary = (f"Set {arguments['expected_asset_id']} ({arguments['object_id']}) manipulation "
+                           f"to {arguments['manipulation']} in {arguments['room_id']} rev {arguments['scene_revision']}.")
+                if len(summary) <= MAX_XR_APPROVAL_SUMMARY:
+                    return summary
         if tool == "matrix_move_with_room_constraint":
             required = {"room_id", "scene_revision", "spatial_token", "anchor_id",
                         "object_id", "expected_asset_id", "position"}
@@ -788,6 +800,7 @@ class LocalCodexAgentBackend:
             settings = {"command": sys.executable, "args": [str(script)],
                         "env_vars": ["MATRIX_CONTROL_URL", "MATRIX_CONTROL_TOKEN"],
                         "enabled_tools": ["matrix_scene_summary", "matrix_room_spatial_context",
+                                          "matrix_set_manipulation", "matrix_manipulation_status",
                                           "matrix_move_object", "matrix_move_with_room_constraint",
                                           "matrix_move_status",
                                           "matrix_scale_block", "matrix_reset_block_scale", "matrix_scale_status",
@@ -825,7 +838,7 @@ class LocalCodexAgentBackend:
             for key, value in settings.items():
                 command += ["-c", f"mcp_servers.matrix_webxr.{key}={json.dumps(value)}"]
             if config.agent_approval_policy == "on-request":
-                for name in ("matrix_move_object", "matrix_move_with_room_constraint",
+                for name in ("matrix_set_manipulation", "matrix_move_object", "matrix_move_with_room_constraint",
                              "matrix_scale_block", "matrix_reset_block_scale",
                              "matrix_register_glb", "matrix_spawn_asset", "matrix_spawn_builtin",
                              "matrix_register_panorama", "matrix_set_environment",

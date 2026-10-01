@@ -265,6 +265,10 @@ class CodexPlannerHttpTests(unittest.TestCase):
         self.plan_codex = self.transport.start()
         self.addCleanup(self.transport.stop)
         self.state = State(self.temp.name, clock=lambda: self.now[0])
+        # Public catalog I/O belongs to content tests, not this mocked-model fixture.
+        catalog_patch = patch.object(self.state.content, "planner_context", return_value=[])
+        catalog_patch.start()
+        self.addCleanup(catalog_patch.stop)
         self.server = Server(("127.0.0.1", 0), self.state)
         self.thread = threading.Thread(target=self.server.serve_forever, daemon=True)
         self.thread.start()

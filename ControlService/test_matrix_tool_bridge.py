@@ -284,7 +284,7 @@ class MatrixToolBridgeTests(unittest.TestCase):
     def test_native_image_turn_blocks_matrix_mutations_at_private_bridge(self):
         self.state.agent_portal._native_starting = True
         try:
-            for path in ("/spawn-builtin", "/spawn-surface", "/move-room", "/scale",
+            for path in ("/manipulation", "/spawn-builtin", "/spawn-surface", "/move-room", "/scale",
                          "/register-glb", "/concept-build"):
                 with self.subTest(path=path):
                     request = urllib.request.Request(

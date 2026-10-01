@@ -132,12 +132,14 @@ class VoiceJobTests(unittest.TestCase):
         self.body = {"clientId": "quest-a", "snapshot": copy.deepcopy(self.snapshot),
                      "audioBase64": base64.b64encode(wav_bytes()).decode()}
         self.gates = []
-        self.patches = [patch.dict(os.environ, {}, clear=True),
+        # Public catalog discovery is tested separately; keep speech races local.
+        self.patches = [patch.object(self.state.content, "planner_context", return_value=[]),
+                        patch.dict(os.environ, {}, clear=True),
                         patch.object(speech, "configuration", return_value=(Path("python.exe"), Path("model"))),
                         patch.object(server.Planner, "public_status", return_value={"configured": True, "mode": "codex-cli"}),
                         patch.object(speech, "transcribe", return_value="make this twice as big"),
                         patch.object(server.Planner, "plan", return_value=proposal())]
-        self.env, self.config, self.provider, self.transcribe, self.planner = [item.start() for item in self.patches]
+        self.catalog, self.env, self.config, self.provider, self.transcribe, self.planner = [item.start() for item in self.patches]
 
     def tearDown(self):
         for event in self.gates:

@@ -8,7 +8,8 @@ result into the local acceptance record. Use
 discards unfinished spans from the previous journey.
 
 The export holds at most 256 completed spans in browser memory. It is not
-saved with a world or sent to the PC service. Stage names are fixed; prompts,
+saved with a world. Browser exports stay local; only the opaque trace ID is
+sent to the PC service to correlate its bounded timing records. Stage names are fixed; prompts,
 transcripts, audio, images, tokens, request bodies, error text, scene data,
 object IDs, session IDs and arbitrary URL paths are excluded. Opaque random
 trace IDs correlate submissions across clocks; typed command IDs link queue,
@@ -47,6 +48,14 @@ start/first-tool/completion, human approval wait, command queue and received
 receipt stages. Browser submission and first post-mutation rendered-frame
 markers share the submission trace ID. The frame marker does not prove physical
 display timing or sensor latency.
+
+`frame.visible` is armed only after the completed command batch has synchronized
+the Three.js scene, then emitted after its next render. A receipt alone cannot
+arm it: a later panorama dependency may still be delaying that synchronization.
+It measures the rendered batch state, not separate presentation of every
+intermediate command. External GLBs may still show a loading placeholder on
+that frame; this marker does not measure completed asset loading. Clearing
+the trace also removes synchronized markers still awaiting a frame.
 
 `Tools/Benchmark-Operator-Context.py` records matched prompt assembly samples
 against the exact v1.1.0 builder: bytes, p50/p95 and raw counts. This does not

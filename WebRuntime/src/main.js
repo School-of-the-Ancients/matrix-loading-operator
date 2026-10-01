@@ -1,3 +1,4 @@
+import {manipulationPolicy,manipulationCommand} from './manipulation.js';
 import './style.css';
 import {MatrixWorld} from './protocol.js';
 import {MatrixView} from './view.js';
@@ -41,7 +42,6 @@ import {initializePanelSections,revealPanelSection,revealAgentAttention} from '.
 
 const $=id=>document.getElementById(id);
 const latencyTrace=new URLSearchParams(location.search).get('latency')==='1'?new LatencyTrace():null;
-const pendingVisibleTraces=[];
 if(latencyTrace)window.matrixLatencyTrace=Object.freeze({
   snapshot:()=>latencyTrace.snapshot(),clear:()=>latencyTrace.clear()});
 initializePanelSections($('world-operator-panel'),sessionStorage);
@@ -89,7 +89,7 @@ const feedback=(message,isError=false)=>{
   $('feedback').textContent=[message,warning].filter(Boolean).join('\n');
   $('feedback').classList.toggle('error',isError||!!warning);
 };
-const view=new MatrixView($('view'),world,()=>{discardProposal();scaleUI?.refreshTargets();citizensPanel?.render();feedback(`Selected ${world.selection.objectId||'placement point'} at ${Object.values(world.selection.position).join(', ')} m.`);},()=>$('token').value.trim(),message=>feedback(message,true),(id,position)=>{discardProposal();const delivered=deliverMovedObject(world,id);if(delivered)speakReply(delivered);renderScene();feedback(delivered||`Moved ${id.slice(0,8)} to ${Object.values(position).join(', ')} m. Undo and Save are available.`);},()=>{if(!view.isAR){cameraStream.stop();bridge.cancelCapture();}if(!view.isAR||!world.spatial?.originUnavailable){roomResetArmedUntil=0;roomRecoveryChoice='';}updateCameraControls();discardProposal();renderScene();},beginVoice,endVoice,()=>{$('speak-replies').checked=!$('speak-replies').checked;view.setVoiceOutputEnabled($('speak-replies').checked);unlockReplyAudio();},reviewView,newChat);
+const view=new MatrixView($('view'),world,()=>{discardProposal();scaleUI?.refreshTargets();citizensPanel?.render();updateWorldControls();feedback(`Selected ${world.selection.objectId||'placement point'} at ${Object.values(world.selection.position).join(', ')} m.`);},()=>$('token').value.trim(),message=>feedback(message,true),(id,position)=>{discardProposal();const delivered=deliverMovedObject(world,id);if(delivered)speakReply(delivered);renderScene();feedback(delivered||`Moved ${id.slice(0,8)} to ${Object.values(position).join(', ')} m. Undo and Save are available.`);},()=>{if(!view.isAR){cameraStream.stop();bridge.cancelCapture();}if(!view.isAR||!world.spatial?.originUnavailable){roomResetArmedUntil=0;roomRecoveryChoice='';}updateCameraControls();discardProposal();renderScene();},beginVoice,endVoice,()=>{$('speak-replies').checked=!$('speak-replies').checked;view.setVoiceOutputEnabled($('speak-replies').checked);unlockReplyAudio();},reviewView,newChat);
 view.onPanelAction=panelAction;
 view.onSelectedPointChange=()=>{
   updateSelectedPointEditor();
@@ -187,6 +187,14 @@ function discardProposal(){
 
 function updateWorldControls(){
   const creator=world.creatorMode;
+  const selected=world.scene.objects.find(o=>o.objectId===world.selection.objectId);
+  const selectedManipulation=manipulationPolicy(selected);
+  const canSetManipulation=!!selected&&creator.mode==='creator'&&creator.simulation==='paused'&&
+    !world.digitalWorldVisit&&!world.spatial?.stale&&!world.spatial?.originUnavailable&&
+    !pendingWorld&&!pcWorldBusy&&!worldSwitchBusy&&!view.readOnly;
+  $('manipulation-status').textContent=selected?`Selected object: ${selectedManipulation}. Locked objects remain selectable.`:'Select an object to lock or unlock it.';
+  $('toggle-manipulation').textContent=selectedManipulation==='grabbable'?'Lock selected object':'Unlock selected object';
+  $('toggle-manipulation').disabled=!canSetManipulation;
   const environment=world.scene.environment;
   const environmentAsset=environment&&world.environmentAsset(environment.assetId);
   const environmentLabel=environment?
@@ -251,7 +259,7 @@ function updateWorldControls(){
     selectedArchiveId===archiveRestoreId?'Confirm restore':'Restore archive';
   const archiveIndex=archives.findIndex(item=>item.archiveId===selectedArchiveId);
   const selectedArchive=archives[archiveIndex];
-  view.setOperatorWorldInfo({objects:world.scene.objects.length,canConfirm,restoreArmed:performance.now()<restoreArmedUntil,
+  view.setOperatorWorldInfo({canSetManipulation,selectedManipulation,objects:world.scene.objects.length,canConfirm,restoreArmed:performance.now()<restoreArmedUntil,
     canPlaceLayout,arLayoutOffset:world.arLayoutOffset,
     layoutReviewPending:!!world.spatial?.layoutReviewPending,
     environmentLabel:environment?`Panorama: ${environmentLabel}${view.isAR?' · AR hidden':''}`:
@@ -396,6 +404,7 @@ renderScene();
 const bridge=new MatrixBridge(world,()=>$('token').value.trim(),event=>{
   if(event.type==='scene'){
     renderScene();
+    latencyTrace?.sceneSynchronized(event.visibleMutations||[]);
   }
   if(event.type==='connection'){
     $('connection').textContent=event.online?'Operator connected':event.error||'Operator unavailable';
@@ -405,8 +414,6 @@ const bridge=new MatrixBridge(world,()=>$('token').value.trim(),event=>{
     lastConnectionOnline=event.online;
   }
   if(event.type==='receipt'){
-    if(latencyTrace&&event.visibleMutation&&event.traceId)
-      pendingVisibleTraces.push({traceId:event.traceId,requestId:event.result.requestId});
     if(pendingBlenderReceiptIds.has(event.result.requestId)){
       feedback(`Blender spawn ${event.result.requestId} has a browser receipt; checking the PC acknowledgement.`,
         !event.result.ok);
@@ -429,9 +436,7 @@ const bridge=new MatrixBridge(world,()=>$('token').value.trim(),event=>{
   }
 });
 bridge.latencyTrace=latencyTrace;
-view.onRendered=()=>{
-  for(const info of pendingVisibleTraces.splice(0))latencyTrace?.begin('frame.visible',info)('ok');
-};
+view.onRendered=()=>latencyTrace?.rendered();
 bridge.prepareEnvironment=environment=>view.prepareEnvironment(environment);
 bridge.onWorldSlotCommand=async command=>{
   if(command.op==='list_world_archives')
@@ -1343,6 +1348,20 @@ function changeCreatorMode(action){
   }catch(error){feedback(error.message,true);}
 }
 
+function toggleSelectedManipulation(){
+  if($('toggle-manipulation').disabled)return;
+  try{
+    const object=world.requireObject(world.selection.objectId);
+    const policy=manipulationPolicy(object)==='grabbable'?'locked':'grabbable';
+    const result=world.execute(manipulationCommand(world,object.objectId,policy,crypto.randomUUID()));
+    if(!result.ok)throw Error(result.error);
+    view.cancelPointer();
+    if(view.grab)view.cancelGrab(view.grab.controller,view.grab.inputSource,'Manipulation policy changed; held edit cancelled.');
+    discardProposal();renderScene();void bridge.tick(true);
+    feedback(policy==='grabbable'?'Selected object unlocked.':'Selected object locked and remains selectable.');
+  }catch(error){feedback(error.message,true);}
+}
+
 function panelAction(action){
   if(/^layout-(forward|back|left|right|turn-left|turn-right)$/.test(action)){
     if(pendingWorld||pcWorldBusy||worldSwitchBusy||bridge.inFlight||
@@ -1425,6 +1444,7 @@ function panelAction(action){
   else if(action==='apply')applyProposal();
   else if(action==='discard'){discardProposal();feedback('Proposal discarded.');view.setOperatorStatus('Proposal discarded.');}
   else if(action==='confirm-room')confirmRoom();
+  else if(action==='toggle-manipulation')toggleSelectedManipulation();
   else if(action==='save-world')saveWorld();
   else if(action==='restore-world')restoreWorld();
   else if(action==='new-world')void beginNewWorld();
@@ -1615,6 +1635,7 @@ $('restore').addEventListener('click',async()=>{
   const name=$('saved-scenes').value;if(!name){feedback('Choose a saved scene.',true);return;}
   await call('/api/load',{name},`Restore of ${name} queued.`);
 });
+$('toggle-manipulation').addEventListener('click',toggleSelectedManipulation);
 $('save-pc-world').addEventListener('click',savePCWorld);
 $('restore-pc-world').addEventListener('click',restorePCWorld);
 $('pc-worlds').addEventListener('change',()=>{pcRestoreArmedUntil=0;pcRestoreName='';updateWorldControls();});

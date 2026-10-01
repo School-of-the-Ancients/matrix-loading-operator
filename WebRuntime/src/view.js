@@ -1,3 +1,4 @@
+import {canDirectManipulate} from './manipulation.js';
 import * as THREE from 'three';
 import {adjustedARLayoutOffset,composeARLayoutPose,webFloorLayoutPivot} from './ar_layout.js';
 import {GLTFLoader} from 'three/addons/loaders/GLTFLoader.js';
@@ -264,6 +265,8 @@ export function operatorPanel({createImage=()=>new Image()}={}){
         button('toggle-archives','WORLDS',370,535,285,76);
         button('toggle-camera',cameraActive?'STOP CAMERA':'ENABLE CAMERA',685,535,285,76);
       }
+      if(worldInfo.canSetManipulation)button('toggle-manipulation',
+        `${worldInfo.selectedManipulation==='grabbable'?'LOCK':'UNLOCK'} SELECTED OBJECT`,55,625,914,64);
     }else if(mode==='layout'){
       const offset=worldInfo.arLayoutOffset||{x:0,z:0,yawDegrees:0};
       ctx.fillStyle='#dff7f8';ctx.font='bold 33px sans-serif';
@@ -1545,6 +1548,8 @@ export class MatrixView {
     if(id){const animation=animationSelectionState(this.world.requireObject(id),this.objectRoots.get(id));
       if(animation==='loading'){this.onAssetError('Animation is still loading; select again when the GLB appears.');return;}}
     if(id&&this.isPlayMode()&&this.activateWorldControl(id))return;
+    if(id&&!canDirectManipulate(this.world.requireObject(id))){
+      this.onAssetError('Object is locked. Select Unlock in World controls before grabbing.');return;}
     if(id&&this.world.requireObject(id).component?.status==='running'){
       this.onAssetError('Stop this component before moving the object.');return;}
     if(id&&this.isPlayMode()&&(!canPlayWorld(this.world.creatorMode)||
@@ -1568,7 +1573,9 @@ export class MatrixView {
       this.camera.rotation.x=THREE.MathUtils.clamp(this.camera.rotation.x-dy*.003,-Math.PI/2+.05,Math.PI/2-.05);
     }
     if(this.pointerGrab?.pointerId===event.pointerId){
-      const grab=this.pointerGrab;this.rayFromPointer(event);
+      const grab=this.pointerGrab;
+      if(!canDirectManipulate(this.world.scene.objects.find(o=>o.objectId===grab.objectId))){this.cancelPointer();return;}
+      this.rayFromPointer(event);
       if(event.shiftKey){movePointerGrabVertical(grab,this.raycaster,event.clientY-grab.lastY);grab.vertical=true;}
       else{
         if(grab.vertical)movePointerGrabVertical(grab,this.raycaster,0);
@@ -1581,6 +1588,7 @@ export class MatrixView {
   pointerUp(event){
     if(this.pointerLook?.pointerId===event.pointerId)this.pointerLook=null;
     if(this.pointerGrab?.pointerId!==event.pointerId)return;
+    if(!canDirectManipulate(this.world.scene.objects.find(o=>o.objectId===this.pointerGrab.objectId))){this.cancelPointer();return;}
     const grab=this.pointerGrab;this.pointerGrab=null;
     if(this.objectRoots.get(grab.objectId)!==grab.root){
       if(grab.rigid)this.world.releaseRigidGrab?.(grab.objectId);
@@ -1617,7 +1625,8 @@ export class MatrixView {
   }
   updateGrabThumbstick(frame,delta){
     const grab=this.grab,session=this.renderer.xr.getSession?.();
-    if(!grab||!frame||!this.renderer.xr.isPresenting||!session||this.readOnly||
+    if(!grab||!canDirectManipulate(this.world.scene.objects.find(o=>o.objectId===grab.objectId))||
+       !frame||!this.renderer.xr.isPresenting||!session||this.readOnly||
        this.world.digitalWorldVisit||this.world.spatial?.stale||this.world.spatial?.originUnavailable||
        !grab.controller.visible||this.objectRoots.get(grab.objectId)!==grab.root||
        !grab.inputSource||!Array.from(session.inputSources||[]).includes(grab.inputSource)||
@@ -1629,7 +1638,8 @@ export class MatrixView {
   }
   updateGrabRotationThumbstick(frame,delta){
     const grab=this.grab,session=this.renderer.xr.getSession?.();
-    if(!grab||!frame||!this.renderer.xr.isPresenting||!session||this.readOnly||
+    if(!grab||!canDirectManipulate(this.world.scene.objects.find(o=>o.objectId===grab.objectId))||
+       !frame||!this.renderer.xr.isPresenting||!session||this.readOnly||
        this.world.digitalWorldVisit||this.world.spatial?.stale||this.world.spatial?.originUnavailable||
        !grab.controller.visible||this.objectRoots.get(grab.objectId)!==grab.root||
        !grab.inputSource||!Array.from(session.inputSources||[]).includes(grab.inputSource)||
@@ -1649,6 +1659,8 @@ export class MatrixView {
   }
   updateHeldGrab(frame,delta){
     if(!this.grab)return;
+    if(!canDirectManipulate(this.world.scene.objects.find(o=>o.objectId===this.grab.objectId))){
+      this.cancelGrab(this.grab.controller,this.grab.inputSource,'Object locked; held edit cancelled.');return;}
     if(this.grab.rigid&&this.grab.motionEpoch!==this.roomTrackingEpoch){
       this.grab.motionSamples=[];this.grab.motionEpoch=this.roomTrackingEpoch;
     }
@@ -1715,6 +1727,8 @@ export class MatrixView {
       this.onAssetError('Room origin or tracking is unavailable; object grabs are paused.');return;
     }
     if(id&&this.isPlayMode()&&this.activateWorldControl(id))return;
+    if(id&&!canDirectManipulate(this.world.requireObject(id))){
+      this.onAssetError('Object is locked. Select Unlock in World controls before grabbing.');return;}
     if(id&&this.world.requireObject(id).component?.status==='running'){
       this.onAssetError('Stop this component before moving the object.');return;}
     if(id&&this.isPlayMode()&&(!canPlayWorld(this.world.creatorMode)||
@@ -1737,7 +1751,8 @@ export class MatrixView {
     if(!this.grab||this.grab.controller!==controller)return;
     if(this.renderer?.xr?.getSession?.())this.updateOperatorShortcut();
     const grab=this.grab;this.grab=null;this.setGrabFeedback(null);
-    if(this.readOnly||this.world.spatial?.stale||this.world.spatial?.originUnavailable||
+    if(!canDirectManipulate(this.world.scene.objects.find(o=>o.objectId===grab.objectId))||
+       this.readOnly||this.world.spatial?.stale||this.world.spatial?.originUnavailable||
        this.renderer?.xr?.isPresenting&&!this.hasFreshXrViewer()||
        this.world.digitalWorldVisit||grab.rigid&&!canPlayWorld(this.world.creatorMode)){
       if(grab.rigid)this.world.releaseRigidGrab?.(grab.objectId);
@@ -1768,6 +1783,9 @@ export class MatrixView {
     this.operatorVoiceController=null;this.onVoiceEnd();
   }
   commitMove(objectId,transform){
+    if(!canDirectManipulate(this.world.scene.objects.find(o=>o.objectId===objectId))){
+      this.world.resumePhysics?.(objectId);this.sync();
+      this.onAssetError('Object locked; movement was cancelled.');return;}
     if(this.world.digitalWorldVisit){
       this.sync();this.onAssetError('Leave the AR visit before moving digital objects.');return;
     }

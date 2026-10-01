@@ -73,7 +73,7 @@ MAX_ROOM_SPATIAL_PLANES = 8
 MAX_ROOM_SPATIAL_BOUNDARY = 12
 MAX_ROOM_SPATIAL_BYTES = 6000
 NAME = re.compile(r"[A-Za-z0-9][A-Za-z0-9 _-]{0,63}\Z")
-OPS = {"spawn", "set_transform", "select", "duplicate", "delete", "undo", "redo", "clear", "load",
+OPS = {"set_manipulation", "spawn", "set_transform", "select", "duplicate", "delete", "undo", "redo", "clear", "load",
        "get_scene", "list_assets", "list_targets", "confirm_room", "set_behavior", "remove_behavior",
        "attach_component", "stop_component", "remove_component", "bind_animation",
        "set_physics", "remove_physics", "set_interaction", "remove_interaction",
@@ -930,6 +930,10 @@ def scene(value):
                            "anchorId": text(item.get("anchorId"), "anchorId"),
                            "transform": transform(item.get("transform"))})
         authored = normalized[-1]
+        if 'manipulation' in item:
+            require(item['manipulation'] in ('grabbable', 'locked', 'environment') and
+                    type(item['manipulation']) is str, 'Invalid manipulation policy')
+            authored['manipulation'] = item['manipulation']
         if authored["assetId"] == "matrix:procedural":
             require(authored["anchorId"] == "web-floor" and "procedural" in item,
                     "Procedural objects require a virtual-floor recipe")
@@ -1702,7 +1706,7 @@ def resident_motion_current(value, dependencies):
                for object_id, transform in dependencies.items())
 
 
-RESIDENT_PRECONDITION_OPS = {"set_transform", "set_behavior", "remove_behavior",
+RESIDENT_PRECONDITION_OPS = {"set_manipulation", "set_transform", "set_behavior", "remove_behavior",
                              "delete", "duplicate", "select", "attach_component",
                              "stop_component", "remove_component", "bind_animation",
                              "set_physics", "remove_physics", "set_interaction",
@@ -1717,7 +1721,9 @@ def command(value, *, allow_precondition=False):
     op = value.get("op")
     require(isinstance(op, str) and op in OPS, "Unknown command op")
     allowed = {"op", "requestId"}
-    required = {"spawn": {"assetId", "anchorId", "transform"}, "set_transform": {"objectId", "transform"},
+    required = {"set_manipulation": {"objectId", "manipulation", "expectedManipulation",
+                                      "expectedAssetId", "expectedTransform", "expectedCreatorRevision"},
+                "spawn": {"assetId", "anchorId", "transform"}, "set_transform": {"objectId", "transform"},
                 "get_environment": {"roomId"},
                 "set_environment": {"roomId", "environment", "expectedEnvironment"},
                 "remove_environment": {"roomId", "expectedEnvironment"},
@@ -1777,6 +1783,11 @@ def command(value, *, allow_precondition=False):
     require(not (set(value) - allowed), "Unexpected command fields")
     require(required <= set(value), "Missing command fields")
     result = {"op": op}
+    if op == 'set_manipulation':
+        for key in ('manipulation', 'expectedManipulation'):
+            require(type(value[key]) is str and value[key] in ('grabbable', 'locked', 'environment'),
+                    'Invalid manipulation policy')
+            result[key] = value[key]
     if op in {"list_world_archives", "start_new_world", "restore_world_archive",
               "get_environment", "set_environment", "remove_environment"}:
         result["roomId"] = text(value["roomId"], "roomId")
@@ -4159,6 +4170,7 @@ class State:
         self.host_saved_sequence = None
         self.pending = collections.OrderedDict()
         self.results = collections.deque(maxlen=100)
+        self.agent_manipulation_ids = collections.OrderedDict()
         self.agent_move_ids = collections.OrderedDict()
         self.agent_spawn_ids = collections.OrderedDict()
         self.agent_procedural_ids = collections.OrderedDict()
@@ -4918,6 +4930,19 @@ class State:
             require(not self.content.busy(), "Wait for content installation before editing", 409)
             room = self.runtime
             for item in checked:
+                if item['op'] == 'set_manipulation':
+                    require(self.host_world_id is None and not self.latest.get('readOnly') and
+                            not self.pending and (self.latest.get('runtimeDescriptor') or {}).get('client', 'matrix-web')=='matrix-web',
+                            'Manipulation edits require an editable connected Web world', 409)
+                    mode = self.latest.get('creatorMode') or {}
+                    obj = next((o for o in self.latest['scene']['objects'] if o['objectId']==item['objectId']), None)
+                    require(mode.get('mode')=='creator' and mode.get('simulation')=='paused' and
+                            mode.get('revision')==item['expectedCreatorRevision'],
+                            'Manipulation edits require current paused Creator Mode', 409)
+                    require(obj is not None and obj['assetId']==item['expectedAssetId'] and
+                            obj['transform']==item['expectedTransform'] and
+                            obj.get('manipulation','grabbable')==item['expectedManipulation'],
+                            'Manipulation target changed; inspect and retry', 409)
                 supported = self.latest.get("behaviorKinds", [])
                 if item["op"] in {"get_environment", "set_environment", "remove_environment"}:
                     current = self.latest
@@ -5440,12 +5465,75 @@ class State:
                     # earlier effect in the same proposal failed in the browser.
                     item["requiresSuccessOf"] = previous_request_id
                 self.pending[item["requestId"]] = item
-                trace = current_trace.get() or self.agent_portal.latency_run
+                trace = current_trace.get() or (self.agent_portal.latency_run if self.agent_portal._active_turn else None)
                 if trace:
                     trace.record('command.queued', request_id=item['requestId'])
                 previous_request_id = item["requestId"]
             self.revision += 1
             return {"commands": copy.deepcopy(checked)}
+
+    def agent_set_manipulation(self, value):
+        required = {'room_id', 'scene_revision', 'object_id', 'expected_asset_id', 'manipulation'}
+        require(type(value) is dict and set(value) == required, 'Invalid manipulation request')
+        room_id = text(value['room_id'], 'room_id')
+        object_id = text(value['object_id'], 'object_id')
+        asset_id = text(value['expected_asset_id'], 'expected_asset_id')
+        revision = value['scene_revision']
+        policy = value['manipulation']
+        require(type(revision) is int and revision >= 0, 'Invalid scene revision')
+        require(type(policy) is str and policy in ('grabbable', 'locked', 'environment'),
+                'Invalid manipulation policy')
+        with self.lock:
+            self.expire()
+            require(self.online() and self.latest is not None, self.room_unavailable_message(), 409)
+            current = self.latest
+            require(current['scene']['roomId'] == room_id and self.revision == revision,
+                    'Matrix scene changed; inspect and retry', 409)
+            item = next((o for o in current['scene']['objects'] if o['objectId'] == object_id), None)
+            require(item is not None and item['assetId'] == asset_id,
+                    'Manipulation target identity changed', 409)
+            mode = current.get('creatorMode') or {}
+            queued = self.queue([{'op': 'set_manipulation', 'objectId': object_id,
+                                 'manipulation': policy,
+                                 'expectedManipulation': item.get('manipulation', 'grabbable'),
+                                 'expectedAssetId': asset_id,
+                                 'expectedTransform': copy.deepcopy(item['transform']),
+                                 'expectedCreatorRevision': mode.get('revision')}])['commands'][0]
+            request_id = queued['requestId']
+            self.agent_manipulation_ids[request_id] = {
+                'roomId': room_id, 'objectId': object_id, 'assetId': asset_id,
+                'manipulation': policy, 'clientId': self.client_id,
+                'runtimeGeneration': self.runtime_generation}
+            while len(self.agent_manipulation_ids) > 64:
+                self.agent_manipulation_ids.popitem(last=False)
+            return self.agent_manipulation_status(request_id)
+
+    def agent_manipulation_status(self, request_id):
+        require(type(request_id) is str and re.fullmatch(r'[0-9a-f]{32}', request_id),
+                'Invalid manipulation receipt ID')
+        with self.lock:
+            self.expire()
+            issued = self.agent_manipulation_ids.get(request_id)
+            require(issued is not None, 'Manipulation receipt is unavailable', 404)
+            receipt = next((r for r in reversed(self.results) if r['requestId'] == request_id), None)
+            result = {key: issued[key] for key in ('roomId', 'objectId', 'manipulation')}
+            result.update(requestId=request_id, sceneRevision=self.revision)
+            if receipt is None:
+                result['status'] = 'queued' if request_id in self.pending else 'unconfirmed'
+            elif not receipt['ok']:
+                result['status'] = 'unconfirmed' if 'outcome unknown' in receipt['error'] else 'failed'
+                result['error'] = receipt['error'][:200]
+            else:
+                same_runtime = (self.online() and self.latest is not None and
+                                self.client_id == issued['clientId'] and
+                                self.runtime_generation == issued['runtimeGeneration'] and
+                                self.latest['scene']['roomId'] == issued['roomId'])
+                observed = same_runtime and receipt.get('objectId') == issued['objectId'] and any(
+                    o['objectId'] == issued['objectId'] and o['assetId'] == issued['assetId'] and
+                    o.get('manipulation', 'grabbable') == issued['manipulation']
+                    for o in self.latest['scene']['objects'])
+                result['status'] = 'succeeded' if observed else 'unconfirmed'
+            return result
 
     def agent_move(self, value):
         """Queue one virtual-floor transform edit through the normal command path."""
