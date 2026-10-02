@@ -1,6 +1,8 @@
 """Runner regression checks, including the actual disposable Chromium fixture."""
 import copy
 import os
+import subprocess
+import sys
 import importlib.util
 from pathlib import Path
 import unittest
@@ -128,6 +130,50 @@ class RunnerTests(unittest.TestCase):
             report.check('negative-control', lambda: runner.desktop(report, os.environ.get('MATRIX_CHECK_BROWSER')))
         self.assertEqual(report.value['status'], 'fail')
         self.assertIn('Observed transform differs', report.value['checks'][0]['reason'])
+
+    def test_real_browser_rejects_corrupted_receipts_and_reopen(self):
+        original = runner.evaluate
+        cases = [('receipt-id', 'Receipt identity mismatch'),
+                 ('receipt-ok', 'Incomplete runtime receipt'),
+                 ('reopen', 'Saved world differs after new-page reopen')]
+        for corruption, reason in cases:
+            with self.subTest(corruption=corruption):
+                def evaluate(context, page, expression):
+                    value = original(context, page, expression)
+                    if expression == 'matrixCheck.exercise()':
+                        if corruption == 'receipt-id':
+                            value['receipts'][0]['requestId'] = 'wrong-request'
+                        elif corruption == 'receipt-ok':
+                            value['receipts'][0]['ok'] = False
+                    elif expression == 'matrixCheck.reopen()' and corruption == 'reopen':
+                        value['world']['game'] = {'corrupt': True}
+                    return value
+                report = runner.Report('negative-control')
+                with patch.object(runner, 'evaluate', evaluate):
+                    report.check('negative-control', lambda: runner.desktop(report, os.environ.get('MATRIX_CHECK_BROWSER')))
+                self.assertEqual(report.value['status'], 'fail')
+                self.assertIn(reason, report.value['checks'][0]['reason'])
+
+    def test_optimized_interpreters_detect_browser_corruption(self):
+        # Re-run negative controls in fresh optimized processes, never this test itself.
+        script = """
+import sys, unittest
+if sys.flags.optimize < 1:
+    raise RuntimeError('Regression must run under optimization')
+suite = unittest.defaultTestLoader.loadTestsFromNames([
+    'test_automated_checks.RunnerTests.test_deliberate_transform_corruption_fails',
+    'test_automated_checks.RunnerTests.test_real_browser_detects_wrong_expected_transform',
+    'test_automated_checks.RunnerTests.test_real_browser_rejects_corrupted_receipts_and_reopen',
+])
+result = unittest.TextTestRunner(verbosity=2).run(suite)
+sys.exit(0 if result.wasSuccessful() else 1)
+"""
+        for flags, optimize in ((['-O'], '0'), ([], '2')):
+            with self.subTest(flags=flags, PYTHONOPTIMIZE=optimize):
+                result = subprocess.run([sys.executable, *flags, '-c', script],
+                    cwd=Path(__file__).parent, env={**os.environ, 'PYTHONOPTIMIZE': optimize},
+                    capture_output=True, text=True, timeout=60)
+                self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
 
     def test_real_desktop_browser_fixture(self):
         # A missing dependency is an explicit test failure, never a silently skipped desktop pass.

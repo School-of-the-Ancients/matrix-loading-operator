@@ -220,8 +220,8 @@ def desktop(report, browser_executable=None):
                     report.value['observations'] = {'expectedTransform': TARGET, 'beforeReopen': before}
                     assert_scene(before['scene'])
                     expected_ids = ['check-spawn', 'check-clear', 'check-load', 'check-transform']
-                    assert [r['requestId'] for r in before['receipts']] == expected_ids, 'Receipt identity mismatch'
-                    assert all(r['ok'] is True for r in before['receipts']), 'Incomplete runtime receipt'
+                    require([r['requestId'] for r in before['receipts']] == expected_ids, 'Receipt identity mismatch')
+                    require(all(r['ok'] is True for r in before['receipts']), 'Incomplete runtime receipt')
                     page.close()
                     page = context.new_page()
                     observe(page)
@@ -230,9 +230,9 @@ def desktop(report, browser_executable=None):
                     after = evaluate(context, page, 'matrixCheck.reopen()')
                     report.value['observations']['afterReopen'] = after
                     assert_scene(after['scene'])
-                    assert before['saved'] == after['world'], 'Saved world differs after new-page reopen'
-                    assert not errors, f'Browser exceptions: {errors}'
-                    assert not any(log['level']=='error' for log in report.value['logs']), 'Browser console errors'
+                    require(before['saved'] == after['world'], 'Saved world differs after new-page reopen')
+                    require(not errors, f'Browser exceptions: {errors}')
+                    require(not any(log['level']=='error' for log in report.value['logs']), 'Browser console errors')
                     return {"expected": {"receiptIds": expected_ids, "objectId": 'automated-check-block',
                                          "transform": TARGET, "savedWorldEqualsReopened": True},
                             "actual": {"receipts": before['receipts'], "reopenedScene": after['scene'],
@@ -250,12 +250,18 @@ TARGET = {"position": {"x": 2, "y": .5, "z": -3}, "rotation": {"x": 15, "y": 45,
           "scale": {"x": 2, "y": 3, "z": 4}}
 
 
+def require(condition, message):
+    """Evidence gates must remain active with -O and PYTHONOPTIMIZE."""
+    if not condition:
+        raise AssertionError(message)
+
+
 def assert_scene(scene):
-    assert len(scene['objects']) == 1, 'Unexpected object count'
+    require(len(scene['objects']) == 1, 'Unexpected object count')
     obj = scene['objects'][0]
-    assert obj['objectId'] == 'automated-check-block', 'Stable identity changed'
-    assert obj['assetId'] == 'block', 'Asset identity changed'
-    assert obj['transform'] == TARGET, 'Observed transform differs from expected'
+    require(obj['objectId'] == 'automated-check-block', 'Stable identity changed')
+    require(obj['assetId'] == 'block', 'Asset identity changed')
+    require(obj['transform'] == TARGET, 'Observed transform differs from expected')
 
 
 def verify_source(before):

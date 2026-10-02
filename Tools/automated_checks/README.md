@@ -84,8 +84,10 @@ MATRIX_CHECK_BROWSER=/usr/bin/chromium python -m unittest discover -s Tools -p '
 ```
 
 The focused suite includes mocked ADB/CDP states, blocked/failure aggregation,
-unsafe endpoint refusal, a corrupted-transform negative control and real desktop
-browser execution. Missing browser dependencies fail the regression suite rather
+unsafe endpoint refusal, corrupted transform/receipt/reopened-world negative
+controls and real desktop browser execution. The negative controls also run in
+fresh interpreters with `python -O` and `PYTHONOPTIMIZE=2`; evidence gates use
+explicit exceptions and cannot be disabled by Python optimization. Missing browser dependencies fail the regression suite rather
 than silently skipping coverage. This repository has no existing CI workflow;
 these commands are suitable for its cloud development environment without adding
 a new service or production dependency. Continue running the full commands in
