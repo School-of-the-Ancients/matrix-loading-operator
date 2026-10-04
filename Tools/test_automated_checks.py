@@ -15,6 +15,12 @@ SPEC.loader.exec_module(runner)
 
 
 class RunnerTests(unittest.TestCase):
+    def test_fixture_module_mime_ignores_host_file_mappings(self):
+        handler = object.__new__(runner.QuietHandler)
+        with patch('mimetypes.guess_type', return_value=('text/plain', None)):
+            for filename in ('fixture.js', 'fixture.mjs', 'fixture.JS'):
+                self.assertEqual(handler.guess_type(filename), 'text/javascript')
+
     def transport(self, state='device', model='Quest 3', serial='usb123', usb='usb123'):
         calls = []
         responses = {('devices', '-l'): f'List of devices attached\n{serial} {state}\n',

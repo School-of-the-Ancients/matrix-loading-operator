@@ -24,8 +24,10 @@ The runner builds a separate Vite entrypoint into a temporary directory, serves
 only those fixture files on an ephemeral **127.0.0.1** port, launches an isolated
 browser context and deletes it afterward. No production runtime entrypoint,
 ControlService lease, live profile, save/catalog, credential or approval is used.
-There is no debug-port listener. Desktop evaluation uses the owned browser's
-CDP transport with a 10-second evaluation limit; ADB/HTTP reads have 3-second
+There is no debug-port listener. The fixture server explicitly serves JavaScript
+modules with a JavaScript MIME type, independent of Windows registry file mappings.
+Desktop evaluation uses the owned browser's CDP transport with a 10-second
+evaluation limit; ADB/HTTP reads have 3-second
 limits and 64 KiB response limits, navigation/readiness waits have 10-second
 limits, and the fixture build has a 90-second limit. There are no retries.
 

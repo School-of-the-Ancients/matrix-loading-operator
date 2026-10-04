@@ -157,6 +157,11 @@ def cdp_readiness(endpoint, read=read_json):
 
 
 class QuietHandler(SimpleHTTPRequestHandler):
+    # Windows registry MIME overrides can label .js as text/plain. Modules
+    # need a JavaScript MIME type regardless of the developer's file mappings.
+    extensions_map = {**SimpleHTTPRequestHandler.extensions_map,
+                      '.js': 'text/javascript', '.mjs': 'text/javascript'}
+
     def log_message(self, *args):
         pass
 
