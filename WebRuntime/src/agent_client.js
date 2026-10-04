@@ -11,6 +11,7 @@ export class AgentClient {
     const saved=storage.getItem(AGENT_SESSION_KEY);
     this.sessionId=SESSION_ID.test(saved||'')?saved:null;
     this.status=null;this.error='';this.cursor=0;this.polling=false;this.statusGeneration=0;
+    this.permissionDraft=null;
   }
   _update(status){
     if(!status||status.sessionId!==this.sessionId||!Array.isArray(status.transcript))
@@ -48,6 +49,7 @@ export class AgentClient {
   }
   async send(text,context=null,expectedConcept=null,creationMode='auto',captureId=null){
     if(!this.sessionId)await this.connect();
+    this.assertPermissionsApplied();
     if(typeof text!=='string'||!text.trim()||text.length>16000)throw Error('Enter a message up to 16000 characters.');
     if(expectedConcept&&(!SESSION_ID.test(expectedConcept.conceptId||'')||
         !Number.isSafeInteger(expectedConcept.version)||expectedConcept.version<1))
@@ -118,6 +120,13 @@ export class AgentClient {
       this._fail(error);throw error;
     }
   }
+  pendingPermissionChange(){
+    return agentPermissionDraftMessage(this.error?null:this.status,this.permissionDraft);
+  }
+  assertPermissionsApplied(){
+    const message=this.pendingPermissionChange();
+    if(message)throw Error(message);
+  }
   async cancel(){
     const turnId=this.status?.activeTurnId;
     if(!this.sessionId||!turnId)return null;
@@ -151,4 +160,15 @@ export function agentPermissionMode(status){
   if(status?.approvalMode==='reviewed'&&
     ['read-only','workspace-write','danger-full-access'].includes(status?.accessMode))return 'reviewed';
   return null;
+}
+
+export function agentPermissionDraftMessage(status,draft){
+  if(draft!=='reviewed'&&draft!=='full-access')return '';
+  const active=agentPermissionMode(status);
+  if(draft===active)return '';
+  const selected=draft==='full-access'?'Full access':'Reviewed';
+  const apply=draft==='full-access'?'Confirm and choose Enable Full access':'Choose Use Reviewed';
+  const restore=active?`select the active ${active==='full-access'?'Full access':'Reviewed'} mode again`:
+    'reconnect to check the active mode';
+  return `Not applied: ${selected}. ${apply}, or ${restore}, before a new request or entering AR/VR.`;
 }

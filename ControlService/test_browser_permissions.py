@@ -2,6 +2,8 @@
 import json
 from pathlib import Path
 import tempfile
+import sys
+import textwrap
 import threading
 import time
 from types import SimpleNamespace
@@ -11,9 +13,12 @@ import urllib.request
 from unittest.mock import patch
 
 from agent_portal import AgentPortal, AgentPortalError
+from agent_session import LocalCodexAgentBackend
+from codex_app_server import AppServerError, AppServerTransport
 from codex_provider import CodexConfig
 from server import Server, State, agent_portal_action, local_agent_backend
 from test_agent_portal import FakeBackend, PCBackend, PCInput, PCOutput
+from test_codex_app_server import FAKE_SERVER
 
 
 class PermissionBackend(FakeBackend):
@@ -209,6 +214,46 @@ class BrowserPermissionsTests(unittest.TestCase):
             time.sleep(0.15)
             self.assertEqual(old.decisions, [])
             self.assertIsNotNone(self.backends[-1].approval)
+
+    def test_stop_without_request_resolved_allows_switch_after_terminal_receipt(self):
+        with tempfile.TemporaryDirectory() as directory:
+            script = Path(directory) / "fake_server.py"
+            script.write_text(textwrap.dedent(FAKE_SERVER), encoding="utf-8")
+            transport = AppServerTransport([sys.executable, "-u", str(script)], directory, timeout=2)
+            backend = LocalCodexAgentBackend.__new__(LocalCodexAgentBackend)
+            backend.config = CodexConfig("unused.exe")
+            backend.enabled_matrix_tools = ()
+            backend.transport = transport
+            portal = AgentPortal(Path(directory) / "portal", lambda: backend,
+                                 permissions_factory=lambda mode: PermissionBackend([True], mode))
+            self.addCleanup(portal.close)
+            session = portal.open()["sessionId"]
+            sent = portal.send_text(session, "Wait for permission")
+            deadline = time.monotonic() + 2
+            while time.monotonic() < deadline:
+                if portal.status(session)["pendingApprovals"]:
+                    break
+                time.sleep(0.01)
+            self.assertFalse(portal.status(session)["permissionsChangeAllowed"])
+            self.assertEqual(len(transport.pending_approvals()), 1)
+            portal.cancel(session, sent["turnId"])
+            deadline = time.monotonic() + 2
+            while time.monotonic() < deadline:
+                status = portal.status(session)
+                if status["activeTurnId"] is None:
+                    break
+                time.sleep(0.01)
+            self.assertEqual(status["activity"], "cancelled")
+            self.assertIsNone(status["activeTurnId"])
+            self.assertTrue(status["permissionsChangeAllowed"])
+            self.assertEqual(status["pendingApprovals"], [])
+            self.assertEqual(transport.pending_approvals(), [])
+            self.assertNotIn("serverRequest/resolved", [event["method"] for event in transport.events_since()])
+            with self.assertRaisesRegex(AppServerError, "no longer pending"):
+                transport.respond_approval(901, "thread-test", sent["turnId"], "accept")
+            changed = portal.change_permissions(session, "full-access", True)
+            self.assertEqual(changed["approvalMode"], "automatic")
+            self.assertEqual(changed["transcript"], status["transcript"])
 
 
 class BrowserPermissionsHTTPTests(unittest.TestCase):

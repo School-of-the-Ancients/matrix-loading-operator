@@ -75,7 +75,6 @@ let cameraBusy=false;
 const recorder=new VoiceRecorder();let voiceStarting=false,voiceRecording=false,voiceStopRequested=false,voiceJob=null,voiceSnapshot=null,voiceDestination='planner',voiceAgentContext=null,voiceBlenderPlacement=null;
 let replyContext=null,replySource=null;
 let agentClient=null,conceptUI=null,panoramaUI=null,agentActionBusy=false,agentVoiceStatus='',voiceSteerTurnId=null,agentAttentionKey='';
-let agentPermissionsDraft=null;
 let creationMode=loadCreationMode(sessionStorage);
 const pendingBlenderReceiptIds=new Set();
 function unlockReplyAudio(){
@@ -101,7 +100,7 @@ view.onXRHidden=()=>{cameraStream.stop();bridge.cancelCapture();updateCameraCont
 bindCameraPageLifecycle(cameraStream,document,window,()=>{bridge.cancelCapture();updateCameraControls();});
 bindXRPageLifecycle(()=>view.xrControls,document,window);
 view.xrEntryBlocker=()=>pendingWorld||pcWorldBusy||worldSwitchBusy?
-  'Finish world recovery or checkpoint restore before entering XR.':'';
+  'Finish world recovery or checkpoint restore before entering XR.':agentClient?.pendingPermissionChange()||'';
 function setConceptCreationMode(mode){
   creationMode=saveCreationMode(sessionStorage,mode);
   $('concept-creation-mode').value=creationMode;
@@ -521,19 +520,23 @@ function renderAgent(){
   $('agent-activity').textContent=activity;
   const confirmedStatus=agentClient?.error?null:status;
   const accessLabel=agentAccessLabel(confirmedStatus);
-  $('agent-access').textContent=accessLabel;
+  $('agent-access').textContent=confirmedStatus?`Active: ${accessLabel}`:accessLabel;
   const permissionMode=agentPermissionMode(confirmedStatus);
-  const selectedPermission=agentPermissionsDraft??permissionMode??'';
+  const selectedPermission=agentClient?.permissionDraft??permissionMode??'';
+  const pendingPermission=agentClient?.pendingPermissionChange()||'';
   const immersive=view.renderer.xr.isPresenting;
   const permissionsDisabled=agentActionBusy||!status||!!agentClient?.error||!!status?.activeTurnId||
     status?.permissionsChangeAllowed!==true||immersive;
   $('agent-permissions').value=selectedPermission;
   $('agent-permissions').disabled=permissionsDisabled;
+  $('agent-permissions-pending').textContent=pendingPermission;
+  $('agent-permissions-pending').classList.toggle('hidden',!pendingPermission);
   const needsConfirmation=selectedPermission==='full-access'&&permissionMode!=='full-access';
   $('agent-full-access-confirmation').classList.toggle('hidden',!needsConfirmation);
   $('agent-full-access-confirm').disabled=permissionsDisabled;
   $('agent-permissions-apply').disabled=permissionsDisabled||!selectedPermission||selectedPermission===permissionMode||
     (needsConfirmation&&!$('agent-full-access-confirm').checked);
+  $('agent-permissions-apply').textContent=selectedPermission==='full-access'?'Enable Full access':'Use Reviewed';
   $('agent-permissions-help').textContent=!status?'Connect to choose permissions before entering AR/VR.':
     immersive?'Exit AR/VR to change permissions.':status.activeTurnId?
     'Wait for this turn to finish or choose Stop before changing permissions.':
@@ -559,9 +562,9 @@ function renderAgent(){
   if($('agent-send').textContent!==sendLabel)$('agent-send').textContent=sendLabel;
   const sendHint=status?.activeTurnId?
     'Add an instruction while Codex works. It stays in this turn; earlier world changes are not undone.':
-    'Send starts a turn in this Codex conversation.';
+    pendingPermission||'Send starts a turn in this Codex conversation.';
   if($('agent-send-hint').textContent!==sendHint)$('agent-send-hint').textContent=sendHint;
-  $('agent-send').disabled=agentActionBusy||!status||!!agentClient.error;
+  $('agent-send').disabled=agentActionBusy||!status||!!agentClient.error||!!pendingPermission&&!status?.activeTurnId;
   $('agent-stop').disabled=agentActionBusy||!status?.activeTurnId;
   $('agent-approve').disabled=agentActionBusy||pending?.reviewable!==true;
   $('agent-deny').disabled=agentActionBusy;
@@ -572,7 +575,7 @@ function renderAgent(){
     status?'Ready. Hold the trigger or grip to speak to Codex.':'Connect to Codex on the PC.';
   const conceptStatus=conceptUI?.statusForWorld()||'';
   const panoramaStatus=panoramaUI?.statusForWorld()||'';
-  view.setOperatorAgentStatus({activity,content:[accessLabel,conceptStatus,panoramaStatus,agentVoiceStatus,agentApprovalText(pending),
+  view.setOperatorAgentStatus({activity,content:[accessLabel,pendingPermission,conceptStatus,panoramaStatus,agentVoiceStatus,agentApprovalText(pending),
     status?.activeTurnId?'Hold to add an instruction to this turn, or choose Stop. Earlier world edits remain.':'',
     agentClient?.error?`Connection: ${agentClient.error}`:'',inWorld].filter(Boolean).join('\n\n'),
     pending:!!pending,approvalReviewable:pending?.reviewable===true,
@@ -583,7 +586,11 @@ function renderAgent(){
   panoramaUI?.render();
 }
 agentClient=new AgentClient((path,body)=>bridge.request(path,body),localStorage,renderAgent);
-conceptUI=new ConceptUI({request:(path,body)=>bridge.request(path,body),
+conceptUI=new ConceptUI({request:(path,body)=>{
+  if(body!==undefined&&['/api/agent/concepts','/api/agent/concepts/variation'].includes(path))
+    agentClient.assertPermissionsApplied();
+  return bridge.request(path,body);
+},
   ensureSession:async()=>{
     if(!agentClient.status||agentClient.error)await agentClient.connect();
     return agentClient.sessionId;
@@ -691,6 +698,8 @@ function sendAgent(){
     });
     return;
   }
+  try{agentClient.assertPermissionsApplied();}
+  catch(error){feedback(error.message,true);return;}
   if(parsePanoramaIntent(text)){
     agentAction(async()=>{const message=await deliverAgentTextDraft($('agent-input'),text,
       submitted=>panoramaUI.handleText(submitted));
@@ -724,7 +733,8 @@ function decideAgent(approve){
 $('agent-connect').addEventListener('click',()=>agentAction(async()=>{
   await agentClient.connect();await conceptUI.refresh();}));
 $('agent-permissions').addEventListener('change',()=>{
-  agentPermissionsDraft=$('agent-permissions').value;
+  const selected=$('agent-permissions').value;
+  agentClient.permissionDraft=selected===agentPermissionMode(agentClient.status)?null:selected;
   $('agent-full-access-confirm').checked=false;
   renderAgent();
 });
@@ -735,7 +745,7 @@ $('agent-permissions-apply').addEventListener('click',()=>{
   const confirmed=mode==='full-access'&&$('agent-full-access-confirm').checked;
   agentAction(async()=>{
     await agentClient.setPermissions(mode,confirmed);
-    agentPermissionsDraft=null;
+    agentClient.permissionDraft=null;
     $('agent-full-access-confirm').checked=false;
     feedback(`Codex permissions updated: ${agentAccessLabel(agentClient.status)}.`);
   });
@@ -856,6 +866,7 @@ async function sendToAgentFromChat(text,context){
   view.showOperatorAgentMode();
   if(!agentClient.status||agentClient.error)await agentClient.connect();
   if(agentClient.status?.activeTurnId)throw Error('Wait for the current CODEX turn or stop it first.');
+  agentClient.assertPermissionsApplied();
   const expectedConcept=await conceptUI.expectedBuild(text);
   const currentContext=await currentAgentContextForSend(context);
   if(/\b(?:in front of me|ahead of me|where i am pointing)\b/i.test(text)&&!currentContext.viewerFrame)
@@ -867,6 +878,10 @@ async function sendToAgentFromChat(text,context){
 async function propose(){
   const text=$('prompt').value.trim();if(!text){feedback('Enter a request first.',true);return;}
   const route=operatorRoute(text);
+  if(['agent','concept','panorama'].includes(route.destination)){
+    try{agentClient.assertPermissionsApplied();}
+    catch(error){feedback(error.message,true);return;}
+  }
   if(route.destination==='panorama'){
     $('propose').disabled=true;
     try{const message=await panoramaUI.handleText(text);
@@ -929,6 +944,7 @@ async function reviewView(){
     view.showOperatorAgentMode();
     if(!agentClient.status||agentClient.error)await agentClient.connect();
     if(agentClient.status?.activeTurnId)throw Error('Wait for the current CODEX turn or stop it first.');
+    agentClient.assertPermissionsApplied();
     let mode=cameraStream.active&&view.isAR?'mixed':'virtual';
     feedback(mode==='mixed'?'Capturing environment camera and virtual view for CODEX…':
       'Capturing a virtual-only view for CODEX; no physical camera pixels…');
@@ -1547,6 +1563,10 @@ async function beginVoice(){
     voiceStatus('Reconnect to Codex first.',true);return;
   }
   voiceSteerTurnId=voiceDestination==='agent'?agentClient.status.activeTurnId:null;
+  if(voiceDestination==='agent'&&!voiceSteerTurnId){
+    try{agentClient.assertPermissionsApplied();}
+    catch(error){voiceStatus(error.message,true);return;}
+  }
   try{voiceBlenderPlacement=voiceDestination==='planner'?captureBlenderPlacement(world,view):null;}
   catch(error){voiceStatus(`Could not capture Matrix context: ${error.message}`,true);return;}
   unlockReplyAudio();
@@ -1606,6 +1626,9 @@ async function endVoice(){
         voiceJob='agent-transcribe';voiceButtons();
         const transcript=await agentClient.transcribe(audioBase64);
         voiceStatus(`Heard: ${transcript}`);
+        $('prompt').value=transcript;
+        if(['agent','concept','panorama'].includes(operatorRoute(transcript).destination))
+          agentClient.assertPermissionsApplied();
         if(parsePanoramaIntent(transcript)){
           $('prompt').value=transcript;
           const message=await panoramaUI.handleText(transcript);

@@ -410,6 +410,48 @@ class AppServerTransportTests(unittest.TestCase):
         self.assertEqual(event["params"], {"truncated": True, "threadId": "thread-test",
                                             "turn": {"id": "turn-7", "status": "completed"}})
 
+    def test_terminal_turn_clears_only_matching_approvals_and_rejects_stale_replies(self):
+        for status in ("completed", "interrupted", "failed"):
+            with self.subTest(status=status):
+                requests = [
+                    (701, "item/commandExecution/requestApproval", "thread-test", "turn-ended"),
+                    (702, "mcpServer/elicitation/request", "thread-test", "turn-ended"),
+                    (703, "item/fileChange/requestApproval", "thread-test", "turn-other"),
+                    (704, "item/commandExecution/requestApproval", "thread-other", "turn-ended"),
+                ]
+                for request_id, method, thread_id, turn_id in requests:
+                    self.transport._receive({"id": request_id, "method": method, "params": {
+                        "threadId": thread_id, "turnId": turn_id, "mode": "form",
+                        "_meta": {"codex_approval_kind": "mcp_tool_call", "tool_params": {}}}})
+                self.transport._receive({"method": "turn/completed", "params": {
+                    "threadId": "thread-test", "turn": {"id": "turn-ended", "status": status}}})
+                self.assertEqual({item["requestId"] for item in self.transport.pending_approvals()},
+                                 {703, 704})
+                with patch.object(self.transport, "_write") as write:
+                    for request_id in (701, 702):
+                        with self.assertRaisesRegex(AppServerError, "no longer pending"):
+                            self.transport.respond_approval(request_id, "thread-test", "turn-ended", "accept")
+                    write.assert_not_called()
+                self.assertEqual(self.transport.events_since()[-1]["method"], "turn/completed")
+
+    def test_invalid_or_nonterminal_completion_does_not_clear_approval(self):
+        self.transport._receive({"id": 777, "method": "item/commandExecution/requestApproval",
+                                 "params": {"threadId": "thread-test", "turnId": "turn-ended"}})
+        invalid = [None, {}, {"threadId": "thread-test"}]
+        invalid.extend({"threadId": "thread-test", "turn": {"id": "turn-ended", "status": status}}
+                       for status in (None, "inProgress", "cancelled", "unknown", True))
+        for key in ("threadId", "id"):
+            for value in ("", True, "x" * 129, "line\nbreak"):
+                params = {"threadId": "thread-test", "turn": {"id": "turn-ended", "status": "interrupted"}}
+                (params if key == "threadId" else params["turn"])[key] = value
+                invalid.append(params)
+        invalid.append({"threadId": "thread-test", "turnId": "different-turn",
+                        "turn": {"id": "turn-ended", "status": "completed"}})
+        for params in invalid:
+            with self.subTest(params=params):
+                self.transport._receive({"method": "turn/completed", "params": params})
+                self.assertEqual([item["requestId"] for item in self.transport.pending_approvals()], [777])
+
     def test_failed_reader_is_visible_to_event_polling(self):
         self.transport._fail("Codex app-server connection closed")
         with self.assertRaisesRegex(AppServerError, "connection closed"):

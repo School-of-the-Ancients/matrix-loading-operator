@@ -56,10 +56,12 @@ in the browser's Codex section before entering AR or VR. Full access requires
 checking the explicit permission confirmation and applying the choice. It lets
 Codex use files, network access and configured tools across the PC with automatic
 approvals. The browser and headset show the active mode. An unsaved selection
-does not grant access.
+is labeled as not applied and cannot be carried into a new Agent request or
+AR/VR entry. Apply it first, or return the selector to the active mode.
 
 Permissions can change only while the Agent is idle. Finish or Stop an active
-request first; switching modes does not approve or replay a pending request.
+request first; confirmed terminal turns discard their obsolete approval
+requests. Switching modes does not approve or replay a pending request.
 The service starts a replacement Codex backend with the selected policy and
 resumes the same conversation. Failed changes leave the previous mode visible.
 The choice applies to this service session and all its connected owner views;

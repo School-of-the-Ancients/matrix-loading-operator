@@ -1,6 +1,8 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {AgentClient,AGENT_SESSION_KEY,agentActivityLabel,agentAccessLabel,agentPermissionMode} from '../src/agent_client.js';
+import {AgentClient,AGENT_SESSION_KEY,agentActivityLabel,agentAccessLabel,agentPermissionMode,
+  agentPermissionDraftMessage} from '../src/agent_client.js';
+import {deliverAgentTextDraft} from '../src/agent_text_delivery.js';
 
 const id='a'.repeat(32);
 function storage(initial={}){
@@ -42,6 +44,52 @@ test('permission chooser reflects the confirmed policy while labels retain sandb
   for(const value of [null,{},
     {accessMode:'workspace-write',approvalMode:'automatic'}
   ])assert.equal(agentPermissionMode(value),null);
+});
+
+test('a differing permission selection remains explicitly unapplied until confirmed by the service',()=>{
+  const reviewed={accessMode:'workspace-write',approvalMode:'reviewed'};
+  assert.equal(agentPermissionDraftMessage(reviewed,null),'');
+  assert.equal(agentPermissionDraftMessage(reviewed,'reviewed'),'');
+  assert.match(agentPermissionDraftMessage(reviewed,'full-access'),/^Not applied: Full access/);
+  assert.match(agentPermissionDraftMessage(reviewed,'full-access'),/Enable Full access/);
+  assert.equal(agentAccessLabel(reviewed),'Reviewed · workspace access');
+  const full={accessMode:'danger-full-access',approvalMode:'automatic'};
+  assert.equal(agentPermissionDraftMessage(full,'full-access'),'');
+  assert.match(agentPermissionDraftMessage(full,'reviewed'),/^Not applied: Reviewed/);
+});
+
+test('an unapplied permission selection blocks new text, context, capture and concept-build turns without losing the draft',async()=>{
+  const calls=[],client=new AgentClient(async(path,body)=>{
+    calls.push([path,body]);return status({activeTurnId:null,turnId:'turn-1'});
+  },storage({[AGENT_SESSION_KEY]:id}));
+  client.status=status({activeTurnId:null,accessMode:'workspace-write',approvalMode:'reviewed'});
+  client.permissionDraft='full-access';
+  const context={schemaVersion:1,roomId:'web-room'};
+  const input={value:'Create a rocket'};
+  for(const args of [[],[context],[context,null,'auto','b'.repeat(32)],
+    [context,{conceptId:id,version:1},'blender']]){
+    await assert.rejects(deliverAgentTextDraft(input,input.value,text=>client.send(text,...args)),/Not applied: Full access/);
+    assert.equal(input.value,'Create a rocket');
+  }
+  assert.deepEqual(calls,[]);
+  client.permissionDraft=null;
+  await client.send(input.value,context);
+  assert.equal(calls[0][0],'/api/agent/turn');
+});
+
+test('unapplied permissions do not block steering or stopping the active turn',async()=>{
+  const calls=[],current=status({accessMode:'workspace-write',approvalMode:'reviewed'});
+  const client=new AgentClient(async(path,body)=>{
+    calls.push([path,body]);
+    return path==='/api/agent/steer'?{turnId:'turn-1'}:current;
+  },storage({[AGENT_SESSION_KEY]:id}));
+  client.status=current;client.permissionDraft='full-access';
+  await client.steer('Keep the existing rocket');
+  await client.cancel();
+  assert.ok(calls.some(([path])=>path==='/api/agent/steer'));
+  assert.ok(calls.some(([path])=>path==='/api/agent/cancel'));
+  assert.ok(calls.every(([path])=>path!=='/api/agent/turn'));
+  assert.match(client.pendingPermissionChange(),/^Not applied/);
 });
 
 test('idle browser permission choices send explicit consent and use confirmed service status',async()=>{

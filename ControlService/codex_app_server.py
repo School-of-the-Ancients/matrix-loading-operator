@@ -52,6 +52,21 @@ def _truncated_event_params(params: dict) -> dict:
     return safe
 
 
+def _terminal_turn_identity(params) -> tuple[str, str] | None:
+    """Accept only a complete, unambiguous terminal lifecycle notification."""
+    if not isinstance(params, dict) or not isinstance(params.get("turn"), dict):
+        return None
+    turn = params["turn"]
+    thread_id, turn_id = params.get("threadId"), turn.get("id")
+    if (turn.get("status") not in ("completed", "interrupted", "failed")
+            or not all(isinstance(value, str) and 1 <= len(value) <= 128
+                       and not any(ord(char) < 32 for char in value)
+                       for value in (thread_id, turn_id))
+            or params.get("turnId", turn_id) != turn_id):
+        return None
+    return thread_id, turn_id
+
+
 class AppServerError(Exception):
     """A local app-server protocol or lifecycle failure."""
 
@@ -222,6 +237,16 @@ class AppServerTransport:
                 request_id = params.get("requestId")
                 if isinstance(request_id, (int, str)):
                     self._approvals.pop(request_id, None)
+            elif method == "turn/completed":
+                terminal = _terminal_turn_identity(params)
+                if terminal is not None:
+                    # Interrupt can complete a turn without emitting individual
+                    # serverRequest/resolved messages. These requests cannot be
+                    # answered after completion and must not block an idle mode change.
+                    for request_id, approval in tuple(self._approvals.items()):
+                        request = approval["params"]
+                        if (request.get("threadId"), request.get("turnId")) == terminal:
+                            self._approvals.pop(request_id)
             self._sequence += 1
             image_item = (params.get("item") if isinstance(params, dict) and
                           method in ("item/started", "item/completed") else None)
