@@ -190,6 +190,184 @@ test('a stale poll cannot clear the error for a permission change with unknown o
   assert.equal(client.error,'Permission response lost');
 });
 
+test('new conversations start empty with the active permission and direct the next request to the new session',async()=>{
+  for(const permission of [
+    {accessMode:'workspace-write',approvalMode:'reviewed'},
+    {accessMode:'danger-full-access',approvalMode:'automatic'}
+  ]){
+    const nextId='b'.repeat(32),calls=[],store=storage({[AGENT_SESSION_KEY]:id});
+    const previous=status({...permission,activity:'completed',activeTurnId:null});
+    const fresh=status({...permission,sessionId:nextId,activity:'idle',activeTurnId:null,
+      transcript:[],pendingApprovals:[],events:[],cursor:0});
+    const client=new AgentClient(async(path,body)=>{
+      calls.push([path,body]);
+      if(path==='/api/agent/new-conversation')return fresh;
+      if(path==='/api/agent/turn')return {...fresh,turnId:'new-turn'};
+      return fresh;
+    },store);
+    client.status=previous;client.cursor=previous.cursor;
+    assert.equal(await client.newConversation(),fresh);
+    assert.equal(client.sessionId,nextId);
+    assert.equal(client.status,fresh);
+    assert.equal(client.cursor,0);
+    assert.equal(client.conversationStarting,false);
+    assert.deepEqual(previous.transcript,[{user:'Hello',assistant:'Hi',status:'working',
+      turnId:'turn-1',assistantTruncated:false}]);
+    assert.deepEqual(store.writes,[[AGENT_SESSION_KEY,nextId]]);
+    assert.deepEqual(calls,[['/api/agent/new-conversation',{sessionId:id}]],
+      'starting the conversation does not submit a model request');
+    await client.send('Create a rocket');
+    assert.equal(calls.at(-1)[1].sessionId,nextId);
+    assert.equal(calls.at(-1)[1].text,'Create a rocket');
+  }
+});
+
+test('new conversation requires a connected idle session and retains an unapplied permission choice',async()=>{
+  const calls=[],client=new AgentClient(async(path,body)=>{calls.push([path,body]);},
+    storage());
+  await assert.rejects(client.newConversation(),/Connect to Codex/);
+  client.sessionId=id;
+  const idle=status({activity:'completed',activeTurnId:null,accessMode:'workspace-write',approvalMode:'reviewed'});
+  for(const busy of [
+    {activeTurnId:'active-turn'},
+    {pendingApprovals:[{approvalId:'approval'}]},
+    ...['starting','working','stopping','waiting_for_approval','future-state'].map(activity=>({activity}))
+  ]){
+    client.status={...idle,...busy};
+    await assert.rejects(client.newConversation(),/current turn/);
+  }
+  client.status=idle;client.permissionDraft='full-access';
+  await assert.rejects(client.newConversation(),/pending permission choice/);
+  assert.equal(client.permissionDraft,'full-access');
+  assert.equal(client.status,idle);
+  client.error='Status unavailable';
+  await assert.rejects(client.newConversation(),/pending permission choice/);
+  assert.deepEqual(calls,[]);
+});
+
+test('a saved conversation can start fresh when its old native status is unavailable',async()=>{
+  const calls=[],store=storage({[AGENT_SESSION_KEY]:id});
+  const fresh=status({sessionId:'b'.repeat(32),activity:'idle',activeTurnId:null,
+    transcript:[],cursor:0,accessMode:'danger-full-access',approvalMode:'automatic'});
+  const client=new AgentClient(async(path,body)=>{calls.push([path,body]);return fresh;},store);
+  client.error='Old conversation is unavailable';
+  await client.newConversation();
+  assert.deepEqual(calls,[['/api/agent/new-conversation',{sessionId:id}]]);
+  assert.equal(client.status,fresh);
+  assert.equal(client.error,'');
+  assert.equal(agentPermissionMode(client.status),'full-access');
+});
+
+test('explicitly discarding a failed permission selection allows recovery without changing service permissions',async()=>{
+  const calls=[],store=storage({[AGENT_SESSION_KEY]:id});
+  const previous=status({activity:'idle',activeTurnId:null,accessMode:'workspace-write',approvalMode:'reviewed'});
+  const fresh={...previous,sessionId:'b'.repeat(32),transcript:[],cursor:0};
+  const client=new AgentClient(async(path,body)=>{calls.push([path,body]);return fresh;},store);
+  client.status=previous;client.permissionDraft='full-access';client.error='Old conversation is unavailable';
+  assert.match(client.newConversationBlocker(),/pending permission choice/);
+  client.discardPermissionDraft();
+  assert.equal(client.status,previous);
+  assert.equal(client.error,'Old conversation is unavailable');
+  assert.equal(client.permissionDraft,null);
+  assert.deepEqual(calls,[]);
+  await client.newConversation();
+  assert.deepEqual(calls,[['/api/agent/new-conversation',{sessionId:id}]]);
+  assert.equal(agentPermissionMode(client.status),'reviewed');
+});
+
+test('failed new conversation keeps the prior ID, history and cursor selected',async()=>{
+  const store=storage({[AGENT_SESSION_KEY]:id});
+  const previous=status({activity:'idle',activeTurnId:null,accessMode:'workspace-write',approvalMode:'reviewed'});
+  const client=new AgentClient(async()=>{throw Error('New conversation failed');},store);
+  client.status=previous;client.cursor=previous.cursor;
+  await assert.rejects(client.newConversation(),/New conversation failed/);
+  assert.equal(client.sessionId,id);
+  assert.equal(client.status,previous);
+  assert.equal(client.cursor,previous.cursor);
+  assert.equal(client.conversationStarting,false);
+  assert.deepEqual(store.writes,[]);
+  assert.equal(client.error,'New conversation failed');
+});
+
+test('invalid fresh snapshots cannot replace the previous conversation or its stored ID',async()=>{
+  const previous=status({activity:'idle',activeTurnId:null,accessMode:'workspace-write',approvalMode:'reviewed'});
+  const fresh={...previous,sessionId:'b'.repeat(32),transcript:[],cursor:0};
+  for(const invalid of [
+    {sessionId:id},{sessionId:'native-thread-id'},{transcript:previous.transcript},
+    {transcript:null},{activeTurnId:'unexpected-turn'},
+    {pendingApprovals:[{approvalId:'unexpected-approval'}]},{cursor:previous.cursor},
+    {accessMode:'danger-full-access',approvalMode:'automatic'}
+  ]){
+    const store=storage({[AGENT_SESSION_KEY]:id});
+    const client=new AgentClient(async()=>({...fresh,...invalid}),store);
+    client.status=previous;client.cursor=previous.cursor;
+    await assert.rejects(client.newConversation(),/Could not confirm the new conversation/);
+    assert.equal(client.status,previous);
+    assert.equal(client.sessionId,id);
+    assert.equal(client.cursor,previous.cursor);
+    assert.deepEqual(store.writes,[]);
+  }
+});
+
+test('old status responses and errors cannot replace a confirmed new conversation',async()=>{
+  for(const failPoll of [false,true]){
+    const previous=status({activity:'idle',activeTurnId:null,accessMode:'workspace-write',approvalMode:'reviewed'});
+    const fresh={...previous,sessionId:'b'.repeat(32),transcript:[],cursor:0};
+    let resolvePoll,rejectPoll;
+    const client=new AgentClient(async path=>{
+      if(path==='/api/agent/status')return new Promise((resolve,reject)=>{
+        resolvePoll=resolve;rejectPoll=reject;
+      });
+      return fresh;
+    },storage({[AGENT_SESSION_KEY]:id}));
+    client.status=previous;
+    const poll=client.poll();
+    await client.newConversation();
+    if(failPoll)rejectPoll(Error('Old status failed'));else resolvePoll(previous);
+    await poll;
+    assert.equal(client.status,fresh);
+    assert.equal(client.cursor,0);
+    assert.equal(client.error,'');
+  }
+});
+
+test('starting a conversation blocks duplicate starts and new requests until it is acknowledged',async()=>{
+  const previous=status({activity:'idle',activeTurnId:null,permissionsChangeAllowed:true,
+    accessMode:'workspace-write',approvalMode:'reviewed'});
+  const fresh={...previous,sessionId:'b'.repeat(32),transcript:[],cursor:0};
+  const calls=[];let finish;
+  const client=new AgentClient(async(path,body)=>{
+    calls.push([path,body]);return new Promise(resolve=>{finish=resolve;});
+  },storage({[AGENT_SESSION_KEY]:id}));
+  client.status=previous;
+  const start=client.newConversation();
+  assert.equal(client.conversationStarting,true);
+  await assert.rejects(client.newConversation(),/Starting a new conversation/);
+  await assert.rejects(client.send('Premature request'),/finish starting/);
+  await assert.rejects(client.transcribe('audio'),/finish starting/);
+  await assert.rejects(client.setPermissions('reviewed'),/finish starting/);
+  assert.throws(()=>client.assertPermissionsApplied(),/finish starting/);
+  assert.equal(await client.poll(),previous);
+  assert.deepEqual(calls,[['/api/agent/new-conversation',{sessionId:id}]]);
+  finish(fresh);await start;
+  assert.equal(client.conversationStarting,false);
+});
+
+test('an old poll cannot clear a failed new-conversation error',async()=>{
+  const previous=status({activity:'idle',activeTurnId:null});let finishPoll;
+  const client=new AgentClient(async path=>{
+    if(path==='/api/agent/status')return new Promise(resolve=>{finishPoll=resolve;});
+    throw Error('New conversation response lost');
+  },storage({[AGENT_SESSION_KEY]:id}));
+  client.status=previous;
+  const poll=client.poll();
+  await assert.rejects(client.newConversation(),/response lost/);
+  finishPoll(previous);await poll;
+  assert.equal(client.sessionId,id);
+  assert.equal(client.status,previous);
+  assert.equal(client.error,'New conversation response lost');
+});
+
 test('agent session persists only an opaque Matrix ID and sends follow-ups to it',async()=>{
   const store=storage(),calls=[];
   const request=async(path,body)=>{
@@ -296,6 +474,55 @@ test('failed resume never starts an unrelated conversation or clears its ID',asy
   assert.equal(store.getItem(AGENT_SESSION_KEY),id);
   assert.deepEqual(store.writes,[]);
   assert.equal(client.error,'Codex unavailable');
+});
+
+test('explicit reconnect adopts the current conversation after another view replaced the saved session',async()=>{
+  const store=storage({[AGENT_SESSION_KEY]:id}),calls=[];
+  const current=status({sessionId:'b'.repeat(32),activity:'idle',activeTurnId:null,
+    transcript:[],cursor:0,accessMode:'workspace-write',approvalMode:'reviewed'});
+  const client=new AgentClient(async path=>{
+    calls.push(path);
+    if(path==='/api/agent/status')throw Object.assign(Error('Session not found'),{status:404});
+    return current;
+  },store);
+  client.permissionDraft='full-access';
+  await assert.rejects(client.poll(),/Session not found/);
+  assert.deepEqual(calls,['/api/agent/status'],'automatic polling never creates or adopts a replacement');
+  await client.connect();
+  assert.deepEqual(calls,['/api/agent/status','/api/agent/status','/api/agent/session']);
+  assert.equal(client.sessionId,current.sessionId);
+  assert.equal(client.cursor,0);
+  assert.equal(client.permissionDraft,'full-access');
+  assert.match(client.pendingPermissionChange(),/^Not applied/);
+  assert.deepEqual(store.writes,[[AGENT_SESSION_KEY,current.sessionId]]);
+});
+
+test('reconnect never switches conversations for unconfirmed errors or other HTTP failures',async()=>{
+  for(const error of [Error('HTTP 404'),Object.assign(Error('Unauthorized'),{status:401}),
+    Object.assign(Error('Server failed'),{status:500})]){
+    const calls=[],store=storage({[AGENT_SESSION_KEY]:id});
+    const client=new AgentClient(async path=>{calls.push(path);throw error;},store);
+    await assert.rejects(client.connect(),error);
+    assert.deepEqual(calls,['/api/agent/status']);
+    assert.equal(client.sessionId,id);
+    assert.deepEqual(store.writes,[]);
+  }
+});
+
+test('a late poll from the previous conversation cannot undo an explicit reconnect',async()=>{
+  const previous=status(),current=status({sessionId:'b'.repeat(32),cursor:0,transcript:[]});
+  let finishPoll,reads=0;
+  const client=new AgentClient(async path=>{
+    if(path==='/api/agent/session')return current;
+    if(++reads===1)return new Promise(resolve=>{finishPoll=resolve;});
+    throw Object.assign(Error('Session not found'),{status:404});
+  },storage({[AGENT_SESSION_KEY]:id}));
+  client.status=previous;
+  const poll=client.poll();
+  await client.connect();
+  finishPoll(previous);await poll;
+  assert.equal(client.status,current);
+  assert.equal(client.error,'');
 });
 
 test('invalid stored ID is ignored and malformed server ID is rejected',async()=>{

@@ -74,7 +74,7 @@ let persistenceWarning='',restoreWarning='';
 let cameraBusy=false;
 const recorder=new VoiceRecorder();let voiceStarting=false,voiceRecording=false,voiceStopRequested=false,voiceJob=null,voiceSnapshot=null,voiceDestination='planner',voiceAgentContext=null,voiceBlenderPlacement=null;
 let replyContext=null,replySource=null;
-let agentClient=null,conceptUI=null,panoramaUI=null,agentActionBusy=false,agentVoiceStatus='',voiceSteerTurnId=null,agentAttentionKey='';
+let agentClient=null,conceptUI=null,panoramaUI=null,agentActionBusy=false,agentVoiceStatus='',voiceSteerTurnId=null,agentAttentionKey='',reviewBusy=false;
 let creationMode=loadCreationMode(sessionStorage);
 const pendingBlenderReceiptIds=new Set();
 function unlockReplyAudio(){
@@ -513,6 +513,18 @@ function agentApprovalText(pending){
       '\nApproval is unavailable here. Deny or Stop this turn.';
   return `${pending.summary||'Codex action needs PC review.'}${guidance}`;
 }
+function newAgentConversationBlocker(){
+  const blocker=agentClient?.newConversationBlocker();
+  if(blocker)return blocker;
+  if(view.renderer.xr.isPresenting)return 'Exit AR/VR to start a new conversation.';
+  if(agentActionBusy||reviewBusy||voiceStarting||voiceRecording||voiceJob)
+    return 'Finish the current request before starting a new conversation.';
+  const imageJobs=[...(conceptUI?.client.jobs||[]),...(conceptUI?.client.panoramaJobs||[])];
+  if(conceptUI?.busy||panoramaUI?.busy||panoramaUI?.batch||panoramaUI?.pendingGeneration||
+      imageJobs.some(job=>['queued','generating'].includes(job.status)))
+    return 'Wait for the current image request to finish before starting a new conversation.';
+  return '';
+}
 function renderAgent(){
   latencyTrace?.ingestService(agentClient?.status?.latencyTrace);
   const status=agentClient?.status,turns=status?.transcript||[],pending=status?.pendingApprovals?.[0];
@@ -531,6 +543,8 @@ function renderAgent(){
   $('agent-permissions').disabled=permissionsDisabled;
   $('agent-permissions-pending').textContent=pendingPermission;
   $('agent-permissions-pending').classList.toggle('hidden',!pendingPermission);
+  $('agent-permissions-discard').classList.toggle('hidden',!pendingPermission);
+  $('agent-permissions-discard').disabled=agentActionBusy;
   const needsConfirmation=selectedPermission==='full-access'&&permissionMode!=='full-access';
   $('agent-full-access-confirmation').classList.toggle('hidden',!needsConfirmation);
   $('agent-full-access-confirm').disabled=permissionsDisabled;
@@ -542,6 +556,11 @@ function renderAgent(){
     'Wait for this turn to finish or choose Stop before changing permissions.':
     status.permissionsChangeAllowed!==true?'Permission changes are unavailable for this Agent session.':
     'Choose permissions before entering AR/VR. This changes the connected PC service session.';
+  const newConversationBlocker=newAgentConversationBlocker();
+  $('agent-new-conversation').disabled=!!newConversationBlocker;
+  $('agent-new-conversation').textContent=agentClient?.conversationStarting?'Starting…':'New conversation';
+  $('agent-new-conversation-help').textContent=newConversationBlocker||
+    'Start fresh with the active permissions. Your previous conversation is kept on the PC.';
   const transcript=turns.slice(-4).map(turn=>{
     const user=turn.user.length>1000?
       `${turn.user.slice(0,520)}\n[Earlier request text omitted]\n${turn.user.slice(-440)}`:
@@ -739,6 +758,11 @@ $('agent-permissions').addEventListener('change',()=>{
   renderAgent();
 });
 $('agent-full-access-confirm').addEventListener('change',renderAgent);
+$('agent-permissions-discard').addEventListener('click',()=>{
+  agentClient.discardPermissionDraft();
+  $('agent-full-access-confirm').checked=false;
+  feedback('Pending permission selection discarded. The PC service permissions have not changed.');
+});
 $('agent-permissions-apply').addEventListener('click',()=>{
   if(view.renderer.xr.isPresenting)return;
   const mode=$('agent-permissions').value;
@@ -748,6 +772,20 @@ $('agent-permissions-apply').addEventListener('click',()=>{
     agentClient.permissionDraft=null;
     $('agent-full-access-confirm').checked=false;
     feedback(`Codex permissions updated: ${agentAccessLabel(agentClient.status)}.`);
+  });
+});
+$('agent-new-conversation').addEventListener('click',()=>{
+  const blocker=newAgentConversationBlocker();
+  if(blocker){feedback(blocker,true);return;}
+  const draft=$('agent-input').value;
+  agentAction(async()=>{
+    await agentClient.newConversation();
+    if($('agent-input').value===draft)$('agent-input').value='';
+    agentVoiceStatus='';voiceSteerTurnId=null;agentAttentionKey='';
+    conceptUI.notice='';conceptUI.noticeError=false;
+    panoramaUI.notice='';panoramaUI.noticeError=false;
+    void conceptUI.refresh().catch(()=>{});
+    feedback(`New Codex conversation started. Active: ${agentAccessLabel(agentClient.status)}. Your previous conversation is kept on the PC.`);
   });
 });
 $('agent-send').addEventListener('click',sendAgent);
@@ -919,7 +957,6 @@ async function propose(){
   if(!data)return;
   await showProposal(data,text,blenderPlacement);
 }
-let reviewBusy=false;
 async function captureAndWait(mode){
     const requested=await bridge.request('/api/capture',{mode});
     const deadline=performance.now()+(mode==='mixed'?44000:20000);
@@ -938,7 +975,7 @@ async function captureAndWait(mode){
 }
 async function reviewView(){
   if(reviewBusy)return;
-  reviewBusy=true;unlockReplyAudio();
+  reviewBusy=true;renderAgent();unlockReplyAudio();
   try{
     if(pendingWorld)throw Error('Finish saved-world recovery before sharing a view.');
     view.showOperatorAgentMode();
@@ -978,7 +1015,7 @@ async function reviewView(){
       'Shared one virtual-only image with CODEX. No physical room pixels were included.';
     feedback(message);view.setOperatorStatus(message);
   }catch(error){feedback(error.message,true);view.setOperatorStatus(`Visual review failed: ${error.message}`,'error');}
-  finally{reviewBusy=false;}
+  finally{reviewBusy=false;renderAgent();}
 }
 const SAFE_AUTO_OPS=new Set(['spawn','duplicate','set_transform','set_behavior','remove_behavior','select']);
 async function speakReply(message){
@@ -1553,9 +1590,11 @@ function voiceStatus(message,isError=false,showInAgent=voiceDestination==='agent
 function voiceButtons(){
   for(const id of ['voice-button','xr-voice']){$(id).textContent=voiceStarting||voiceRecording?'Tap to send':'Tap to speak';$(id).disabled=!!voiceJob;}
   view.setOperatorVoiceInputLabel(voiceStarting?'REQUESTING MIC':voiceRecording?'RELEASE TO SEND':voiceJob?'VOICE BUSY':'HOLD TO SPEAK');
+  renderAgent();
 }
 async function beginVoice(){
   if(voiceStarting||voiceRecording)return;
+  if(agentClient?.conversationStarting){voiceStatus('Wait for the new conversation to finish starting.',true,false);return;}
   if(voiceJob){voiceStatus('Finish the current voice request before speaking again.',true,false);return;}
   latencyTrace?.submit();
   voiceDestination=view.isOperatorAgentMode()?'agent':'planner';

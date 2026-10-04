@@ -29,7 +29,7 @@
       <details id="section-agent" class="panel-section agent-panel">
         <summary class="panel-title"><span id="agent-heading">CODEX AGENT PORTAL</span><span id="agent-activity">Not connected</span></summary>
         <div class="section-content">
-        <p class="hint">One continuing Codex conversation on your PC. Use this for world creation, interaction, and reusable capability development.</p>
+        <p class="hint">Talk to Codex on your PC for world creation, interaction, and reusable capability development.</p>
         <button id="agent-connect">Start or resume Codex</button>
         <p id="agent-access" class="hint" role="status">Permissions unknown. Connect to read the PC service setting.</p>
         <label for="agent-permissions">Change permissions</label>
@@ -39,12 +39,14 @@
           <option value="full-access">Full access</option>
         </select>
         <p id="agent-permissions-pending" class="hint permission-pending hidden" role="status"></p>
+        <button id="agent-permissions-discard" type="button" class="hidden">Discard selection</button>
         <div id="agent-full-access-confirmation" class="hidden">
           <p class="hint">Full access lets Codex use PC files, network and tools without per-action approval prompts.</p>
           <label class="check-label"><input id="agent-full-access-confirm" type="checkbox" disabled /> I allow this access for the connected PC service session.</label>
         </div>
-        <button id="agent-permissions-apply" type="button" disabled>Use Reviewed</button>
+        <div class="row"><button id="agent-permissions-apply" type="button" disabled>Use Reviewed</button><button id="agent-new-conversation" type="button" aria-describedby="agent-new-conversation-help" disabled>New conversation</button></div>
         <p id="agent-permissions-help" class="hint">Connect to choose permissions before entering AR/VR.</p>
+        <p id="agent-new-conversation-help" class="hint" role="status">Connect to Codex before starting a new conversation.</p>
         <label for="agent-input">Message to Codex</label>
         <textarea id="agent-input" rows="3" placeholder="Create a physics playground with a ramp, grabbable objects, and a challenge."></textarea>
         <label class="check-label"><input id="agent-include-context" type="checkbox" /> Attach selected object and current pointing hit</label>

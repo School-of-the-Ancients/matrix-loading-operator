@@ -51,7 +51,7 @@ export class MatrixBridge {
           try{const trace=response.headers?.get('X-Matrix-Latency');
             if(trace)this.latencyTrace.ingestService(JSON.parse(trace));}catch{}
         }
-        if(!response.ok)throw Error(data.error||`HTTP ${response.status}`);
+        if(!response.ok)throw Object.assign(Error(data.error||`HTTP ${response.status}`),{status:response.status});
         return data;
       })();
       const data=timed?await Promise.race([request,timed]):await request;

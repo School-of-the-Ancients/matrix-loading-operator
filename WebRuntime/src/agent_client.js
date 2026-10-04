@@ -11,7 +11,7 @@ export class AgentClient {
     const saved=storage.getItem(AGENT_SESSION_KEY);
     this.sessionId=SESSION_ID.test(saved||'')?saved:null;
     this.status=null;this.error='';this.cursor=0;this.polling=false;this.statusGeneration=0;
-    this.permissionDraft=null;
+    this.permissionDraft=null;this.conversationStarting=false;
   }
   _update(status){
     if(!status||status.sessionId!==this.sessionId||!Array.isArray(status.transcript))
@@ -21,10 +21,20 @@ export class AgentClient {
   }
   _fail(error){this.error=String(error?.message||error).slice(0,300);this.onChange(this);}
   async connect(){
-    if(this.sessionId)return this.restore();
+    this.assertConversationReady();
+    if(this.sessionId){
+      try{return await this.restore();}
+      catch(error){
+        // Another view may have started a new conversation. Only an explicit
+        // reconnect after a confirmed missing session may adopt the current one.
+        if(error?.status!==404)throw error;
+      }
+    }
     try{
       const status=await this.request('/api/agent/session',{});
-      if(!SESSION_ID.test(status?.sessionId||''))throw Error('Invalid Agent Portal session');
+      if(!SESSION_ID.test(status?.sessionId||'')||!Array.isArray(status.transcript))
+        throw Error('Invalid Agent Portal session');
+      this.statusGeneration++;
       this.sessionId=status.sessionId;
       this.storage.setItem(AGENT_SESSION_KEY,this.sessionId);
       return this._update(status);
@@ -32,6 +42,7 @@ export class AgentClient {
   }
   async restore(){
     if(!this.sessionId)return null;
+    if(this.conversationStarting)return this.status;
     const generation=this.statusGeneration;
     try{
       const status=await this.request('/api/agent/status',{sessionId:this.sessionId,cursor:this.cursor});
@@ -48,6 +59,7 @@ export class AgentClient {
     finally{this.polling=false;}
   }
   async send(text,context=null,expectedConcept=null,creationMode='auto',captureId=null){
+    this.assertConversationReady();
     if(!this.sessionId)await this.connect();
     this.assertPermissionsApplied();
     if(typeof text!=='string'||!text.trim()||text.length>16000)throw Error('Enter a message up to 16000 characters.');
@@ -87,6 +99,7 @@ export class AgentClient {
     catch{return accepted;}
   }
   async transcribe(audioBase64){
+    this.assertConversationReady();
     if(!this.sessionId)await this.connect();
     try{
       const result=await this.request('/api/agent/transcribe',{sessionId:this.sessionId,audioBase64});
@@ -103,6 +116,7 @@ export class AgentClient {
     }catch(error){this._fail(error);throw error;}
   }
   async setPermissions(mode,confirmed=false){
+    this.assertConversationReady();
     if(!this.sessionId||!this.status)throw Error('Connect to Codex before changing permissions.');
     if(this.status.activeTurnId)throw Error('Wait for the current turn to finish or stop it before changing permissions.');
     if(this.status.permissionsChangeAllowed!==true)throw Error('Permission changes are unavailable for this Agent session.');
@@ -123,9 +137,48 @@ export class AgentClient {
   pendingPermissionChange(){
     return agentPermissionDraftMessage(this.error?null:this.status,this.permissionDraft);
   }
+  discardPermissionDraft(){
+    this.permissionDraft=null;this.onChange(this);
+  }
   assertPermissionsApplied(){
+    this.assertConversationReady();
     const message=this.pendingPermissionChange();
     if(message)throw Error(message);
+  }
+  assertConversationReady(){
+    if(this.conversationStarting)throw Error('Wait for the new conversation to finish starting.');
+  }
+  newConversationBlocker(){
+    if(this.conversationStarting)return 'Starting a new conversation…';
+    if(!this.sessionId)return 'Connect to Codex before starting a new conversation.';
+    if(this.status&&(this.status.activeTurnId||this.status.pendingApprovals?.length||
+        !['idle','completed','cancelled','failed'].includes(this.status.activity)))
+      return 'Wait for the current turn to finish or choose Stop before starting a new conversation.';
+    if(this.pendingPermissionChange())
+      return 'Apply or discard the pending permission choice before starting a new conversation.';
+    return '';
+  }
+  async newConversation(){
+    const blocker=this.newConversationBlocker();
+    if(blocker)throw Error(blocker);
+    const previous=this.status,sessionId=this.sessionId;
+    this.conversationStarting=true;this.statusGeneration++;this.onChange(this);
+    try{
+      const status=await this.request('/api/agent/new-conversation',{sessionId});
+      if(!SESSION_ID.test(status?.sessionId||'')||status.sessionId===sessionId||
+          !Array.isArray(status.transcript)||status.transcript.length||status.activeTurnId||
+          !Array.isArray(status.pendingApprovals)||status.pendingApprovals.length||status.cursor!==0||
+          !agentPermissionMode(status)||(previous&&
+            (status.accessMode!==previous.accessMode||status.approvalMode!==previous.approvalMode)))
+        throw Error('Could not confirm the new conversation. Reconnect to check the current conversation before trying again.');
+      this.storage.setItem(AGENT_SESSION_KEY,status.sessionId);
+      this.sessionId=status.sessionId;
+      return this._update(status);
+    }catch(error){this._fail(error);throw error;}
+    finally{
+      // Old polls cannot restore history after a successful or uncertain switch.
+      this.statusGeneration++;this.conversationStarting=false;this.onChange(this);
+    }
   }
   async cancel(){
     const turnId=this.status?.activeTurnId;

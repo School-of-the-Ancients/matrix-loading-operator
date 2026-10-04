@@ -58,6 +58,8 @@ Codex use files, network access and configured tools across the PC with automati
 approvals. The browser and headset show the active mode. An unsaved selection
 is labeled as not applied and cannot be carried into a new Agent request or
 AR/VR entry. Apply it first, or return the selector to the active mode.
+**Discard selection** clears only the pending browser choice, including when a
+connection error prevents applying it; it does not change the service's mode.
 
 Permissions can change only while the Agent is idle. Finish or Stop an active
 request first; confirmed terminal turns discard their obsolete approval
@@ -77,6 +79,39 @@ The permissions endpoint requires the same-origin browser and the configured
 owner bearer token, when enabled. A hosted-world viewer cannot change it.
 Native Codex and MCP credentials stay on the PC. Matrix argument validation,
 scene revisions, receipts and physical-placement guards apply in both modes.
+
+## Start a new conversation
+
+Use **New conversation** in the browser's Codex section to start an empty chat
+with the current permissions. This does not send a prompt or change the Matrix
+world. The native conversation is opened with the first request. Finish or Stop
+the active Agent turn first, and finish or cancel pending
+concept images, panoramas and concept builds. A new conversation has its own
+empty transcript and image gallery; previous images and build records remain
+stored under the previous session.
+
+Before switching, the service saves the previous Portal snapshot under
+`.agent_portal/history/<previous-session-id>-<unique-id>.json`. This preserves
+the native conversation mapping, bounded Portal transcript and event sequence.
+The existing native Codex conversation is retained. If archiving, starting the
+new conversation or saving its mapping fails, the previous Portal mapping is
+kept. The browser receives a new opaque session ID, so stale requests from
+another owner view cannot act on the new chat; reconnect that view with
+**Start or resume Codex**.
+
+`POST /api/agent/new-conversation` accepts only `{"sessionId":"..."}` and
+requires a same-origin owner request. It can also leave a saved conversation
+that cannot be resumed, without first taking ownership of that old native
+thread. Starting fresh does not resolve or interrupt work in another Codex app.
+
+History recovery is a PC operation; there is no browser history picker. Stop
+the service, preserve the current `.agent_portal/agent_portal.json` as a separate
+backup, and copy the chosen history snapshot to that path. Restart and use
+**Start or resume Codex** to reconnect. Recovery requires the corresponding
+native Codex history to remain available and its writer to be free. Restoring
+the old session also restores access to its saved image gallery and build
+records. Permissions follow the service startup configuration, not the archived
+snapshot.
 
 ## Automatic Agent mode at PC startup
 

@@ -457,6 +457,88 @@ class AgentPortal:
                 if self.permissions_factory is not None and self._permissions_mode is not None
                 else self.backend_factory())
 
+    def _archive_current_conversation(self) -> None:
+        """Preserve a complete PC-only mapping before explicitly starting fresh."""
+        self._persist()
+        temporary = None
+        try:
+            history = self.directory / "history"
+            history.mkdir(parents=True, exist_ok=True)
+            raw = self.path.read_bytes()
+            with tempfile.NamedTemporaryFile(mode="wb", dir=history, prefix="archive-",
+                                             suffix=".tmp", delete=False) as stream:
+                temporary = Path(stream.name)
+                stream.write(raw)
+                stream.flush()
+                os.fsync(stream.fileno())
+            os.replace(temporary, history / f"{self._session_id}-{uuid.uuid4().hex}.json")
+        except OSError:
+            raise AgentPortalError(507, "Previous Agent conversation could not be archived") from None
+        finally:
+            if temporary is not None:
+                temporary.unlink(missing_ok=True)
+
+    def new_conversation(self, session_id: str) -> dict:
+        """Explicitly start fresh context, retaining the previous native history."""
+        with self.lock:
+            # Do not resume the previous native thread merely to leave it. This
+            # also recovers a saved conversation currently owned by another app.
+            self._load()
+            if not isinstance(session_id, str) or session_id != self._session_id:
+                raise AgentPortalError(404, "Agent Portal session not found")
+            if self._backend is not None:
+                self._refresh()
+            if (self._active_turn is not None or self._starting_turn or self._native_starting
+                    or self._stopping_turn is not None):
+                raise AgentPortalError(409, "Stop the active Agent turn before starting a new conversation")
+            if self._backend is not None:
+                try:
+                    pending = self._backend.pending_approvals()
+                except Exception:
+                    raise AgentPortalError(503, "Agent approval status is unavailable; reconnect before starting a new conversation") from None
+                if pending:
+                    raise AgentPortalError(409, "Resolve pending approvals before starting a new conversation")
+            self._archive_current_conversation()
+            old_backend = self._backend
+            candidate = old_backend
+            try:
+                if candidate is None:
+                    candidate = self._create_selected_backend()
+                    candidate.start()
+            except Exception as error:
+                self.last_error = str(error)
+                if candidate is not None and candidate is not old_backend:
+                    try:
+                        candidate.close()
+                    except Exception:
+                        pass
+                raise AgentPortalError(503, "New Agent conversation could not be started; previous history is preserved") from None
+            previous = (self._session_id, self._conversation_id, self._transcript, self._sequence)
+            self._session_id = uuid.uuid4().hex
+            # Match initial Portal startup: Codex cannot resume an empty native
+            # thread, so defer its creation until the first submitted message.
+            self._conversation_id = None
+            self._transcript = []
+            self._sequence = 0
+            try:
+                self._persist()
+            except AgentPortalError:
+                (self._session_id, self._conversation_id, self._transcript, self._sequence) = previous
+                if candidate is not old_backend:
+                    try:
+                        candidate.close()
+                    except Exception:
+                        pass
+                raise
+            self._backend = candidate
+            self._events.clear()
+            self._native_turns.clear()
+            self._reset_backend_caches()
+            self._activity = "idle"
+            self.latency_run = None
+            self.last_error = None
+            return self._snapshot(0)
+
     def _reset_backend_caches(self) -> None:
         self._backend_cursor = 0
         self._native_capability = None
