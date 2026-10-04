@@ -274,7 +274,7 @@ test('XR WORLD panel can select, create and restore archived worlds with guarded
     const panel=operatorPanel();
     const hit=(x,y)=>panel.hit({x:x/1024,y:1-y/768});
     panel.toggleWorld();
-    assert.equal(hit(510,570),'toggle-archives');
+    assert.equal(hit(164,570),'toggle-archives');
     panel.toggleArchives();
     panel.setWorldInfo({objects:0,alignment:'Virtual room',archiveReady:true,
       archiveCount:2,archiveIndex:1,archiveName:'Orb playground',

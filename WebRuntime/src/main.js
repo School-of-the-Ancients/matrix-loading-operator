@@ -196,6 +196,13 @@ function updateWorldControls(){
   const canSetManipulation=!!selected&&creator.mode==='creator'&&creator.simulation==='paused'&&
     !world.digitalWorldVisit&&!world.spatial?.stale&&!world.spatial?.originUnavailable&&
     !pendingWorld&&!pcWorldBusy&&!worldSwitchBusy&&!view.readOnly;
+  const manipulationUnavailableReason=canSetManipulation?'':!selected?'Select an object first.':
+    creator.mode!=='creator'?'Return to Creator Mode to change object locks.':
+    creator.simulation!=='paused'?'Pause simulation to change object locks.':
+    world.digitalWorldVisit?'Leave the AR visit to change object locks.':
+    world.spatial?.originUnavailable?'Recover the room origin to change object locks.':
+    world.spatial?.stale?'Wait for current room tracking to change object locks.':
+    view.readOnly?'This view is read only.':'Wait for world saving or recovery to finish.';
   $('manipulation-status').textContent=selected?`Selected object: ${selectedManipulation}. Locked objects remain selectable.`:'Select an object to lock or unlock it.';
   $('toggle-manipulation').textContent=selectedManipulation==='grabbable'?'Lock selected object':'Unlock selected object';
   $('toggle-manipulation').disabled=!canSetManipulation;
@@ -263,7 +270,9 @@ function updateWorldControls(){
     selectedArchiveId===archiveRestoreId?'Confirm restore':'Restore archive';
   const archiveIndex=archives.findIndex(item=>item.archiveId===selectedArchiveId);
   const selectedArchive=archives[archiveIndex];
-  view.setOperatorWorldInfo({canSetFitToRoom,fitToRoom:world.fitToRoom,canSetManipulation,selectedManipulation,objects:world.scene.objects.length,canConfirm,restoreArmed:performance.now()<restoreArmedUntil,
+  view.setOperatorWorldInfo({canSetFitToRoom,fitToRoom:world.fitToRoom,canSetManipulation,selectedManipulation,
+    selectedObjectLabel:selected?(world.asset(selected.assetId)?.displayName||selected.assetId):'',
+    manipulationUnavailableReason,objects:world.scene.objects.length,canConfirm,restoreArmed:performance.now()<restoreArmedUntil,
     canPlaceLayout,arLayoutOffset:world.arLayoutOffset,
     layoutReviewPending:!!world.spatial?.layoutReviewPending,
     environmentLabel:environment?`Panorama: ${environmentLabel}${view.isAR?' · AR hidden':''}`:
