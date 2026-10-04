@@ -127,3 +127,51 @@ test('failed new voice turn retains the recognized words for manual retry',async
   }),/Turn already active/);
   assert.equal(input.value,'Build a lamp');
 });
+
+test('expired voice instructions retain the draft and refresh permissions without replay',async()=>{
+  for(const activeTurnId of [null,'replacement-turn']){
+    const sessionId='a'.repeat(32),calls=[];
+    const current={sessionId,transcript:[],cursor:5,activeTurnId,
+      activity:activeTurnId?'working':'completed',pendingApprovals:[],
+      accessMode:'danger-full-access',approvalMode:'automatic'};
+    const agentClient=new AgentClient(async(path,body)=>{
+      calls.push([path,body]);
+      if(path==='/api/agent/steer')throw Object.assign(
+        Error('That Agent turn can no longer accept an instruction'),{status:409});
+      if(path==='/api/agent/status')return current;
+      throw Error('Rejected speech must not be submitted again');
+    },{getItem:()=>sessionId,setItem(){}});
+    agentClient.status={...current,activeTurnId:'finished-turn',activity:'working'};
+    const input={value:'Keep the size'};
+    await assert.rejects(deliverAgentVoiceTranscript({agentClient,input,
+      transcript:'Put the cube on this table',capturedTurnId:'finished-turn',
+      deliverWhenIdle(){throw Error('must not open a replacement turn');}}),
+    /can no longer accept/);
+    assert.equal(input.value,'Keep the size\nPut the cube on this table');
+    assert.equal(agentClient.error,'');
+    assert.equal(agentClient.status.activeTurnId,activeTurnId);
+    assert.equal(agentClient.status.accessMode,'danger-full-access');
+    assert.equal(agentClient.status.approvalMode,'automatic');
+    assert.deepEqual(calls.map(([path])=>path),['/api/agent/steer','/api/agent/status']);
+    assert.equal(calls[0][1].turnId,'finished-turn');
+    assert.equal(prepareAgentVoiceRecording({agentClient,showConversation(){}}),activeTurnId);
+  }
+});
+
+test('failed status reconciliation keeps speech and reports a real connection failure',async()=>{
+  const sessionId='a'.repeat(32),calls=[];
+  const agentClient=new AgentClient(async path=>{
+    calls.push(path);
+    if(path==='/api/agent/steer')throw Object.assign(Error('Turn finished'),{status:409});
+    throw Error('Connection unavailable');
+  },{getItem:()=>sessionId,setItem(){}});
+  agentClient.status={sessionId,transcript:[],cursor:0,activeTurnId:'old-turn'};
+  const input={value:''};
+  await assert.rejects(deliverAgentVoiceTranscript({agentClient,input,
+    transcript:'Move the cube here',capturedTurnId:'old-turn',
+    deliverWhenIdle(){throw Error('must not resend');}}),/Turn finished/);
+  assert.equal(input.value,'Move the cube here');
+  assert.equal(agentClient.error,'Connection unavailable');
+  assert.deepEqual(calls,['/api/agent/steer','/api/agent/status']);
+  assert.throws(()=>prepareAgentVoiceRecording({agentClient,showConversation(){}}),/Connect to Codex/);
+});

@@ -442,6 +442,34 @@ test('acknowledged steer stays accepted if the following status read fails',asyn
   assert.equal(client.error,'Status temporarily unavailable');
 });
 
+test('a rejected silent or busy transcription refreshes the session without retrying audio',async()=>{
+  for(const responseStatus of [422,409]){
+    const calls=[],current=status({activeTurnId:null,activity:'completed',
+      accessMode:'danger-full-access',approvalMode:'automatic'});
+    const client=new AgentClient(async path=>{
+      calls.push(path);
+      if(path==='/api/agent/transcribe')throw Object.assign(Error('Speech rejected'),{status:responseStatus});
+      if(path==='/api/agent/status')return current;
+      throw Error('must not retry');
+    },storage({[AGENT_SESSION_KEY]:id}));
+    client.status=current;
+    await assert.rejects(client.transcribe('audio'),/Speech rejected/);
+    assert.equal(client.error,'');
+    assert.equal(agentAccessLabel(client.status),'Full access · automatic approvals');
+    assert.deepEqual(calls,['/api/agent/transcribe','/api/agent/status']);
+  }
+});
+
+test('a transcription transport failure remains disconnected and is never retried automatically',async()=>{
+  const calls=[],client=new AgentClient(async path=>{
+    calls.push(path);throw Error('Network unavailable');
+  },storage({[AGENT_SESSION_KEY]:id}));
+  client.status=status({activeTurnId:null});
+  await assert.rejects(client.transcribe('audio'),/Network unavailable/);
+  assert.equal(client.error,'Network unavailable');
+  assert.deepEqual(calls,['/api/agent/transcribe']);
+});
+
 test('an admitted turn snapshot updates the browser without another status round trip',async()=>{
   const calls=[];
   const client=new AgentClient(async(path)=>{

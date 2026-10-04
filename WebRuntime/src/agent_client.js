@@ -20,6 +20,16 @@ export class AgentClient {
     return status;
   }
   _fail(error){this.error=String(error?.message||error).slice(0,300);this.onChange(this);}
+  async _reconcileRejectedAction(error){
+    // A bounded request rejection (expired turn, busy worker, no speech) does
+    // not establish a lost connection or unknown permissions. Confirm the
+    // current session without retrying the rejected action. restore() keeps
+    // a real connection error if that read fails.
+    if(!Number.isInteger(error?.status)||error.status<400||error.status>=500){
+      this._fail(error);return;
+    }
+    try{await this.restore();}catch{}
+  }
   async connect(){
     this.assertConversationReady();
     if(this.sessionId){
@@ -93,7 +103,7 @@ export class AgentClient {
       accepted=await this.request('/api/agent/steer',{sessionId:this.sessionId,turnId,text,
         ...(context?{context}:{})});
       if(accepted?.turnId!==turnId)throw Error('Could not confirm the added instruction.');
-    }catch(error){this._fail(error);throw error;}
+    }catch(error){await this._reconcileRejectedAction(error);throw error;}
     // A failed status refresh cannot undo an acknowledged native steer.
     try{return await this.restore();}
     catch{return accepted;}
@@ -106,7 +116,7 @@ export class AgentClient {
       if(typeof result?.transcript!=='string'||!result.transcript.trim()||result.transcript.length>4000)
         throw Error('Invalid Agent Portal transcription');
       return result.transcript;
-    }catch(error){this._fail(error);throw error;}
+    }catch(error){await this._reconcileRejectedAction(error);throw error;}
   }
   async decide(approvalId,turnId,approve){
     if(!this.sessionId||typeof approve!=='boolean')throw Error('Invalid Agent approval');
