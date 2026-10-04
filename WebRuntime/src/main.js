@@ -188,10 +188,6 @@ function updateWorldControls(){
   const creator=world.creatorMode;
   const selected=world.scene.objects.find(o=>o.objectId===world.selection.objectId);
   const selectedManipulation=manipulationPolicy(selected);
-  const canSetFitToRoom=!agentActionBusy&&!agentClient?.status?.activeTurnId&&
-    !voiceStarting&&!voiceRecording&&!voiceJob&&!pendingWorld&&!worldSwitchBusy;
-  $('fit-to-room').checked=world.fitToRoom;
-  $('fit-to-room').disabled=!canSetFitToRoom;
   const canSetManipulation=!!selected&&creator.mode==='creator'&&creator.simulation==='paused'&&
     !world.digitalWorldVisit&&!world.spatial?.stale&&!world.spatial?.originUnavailable&&
     !pendingWorld&&!pcWorldBusy&&!worldSwitchBusy&&!view.readOnly;
@@ -269,7 +265,7 @@ function updateWorldControls(){
     selectedArchiveId===archiveRestoreId?'Confirm restore':'Restore archive';
   const archiveIndex=archives.findIndex(item=>item.archiveId===selectedArchiveId);
   const selectedArchive=archives[archiveIndex];
-  view.setOperatorWorldInfo({canSetFitToRoom,fitToRoom:world.fitToRoom,canSetManipulation,selectedManipulation,
+  view.setOperatorWorldInfo({canSetManipulation,selectedManipulation,
     selectedObjectLabel:selected?(world.asset(selected.assetId)?.displayName||selected.assetId):'',
     manipulationUnavailableReason,objects:world.scene.objects.length,canConfirm,restoreArmed:performance.now()<restoreArmedUntil,
     canPlaceLayout,arLayoutOffset:world.arLayoutOffset,
@@ -1544,7 +1540,6 @@ function panelAction(action){
   else if(action==='discard'){discardProposal();feedback('Proposal discarded.');view.setOperatorStatus('Proposal discarded.');}
   else if(action==='confirm-room')confirmRoom();
   else if(action==='toggle-manipulation')toggleSelectedManipulation();
-  else if(action==='toggle-fit-to-room')setFitToRoom(!world.fitToRoom);
   else if(action==='save-world')saveWorld();
   else if(action==='restore-world')restoreWorld();
   else if(action==='new-world')void beginNewWorld();
@@ -1572,17 +1567,6 @@ $('blender-request').addEventListener('click',async()=>{
 $('review-view').addEventListener('click',reviewView);
 $('enable-camera').addEventListener('click',toggleCamera);
 $('confirm-room').addEventListener('click',confirmRoom);
-function setFitToRoom(enabled){
-  if($('fit-to-room').disabled){feedback('Wait for the current request before changing Fit to room.');return;}
-  world.fitToRoom=enabled===true;
-  // Keep room-aware context available in both modes; this option only changes fitting.
-  if(world.fitToRoom)$('agent-include-context').checked=true;
-  updateWorldControls();view.refreshSelectedPointMarker();
-  void bridge.tick(true);
-  feedback(world.fitToRoom?'Fit to room on. Surface placement checks support and clearance.':
-    'Fit to room off. Create and move freely; room context is still available.');
-}
-$('fit-to-room').addEventListener('change',()=>setFitToRoom($('fit-to-room').checked));
 $('target-point-set').addEventListener('click',()=>{
   try{
     const x=$('target-point-x').value.trim(),z=$('target-point-z').value.trim();

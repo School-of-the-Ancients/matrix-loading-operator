@@ -88,19 +88,17 @@ test('voice preparation keeps the selected fitting policy and rejects a later ch
     captureAgentContext(world,view,'client-1','voice_transcript')),/changed while preparing/);
 });
 
-test('Fit to room is available in the XR mode page and displays its actual state',()=>{
+test('XR mode page keeps Save and Stop accessible without a deferred fitting control',()=>{
   const labels=[];
   const context={fillRect(){},strokeRect(){},fillText(label){labels.push(String(label));},measureText(){return {width:0};}};
   const previous=globalThis.document;
   globalThis.document={createElement:()=>({width:0,height:0,getContext:()=>context})};
   try{
     const panel=operatorPanel();panel.toggleModePage();
-    const hit=()=>panel.hit({x:500/1024,y:1-589/768});
-    assert.equal(hit(),'toggle-fit-to-room');
-    assert.ok(labels.includes('FIT TO ROOM: OFF'));
-    panel.setWorldInfo({fitToRoom:true,canSetFitToRoom:true});
-    assert.ok(labels.includes('FIT TO ROOM: ON'));
-    panel.setWorldInfo({fitToRoom:true,canSetFitToRoom:false});
-    assert.equal(hit(),null,'active requests cannot change their fitting policy');
+    const hit=x=>panel.hit({x:x/1024,y:1-589/768});
+    assert.equal(hit(275),'toggle-world');
+    assert.equal(hit(747),'agent-stop');
+    assert.equal(hit(510),null,'Save and Stop have separate hit targets');
+    assert.ok(!labels.some(label=>label.includes('FIT TO ROOM')));
   }finally{if(previous===undefined)delete globalThis.document;else globalThis.document=previous;}
 });

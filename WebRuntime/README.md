@@ -18,6 +18,13 @@ In VR or AR, hold the trigger on an editable object. Physical movement and rotat
 
 ### Quest controls FAQ
 
+**How does AR point placement work?** Select a prop, pin a destination, and
+ask Codex to move it there. Ordinary AR creation and point moves use free
+placement. They do not automatically resize, straighten, or certify physical
+clearance. The **Fit to room** control and its measured-fitting acceptance
+are deferred from v1.2 by the wearer. Existing explicit measured-placement
+tools retain their eligibility, tracking, footprint and clearance checks.
+
 **Where does speech go?** **Hold for Codex** opens the shared Codex conversation
 from every Operator page. Panel navigation never switches speech to a different
 planner. While Codex is working, **Hold to Add** adds an instruction to that

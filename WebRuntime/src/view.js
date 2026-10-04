@@ -217,13 +217,8 @@ export function operatorPanel({createImage=()=>new Image()}={}){
           creatorMode.simulation==='running'?'STOP / PAUSE':'RESUME PLAY',525,440,444,86,
           creatorMode.simulation==='running');
       }
-      button('toggle-world','WORLD / SAVE',55,553,285,72);
-      if(worldInfo.canSetFitToRoom!==false)
-        button('toggle-fit-to-room',`FIT TO ROOM: ${worldInfo.fitToRoom?'ON':'OFF'}`,370,553,285,72,
-          worldInfo.fitToRoom===true);
-      else {ctx.fillStyle='#8bb8c2';ctx.font='bold 21px sans-serif';
-        ctx.fillText(`FIT TO ROOM: ${worldInfo.fitToRoom?'ON':'OFF'}`,380,596);}
-      button('agent-stop','STOP OPERATOR',685,553,285,72);
+      button('toggle-world','WORLD / SAVE',55,553,440,72);
+      button('agent-stop','STOP OPERATOR',525,553,444,72);
     }else if(mode==='world'){
       ctx.fillStyle='#dff7f8';ctx.font='29px sans-serif';
       ctx.fillText(`${worldInfo.objects} scene objects · ${worldInfo.alignment}`,55,180);
