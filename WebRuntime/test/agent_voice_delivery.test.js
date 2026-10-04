@@ -1,8 +1,52 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {deliverAgentVoiceTranscript} from '../src/agent_voice_delivery.js';
+import {deliverAgentVoiceTranscript,prepareAgentVoiceRecording} from '../src/agent_voice_delivery.js';
 import {verifyAgentContextAtDelivery} from '../src/agent_context.js';
 import {AgentClient} from '../src/agent_client.js';
+import {MatrixView,operatorPanel} from '../src/view.js';
+
+test('speaking from chat, world, archives, proposal and mode pages opens the same Codex conversation',()=>{
+  const previous=globalThis.document;
+  const context={fillRect(){},strokeRect(){},fillText(){},measureText(){return {width:0};}};
+  globalThis.document={createElement:()=>({getContext:()=>context})};
+  try{
+    for(const enter of [()=>{},p=>p.toggleWorld(),p=>p.toggleArchives(),
+      p=>p.setProposal({summary:'Move cube',commands:[]}),p=>p.toggleModePage(),
+      p=>{p.toggleAgent();p.toggleConcepts();},p=>{p.toggleAgent();p.togglePanoramas();}]){
+      const panel=operatorPanel();enter(panel);
+      const view=Object.create(MatrixView.prototype);view.operatorPanel=panel;
+      view.renderer={xr:{isPresenting:false}};
+      let permissionChecks=0;
+      const agentClient={status:{activeTurnId:null},assertPermissionsApplied(){permissionChecks++;}};
+      assert.equal(prepareAgentVoiceRecording({agentClient,
+        showConversation:()=>view.showOperatorAgentMode()}),null);
+      assert.equal(panel.isAgentMode(),true,'speech opens Codex before recording');
+      assert.equal(panel.hit({x:190/1024,y:1-212/768}),'creation-mode-auto',
+        'speech opens the actual Codex conversation, including from image galleries');
+      assert.equal(permissionChecks,1,'each page uses the same applied-permission gate');
+    }
+  }finally{if(previous===undefined)delete globalThis.document;else globalThis.document=previous;}
+});
+
+test('speech from another page pins the active Codex turn and cannot start an independent planner edit',async()=>{
+  const calls=[],input={value:''};
+  const agentClient={status:{activeTurnId:'turn-at-recording'},
+    assertPermissionsApplied(){throw Error('active-turn steering must remain allowed');},
+    async steer(text,context,turnId){calls.push([text,turnId]);}};
+  const capturedTurnId=prepareAgentVoiceRecording({agentClient,showConversation:()=>calls.push('open-codex')});
+  agentClient.status.activeTurnId='different-turn';
+  assert.equal(await deliverAgentVoiceTranscript({agentClient,input,capturedTurnId,
+    transcript:'Move it here',deliverWhenIdle:()=>{throw Error('must not create another turn');}}),'steered');
+  assert.deepEqual(calls,['open-codex',['Move it here','turn-at-recording']]);
+});
+
+test('disconnected, starting and unapplied-permission states stop speech before microphone recording',()=>{
+  assert.throws(()=>prepareAgentVoiceRecording({agentClient:null,showConversation(){}}),/Connect to Codex/);
+  assert.throws(()=>prepareAgentVoiceRecording({agentClient:{conversationStarting:true},
+    showConversation(){throw Error('must not open a replacement chat');}}),/finish starting/);
+  assert.throws(()=>prepareAgentVoiceRecording({agentClient:{status:{activeTurnId:null},
+    assertPermissionsApplied(){throw Error('Not applied: Full access');}},showConversation(){}}),/Not applied/);
+});
 
 test('an unapplied permission choice retains transcribed speech without starting a new turn',async()=>{
   const sessionId='a'.repeat(32),calls=[];

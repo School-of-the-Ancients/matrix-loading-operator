@@ -356,7 +356,7 @@ test('XR room-review controls paint separately from the fixed footer',()=>{
     const pending={objects:4,alignment:'Digital layout review required',
       canPlaceLayout:true,layoutReviewPending:true,
       arLayoutOffset:{x:0,z:0,yawDegrees:0}};
-    const footer=new Set(['HOLD TO SPEAK','PIN TO WALL','VOICE ON','NEXT']);
+    const footer=new Set(['HOLD FOR CODEX','PIN TO WALL','VOICE ON','NEXT']);
     const verify=expected=>{
       const controls=drawn.filter(item=>expected.has(item.label));
       assert.equal(controls.length,expected.size);

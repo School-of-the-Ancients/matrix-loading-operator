@@ -8,16 +8,15 @@ import {VoiceRecorder} from './voice.js';
 import {CameraStream,bindCameraPageLifecycle} from './camera_stream.js';
 import {bindXRPageLifecycle} from './xr_session.js';
 import {AgentClient,agentActivityLabel,agentAccessLabel,agentPermissionMode} from './agent_client.js';
-import {deliverAgentVoiceTranscript} from './agent_voice_delivery.js';
+import {deliverAgentVoiceTranscript,prepareAgentVoiceRecording} from './agent_voice_delivery.js';
 import {deliverAgentTextDraft} from './agent_text_delivery.js';
 import {ConceptUI} from './concept_ui.js';
 import {PanoramaUI} from './panorama_ui.js';
 import {loadCreationMode,saveCreationMode,creationModeFromPanelAction} from './creation_mode.js';
-import {parsePanoramaIntent,parseConceptIntent,isSelectedConceptBuildRequest,
-  stopPlannerConceptFallback,plannerVoiceFallbackAllowed} from './concept_intent.js';
+import {parsePanoramaIntent,parseConceptIntent,isSelectedConceptBuildRequest} from './concept_intent.js';
 import {validEnvironmentAsset,sameEnvironment} from './environment.js';
 import {captureAgentContext,verifyAgentContextAtDelivery} from './agent_context.js';
-import {bindBlenderRequestContext,captureBlenderPlacement,
+import {bindBlenderRequestContext,
   captureBlenderRequestContext,queueBlenderPlacement,
   registeredBlenderAsset} from './blender_placement.js';
 import {routeOperatorRequest} from './operator_route.js';
@@ -72,7 +71,7 @@ let roomRecoveryChoice='';
 let clearArchivesArmedUntil=0;
 let persistenceWarning='',restoreWarning='';
 let cameraBusy=false;
-const recorder=new VoiceRecorder();let voiceStarting=false,voiceRecording=false,voiceStopRequested=false,voiceJob=null,voiceSnapshot=null,voiceDestination='planner',voiceAgentContext=null,voiceBlenderPlacement=null;
+const recorder=new VoiceRecorder();let voiceStarting=false,voiceRecording=false,voiceStopRequested=false,voiceJob=null,voiceAgentContext=null;
 let replyContext=null,replySource=null;
 let agentClient=null,conceptUI=null,panoramaUI=null,agentActionBusy=false,agentVoiceStatus='',voiceSteerTurnId=null,agentAttentionKey='',reviewBusy=false;
 let creationMode=loadCreationMode(sessionStorage);
@@ -1606,38 +1605,30 @@ $('speak-replies').addEventListener('change',()=>{view.setVoiceOutputEnabled($('
 $('prompt').addEventListener('keydown',event=>{if(event.key==='Enter'&&(event.ctrlKey||event.metaKey))propose();});
 $('discard').addEventListener('click',()=>{discardProposal();feedback('Proposal discarded.');});
 $('apply').addEventListener('click',applyProposal);
-function voiceStatus(message,isError=false,showInAgent=voiceDestination==='agent'){
+function voiceStatus(message,isError=false,showInAgent=true){
   $('voice-status').textContent=message;$('xr-voice-status').textContent=message;
   feedback(message,isError);operatorMessageUntil=performance.now()+8000;
   view.setOperatorStatus(message,isError?'error':voiceRecording?'recording':'idle');
   if(showInAgent){agentVoiceStatus=message;renderAgent();}
 }
 function voiceButtons(){
-  for(const id of ['voice-button','xr-voice']){$(id).textContent=voiceStarting||voiceRecording?'Tap to send':'Tap to speak';$(id).disabled=!!voiceJob;}
-  view.setOperatorVoiceInputLabel(voiceStarting?'REQUESTING MIC':voiceRecording?'RELEASE TO SEND':voiceJob?'VOICE BUSY':'HOLD TO SPEAK');
+  for(const id of ['voice-button','xr-voice']){$(id).textContent=voiceStarting||voiceRecording?'Tap to send':'Speak to Codex';$(id).disabled=!!voiceJob;}
+  view.setOperatorVoiceInputLabel(voiceStarting?'REQUESTING MIC':voiceRecording?'RELEASE TO SEND':voiceJob?'VOICE BUSY':'HOLD FOR CODEX');
   renderAgent();
 }
 async function beginVoice(){
   if(voiceStarting||voiceRecording)return;
-  if(agentClient?.conversationStarting){voiceStatus('Wait for the new conversation to finish starting.',true,false);return;}
   if(voiceJob){voiceStatus('Finish the current voice request before speaking again.',true,false);return;}
   latencyTrace?.submit();
-  voiceDestination=view.isOperatorAgentMode()?'agent':'planner';
-  if(voiceDestination==='agent'&&(!agentClient?.status||agentClient.error)){
-    voiceStatus('Reconnect to Codex first.',true);return;
-  }
-  voiceSteerTurnId=voiceDestination==='agent'?agentClient.status.activeTurnId:null;
-  if(voiceDestination==='agent'&&!voiceSteerTurnId){
-    try{agentClient.assertPermissionsApplied();}
-    catch(error){voiceStatus(error.message,true);return;}
-  }
-  try{voiceBlenderPlacement=voiceDestination==='planner'?captureBlenderPlacement(world,view):null;}
-  catch(error){voiceStatus(`Could not capture Matrix context: ${error.message}`,true);return;}
+  try{voiceSteerTurnId=prepareAgentVoiceRecording({agentClient,showConversation:()=>{
+    view.showOperatorAgentMode();revealPanelSection($('section-agent'));
+  }});}
+  catch(error){voiceStatus(error.message,true);return;}
   unlockReplyAudio();
   voiceStarting=true;voiceStopRequested=false;voiceButtons();voiceStatus('Requesting microphone…');
   const finishMicTrace=latencyTrace?.begin('microphone.acquire');
   let micOutcome='failed';
-  try{await recorder.start();micOutcome='ok';voiceRecording=true;voiceSnapshot=world.snapshot(view.viewer());voiceStatus('Recording… release the controller or tap Send.');}
+  try{await recorder.start();micOutcome='ok';voiceRecording=true;voiceStatus('Recording for Codex… release the controller or tap Send.');}
   catch(error){voiceStatus(error.message,true);}
   finally{finishMicTrace?.(micOutcome);voiceStarting=false;voiceButtons();if(voiceStopRequested&&voiceRecording)endVoice();}
 }
@@ -1651,95 +1642,38 @@ async function endVoice(){
   try{const audioBase64=await recorder.stop();
     voiceAgentContext=captureAgentContext(world,view,bridge.clientId,'voice_transcript');
     voiceStatus('Transcribing on PC…');
-    if(voiceDestination==='agent'){
-      voiceJob='agent-transcribe';voiceButtons();
-      const transcript=await agentClient.transcribe(audioBase64);
-      voiceStatus(`Heard: ${transcript}`);
-      voiceTranscriptStaged=true;
-      const delivered=await deliverAgentVoiceTranscript({agentClient,input:$('agent-input'),
-        transcript,context:voiceAgentContext,capturedTurnId:voiceSteerTurnId,
-        resolveContext:()=>currentAgentContextForSend(voiceAgentContext),
-        deliverWhenIdle:async()=>{
-          if(parsePanoramaIntent(transcript)){
-            const message=await panoramaUI.handleText(transcript);
-            voiceStatus(message);return 'handled';
-          }
-          if(parseConceptIntent(transcript)){
-            const message=await conceptUI.handleText(transcript);
-            voiceStatus(message);return 'handled';
-          }
-          const expectedConcept=await conceptUI.expectedBuild(transcript);
-          const currentContext=await currentAgentContextForSend(voiceAgentContext);
-          if(/\b(?:in front of me|ahead of me|where i am pointing)\b/i.test(transcript)&&
-              !currentContext.viewerFrame)
-            throw Error('Current viewer tracking is unavailable. Restore tracking, then say the spatial request again.');
-          await agentClient.send(transcript,currentContext,expectedConcept,creationMode);
-          return 'sent';
-        }});
-      if(delivered==='steered')voiceStatus('Added to the current Codex turn.');
-      else if(delivered==='sent')voiceStatus('Sent to Codex with Matrix spatial context.');
-    }else{
-      if(!agentClient.status||agentClient.error){
-        try{await agentClient.connect();await conceptUI.refresh();}
-        catch(error){
-          if(!plannerVoiceFallbackAllowed($('mode').value))
-            throw Error(`Codex connection failed. Reconnect Codex before speaking: ${error.message}`);
-        }
-      }
-      if(agentClient.status&&!agentClient.error){
-        voiceJob='agent-transcribe';voiceButtons();
-        const transcript=await agentClient.transcribe(audioBase64);
-        voiceStatus(`Heard: ${transcript}`);
-        $('prompt').value=transcript;
-        if(['agent','concept','panorama'].includes(operatorRoute(transcript).destination))
-          agentClient.assertPermissionsApplied();
+    voiceJob='agent-transcribe';voiceButtons();
+    const transcript=await agentClient.transcribe(audioBase64);
+    voiceStatus(`Heard: ${transcript}`);
+    voiceTranscriptStaged=true;
+    const delivered=await deliverAgentVoiceTranscript({agentClient,input:$('agent-input'),
+      transcript,context:voiceAgentContext,capturedTurnId:voiceSteerTurnId,
+      resolveContext:()=>currentAgentContextForSend(voiceAgentContext),
+      deliverWhenIdle:async()=>{
         if(parsePanoramaIntent(transcript)){
-          $('prompt').value=transcript;
           const message=await panoramaUI.handleText(transcript);
-          voiceStatus(message);return;
+          voiceStatus(message);return 'handled';
         }
         if(parseConceptIntent(transcript)){
-          $('prompt').value=transcript;
           const message=await conceptUI.handleText(transcript);
-          voiceStatus(message);return;
+          voiceStatus(message);return 'handled';
         }
-        if(pendingWorld)throw Error('Finish saved-world recovery before planning scene changes.');
-        if(operatorRoute(transcript).destination==='agent'){
-          $('prompt').value=transcript;
-          await sendToAgentFromChat(transcript,voiceAgentContext);
-          voiceStatus('Creative request routed to CODEX with Matrix spatial context.');
-          return;
-        }
-      }
-      if(pendingWorld)throw Error('Finish saved-world recovery before planning scene changes.');
-      voiceBlenderPlacement=await bindBlenderRequestContext(world,view,bridge,voiceBlenderPlacement);
-      voiceJob='planner-submit';voiceButtons();
-      const job=await bridge.request('/api/voice',{clientId:bridge.clientId,snapshot:voiceSnapshot,audioBase64,conversation,webRuntime:true});
-      voiceJob=job.jobId;voiceButtons();await pollVoice(voiceJob);
-    }
+        const expectedConcept=await conceptUI.expectedBuild(transcript);
+        const currentContext=await currentAgentContextForSend(voiceAgentContext);
+        if(/\b(?:in front of me|ahead of me|where i am pointing)\b/i.test(transcript)&&
+            !currentContext.viewerFrame)
+          throw Error('Current viewer tracking is unavailable. Restore tracking, then say the spatial request again.');
+        await agentClient.send(transcript,currentContext,expectedConcept,creationMode);
+        return 'sent';
+      }});
+    if(delivered==='steered')voiceStatus('Added to the current Codex turn.');
+    else if(delivered==='sent')voiceStatus('Sent to Codex with Matrix spatial context.');
   }
   catch(error){voiceOutcome='failed';voiceStatus(voiceTranscriptStaged?
     `${error.message} Transcript kept in the Codex Agent input; inspect before retrying.`:
     error.message,true);}
-  finally{finishVoiceTrace?.(voiceOutcome);voiceJob=null;voiceSnapshot=null;voiceAgentContext=null;voiceBlenderPlacement=null;
+  finally{finishVoiceTrace?.(voiceOutcome);voiceJob=null;voiceAgentContext=null;
     voiceSteerTurnId=null;voiceButtons();}
-}
-async function pollVoice(jobId){
-  for(let attempt=0;attempt<120;attempt++){
-    const job=await bridge.request(`/api/voice/${jobId}`);
-    if(job.transcript&&await stopPlannerConceptFallback(job.transcript,()=>
-      bridge.request('/api/voice/cancel',{clientId:bridge.clientId,jobId}))){
-      $('prompt').value=job.transcript;
-      voiceStatus('Panorama, image, or selected design requests need Codex. Reconnect Codex and speak again; no generation or build was started.',true);
-      return;
-    }
-    if(job.phase==='error'){voiceStatus(job.error||'Voice request failed',true);return;}
-    if(!['transcribing','planning'].includes(job.phase)){if(job.transcript)$('prompt').value=job.transcript;
-      voiceStatus(job.transcript?`Heard: ${job.transcript}`:'Voice request finished');await showProposal(job,job.transcript,voiceBlenderPlacement);return;}
-    voiceStatus(job.phase==='transcribing'?'Transcribing on PC…':job.progress||'Planning scene…');
-    await new Promise(resolve=>setTimeout(resolve,750));
-  }
-  voiceStatus('Voice request timed out; please try again.',true);
 }
 for(const id of ['voice-button','xr-voice']){
   const button=$(id);button.addEventListener('click',()=>voiceRecording||voiceStarting?endVoice():beginVoice());

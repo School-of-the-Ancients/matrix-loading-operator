@@ -84,7 +84,7 @@ test('Operator Agent panel selection is idempotent and opens in XR',()=>{
   const view=viewFixture({presenting:true});
   let agent=false,toggles=0,placements=0;
   view.operatorPanel={group:{visible:false},isAgentMode:()=>agent,
-    toggleAgent:()=>{agent=!agent;toggles++;}};
+    openAgent:()=>{if(!agent){agent=true;toggles++;}}};
   view.positionOperatorPanel=()=>{placements++;};
   assert.equal(view.showOperatorAgentMode(),true);
   assert.equal(view.showOperatorAgentMode(),true);
