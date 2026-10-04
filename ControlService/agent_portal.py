@@ -452,13 +452,22 @@ class AgentPortal:
             if path is not None:
                 path.unlink(missing_ok=True)
 
+    def _create_selected_backend(self) -> AgentSessionBackend:
+        return (self.permissions_factory(self._permissions_mode)
+                if self.permissions_factory is not None and self._permissions_mode is not None
+                else self.backend_factory())
+
+    def _reset_backend_caches(self) -> None:
+        self._backend_cursor = 0
+        self._native_capability = None
+        self._native_capability_checked_at = 0.0
+        self._reviewed_approvals.clear()
+
     def _connect(self) -> None:
         if self._backend is not None:
             return
         try:
-            backend = (self.permissions_factory(self._permissions_mode)
-                       if self.permissions_factory is not None and self._permissions_mode is not None
-                       else self.backend_factory())
+            backend = self._create_selected_backend()
             backend.start()
             if self._conversation_id is not None:
                 backend.resume_conversation(self._conversation_id)
@@ -473,8 +482,7 @@ class AgentPortal:
                        "Local Codex Agent Portal is unavailable")
             raise AgentPortalError(503, message) from None
         self._backend = backend
-        self._native_capability = None
-        self._native_capability_checked_at = 0.0
+        self._reset_backend_caches()
 
     def _permissions_change_allowed(self) -> bool:
         if (self.permissions_factory is None or self._backend is None
@@ -506,16 +514,13 @@ class AgentPortal:
                 and (mode != "full-access" or old_backend.access_mode == "danger-full-access"))
             if already_selected:
                 return self._snapshot(0)
+            old_policy = (old_backend.access_mode, old_backend.approval_mode)
             candidate = None
             try:
                 candidate = self.permissions_factory(mode)
                 if candidate is old_backend:
                     raise RuntimeError("Permissions require a new Agent backend")
                 candidate.start()
-                if self._conversation_id is not None:
-                    resumed = candidate.resume_conversation(self._conversation_id)
-                    if resumed != self._conversation_id:
-                        raise RuntimeError("Permissions backend resumed a different conversation")
                 if (candidate.approval_mode != ("automatic" if mode == "full-access" else "reviewed")
                         or candidate.access_mode not in ("read-only", "workspace-write", "danger-full-access")
                         or (mode == "full-access" and candidate.access_mode != "danger-full-access")):
@@ -528,17 +533,50 @@ class AgentPortal:
                     except Exception:
                         pass
                 raise AgentPortalError(503, "Agent permissions could not be changed; the previous mode is still selected") from None
-            self._backend = candidate
-            self._permissions_mode = mode
-            self._backend_cursor = 0
-            self._native_capability = None
-            self._native_capability_checked_at = 0.0
-            self._reviewed_approvals.clear()
-            # A blocked PC input reader checks backend identity before deciding.
+            # Codex permits only one writer per native conversation. Prepare the
+            # new process first, then release the old writer before resuming.
+            self._backend = None
+            self._reset_backend_caches()
             try:
                 old_backend.close()
+                if self._conversation_id is not None:
+                    resumed = candidate.resume_conversation(self._conversation_id)
+                    if resumed != self._conversation_id:
+                        raise RuntimeError("Permissions backend resumed a different conversation")
             except Exception as error:
                 self.last_error = str(error)
+                try:
+                    candidate.close()
+                except Exception:
+                    pass
+                restored = None
+                try:
+                    # _permissions_mode changes only after success, so this
+                    # reconstructs the previous startup or browser-selected policy.
+                    restored = self._create_selected_backend()
+                    if restored is old_backend or restored is candidate:
+                        raise RuntimeError("Restoring permissions requires a new Agent backend")
+                    restored.start()
+                    if (restored.access_mode, restored.approval_mode) != old_policy:
+                        raise RuntimeError("Previous Agent policy could not be restored")
+                    if (self._conversation_id is not None
+                            and restored.resume_conversation(self._conversation_id) != self._conversation_id):
+                        raise RuntimeError("Restored backend resumed a different conversation")
+                    self._backend = restored
+                    self._reset_backend_caches()
+                except Exception as restore_error:
+                    self.last_error = f"Permissions change failed: {error}; restoring previous mode failed: {restore_error}"
+                    if restored is not None:
+                        try:
+                            restored.close()
+                        except Exception:
+                            pass
+                    raise AgentPortalError(503, "Agent permissions could not be changed and the previous connection could not be restored; Agent is unavailable, reconnect before retrying") from None
+                raise AgentPortalError(503, "Agent permissions could not be changed; the previous mode was restored") from None
+            self._backend = candidate
+            self._permissions_mode = mode
+            self._reset_backend_caches()
+            # A blocked PC input reader checks backend identity before deciding.
             return self._snapshot(0)
 
     def open(self) -> dict:

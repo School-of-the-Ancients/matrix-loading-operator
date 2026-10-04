@@ -955,9 +955,10 @@ class PCReviewTests(unittest.TestCase):
         trace.approval_started = trace.now()
         self.portal.latency_run = trace
         self.pc_input.lines.put("approve\n")
-        self.wait_for(lambda: len(trace.snapshot()["records"]) == 1)
-        self.assertEqual(trace.snapshot()["records"][0]["stage"], "approval.wait")
-        self.assertEqual(trace.snapshot()["records"][0]["outcome"], "ok")
+        approval_waits = lambda: [record for record in trace.snapshot()["records"]
+                                  if record["stage"] == "approval.wait"]
+        self.wait_for(lambda: len(approval_waits()) == 1)
+        self.assertEqual(approval_waits()[0]["outcome"], "ok")
         self.assertIsNone(trace.approval_started)
 
 

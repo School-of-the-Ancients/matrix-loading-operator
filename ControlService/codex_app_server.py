@@ -15,6 +15,7 @@ import hashlib
 import json
 import os
 from pathlib import Path
+import select
 import subprocess
 import tempfile
 import threading
@@ -32,6 +33,30 @@ MAX_GENERATED_IMAGE_BYTES = 32 * 1024 * 1024
 MAX_IMAGE_RESULTS = 128
 APPROVAL_METHODS = {"item/commandExecution/requestApproval", "item/fileChange/requestApproval",
                     "mcpServer/elicitation/request"}
+
+if os.name == "nt":
+    import ctypes
+    from ctypes import wintypes
+    import msvcrt
+
+    _peek_pipe = ctypes.WinDLL("kernel32", use_last_error=True).PeekNamedPipe
+    _peek_pipe.argtypes = [wintypes.HANDLE, wintypes.LPVOID, wintypes.DWORD,
+                          wintypes.LPVOID, ctypes.POINTER(wintypes.DWORD), wintypes.LPVOID]
+    _peek_pipe.restype = wintypes.BOOL
+
+
+def _pipe_bytes_available(descriptor: int) -> int:
+    """Return ready bytes without waiting on a pipe held open by a descendant."""
+    if os.name == "nt":
+        available = wintypes.DWORD()
+        if not _peek_pipe(msvcrt.get_osfhandle(descriptor), None, 0, None,
+                          ctypes.byref(available), None):
+            code = ctypes.get_last_error()
+            if code in (109, 232):  # ERROR_BROKEN_PIPE / ERROR_NO_DATA
+                return -1
+            raise OSError(code, "Codex app-server pipe could not be read")
+        return available.value
+    return 65536 if select.select([descriptor], [], [], 0)[0] else 0
 
 
 def _truncated_event_params(params: dict) -> dict:
@@ -98,6 +123,7 @@ class AppServerTransport:
         self.environment = dict(environment or {})
         self._proc: subprocess.Popen | None = None
         self._reader: threading.Thread | None = None
+        self._closing = threading.Event()
         self._lock = threading.RLock()
         self._next_id = 0
         self._waiters: dict[int, _Waiter] = {}
@@ -168,26 +194,49 @@ class AppServerTransport:
         self._write({"method": method, "params": params or {}})
 
     def _read_loop(self) -> None:
+        stream = None
         try:
             process = self._proc
             assert process is not None and process.stdout is not None
-            while True:
-                line = process.stdout.readline(MAX_LINE + 1)
-                if not line:
-                    raise AppServerError("Codex app-server connection closed")
-                if len(line) > MAX_LINE or not line.endswith(b"\n"):
-                    raise AppServerError("Codex app-server sent an oversized message")
-                try:
-                    message = json.loads(line)
-                except (UnicodeDecodeError, json.JSONDecodeError) as error:
-                    raise AppServerError("Codex app-server sent invalid JSON") from error
-                if not isinstance(message, dict) or message.get("jsonrpc", "2.0") != "2.0":
-                    raise AppServerError("Codex app-server sent an invalid message")
-                self._receive(message)
+            stream = process.stdout
+            descriptor = stream.fileno()
+            pending = bytearray()
+            while not self._closing.is_set():
+                available = _pipe_bytes_available(descriptor)
+                if available == 0:
+                    self._closing.wait(0.01)
+                    continue
+                chunk = os.read(descriptor, min(available, 65536)) if available > 0 else b""
+                if not chunk:
+                    raise AppServerError("Codex app-server sent an oversized message" if pending else
+                                         "Codex app-server connection closed")
+                pending.extend(chunk)
+                while not self._closing.is_set():
+                    end = pending.find(b"\n")
+                    if end < 0:
+                        if len(pending) > MAX_LINE:
+                            raise AppServerError("Codex app-server sent an oversized message")
+                        break
+                    if end + 1 > MAX_LINE:
+                        raise AppServerError("Codex app-server sent an oversized message")
+                    line = bytes(pending[:end + 1])
+                    del pending[:end + 1]
+                    try:
+                        message = json.loads(line)
+                    except (UnicodeDecodeError, json.JSONDecodeError) as error:
+                        raise AppServerError("Codex app-server sent invalid JSON") from error
+                    if not isinstance(message, dict) or message.get("jsonrpc", "2.0") != "2.0":
+                        raise AppServerError("Codex app-server sent an invalid message")
+                    self._receive(message)
         except (AppServerError, OSError) as error:
             self._fail(str(error))
         except Exception:
             self._fail("Codex app-server sent an invalid message")
+        finally:
+            # Only the reader closes its stream. Closing a BufferedReader from
+            # another thread can block forever on an inherited child pipe.
+            if stream is not None:
+                stream.close()
 
     def _fail(self, reason: str) -> None:
         with self._lock:
@@ -200,6 +249,8 @@ class AppServerTransport:
 
     def _receive(self, message: dict) -> None:
         with self._lock:
+            if self._closing.is_set():
+                return
             if "id" in message and "method" not in message:
                 if not isinstance(message["id"], int):
                     raise AppServerError("Codex app-server sent an invalid response ID")
@@ -524,6 +575,7 @@ class AppServerTransport:
         return identifier
 
     def close(self) -> None:
+        self._closing.set()
         with self._lock:
             process = self._proc
             if process is None:
@@ -535,15 +587,20 @@ class AppServerTransport:
                     process.stdin.close()
                 except OSError:
                     pass
-            if process.poll() is None:
-                process.terminate()
         try:
-            process.wait(timeout=3)
+            # EOF gives an idle native server a bounded chance to release its
+            # writer and child resources before forced termination is needed.
+            process.wait(timeout=1)
         except subprocess.TimeoutExpired:
-            process.kill()
-            process.wait(timeout=3)
-        if process.stdout is not None:
-            process.stdout.close()
+            process.terminate()
+            try:
+                process.wait(timeout=3)
+            except subprocess.TimeoutExpired:
+                process.kill()
+                process.wait(timeout=3)
+        reader = self._reader
+        if reader is not None and reader is not threading.current_thread():
+            reader.join(timeout=1)
         with self._lock:
             for result in self._image_results.values():
                 self._discard_staged_image(result)

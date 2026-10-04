@@ -1,5 +1,6 @@
 """Browser access choices replace transport policy without replacing the conversation."""
 import json
+import socket
 from pathlib import Path
 import tempfile
 import sys
@@ -50,6 +51,8 @@ class BrowserPermissionsTests(unittest.TestCase):
         self.persisted = [False]
         self.backends = []
         self.failure = None
+        self.failure_mode = "full-access"
+        self.restore_failure = None
         self.portal = AgentPortal(self.temp.name, self.initial, permissions_factory=self.factory)
         self.addCleanup(self.portal.close)
         self.session = self.portal.open()["sessionId"]
@@ -58,10 +61,11 @@ class BrowserPermissionsTests(unittest.TestCase):
         return self.factory("reviewed")
 
     def factory(self, mode):
-        if self.failure == "factory":
+        failure = self.failure if mode == self.failure_mode else self.restore_failure
+        if failure == "factory":
             raise RuntimeError("private factory detail")
-        backend = PermissionBackend(self.persisted, "reviewed" if self.failure == "mode" else mode,
-                                    self.failure)
+        backend = PermissionBackend(self.persisted, "reviewed" if failure == "mode" else mode,
+                                    failure)
         self.backends.append(backend)
         return backend
 
@@ -168,22 +172,60 @@ class BrowserPermissionsTests(unittest.TestCase):
 
     def test_failed_candidate_keeps_previous_backend_usable_and_mode_unchanged(self):
         before = self.complete_turn()
-        original = self.portal._backend
         for failure in ("factory", "start", "resume", "identity", "mode"):
             with self.subTest(failure=failure):
+                original = self.portal._backend
                 self.failure = failure
                 with self.assertRaises(AgentPortalError) as error:
                     self.portal.change_permissions(self.session, "full-access", True)
                 self.assertEqual(error.exception.status, 503)
                 self.assertNotIn("private", str(error.exception))
-                self.assertIs(self.portal._backend, original)
-                self.assertFalse(original.closed)
+                if failure in ("resume", "identity"):
+                    self.assertIsNot(self.portal._backend, original)
+                    self.assertTrue(original.closed)
+                    self.assertEqual(self.backends[-1].resume_calls, ["native-thread-id"])
+                    self.assertTrue(self.backends[-2].closed)
+                else:
+                    self.assertIs(self.portal._backend, original)
+                    self.assertFalse(original.closed)
                 self.assertEqual(self.portal.status(self.session)["approvalMode"], "reviewed")
                 self.assertEqual(self.portal.status(self.session)["transcript"], before["transcript"])
-                if failure != "factory":
+                if failure in ("start", "mode"):
                     self.assertTrue(self.backends[-1].closed)
         self.failure = None
         self.complete_turn()
+
+    def test_failed_restore_reports_unavailable_until_previous_policy_reconnects(self):
+        before = self.complete_turn()
+        self.failure = "resume"
+        self.restore_failure = "resume"
+        with self.assertRaisesRegex(AgentPortalError, "Agent is unavailable"):
+            self.portal.change_permissions(self.session, "full-access", True)
+        self.assertIsNone(self.portal._backend)
+        self.assertIsNone(self.portal._permissions_mode)
+        snapshot = self.portal._snapshot(0)
+        self.assertIsNone(snapshot["accessMode"])
+        self.assertIsNone(snapshot["approvalMode"])
+        self.assertFalse(snapshot["permissionsChangeAllowed"])
+        self.assertEqual(snapshot["transcript"], before["transcript"])
+        self.assertTrue(all(backend.closed for backend in self.backends))
+        self.failure = self.restore_failure = None
+        reconnected = self.portal.open()
+        self.assertEqual(reconnected["approvalMode"], "reviewed")
+        self.assertEqual(reconnected["transcript"], before["transcript"])
+
+    def test_failed_revert_restores_previous_browser_selected_full_policy(self):
+        self.complete_turn()
+        self.portal.change_permissions(self.session, "full-access", True)
+        original = self.portal._backend
+        self.failure_mode = "reviewed"
+        self.failure = "resume"
+        with self.assertRaisesRegex(AgentPortalError, "previous mode was restored"):
+            self.portal.change_permissions(self.session, "reviewed", False)
+        self.assertTrue(original.closed)
+        self.assertEqual(self.portal._permissions_mode, "full-access")
+        self.assertEqual(self.portal.status(self.session)["approvalMode"], "automatic")
+        self.assertEqual(self.portal._backend.resume_calls, ["native-thread-id"])
 
     def test_no_argument_factory_remains_compatible_and_marks_change_unsupported(self):
         with tempfile.TemporaryDirectory() as directory:
@@ -254,6 +296,88 @@ class BrowserPermissionsTests(unittest.TestCase):
             changed = portal.change_permissions(session, "full-access", True)
             self.assertEqual(changed["approvalMode"], "automatic")
             self.assertEqual(changed["transcript"], status["transcript"])
+
+    def test_exclusive_native_writer_is_released_before_resume_and_reclaimed_on_rollback(self):
+        # A bound socket models Codex's process-owned exclusive thread writer.
+        # It is released by process exit, so no in-memory fake can hide overlap.
+        temporary = tempfile.TemporaryDirectory()
+        self.addCleanup(temporary.cleanup)
+        directory = temporary.name
+        with socket.socket() as reservation:
+            reservation.bind(("127.0.0.1", 0))
+            port = reservation.getsockname()[1]
+            reservation.close()
+            claim = '''
+import socket
+writer = None
+def claim(message):
+    global writer
+    if writer is None:
+        writer = socket.socket()
+        if hasattr(socket, "SO_EXCLUSIVEADDRUSE"):
+            writer.setsockopt(socket.SOL_SOCKET, socket.SO_EXCLUSIVEADDRUSE, 1)
+        try:
+            writer.bind(("127.0.0.1", int(sys.argv[1])))
+            writer.listen(1)
+        except OSError:
+            writer.close()
+            writer = None
+            send({"id": message["id"], "error": {"message": "thread already has an active writer"}})
+            return False
+    if sys.argv[2] == "fail" and message["method"] == "thread/resume":
+        send({"id": message["id"], "error": {"message": "injected resume failure after claiming writer"}})
+        return False
+    return True
+'''
+            script = Path(directory) / "exclusive_server.py"
+            source = FAKE_SERVER.replace("turn_count = 0", textwrap.dedent(claim) + "\nturn_count = 0")
+            for method in ("thread/start", "thread/resume"):
+                anchor = f'    elif method == "{method}":\n'
+                source = source.replace(anchor, anchor + '        if not claim(message):\n            continue\n')
+            script.write_text(textwrap.dedent(source), encoding="utf-8")
+            reject_full = [False]
+            backends = []
+            def factory(mode="reviewed"):
+                backend = LocalCodexAgentBackend.__new__(LocalCodexAgentBackend)
+                backend.config = CodexConfig("unused.exe",
+                    agent_sandbox="danger-full-access" if mode == "full-access" else "workspace-write",
+                    agent_approval_policy="never" if mode == "full-access" else "on-request")
+                backend.enabled_matrix_tools = ()
+                backend.transport = AppServerTransport([sys.executable, "-u", str(script), str(port),
+                    "fail" if reject_full[0] and mode == "full-access" else "ok"], directory, timeout=2)
+                backends.append(backend)
+                return backend
+            portal = AgentPortal(Path(directory) / "portal", factory, permissions_factory=factory)
+            self.addCleanup(portal.close)
+            session = portal.open()["sessionId"]
+            sent = portal.send_text(session, "Persist a fake turn")
+            deadline = time.monotonic() + 2
+            while time.monotonic() < deadline:
+                pending = portal.status(session)["pendingApprovals"]
+                if pending:
+                    break
+                time.sleep(0.01)
+            self.assertTrue(pending)
+            portal.decide(session, pending[0]["approvalId"], sent["turnId"], False)
+            deadline = time.monotonic() + 2
+            while time.monotonic() < deadline:
+                before = portal.status(session)
+                if before["activeTurnId"] is None:
+                    break
+                time.sleep(0.01)
+            self.assertIsNone(before["activeTurnId"])
+            for mode in ("full-access", "reviewed"):
+                changed = portal.change_permissions(session, mode, mode == "full-access")
+                self.assertEqual(changed["approvalMode"], "automatic" if mode == "full-access" else "reviewed")
+                self.assertEqual(changed["transcript"], before["transcript"])
+            previous = portal._backend
+            reject_full[0] = True
+            with self.assertRaisesRegex(AgentPortalError, "previous mode was restored"):
+                portal.change_permissions(session, "full-access", True)
+            self.assertIsNot(portal._backend, previous)
+            self.assertEqual(portal.status(session)["approvalMode"], "reviewed")
+            self.assertEqual(portal._conversation_id, "thread-test")
+            self.assertIn("injected resume failure", portal.last_error)
 
 
 class BrowserPermissionsHTTPTests(unittest.TestCase):

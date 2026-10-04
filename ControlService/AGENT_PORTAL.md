@@ -62,8 +62,12 @@ AR/VR entry. Apply it first, or return the selector to the active mode.
 Permissions can change only while the Agent is idle. Finish or Stop an active
 request first; confirmed terminal turns discard their obsolete approval
 requests. Switching modes does not approve or replay a pending request.
-The service starts a replacement Codex backend with the selected policy and
-resumes the same conversation. Failed changes leave the previous mode visible.
+The service starts a replacement Codex backend, releases the previous native
+writer, and resumes the same conversation with the selected policy. If the
+handoff fails, it reconnects with the previous policy. If that recovery also
+fails, the session reports unavailable rather than claiming an active mode.
+Native image results are saved before the handoff; an unfinished image result
+must be resolved in the gallery before permissions can change.
 The choice applies to this service session and all its connected owner views;
 it is not stored in global Codex settings. Restart restores the PC startup
 configuration. Selecting Reviewed restores the startup reviewed sandbox, or

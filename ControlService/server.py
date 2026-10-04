@@ -3802,7 +3802,21 @@ def agent_portal_action(state, path, body):
         if not state.agent_turn_submission_lock.acquire(blocking=False):
             raise AgentPortalError(409, "An Agent turn is starting; try again when it is idle")
         try:
-            return portal.change_permissions(body["sessionId"], body["mode"], body["confirmed"])
+            state.agent_portal_status(body["sessionId"])
+            # A native turn can end before its image is copied into the durable
+            # concept store. Preserve that result before closing its transport,
+            # and prevent a new image reservation during the handoff.
+            with state.concepts.lock:
+                def pending_native_images():
+                    images = state.concepts.status(body["sessionId"], refresh=False)
+                    return [job for job in images["jobs"] + images["panoramaJobs"]
+                            if job.get("providerId") == "codex-native"
+                            and job.get("status") in ("queued", "generating")]
+                for job in pending_native_images():
+                    state.concepts.refresh(body["sessionId"], job["conceptId"])
+                if pending_native_images():
+                    raise AgentPortalError(409, "Native image results are not ready; refresh the image gallery before changing permissions")
+                return portal.change_permissions(body["sessionId"], body["mode"], body["confirmed"])
         finally:
             state.agent_turn_submission_lock.release()
     if path == "/api/agent/turn":

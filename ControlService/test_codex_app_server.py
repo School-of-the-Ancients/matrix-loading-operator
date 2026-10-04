@@ -4,6 +4,7 @@ from __future__ import annotations
 import base64
 import hashlib
 import json
+import os
 import sys
 import tempfile
 import textwrap
@@ -456,6 +457,130 @@ class AppServerTransportTests(unittest.TestCase):
         self.transport._fail("Codex app-server connection closed")
         with self.assertRaisesRegex(AppServerError, "connection closed"):
             self.transport.events_since()
+
+
+class PipeLifecycleTests(unittest.TestCase):
+    def setUp(self):
+        self.directory = tempfile.TemporaryDirectory()
+        self.addCleanup(self.directory.cleanup)
+
+    def start_script(self, body):
+        path = Path(self.directory.name) / "pipe_server.py"
+        prefix = '''
+import json
+import sys
+import time
+message = json.loads(sys.stdin.buffer.readline())
+sys.stdout.buffer.write((json.dumps({"id": message["id"], "result": {}}) + "\\n").encode())
+sys.stdout.buffer.flush()
+sys.stdin.buffer.readline()
+'''
+        path.write_text(textwrap.dedent(prefix) + textwrap.dedent(body), encoding="utf-8")
+        transport = AppServerTransport([sys.executable, "-u", str(path)], self.directory.name, timeout=2)
+        self.addCleanup(transport.close)
+        transport.start()
+        return transport
+
+    def wait_for(self, condition):
+        deadline = time.monotonic() + 3
+        while time.monotonic() < deadline:
+            if condition():
+                return
+            time.sleep(0.01)
+        self.fail("Pipe server did not reach the expected state")
+
+    def test_split_utf8_and_partial_lines_preserve_frame_order(self):
+        transport = self.start_script('''
+wire = (json.dumps({"method": "test/first", "params": {"text": "caf\u00e9"}}, ensure_ascii=False) + "\\n").encode()
+split = wire.index(bytes([0xc3])) + 1
+sys.stdout.buffer.write(wire[:split])
+sys.stdout.buffer.flush()
+time.sleep(0.03)
+second = (json.dumps({"method": "test/second", "params": {"text": "next"}}) + "\\n").encode()
+sys.stdout.buffer.write(wire[split:] + second)
+sys.stdout.buffer.flush()
+for line in sys.stdin.buffer:
+    pass
+''')
+        self.wait_for(lambda: len(transport.events_since()) == 2)
+        events = transport.events_since()
+        self.assertEqual([event["method"] for event in events], ["test/first", "test/second"])
+        self.assertEqual(events[0]["params"]["text"], "caf\u00e9")
+
+    def test_eof_rejects_unterminated_final_frame(self):
+        transport = self.start_script('''
+sys.stdout.buffer.write(b'{"method":"test/unterminated","params":{}}')
+sys.stdout.buffer.flush()
+''')
+        self.wait_for(lambda: transport._failure is not None)
+        self.assertIn("oversized message", transport._failure)
+        self.assertEqual(list(transport._events), [])
+
+    def test_oversized_unterminated_frame_is_rejected_before_eof(self):
+        with patch("codex_app_server.MAX_LINE", 128):
+            transport = self.start_script('''
+sys.stdout.buffer.write(b'x' * 129)
+sys.stdout.buffer.flush()
+for line in sys.stdin.buffer:
+    pass
+''')
+            self.wait_for(lambda: transport._failure is not None)
+            self.assertIn("oversized message", transport._failure)
+            self.assertEqual(list(transport._events), [])
+
+    def test_close_is_bounded_when_descendant_keeps_stdout_open(self):
+        marker = Path(self.directory.name) / "descendant-finished"
+        child = Path(self.directory.name) / "descendant.py"
+        child.write_text("import os,pathlib,tempfile,time\nos.chdir(tempfile.gettempdir())\ntime.sleep(1.5)\npathlib.Path(" +
+                         repr(str(marker)) + ").write_text('finished')\n", encoding="utf-8")
+        transport = self.start_script('''
+import subprocess
+from pathlib import Path
+child = subprocess.Popen([sys.executable, str(Path(__file__).with_name("descendant.py"))],
+                         stdout=sys.stdout, stderr=subprocess.DEVNULL)
+sys.stdout.buffer.write((json.dumps({"method": "test/descendant-started", "params": {"pid": child.pid}}) + "\\n").encode())
+sys.stdout.buffer.write(b'{"method":"test/incomplete')
+sys.stdout.buffer.flush()
+for line in sys.stdin.buffer:
+    pass
+''')
+        self.wait_for(lambda: bool(transport.events_since()))
+        child_pid = transport.events_since()[0]["params"]["pid"]
+        if os.name == "nt":
+            import ctypes
+            from ctypes import wintypes
+            kernel = ctypes.WinDLL("kernel32", use_last_error=True)
+            kernel.OpenProcess.argtypes = [wintypes.DWORD, wintypes.BOOL, wintypes.DWORD]
+            kernel.OpenProcess.restype = wintypes.HANDLE
+            kernel.WaitForSingleObject.argtypes = [wintypes.HANDLE, wintypes.DWORD]
+            kernel.WaitForSingleObject.restype = wintypes.DWORD
+            kernel.CloseHandle.argtypes = [wintypes.HANDLE]
+            child_handle = kernel.OpenProcess(0x100000, False, child_pid)
+            self.assertTrue(child_handle)
+            self.addCleanup(kernel.CloseHandle, child_handle)
+        process = transport._proc
+        started = time.monotonic()
+        transport.close()
+        self.assertLess(time.monotonic() - started, 1.0)
+        self.assertFalse(transport._reader.is_alive())
+        self.assertTrue(process.stdout.closed)
+        before = transport._sequence
+        transport._receive({"method": "test/late", "params": {}})
+        self.assertEqual(transport._sequence, before)
+        started = time.monotonic()
+        transport.close()
+        self.assertLess(time.monotonic() - started, 0.1)
+        self.wait_for(marker.exists)  # The descendant was not killed with the server.
+        if os.name == "nt":
+            self.assertEqual(kernel.WaitForSingleObject(child_handle, 3000), 0)
+        else:
+            def child_exited():
+                try:
+                    os.kill(child_pid, 0)
+                except ProcessLookupError:
+                    return True
+                return False
+            self.wait_for(child_exited)
 
 
 if __name__ == "__main__":
