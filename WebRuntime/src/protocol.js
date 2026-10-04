@@ -345,6 +345,7 @@ export class MatrixWorld {
     this.arEntryContent=null;
     this.selection={anchorId:ANCHOR_ID,objectId:'',position:{x:0,y:0,z:-2}};
     this.selectedPlacement=null;
+    this.fitToRoom=false;
     this.placementWorldEpoch=0;
     this.spatial=null;this.virtualScene=null;this.digitalWorldVisit=false;
     this.undo=[]; this.redo=[];
@@ -381,6 +382,7 @@ export class MatrixWorld {
     const snapshotSelection=selectedPoint?{anchorId:selectedPoint.anchorId,
       objectId:this.selection.objectId,position:selectedPoint.position}:this.selection;
     const snapshot={scene:clone(this.scene),assets:clone([...ASSETS,proceduralAsset,...this.externalAssets].map(({assetId,displayName,description,spawnScale,localBounds,geometry,interactions,sha256})=>({assetId,displayName,description,spawnScale,...(localBounds?{localBounds}:{}),...(interactions?{interactions}:{}),...(sha256?{sha256}:{}),...(geometry?.animationClips?{animationClips:geometry.animationClips.map(clip=>clip.name)}:{})}))),environmentSchemaVersion:1,environmentAssets:clone(this.environmentAssets),anchors:clone(anchors),selection:clone(snapshotSelection),behaviorKinds:['rotate','bob'],componentSchemaVersion:1,animationSchemaVersion:1,physicsSchemaVersion:1,interactionSchemaVersion:2,physicsStates:this.physicsStates(),rigidSchemaVersion:1,rigidGravity:clone(this.rigidGravity),rigidStates:this.rigidPhysics?.states().filter(state=>this.scene.objects.some(item=>item.objectId===state.objectId))||[],entityActionSchemaVersion:1,agentGrab:clone(this.agentGrab),controlSchemaVersion:1,controlStates:clone(this.controlStates),proceduralGenerators:listProceduralGenerators(),creatorMode:clone(this.creatorMode),game:clone(this.game),gameStatus:this.game?{phase:this.game.state.phase,score:this.game.state.score,objectiveProgress:clone(this.game.state.objectiveProgress),unlockedObjectIds:clone(this.game.state.unlockedObjectIds||[])}:null,roomContext:context,runtimeDescriptor:descriptor};
+    snapshot.pointPlacement={schemaVersion:1,fitToRoom:this.fitToRoom===true};
     if(this.spatial)snapshot.spatialObservation={schemaVersion:1,
       planeAgeMs:planeObservationAge(this.spatial.planeObservedAt),
       trackingEpoch:this.spatial.trackingEpoch,
@@ -1007,6 +1009,20 @@ export class MatrixWorld {
     this.assertNoMeasuredPlaneOverlap(transform,object.assetId,
       this.spatial.webFloorPose,constraint.anchorId);
   }
+  assertPointTarget(target,objectId){
+    if(!exactKeys(target,['anchorId','position','presentation','trackingEpoch','fitToRoom'])||
+       !validId(target.anchorId)||!vec(target.position,-100,100)||
+       typeof target.fitToRoom!=='boolean'||
+       !['desktop','vr','ar'].includes(target.presentation)||
+       (target.presentation==='ar'? !Number.isSafeInteger(target.trackingEpoch)||target.trackingEpoch<0:
+         target.trackingEpoch!==null))throw Error('Invalid point target');
+    const pin=currentSelectedPoint(this,this.selectedPlacement,this.spatial?.trackingEpoch);
+    if(!pin||this.selection.objectId!==objectId||pin.anchorId!==target.anchorId||
+       !['x','y','z'].every(axis=>pin.position[axis]===target.position[axis])||
+       this.runtimePresentation!==target.presentation||this.fitToRoom!==target.fitToRoom||
+       (target.presentation==='ar'&&this.spatial?.trackingEpoch!==target.trackingEpoch))
+      throw Error('Selected point, object, or placement setting changed; aim and select again');
+  }
   assertNoMeasuredPlaneOverlap(transform,assetId,basePose,excludedAnchorId){
     const asset=this.asset(assetId),bounds=asset?.localBounds;
     if(!bounds)throw Error('Measured object bounds are unavailable');
@@ -1050,6 +1066,8 @@ export class MatrixWorld {
       if(Object.hasOwn(command,'roomConstraint')&&
          !['set_transform','spawn'].includes(op))
         throw Error('Room constraint is supported only for object moves and surface spawns');
+      if(Object.hasOwn(command,'pointTarget')&&op!=='set_transform')
+        throw Error('Point target is supported only for object moves');
       const visitResidentIds=new Set(this.citizens?.residents?.map(item=>item.objectId)||[]);
       const visitStationIds=new Set(this.citizens?.stations?.map(item=>item.objectId)||[]);
       const citizenVisitAction=this.digitalWorldVisit&&!recordHistory&&
@@ -1657,6 +1675,7 @@ export class MatrixWorld {
           break;
         case 'set_transform':
           object=this.requireObject(command.objectId);
+          if(Object.hasOwn(command,'pointTarget'))this.assertPointTarget(command.pointTarget,object.objectId);
           if (!validTransform(command.transform)) throw Error('Invalid transform');
           if (command.anchorId && command.anchorId!==object.anchorId) throw Error('Changing an object anchor is not supported');
           {const resolved=this.resolvedTransform(command,object.assetId,object.anchorId);

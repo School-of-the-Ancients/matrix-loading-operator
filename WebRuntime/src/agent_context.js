@@ -27,7 +27,8 @@ export function captureAgentContext(world,view,clientId,inputSource){
     selected?.anchorId,'web-floor'];
   const viewerFrame=preferred.map(anchorId=>frames.find(frame=>
     frame.anchorId===anchorId)).find(Boolean)||null;
-  return {schemaVersion:3,inputSource,clientId,roomId:world.scene.roomId,
+  return {schemaVersion:4,inputSource,clientId,roomId:world.scene.roomId,
+    fitToRoom:world.fitToRoom===true,
     presentation,trackingEpoch,selectedObjectId,selectedPlacement,
     pointingTarget,viewerFrame};
 }
@@ -42,6 +43,7 @@ export function verifyAgentContextAtDelivery(captured,current){
   if(captured.roomId!==current.roomId||
      captured.presentation!==current.presentation||
      captured.trackingEpoch!==current.trackingEpoch||
+     captured.fitToRoom!==current.fitToRoom||
      captured.selectedObjectId!==current.selectedObjectId||
      !samePlacement(captured.selectedPlacement,current.selectedPlacement))
     throw Error('Selected point or object changed while preparing this request. Review the current target and send again.');

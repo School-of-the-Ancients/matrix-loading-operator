@@ -7,6 +7,37 @@ historical compatibility surfaces, not another forward runtime. Start with the
 [repository project map](../PROJECTS.md) and [Web runtime guide](../WebRuntime/README.md)
 for the current product path.
 
+## Free AR creation and optional fitting
+
+**Fit to room** defaults off in each browser session. The checkbox beside Agent
+context and the XR Creator/Play page use the same setting. It changes placement
+constraints, not Creator/Play authority or the world. Room context remains
+available for creative scale, composition and layout in either mode.
+
+With fitting off, a selected-point move preserves the object's rotation and
+scale, allows overhang, and needs no object bounds, clearance calculation or
+alignment-confirmation workflow. A fresh room hit still needs its current
+coordinate frame; a digital-floor marker also works without measured planes.
+With fitting on, AR support placement uses the existing alignment, tracking,
+whole-footprint and room-plane overlap checks. Precise placement stands a tilted
+object upright while preserving yaw and scale. The setting cannot change during
+an active Agent turn or voice preparation.
+
+Context schema 4 carries the setting and retains the original anchor-local
+`selectedPlacement`. The PC supplies `worldPlacement` in `web-floor` coordinates
+using observed runtime poses. `matrix_move_to_selected_point` resolves that same
+point in code and reuses the existing move/receipt paths in one tool call. The
+browser's current setting selects ordinary movement or precise fitting; the
+model does not supply a replacement preference. The point, selected object,
+presentation, tracking epoch and setting are checked before queueing and again
+at runtime execution. Source-code discovery and model-authored coordinate math
+are not part of ordinary placement.
+
+Legacy context versions and explicitly constrained tools retain their prior
+behavior. Runtime receipts, permissions, stable IDs, Undo and world persistence
+are unchanged. This removes unnecessary fitting and planning from the common
+path; measured improvement still requires new model/Quest timing samples.
+
 ## Integration decision
 
 Use the installed Codex CLI's `app-server --stdio` as the first local backend.

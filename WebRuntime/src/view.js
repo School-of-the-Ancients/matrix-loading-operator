@@ -217,8 +217,13 @@ export function operatorPanel({createImage=()=>new Image()}={}){
           creatorMode.simulation==='running'?'STOP / PAUSE':'RESUME PLAY',525,440,444,86,
           creatorMode.simulation==='running');
       }
-      button('toggle-world','WORLD / SAVE',55,553,440,72);
-      button('agent-stop','STOP OPERATOR',525,553,444,72);
+      button('toggle-world','WORLD / SAVE',55,553,285,72);
+      if(worldInfo.canSetFitToRoom!==false)
+        button('toggle-fit-to-room',`FIT TO ROOM: ${worldInfo.fitToRoom?'ON':'OFF'}`,370,553,285,72,
+          worldInfo.fitToRoom===true);
+      else {ctx.fillStyle='#8bb8c2';ctx.font='bold 21px sans-serif';
+        ctx.fillText(`FIT TO ROOM: ${worldInfo.fitToRoom?'ON':'OFF'}`,380,596);}
+      button('agent-stop','STOP OPERATOR',685,553,285,72);
     }else if(mode==='world'){
       ctx.fillStyle='#dff7f8';ctx.font='29px sans-serif';
       ctx.fillText(`${worldInfo.objects} scene objects · ${worldInfo.alignment}`,55,180);
@@ -1813,7 +1818,7 @@ export class MatrixView {
     if(this.isAR){const hits=this.raycaster.intersectObjects([...this.planeOutlines.values()],true);
       const hit=hits.find(item=>item.object.isMesh&&item.object.userData.anchorId);
       if(hit){const anchorId=hit.object.userData.anchorId;const root=this.planeOutlines.get(anchorId);const local=root.worldToLocal(hit.point.clone());this.selectPlacementPoint(anchorId,plain(local));return;}}
-    const floorHit=this.isAR?null:this.raycaster.intersectObject(this.floor)[0];
+    const floorHit=!this.floor||this.isAR&&this.world.fitToRoom===true?null:this.raycaster.intersectObject(this.floor)[0];
     if(floorHit){this.virtualFloorRoot.updateMatrixWorld(true);
       this.selectPlacementPoint('web-floor',plain(this.virtualFloorRoot.worldToLocal(floorHit.point.clone())));}
   }
@@ -1913,9 +1918,9 @@ export class MatrixView {
         if(['x','y','z'].every(axis=>Math.abs(position[axis])<=100))
           return {anchorId,objectId:null,position};
       }
-      return null;
+      if(this.world.fitToRoom===true)return null;
     }
-    const hit=this.raycaster.intersectObject(this.floor)[0];
+    const hit=this.floor&&this.raycaster.intersectObject(this.floor)[0];
     if(!hit)return null;
     this.virtualFloorRoot.updateMatrixWorld(true);
     const position=plain(this.virtualFloorRoot.worldToLocal(hit.point.clone()));

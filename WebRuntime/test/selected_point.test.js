@@ -35,7 +35,10 @@ test('room change, tracking loss, and missing measured support hide old point',(
   assert.equal(currentSelectedPoint(room,selected,7),null);
   room.spatial.originUnavailable=false;
   room.spatial.alignmentVerified=false;
+  assert.equal(currentSelectedPoint(room,selected,7),selected,'free AR needs no fit confirmation');
+  room.fitToRoom=true;
   assert.equal(currentSelectedPoint(room,selected,7),null);
+  room.fitToRoom=false;
   room.spatial.alignmentVerified=true;
   room.spatial.observedAnchors=[];
   assert.equal(currentSelectedPoint(room,selected,7),null);
