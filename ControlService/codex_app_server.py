@@ -380,13 +380,26 @@ class AppServerTransport:
         with self._lock:
             return [deepcopy({"requestId": request_id, **value}) for request_id, value in self._approvals.items()]
 
-    def respond_approval(self, request_id: int | str, thread_id: str, turn_id: str, decision: str) -> None:
+    def respond_approval(self, request_id: int | str, thread_id: str, turn_id: str, decision: str,
+                         *, expected_request: dict | None = None) -> None:
         if decision not in ("accept", "decline"):
             raise ValueError("Only one-time approve or deny is supported")
         with self._lock:
             pending = self._approvals.get(request_id)
             if pending is None or pending["params"].get("threadId") != thread_id or pending["params"].get("turnId") != turn_id:
                 raise AppServerError("Approval is no longer pending for this turn")
+            if expected_request is not None:
+                try:
+                    # JSON serialization preserves boolean/integer/float distinctions
+                    # that Python container equality would otherwise collapse.
+                    pending_json = json.dumps(pending, sort_keys=True, allow_nan=False,
+                                              separators=(",", ":"))
+                    expected_json = json.dumps(expected_request, sort_keys=True, allow_nan=False,
+                                               separators=(",", ":"))
+                except (TypeError, ValueError, RecursionError):
+                    raise AppServerError("Approval request cannot be matched to the reviewed request") from None
+                if pending_json != expected_json:
+                    raise AppServerError("Approval request changed since it was reviewed")
             if pending["method"] == "mcpServer/elicitation/request":
                 result = {"action": "accept", "content": {}} if decision == "accept" else {"action": "decline"}
             else:

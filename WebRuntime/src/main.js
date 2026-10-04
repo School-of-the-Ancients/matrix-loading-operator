@@ -7,7 +7,7 @@ import {LatencyTrace} from './latency_trace.js';
 import {VoiceRecorder} from './voice.js';
 import {CameraStream,bindCameraPageLifecycle} from './camera_stream.js';
 import {bindXRPageLifecycle} from './xr_session.js';
-import {AgentClient,agentActivityLabel} from './agent_client.js';
+import {AgentClient,agentActivityLabel,agentAccessLabel,agentPermissionMode} from './agent_client.js';
 import {deliverAgentVoiceTranscript} from './agent_voice_delivery.js';
 import {deliverAgentTextDraft} from './agent_text_delivery.js';
 import {ConceptUI} from './concept_ui.js';
@@ -75,6 +75,7 @@ let cameraBusy=false;
 const recorder=new VoiceRecorder();let voiceStarting=false,voiceRecording=false,voiceStopRequested=false,voiceJob=null,voiceSnapshot=null,voiceDestination='planner',voiceAgentContext=null,voiceBlenderPlacement=null;
 let replyContext=null,replySource=null;
 let agentClient=null,conceptUI=null,panoramaUI=null,agentActionBusy=false,agentVoiceStatus='',voiceSteerTurnId=null,agentAttentionKey='';
+let agentPermissionsDraft=null;
 let creationMode=loadCreationMode(sessionStorage);
 const pendingBlenderReceiptIds=new Set();
 function unlockReplyAudio(){
@@ -518,10 +519,26 @@ function renderAgent(){
   const status=agentClient?.status,turns=status?.transcript||[],pending=status?.pendingApprovals?.[0];
   const activity=agentClient?.error?'Connection needs attention':status?agentActivityLabel(status.activity):'Not connected';
   $('agent-activity').textContent=activity;
-  const access=({"read-only":"Read only", "workspace-write":"Workspace write", "danger-full-access":"Full PC access"})[status?.accessMode];
-  const approvals=({reviewed:'Reviewed approvals',automatic:'Automatic approvals'})[status?.approvalMode];
-  const accessLabel=access?`Codex access: ${access}${approvals?` · ${approvals}`:''}`:'';
-  $('agent-access').textContent=access?`${accessLabel} (set on the PC gateway).`:'Access mode appears after connection.';
+  const confirmedStatus=agentClient?.error?null:status;
+  const accessLabel=agentAccessLabel(confirmedStatus);
+  $('agent-access').textContent=accessLabel;
+  const permissionMode=agentPermissionMode(confirmedStatus);
+  const selectedPermission=agentPermissionsDraft??permissionMode??'';
+  const immersive=view.renderer.xr.isPresenting;
+  const permissionsDisabled=agentActionBusy||!status||!!agentClient?.error||!!status?.activeTurnId||
+    status?.permissionsChangeAllowed!==true||immersive;
+  $('agent-permissions').value=selectedPermission;
+  $('agent-permissions').disabled=permissionsDisabled;
+  const needsConfirmation=selectedPermission==='full-access'&&permissionMode!=='full-access';
+  $('agent-full-access-confirmation').classList.toggle('hidden',!needsConfirmation);
+  $('agent-full-access-confirm').disabled=permissionsDisabled;
+  $('agent-permissions-apply').disabled=permissionsDisabled||!selectedPermission||selectedPermission===permissionMode||
+    (needsConfirmation&&!$('agent-full-access-confirm').checked);
+  $('agent-permissions-help').textContent=!status?'Connect to choose permissions before entering AR/VR.':
+    immersive?'Exit AR/VR to change permissions.':status.activeTurnId?
+    'Wait for this turn to finish or choose Stop before changing permissions.':
+    status.permissionsChangeAllowed!==true?'Permission changes are unavailable for this Agent session.':
+    'Choose permissions before entering AR/VR. This changes the connected PC service session.';
   const transcript=turns.slice(-4).map(turn=>{
     const user=turn.user.length>1000?
       `${turn.user.slice(0,520)}\n[Earlier request text omitted]\n${turn.user.slice(-440)}`:
@@ -706,6 +723,23 @@ function decideAgent(approve){
 }
 $('agent-connect').addEventListener('click',()=>agentAction(async()=>{
   await agentClient.connect();await conceptUI.refresh();}));
+$('agent-permissions').addEventListener('change',()=>{
+  agentPermissionsDraft=$('agent-permissions').value;
+  $('agent-full-access-confirm').checked=false;
+  renderAgent();
+});
+$('agent-full-access-confirm').addEventListener('change',renderAgent);
+$('agent-permissions-apply').addEventListener('click',()=>{
+  if(view.renderer.xr.isPresenting)return;
+  const mode=$('agent-permissions').value;
+  const confirmed=mode==='full-access'&&$('agent-full-access-confirm').checked;
+  agentAction(async()=>{
+    await agentClient.setPermissions(mode,confirmed);
+    agentPermissionsDraft=null;
+    $('agent-full-access-confirm').checked=false;
+    feedback(`Codex permissions updated: ${agentAccessLabel(agentClient.status)}.`);
+  });
+});
 $('agent-send').addEventListener('click',sendAgent);
 $('agent-stop').addEventListener('click',()=>agentAction(()=>agentClient.cancel()));
 $('agent-approve').addEventListener('click',()=>decideAgent(true));

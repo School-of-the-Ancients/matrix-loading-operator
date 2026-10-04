@@ -9,6 +9,7 @@ import tempfile
 import textwrap
 import time
 import unittest
+from copy import deepcopy
 from pathlib import Path
 from unittest.mock import patch
 
@@ -325,6 +326,81 @@ class AppServerTransportTests(unittest.TestCase):
         self.wait_for_approval(778)
         self.transport.respond_approval(778, "thread-test", "turn-mcp", "decline")
         self.assertEqual(self.transport.pending_approvals(), [])
+
+    def test_reviewed_approval_rejects_replaced_params_or_method_without_consuming(self):
+        expected = {"method": "mcpServer/elicitation/request", "params": {
+            "threadId": "thread-test", "turnId": "turn-mcp", "serverName": "blender",
+            "mode": "form", "message": 'Allow Blender to run "execute_blender_code"?',
+            "_meta": {"codex_approval_kind": "mcp_tool_call",
+                      "tool_params": {"code": "print('reviewed')"}}}}
+        for changed_field in ("params", "method"):
+            with self.subTest(changed_field=changed_field):
+                changed = deepcopy(expected)
+                if changed_field == "params":
+                    changed["params"]["_meta"]["tool_params"]["code"] = "print('changed')"
+                else:
+                    changed["method"] = "item/commandExecution/requestApproval"
+                self.transport._receive({"id": 777, **changed})
+                with patch.object(self.transport, "_write") as write:
+                    with self.assertRaisesRegex(AppServerError, "changed since it was reviewed"):
+                        self.transport.respond_approval(777, "thread-test", "turn-mcp", "accept",
+                                                        expected_request=expected)
+                    write.assert_not_called()
+                self.assertEqual(self.transport.pending_approvals(), [{"requestId": 777, **changed}])
+
+    def test_reviewed_approval_accepts_exact_request_once(self):
+        for method, decision, result in (
+            ("mcpServer/elicitation/request", "accept", {"action": "accept", "content": {}}),
+            ("mcpServer/elicitation/request", "decline", {"action": "decline"}),
+            ("item/commandExecution/requestApproval", "accept", {"decision": "accept"}),
+        ):
+            with self.subTest(method=method, decision=decision):
+                expected = {"method": method, "params": {
+                    "threadId": "thread-test", "turnId": "turn-review", "mode": "form",
+                    "_meta": {"codex_approval_kind": "mcp_tool_call", "tool_params": {}}}}
+                self.transport._receive({"id": 777, **deepcopy(expected)})
+                with patch.object(self.transport, "_write") as write:
+                    self.transport.respond_approval(777, "thread-test", "turn-review", decision,
+                                                    expected_request=expected)
+                    write.assert_called_once_with({"id": 777, "result": result})
+                    with self.assertRaisesRegex(AppServerError, "no longer pending"):
+                        self.transport.respond_approval(777, "thread-test", "turn-review", decision,
+                                                        expected_request=expected)
+                    write.assert_called_once()
+                self.assertEqual(self.transport.pending_approvals(), [])
+
+    def test_reviewed_approval_preserves_json_argument_types(self):
+        for reviewed_value, changed_value in ((True, 1), (False, 0), (1, 1.0)):
+            with self.subTest(reviewed=reviewed_value, changed=changed_value):
+                expected = {"method": "mcpServer/elicitation/request", "params": {
+                    "threadId": "thread-test", "turnId": "turn-types", "mode": "form",
+                    "_meta": {"codex_approval_kind": "mcp_tool_call",
+                              "tool_params": {"value": reviewed_value}}}}
+                changed = deepcopy(expected)
+                changed["params"]["_meta"]["tool_params"]["value"] = changed_value
+                self.transport._receive({"id": 777, **changed})
+                with patch.object(self.transport, "_write") as write:
+                    with self.assertRaisesRegex(AppServerError, "changed since it was reviewed"):
+                        self.transport.respond_approval(777, "thread-test", "turn-types", "accept",
+                                                        expected_request=expected)
+                    write.assert_not_called()
+                self.assertEqual(self.transport.pending_approvals(), [{"requestId": 777, **changed}])
+
+    def test_reviewed_approval_rejects_non_json_values_without_consuming(self):
+        expected = {"method": "mcpServer/elicitation/request", "params": {
+            "threadId": "thread-test", "turnId": "turn-json", "mode": "form",
+            "_meta": {"codex_approval_kind": "mcp_tool_call", "tool_params": {"value": 1}}}}
+        self.transport._receive({"id": 777, **deepcopy(expected)})
+        for value in (float("nan"), float("inf")):
+            with self.subTest(value=value):
+                malformed = deepcopy(expected)
+                malformed["params"]["_meta"]["tool_params"]["value"] = value
+                with patch.object(self.transport, "_write") as write:
+                    with self.assertRaisesRegex(AppServerError, "cannot be matched"):
+                        self.transport.respond_approval(777, "thread-test", "turn-json", "accept",
+                                                        expected_request=malformed)
+                    write.assert_not_called()
+                self.assertEqual(self.transport.pending_approvals(), [{"requestId": 777, **expected}])
 
     def test_oversized_event_retains_routing_and_completion(self):
         self.transport._receive({"method": "turn/completed", "params": {

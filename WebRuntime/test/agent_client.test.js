@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {AgentClient,AGENT_SESSION_KEY,agentActivityLabel} from '../src/agent_client.js';
+import {AgentClient,AGENT_SESSION_KEY,agentActivityLabel,agentAccessLabel,agentPermissionMode} from '../src/agent_client.js';
 
 const id='a'.repeat(32);
 function storage(initial={}){
@@ -11,6 +11,136 @@ function storage(initial={}){
 function status(extra={}){return {sessionId:id,activity:'working',activeTurnId:'turn-1',
   transcript:[{user:'Hello',assistant:'Hi',status:'working',turnId:'turn-1',assistantTruncated:false}],
   pendingApprovals:[],cursor:3,events:[],...extra};}
+
+test('full access label requires both unrestricted access and automatic approvals',()=>{
+  assert.equal(agentAccessLabel({accessMode:'danger-full-access',approvalMode:'automatic'}),
+    'Full access · automatic approvals');
+  assert.equal(agentAccessLabel({accessMode:'danger-full-access',approvalMode:'reviewed'}),
+    'Reviewed · full PC access');
+  assert.equal(agentAccessLabel({accessMode:'workspace-write',approvalMode:'reviewed'}),
+    'Reviewed · workspace access');
+  assert.equal(agentAccessLabel({accessMode:'read-only',approvalMode:'reviewed'}),
+    'Limited · read-only access');
+});
+
+test('missing or unsupported permission combinations never claim full access',()=>{
+  for(const value of [undefined,null,{},
+    {accessMode:'danger-full-access'},
+    {approvalMode:'automatic'},
+    {accessMode:'danger-full-access',approvalMode:'future-mode'},
+    {accessMode:'workspace-write',approvalMode:'automatic'},
+    {accessMode:'read-only',approvalMode:'automatic'},
+    {accessMode:'future-mode',approvalMode:'reviewed'}
+  ])assert.equal(agentAccessLabel(value),'Permissions unknown');
+});
+
+test('permission chooser reflects the confirmed policy while labels retain sandbox differences',()=>{
+  assert.equal(agentPermissionMode({accessMode:'danger-full-access',approvalMode:'automatic'}),'full-access');
+  assert.equal(agentPermissionMode({accessMode:'workspace-write',approvalMode:'reviewed'}),'reviewed');
+  assert.equal(agentPermissionMode({accessMode:'read-only',approvalMode:'reviewed'}),'reviewed');
+  assert.equal(agentPermissionMode({accessMode:'danger-full-access',approvalMode:'reviewed'}),'reviewed');
+  for(const value of [null,{},
+    {accessMode:'workspace-write',approvalMode:'automatic'}
+  ])assert.equal(agentPermissionMode(value),null);
+});
+
+test('idle browser permission choices send explicit consent and use confirmed service status',async()=>{
+  const calls=[],store=storage({[AGENT_SESSION_KEY]:id});
+  let current=status({activeTurnId:null,accessMode:'workspace-write',approvalMode:'reviewed',
+    permissionsChangeAllowed:true});
+  const client=new AgentClient(async(path,body)=>{
+    calls.push([path,body]);
+    if(path==='/api/agent/permissions')current={...current,
+      accessMode:body.mode==='full-access'?'danger-full-access':'workspace-write',
+      approvalMode:body.mode==='full-access'?'automatic':'reviewed'};
+    return current;
+  },store);
+  await client.restore();
+  await client.setPermissions('full-access',true);
+  assert.equal(agentAccessLabel(client.status),'Full access · automatic approvals');
+  await client.setPermissions('reviewed');
+  assert.equal(agentPermissionMode(client.status),'reviewed');
+  assert.deepEqual(calls.filter(([path])=>path==='/api/agent/permissions'),[
+    ['/api/agent/permissions',{sessionId:id,mode:'full-access',confirmed:true}],
+    ['/api/agent/permissions',{sessionId:id,mode:'reviewed',confirmed:false}]
+  ]);
+  assert.deepEqual(store.writes,[],'permission choices are confirmed by the service, not stored as browser authority');
+});
+
+test('full access needs explicit consent and permission changes require a connected idle supported session',async()=>{
+  const calls=[],client=new AgentClient(async(path,body)=>{calls.push([path,body]);},
+    storage({[AGENT_SESSION_KEY]:id}));
+  await assert.rejects(client.setPermissions('full-access',true),/Connect to Codex/);
+  client.status=status({activeTurnId:null,permissionsChangeAllowed:true});
+  for(const consent of [undefined,false,'true',1,null])
+    await assert.rejects(client.setPermissions('full-access',consent),/Confirm access/);
+  await assert.rejects(client.setPermissions('unsupported',true),/Choose Reviewed or Full access/);
+  client.status={...client.status,activeTurnId:'active-turn'};
+  await assert.rejects(client.setPermissions('reviewed'),/current turn/);
+  client.status={...client.status,activeTurnId:null,permissionsChangeAllowed:false};
+  await assert.rejects(client.setPermissions('full-access',true),/unavailable/);
+  delete client.status.permissionsChangeAllowed;
+  await assert.rejects(client.setPermissions('reviewed'),/unavailable/);
+  assert.deepEqual(calls,[]);
+});
+
+test('a rejected permission change does not optimistically display full access',async()=>{
+  const current=status({activeTurnId:null,accessMode:'workspace-write',approvalMode:'reviewed',
+    permissionsChangeAllowed:true});
+  const client=new AgentClient(async path=>{
+    if(path==='/api/agent/permissions')throw Error('Agent became busy');
+    return current;
+  },storage({[AGENT_SESSION_KEY]:id}));
+  await client.restore();
+  await assert.rejects(client.setPermissions('full-access',true),/Agent became busy/);
+  assert.equal(agentPermissionMode(client.status),'reviewed');
+  assert.equal(client.error,'Agent became busy');
+});
+
+test('polling a change from another browser refreshes the active permission label',async()=>{
+  let current=status({activeTurnId:null,accessMode:'workspace-write',approvalMode:'reviewed',
+    permissionsChangeAllowed:true});
+  const client=new AgentClient(async()=>current,storage({[AGENT_SESSION_KEY]:id}));
+  await client.restore();
+  assert.equal(agentPermissionMode(client.status),'reviewed');
+  current={...current,accessMode:'danger-full-access',approvalMode:'automatic'};
+  await client.poll();
+  assert.equal(agentAccessLabel(client.status),'Full access · automatic approvals');
+});
+
+test('an earlier status poll cannot overwrite a confirmed permission change',async()=>{
+  const reviewed=status({activeTurnId:null,accessMode:'workspace-write',approvalMode:'reviewed',
+    permissionsChangeAllowed:true});
+  const full={...reviewed,accessMode:'danger-full-access',approvalMode:'automatic'};
+  let resolvePoll;
+  const client=new AgentClient(async path=>{
+    if(path==='/api/agent/status')return new Promise(resolve=>{resolvePoll=resolve;});
+    return full;
+  },storage({[AGENT_SESSION_KEY]:id}));
+  client.status=reviewed;
+  const poll=client.poll();
+  await client.setPermissions('full-access',true);
+  resolvePoll(reviewed);
+  await poll;
+  assert.equal(agentPermissionMode(client.status),'full-access');
+  assert.equal(client.error,'');
+});
+
+test('a stale poll cannot clear the error for a permission change with unknown outcome',async()=>{
+  const reviewed=status({activeTurnId:null,accessMode:'workspace-write',approvalMode:'reviewed',
+    permissionsChangeAllowed:true});
+  let resolvePoll;
+  const client=new AgentClient(async path=>{
+    if(path==='/api/agent/status')return new Promise(resolve=>{resolvePoll=resolve;});
+    throw Error('Permission response lost');
+  },storage({[AGENT_SESSION_KEY]:id}));
+  client.status=reviewed;
+  const poll=client.poll();
+  await assert.rejects(client.setPermissions('full-access',true),/response lost/);
+  resolvePoll(reviewed);
+  await poll;
+  assert.equal(client.error,'Permission response lost');
+});
 
 test('agent session persists only an opaque Matrix ID and sends follow-ups to it',async()=>{
   const store=storage(),calls=[];

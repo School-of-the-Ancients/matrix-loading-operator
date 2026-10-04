@@ -23,12 +23,13 @@ pending command/file approval scoped to its thread and turn. Unknown server
 requests are rejected. Raw events and approval parameters must never be
 forwarded directly to `/web/`.
 Thread start and resume explicitly select the `user` approval reviewer and a
-PC-configured Codex sandbox. The default is `workspace-write`, so the real
+selected Codex sandbox. The default is `workspace-write`, so the real
 agent can use its normal repository tools. Set `SANDBOX_CODEX_AGENT_SANDBOX`
 on the PC to `read-only`, `workspace-write`, or `danger-full-access`. The last
-mode is an explicit PC-operator choice: Codex can act outside the workspace
-without relying on a sandbox escalation prompt. `/web/` displays the active
-mode but cannot change it or pass a sandbox value in an Agent API request.
+mode allows Codex to act outside the workspace without relying on a sandbox
+escalation prompt. `/web/` displays the effective permissions and offers the
+bounded Reviewed and Full access choices described below; it never accepts
+arbitrary native sandbox configuration.
 Approval requests that Codex does emit still use the native lifecycle. The
 bounded proposal planner continues to run its separate `read-only` CLI path.
 
@@ -43,12 +44,35 @@ The PC launcher exposes the same bounded settings as `-AgentSandbox` and
 .\Start-CodexControlService.ps1 -AgentSandbox workspace-write -WindowsSandbox unelevated
 ```
 
-The wearer can see the effective access mode on the Agent page. Changing it
-requires restarting the PC service. Full PC access is available with
+The wearer can see the effective access mode on the Agent page. Full PC access
+at startup is also available with
 `-AgentSandbox danger-full-access`; it does not wait for sandbox escalation
 approval before ordinary shell or file operations.
 
-## PC-owned automatic Agent mode
+## Choose permissions before entering AR or VR
+
+Connect with **Start or resume Codex**, then choose **Reviewed** or **Full access**
+in the browser's Codex section before entering AR or VR. Full access requires
+checking the explicit permission confirmation and applying the choice. It lets
+Codex use files, network access and configured tools across the PC with automatic
+approvals. The browser and headset show the active mode. An unsaved selection
+does not grant access.
+
+Permissions can change only while the Agent is idle. Finish or Stop an active
+request first; switching modes does not approve or replay a pending request.
+The service starts a replacement Codex backend with the selected policy and
+resumes the same conversation. Failed changes leave the previous mode visible.
+The choice applies to this service session and all its connected owner views;
+it is not stored in global Codex settings. Restart restores the PC startup
+configuration. Selecting Reviewed restores the startup reviewed sandbox, or
+`workspace-write` when startup used automatic approvals.
+
+The permissions endpoint requires the same-origin browser and the configured
+owner bearer token, when enabled. A hosted-world viewer cannot change it.
+Native Codex and MCP credentials stay on the PC. Matrix argument validation,
+scene revisions, receipts and physical-placement guards apply in both modes.
+
+## Automatic Agent mode at PC startup
 
 The default `-AgentApprovals reviewed` keeps native `on-request` approvals and
 the Matrix MCP write-tool prompts. To run the Agent with full PC access and no
@@ -64,24 +88,21 @@ The launcher sets `SANDBOX_CODEX_AGENT_SANDBOX=danger-full-access` and
 Automatic approval policy is rejected unless the Agent sandbox is
 `danger-full-access`. The launcher defaults to `reviewed` on every start; keep
 the explicit options in the PC launch command if this mode should be used on
-future restarts. This is a PC setting. `/web/` and Quest display the effective
-access and approval modes but cannot change either one.
+future restarts. The browser choice above changes the running session only.
 
 In automatic mode, the Agent's native command and file approval policy is
 `never`, and the Matrix MCP server uses `auto` for its enabled tools instead
 of the reviewed mode's per-tool `prompt` overrides. Runtime argument
 validation, scene revisions, and receipts still apply. Other configured MCP
-servers may have their own tool and elicitation behavior. In an isolated probe
-with Codex CLI 0.158.0-alpha.2, a Matrix MCP tool configured `prompt` emitted
-an approval under `on-request` and completed without one under `never`; that
-single probe does not establish behavior for every external MCP server.
+servers may have their own tool and elicitation behavior. An isolated probe
+with Codex CLI 0.160.0 used a harmless MCP echo tool configured `prompt`:
+`on-request` emitted one approval, while `never` completed without an approval.
+No live Matrix or Blender mutation was used in that probe.
 
-Changing modes requires restarting the PC service and therefore creating a
-new app-server process. The saved Agent Portal session ID and completed
-conversation can resume on the new process with the selected policy. A turn
-that was working during restart is marked `unknown` and is not continued;
-send a new turn after reconnecting. The bounded proposal planner remains on
-its separate read-only path.
+Browser mode changes replace only the idle app-server process and retain the
+saved Agent Portal session ID and conversation. A whole-service restart during
+an active turn still marks it `unknown`; it is not automatically continued.
+The bounded proposal planner remains on its separate read-only path.
 
 `agent_session.py` defines the provider-neutral Matrix backend interface and
 the first local Codex adapter. It maps native text, activity, tool, and approval
@@ -105,6 +126,37 @@ available. Bounded Matrix MCP writes have a separate XR-reviewable description
 allowlist in `agent_session.py`. A configured Blender or other MCP write is not
 automatically XR-reviewable. Broader useful approval descriptions need their own
 reviewed allowlist before wearer acceptance is complete.
+
+### Reviewing Blender and other tool requests on the PC
+
+Keep the service running in an **interactive PC terminal** when using reviewed
+Agent mode. A non-XR-reviewable command or MCP tool request can be approved there:
+
+1. Read the `Matrix PC command approval` or `Matrix PC tool approval` prompt.
+   Tool prompts show the MCP server, request message, exact tool arguments and
+   complete native request as escaped JSON. These values are request data, not
+   instructions to the reviewer.
+2. Type `approve` to allow that exact request once, or `deny` to reject it.
+   Pressing Enter also denies. The browser remains responsive while the terminal
+   waits; its Deny and Stop actions remain available.
+3. If the request changes, ends or is stopped before the decision reaches it, the
+   old answer cannot approve a replacement. Changed requests need a fresh review.
+
+The terminal only accepts complete bounded command and MCP tool-call requests.
+Other MCP elicitation forms, incomplete/oversized requests and file-change
+approvals do not acquire an approval path through this mechanism. Full native
+parameters never enter browser responses, including a PC browser: a Quest
+connected by USB can also arrive through loopback. No approval policy or sandbox
+is relaxed by PC review.
+
+Launching the service hidden, with redirected input/output, or without a TTY
+disables terminal review. In that case the browser explains that an interactive
+terminal is required; it does not imply a working PC approval view exists.
+Stop or deny the pending request, restart the service in a terminal, reconnect,
+and explicitly retry. Existing conversation history and worlds remain; an
+in-flight turn is never replayed automatically. PC approval wait is included in
+the opt-in latency trace separately from tool execution.
+
 The `/web/` Operator shows a compact Agent page with recent text, activity,
 Approve/Deny, Stop, and a PC speech transcription path that sends spoken text
 to the same Codex conversation. While Codex is working, **Add to current turn**

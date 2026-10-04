@@ -1,5 +1,6 @@
 """The browser-safe contract contains no opaque Codex or MCP event payloads."""
 import json
+import copy
 import tempfile
 import unittest
 from pathlib import Path
@@ -75,6 +76,9 @@ class AgentSessionTests(unittest.TestCase):
         backend.transport.pending_approvals = lambda: [approval]
         pc = backend.pending_pc_commands()
         self.assertEqual(len(pc), 1)
+        self.assertEqual(backend.pending_pc_approvals(), pc)
+        self.assertEqual(pc[0]["kind"], "command")
+        self.assertEqual(pc[0]["method"], approval["method"])
         self.assertEqual(pc[0]["itemId"], "item-1")
         self.assertIn("SECRET_COMMAND", pc[0]["nativeParams"])
         self.assertIn("networkApprovalContext", pc[0]["nativeParams"])
@@ -91,6 +95,113 @@ class AgentSessionTests(unittest.TestCase):
         approval["params"] = params
         approval["method"] = "item/fileChange/requestApproval"
         self.assertEqual(backend.pending_pc_commands(), [])
+
+    def pc_mcp_request(self):
+        backend = LocalCodexAgentBackend.__new__(LocalCodexAgentBackend)
+        backend.transport = FakeTransport()
+        params = {"threadId": "thread-1", "turnId": "turn-1", "serverName": "blender",
+                  "mode": "form", "message": 'Allow Blender to run "execute_code"?',
+                  "_meta": {"codex_approval_kind": "mcp_tool_call",
+                            "tool_params": {"code": "print('SECRET_TOOL_ARGUMENT')"}}}
+        approval = {"requestId": 0, "method": "mcpServer/elicitation/request", "params": params}
+        backend.transport.pending_approvals = lambda: [approval]
+        return backend, approval, params
+
+    def test_pc_mcp_review_preserves_complete_request_and_browser_privacy(self):
+        backend, approval, params = self.pc_mcp_request()
+        params["requestedSchema"] = {"type": "object", "properties": {}}
+        params["_meta"]["tool_params"]["code"] += "\nprint('café \x1b[31m')"
+        records = backend.pending_pc_approvals()
+        self.assertEqual(len(records), 1)
+        record = records[0]
+        self.assertEqual(record, {
+            "approvalId": 0, "conversationId": "thread-1", "turnId": "turn-1",
+            "itemId": None, "method": approval["method"], "kind": "mcp",
+            "nativeParams": json.dumps(params, sort_keys=True, ensure_ascii=True,
+                                       separators=(",", ":"), allow_nan=False)})
+        self.assertEqual(json.loads(record["nativeParams"]), params)
+        self.assertIn("\\u00e9", record["nativeParams"])
+        self.assertIn("\\u001b", record["nativeParams"])
+        self.assertEqual(backend.pending_pc_commands(), [])
+        safe = backend.pending_approvals()
+        self.assertFalse(safe[0]["reviewable"])
+        self.assertNotIn("SECRET_TOOL_ARGUMENT", json.dumps(safe))
+        self.assertNotIn("requestedSchema", json.dumps(safe))
+        event = normalize_event({"sequence": 1, "method": approval["method"],
+                                 "requestId": 0, "params": params})
+        self.assertNotIn("SECRET_TOOL_ARGUMENT", json.dumps(event))
+        params["itemId"] = "mcp-item-1"
+        self.assertEqual(backend.pending_pc_approvals()[0]["itemId"], "mcp-item-1")
+        params["itemId"] = None
+        self.assertIsNone(backend.pending_pc_approvals()[0]["itemId"])
+
+    def test_pc_mcp_review_requires_complete_bounded_native_request(self):
+        backend, approval, params = self.pc_mcp_request()
+        for missing in ("threadId", "turnId", "serverName", "mode", "message", "_meta"):
+            with self.subTest(missing=missing):
+                approval["params"] = {key: value for key, value in params.items() if key != missing}
+                self.assertEqual(backend.pending_pc_approvals(), [])
+        invalid_fields = (
+            ("threadId", ""), ("threadId", "thread\nother"), ("threadId", "x" * 129),
+            ("turnId", False), ("turnId", ""), ("mode", "url"),
+            ("itemId", False), ("itemId", ""),
+            ("itemId", "x" * 129), ("serverName", ""), ("serverName", " "),
+            ("serverName", 1), ("serverName", "x" * 257),
+            ("message", ""), ("message", " \n"), ("message", []),
+            ("message", "x" * 16385), ("truncated", True),
+            ("_meta", None), ("_meta", {}),
+            ("_meta", {"codex_approval_kind": "other", "tool_params": {}}),
+            ("_meta", {"codex_approval_kind": "mcp_tool_call"}),
+            ("_meta", {"codex_approval_kind": "mcp_tool_call", "tool_params": []}),
+        )
+        for field, value in invalid_fields:
+            with self.subTest(field=field, value=str(value)[:60]):
+                approval["params"] = {**params, field: value}
+                self.assertEqual(backend.pending_pc_approvals(), [])
+        approval["params"] = params
+        for request_id in (None, False, True, 0.5, "", "bad\nid", "x" * 129):
+            with self.subTest(request_id=request_id):
+                approval["requestId"] = request_id
+                self.assertEqual(backend.pending_pc_approvals(), [])
+        for request_id in (0, "mcp-approval-0"):
+            approval["requestId"] = request_id
+            self.assertEqual(backend.pending_pc_approvals()[0]["approvalId"], request_id)
+        for value in ("x" * (64 * 1024), float("nan"), float("inf"), object()):
+            with self.subTest(value_type=type(value).__name__):
+                changed = copy.deepcopy(params)
+                changed["_meta"]["tool_params"]["code"] = value
+                approval["params"] = changed
+                self.assertEqual(backend.pending_pc_approvals(), [])
+        recursive = copy.deepcopy(params)
+        recursive["_meta"]["tool_params"]["cycle"] = recursive
+        approval["params"] = recursive
+        self.assertEqual(backend.pending_pc_approvals(), [])
+        approval["params"] = params
+        approval["method"] = "item/fileChange/requestApproval"
+        self.assertEqual(backend.pending_pc_approvals(), [])
+
+    def test_pc_review_excludes_mcp_requests_already_reviewable_in_xr(self):
+        backend, _, params = self.pc_mcp_request()
+        params.update(serverName="matrix_webxr",
+                      message='Allow the matrix_webxr MCP server to run tool "matrix_scene_summary"?')
+        params["_meta"]["tool_params"] = {}
+        self.assertTrue(backend.pending_approvals()[0]["reviewable"])
+        self.assertEqual(backend.pending_pc_approvals(), [])
+
+    def test_pc_decision_binds_response_to_exact_displayed_native_request(self):
+        backend, _, params = self.pc_mcp_request()
+        record = backend.pending_pc_approvals()[0]
+        with patch.object(backend.transport, "respond_approval") as respond:
+            for approve, decision in ((True, "accept"), (False, "decline")):
+                backend.decide_pc(record, approve)
+                respond.assert_called_with(0, "thread-1", "turn-1", decision,
+                                           expected_request={"method": record["method"],
+                                                             "params": params})
+            respond.reset_mock()
+            for invalid in (1, 0, "approve", None):
+                with self.assertRaisesRegex(ValueError, "boolean"):
+                    backend.decide_pc(record, invalid)
+            respond.assert_not_called()
 
     def test_windows_fallback_is_a_pc_only_codex_process_setting(self):
         with tempfile.TemporaryDirectory() as folder:

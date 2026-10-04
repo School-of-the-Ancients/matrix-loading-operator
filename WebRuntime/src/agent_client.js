@@ -10,7 +10,7 @@ export class AgentClient {
     this.request=request;this.storage=storage;this.onChange=onChange;
     const saved=storage.getItem(AGENT_SESSION_KEY);
     this.sessionId=SESSION_ID.test(saved||'')?saved:null;
-    this.status=null;this.error='';this.cursor=0;this.polling=false;
+    this.status=null;this.error='';this.cursor=0;this.polling=false;this.statusGeneration=0;
   }
   _update(status){
     if(!status||status.sessionId!==this.sessionId||!Array.isArray(status.transcript))
@@ -31,9 +31,14 @@ export class AgentClient {
   }
   async restore(){
     if(!this.sessionId)return null;
-    try{return this._update(await this.request('/api/agent/status',
-      {sessionId:this.sessionId,cursor:this.cursor}));}
-    catch(error){this._fail(error);throw error;}
+    const generation=this.statusGeneration;
+    try{
+      const status=await this.request('/api/agent/status',{sessionId:this.sessionId,cursor:this.cursor});
+      return generation===this.statusGeneration?this._update(status):this.status;
+    }catch(error){
+      if(generation!==this.statusGeneration)return this.status;
+      this._fail(error);throw error;
+    }
   }
   async poll(){
     if(!this.sessionId||this.polling)return null;
@@ -95,6 +100,24 @@ export class AgentClient {
       return await this.restore();
     }catch(error){this._fail(error);throw error;}
   }
+  async setPermissions(mode,confirmed=false){
+    if(!this.sessionId||!this.status)throw Error('Connect to Codex before changing permissions.');
+    if(this.status.activeTurnId)throw Error('Wait for the current turn to finish or stop it before changing permissions.');
+    if(this.status.permissionsChangeAllowed!==true)throw Error('Permission changes are unavailable for this Agent session.');
+    if(mode!=='reviewed'&&mode!=='full-access')throw Error('Choose Reviewed or Full access.');
+    if(typeof confirmed!=='boolean'||(mode==='full-access'&&!confirmed))
+      throw Error('Confirm access to PC files, network and tools before enabling Full access.');
+    try{
+      const status=await this.request('/api/agent/permissions',{sessionId:this.sessionId,mode,confirmed});
+      // A poll started before this response cannot restore the previous mode.
+      this.statusGeneration++;
+      return this._update(status);
+    }catch(error){
+      // The change may have reached the service even if its response was lost.
+      this.statusGeneration++;
+      this._fail(error);throw error;
+    }
+  }
   async cancel(){
     const turnId=this.status?.activeTurnId;
     if(!this.sessionId||!turnId)return null;
@@ -110,4 +133,22 @@ export function agentActivityLabel(activity){
     running_command:'Running a command',editing_files:'Editing files',
     waiting_for_approval:'Waiting for approval',completed:'Completed',cancelled:'Cancelled',
     failed:'Failed',stopping:'Stopping'})[activity]||'Ready';
+}
+
+export function agentAccessLabel(status){
+  if(status?.accessMode==='danger-full-access'&&status?.approvalMode==='automatic')
+    return 'Full access · automatic approvals';
+  if(status?.approvalMode==='reviewed'){
+    if(status.accessMode==='danger-full-access')return 'Reviewed · full PC access';
+    if(status.accessMode==='workspace-write')return 'Reviewed · workspace access';
+    if(status.accessMode==='read-only')return 'Limited · read-only access';
+  }
+  return 'Permissions unknown';
+}
+
+export function agentPermissionMode(status){
+  if(status?.accessMode==='danger-full-access'&&status?.approvalMode==='automatic')return 'full-access';
+  if(status?.approvalMode==='reviewed'&&
+    ['read-only','workspace-write','danger-full-access'].includes(status?.accessMode))return 'reviewed';
+  return null;
 }

@@ -73,6 +73,9 @@ class FakeBackend:
     def pending_pc_commands(self):
         return []
 
+    def pending_pc_approvals(self):
+        return []
+
     def decide(self, approval_id, conversation_id, turn_id, approve):
         assert self.approval["approvalId"] == approval_id
         assert conversation_id == "native-thread-id"
@@ -777,6 +780,9 @@ class PCOutput(io.StringIO):
 
 
 class PCBackend(FakeBackend):
+    kind = "command"
+    method = "item/commandExecution/requestApproval"
+
     def __init__(self, persisted):
         super().__init__(persisted)
         self.decisions = []
@@ -788,22 +794,33 @@ class PCBackend(FakeBackend):
         turn_id = super().send_text(identifier, text)
         self.approval.update(summary="Codex requests a command. Its effect cannot be reviewed in XR.",
                              reviewable=False)
-        self.native_params = {"threadId": identifier, "turnId": turn_id, "itemId": "command-item-1",
-                              "command": self.command,
-                              "cwd": "C:/Matrix workspace", "reason": "Create an animated asset",
-                              "networkApprovalContext": {"host": "assets.example.invalid"}}
+        self.native_params = self.request_params(identifier, turn_id)
         return turn_id
 
-    def pending_pc_commands(self):
+    def request_params(self, identifier, turn_id):
+        return {"threadId": identifier, "turnId": turn_id, "itemId": "command-item-1",
+                "command": self.command,
+                "cwd": "C:/Matrix workspace", "reason": "Create an animated asset",
+                "networkApprovalContext": {"host": "assets.example.invalid"}}
+
+    def change_request(self):
+        self.native_params["command"] = "different command"
+
+    def pending_pc_approvals(self):
         self.pc_checks += 1
         if not self.approval or not self.native_params:
             return []
         return [{"approvalId": self.approval["approvalId"],
                  "conversationId": self.native_params["threadId"],
                  "turnId": self.native_params["turnId"],
-                 "itemId": self.native_params["itemId"],
+                 "itemId": self.native_params.get("itemId"),
+                 "kind": self.kind, "method": self.method,
                  "nativeParams": json.dumps(self.native_params, sort_keys=True,
                                             ensure_ascii=True, separators=(",", ":"))}]
+
+    def decide_pc(self, approval, approve):
+        assert approval in self.pending_pc_approvals()
+        self.decide(approval["approvalId"], approval["conversationId"], approval["turnId"], approve)
 
     def decide(self, approval_id, conversation_id, turn_id, approve):
         self.decisions.append((approval_id, conversation_id, turn_id, approve))
@@ -811,12 +828,18 @@ class PCBackend(FakeBackend):
 
 
 class PCReviewTests(unittest.TestCase):
+    backend_type = PCBackend
+    prompt_title = "Matrix PC command approval"
+    expected_details = ("Approval ID: 101", "SECRET_COMMAND", "C:/Matrix workspace",
+                        "Create an animated asset", "assets.example.invalid", "command-item-1")
+    private_details = ("SECRET_COMMAND", "C:/Matrix workspace", "assets.example.invalid")
+
     def setUp(self):
         self.temp = tempfile.TemporaryDirectory()
         self.addCleanup(self.temp.cleanup)
         self.pc_input = PCInput()
         self.pc_output = PCOutput()
-        self.backend = PCBackend([False])
+        self.backend = self.backend_type([False])
         self.portal = AgentPortal(self.temp.name, lambda: self.backend,
                                   pc_input=self.pc_input, pc_output=self.pc_output)
         self.addCleanup(self.portal.close)
@@ -839,14 +862,14 @@ class PCReviewTests(unittest.TestCase):
     def test_pc_approve_once_while_browser_remains_redacted(self):
         session_id, turn_id = self.start_review()
         shown = self.pc_output.getvalue()
-        for expected in ("Approval ID: 101", "SECRET_COMMAND", "C:/Matrix workspace",
-                         "Create an animated asset", "assets.example.invalid", "command-item-1"):
+        for expected in self.expected_details:
             self.assertIn(expected, shown)
         started = time.monotonic()
         status = self.portal.status(session_id)
         self.assertLess(time.monotonic() - started, 1)
         self.assertFalse(status["pendingApprovals"][0]["reviewable"])
-        for secret in ("SECRET_COMMAND", "C:/Matrix workspace", "assets.example.invalid"):
+        self.assertIn("PC service terminal", status["pendingApprovals"][0]["summary"])
+        for secret in self.private_details:
             self.assertNotIn(secret, json.dumps(status))
         with self.assertRaisesRegex(AgentPortalError, "cannot be reviewed in XR"):
             self.portal.decide(session_id, 101, turn_id, True)
@@ -875,7 +898,7 @@ class PCReviewTests(unittest.TestCase):
         self.portal.status(session_id)
         second_turn = self.portal.send_text(session_id, "Try again")["turnId"]
         self.pc_input.lines.put("approve\n")
-        self.wait_for(lambda: self.pc_output.getvalue().count("Matrix PC command approval") == 2)
+        self.wait_for(lambda: self.pc_output.getvalue().count(self.prompt_title) == 2)
         self.assertEqual(self.backend.decisions, [])
         self.pc_input.lines.put("deny\n")
         self.wait_for(lambda: len(self.backend.decisions) == 1)
@@ -883,11 +906,14 @@ class PCReviewTests(unittest.TestCase):
 
     def test_changed_native_command_invalidates_displayed_approval(self):
         self.start_review()
-        self.backend.native_params["command"] = "different command"
+        self.backend.change_request()
         self.pc_input.lines.put("approve\n")
         self.wait_for(lambda: self.backend.pc_checks >= 2)
         self.assertEqual(self.backend.decisions, [])
         self.assertIsNotNone(self.backend.approval)
+        self.wait_for(lambda: self.pc_output.getvalue().count(self.prompt_title) == 2)
+        self.pc_input.lines.put("approve\n")
+        self.wait_for(lambda: len(self.backend.decisions) == 1)
 
     def test_no_interactive_console_leaves_command_for_stop(self):
         self.pc_input.interactive = False
@@ -898,6 +924,8 @@ class PCReviewTests(unittest.TestCase):
         turn_id = portal.send_text(session_id, "Create the asset")["turnId"]
         self.assertIsNone(portal._pc_reviewer)
         self.assertFalse(portal.status(session_id)["pendingApprovals"][0]["reviewable"])
+        self.assertIn("interactive service terminal",
+                      portal.status(session_id)["pendingApprovals"][0]["summary"])
         self.assertEqual(self.pc_output.getvalue(), "")
         self.assertEqual(self.backend.decisions, [])
         portal.cancel(session_id, turn_id)
@@ -910,6 +938,50 @@ class PCReviewTests(unittest.TestCase):
         self.assertNotIn("\x7f", shown)
         self.assertIn("\\u001b", shown)
         self.assertIn("\\u007f", shown)
+
+    def test_console_eof_removes_false_review_guidance(self):
+        session_id, _ = self.start_review()
+        self.pc_input.lines.put("")
+        self.wait_for(lambda: not self.portal._pc_console_available)
+        status = self.portal.status(session_id)
+        self.assertIn("interactive service terminal", status["pendingApprovals"][0]["summary"])
+        self.assertFalse(status["pendingApprovals"][0]["reviewable"])
+        self.assertEqual(self.backend.decisions, [])
+
+    def test_pc_decision_records_approval_wait(self):
+        from latency_trace import TraceRun
+        session_id, _ = self.start_review()
+        trace = TraceRun("a" * 32)
+        trace.approval_started = trace.now()
+        self.portal.latency_run = trace
+        self.pc_input.lines.put("approve\n")
+        self.wait_for(lambda: len(trace.snapshot()["records"]) == 1)
+        self.assertEqual(trace.snapshot()["records"][0]["stage"], "approval.wait")
+        self.assertEqual(trace.snapshot()["records"][0]["outcome"], "ok")
+        self.assertIsNone(trace.approval_started)
+
+
+class PCMCPBackend(PCBackend):
+    kind = "mcp"
+    method = "mcpServer/elicitation/request"
+
+    def request_params(self, identifier, turn_id):
+        return {"threadId": identifier, "turnId": turn_id, "mode": "form",
+                "serverName": "blender",
+                "message": 'Allow the blender MCP server to run tool "execute_blender_code"?',
+                "_meta": {"codex_approval_kind": "mcp_tool_call",
+                          "tool_params": {"code": self.command, "path": "C:/Private/model.blend"}}}
+
+    def change_request(self):
+        self.native_params["_meta"]["tool_params"]["code"] = "different code"
+
+
+class PCMCPReviewTests(PCReviewTests):
+    backend_type = PCMCPBackend
+    prompt_title = "Matrix PC tool approval"
+    expected_details = ("Approval ID: 101", 'MCP server: "blender"', "execute_blender_code",
+                        "SECRET_COMMAND", "C:/Private/model.blend", "Tool arguments")
+    private_details = ("SECRET_COMMAND", "execute_blender_code", "C:/Private/model.blend")
 
 
 if __name__ == "__main__":
