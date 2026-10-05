@@ -246,6 +246,22 @@ def _new_matrix_approval_summary(tool, arguments):
                            f"to {arguments['manipulation']} in {arguments['room_id']} rev {arguments['scene_revision']}.")
                 if len(summary) <= MAX_XR_APPROVAL_SUMMARY:
                     return summary
+        if tool == "matrix_move_to_selected_point":
+            required = {"room_id", "scene_revision", "object_id", "expected_asset_id",
+                        "anchor_id", "selected_position", "tracking_epoch"}
+            if (type(arguments) is dict and set(arguments) == required and
+                    all(_xr_entity_id(arguments[k]) for k in ("room_id", "object_id", "expected_asset_id", "anchor_id")) and
+                    type(arguments["scene_revision"]) is int and 0 <= arguments["scene_revision"] <= 9007199254740991 and
+                    _xr_bounded_vector(arguments["selected_position"], -100, 100) and
+                    (arguments["tracking_epoch"] is None or type(arguments["tracking_epoch"]) is int and
+                     0 <= arguments["tracking_epoch"] <= 9007199254740991)):
+                point = arguments["selected_position"]
+                summary = (f"Move selected {arguments['expected_asset_id']} ({arguments['object_id']}) to marker "
+                           f"{arguments['anchor_id']} ({point['x']},{point['y']},{point['z']}) "
+                           f"in {arguments['room_id']} rev {arguments['scene_revision']}, tracking "
+                           f"{arguments['tracking_epoch']}; use active Fit to room setting.")
+                if len(summary) <= MAX_XR_APPROVAL_SUMMARY:
+                    return summary
         if tool == "matrix_move_with_room_constraint":
             required = {"room_id", "scene_revision", "spatial_token", "anchor_id",
                         "object_id", "expected_asset_id", "position"}
@@ -804,7 +820,7 @@ class LocalCodexAgentBackend:
                         "env_vars": ["MATRIX_CONTROL_URL", "MATRIX_CONTROL_TOKEN"],
                         "enabled_tools": ["matrix_scene_summary", "matrix_room_spatial_context",
                                           "matrix_set_manipulation", "matrix_manipulation_status",
-                                          "matrix_move_object", "matrix_move_with_room_constraint",
+                                          "matrix_move_object", "matrix_move_with_room_constraint", "matrix_move_to_selected_point",
                                           "matrix_move_status",
                                           "matrix_scale_block", "matrix_reset_block_scale", "matrix_scale_status",
                                           "matrix_list_assets", "matrix_register_glb",
@@ -841,7 +857,7 @@ class LocalCodexAgentBackend:
             for key, value in settings.items():
                 command += ["-c", f"mcp_servers.matrix_webxr.{key}={json.dumps(value)}"]
             if config.agent_approval_policy == "on-request":
-                for name in ("matrix_set_manipulation", "matrix_move_object", "matrix_move_with_room_constraint",
+                for name in ("matrix_set_manipulation", "matrix_move_object", "matrix_move_with_room_constraint", "matrix_move_to_selected_point",
                              "matrix_scale_block", "matrix_reset_block_scale",
                              "matrix_register_glb", "matrix_spawn_asset", "matrix_spawn_builtin",
                              "matrix_register_panorama", "matrix_set_environment",

@@ -14,7 +14,7 @@ from matrix_tool_bridge import (animation_status, bind_animation, bind_game,
                                 interaction_action, interaction_status,
                                 list_assets, list_components, list_environments,
                                 list_procedural_generators, procedural_action, procedural_status,
-                                move_object, move_status, move_with_room_constraint,
+                                move_object, move_selected_point, move_status, move_with_room_constraint,
                                 manipulation_action, manipulation_status,
                                 publish_component, read_scene, room_spatial_context,
                                 record_concept_build,
@@ -48,7 +48,8 @@ def matrix_scene_summary() -> dict:
 def matrix_room_spatial_context(anchor_id: str | None = None) -> dict:
     """Recapture current bounded WebXR room planes and placement readiness.
 
-    Use this immediately before a room-aware action and after each VR/AR mode,
+    Room data can guide creative composition with Fit to room off. Detailed
+    geometry is optional for ordinary edits. Use this before explicit fitting and after each VR/AR mode,
     tracking, or origin change. Once a target surface is chosen, pass its
     anchor_id to include it first even in a dense room. The spatialToken is an opaque current-context
     guard, not an anchor or proof that a physical room is aligned. Check usable,
@@ -69,14 +70,18 @@ def matrix_move_object(room_id: str, scene_revision: int, object_id: str,
     """Move, turn, or resize one existing virtual-floor object under the configured approval policy.
 
     Use current room_id and scene_revision from Matrix context or
-    matrix_scene_summary. Position is the target in room metres. Optional
+    matrix_scene_summary. Position is in web-floor coordinates, including in AR.
+    Use worldPlacement.position from current Operator context for a selected point,
+    or matrix_move_to_selected_point to resolve it directly. Ordinary AR moves
+    need no surface-fit check. Optional
     rotation is a complete x/y/z Euler-degrees target; omitted rotation keeps
     the current orientation. Optional scale is a complete x/y/z unitless
     target in [0.01, 20]; omitted scale keeps the current scale. Requires
     paused Creator Mode. The asset ID and observed transform must still match
     when the browser executes. A succeeded receipt includes the complete
     observed transform; queued or unconfirmed does not mean changed. This
-    tool does not operate on physical AR surfaces.
+    tool edits the digital object, including its AR presentation; it does not
+    certify physical surface support or clearance.
     """
     value = {"room_id": room_id, "scene_revision": scene_revision,
              "object_id": object_id, "expected_asset_id": expected_asset_id,
@@ -128,6 +133,30 @@ def matrix_move_with_room_constraint(room_id: str, scene_revision: int, spatial_
 def matrix_move_status(request_id: str) -> dict:
     """Read the receipt and complete observed transform. Never retry a queued move."""
     return move_status(os.environ["MATRIX_CONTROL_URL"], os.environ["MATRIX_CONTROL_TOKEN"], request_id)
+
+
+@server.tool(annotations=ToolAnnotations(readOnlyHint=False, destructiveHint=False,
+                                         idempotentHint=False, openWorldHint=False))
+def matrix_move_to_selected_point(room_id: str, scene_revision: int, object_id: str,
+                                  expected_asset_id: str, anchor_id: str,
+                                  selected_position: dict[str, float],
+                                  tracking_epoch: int | None) -> dict:
+    """Move the selected object to the retained marker in one action, in desktop/VR/AR.
+
+    Supply selectedPlacement.anchorId and selectedPlacement.position unchanged
+    from current Operator context, and trackingEpoch from roomSpatial (null outside AR).
+    Code converts the point to web-floor coordinates; no source search or manual
+    coordinate math is needed. The browser's Fit to room setting controls fitting:
+    off preserves rotation and scale and allows overhang; on requires measured
+    support/full footprint and stands the object upright while preserving yaw/scale.
+    A changed selected point, object, setting, tracking epoch or scene rejects the
+    action. Use current scene identity/revision. Confirm the returned move receipt;
+    never retry queued or uncertain actions.
+    """
+    return move_selected_point(os.environ["MATRIX_CONTROL_URL"], os.environ["MATRIX_CONTROL_TOKEN"],
+        {"room_id": room_id, "scene_revision": scene_revision, "object_id": object_id,
+         "expected_asset_id": expected_asset_id, "anchor_id": anchor_id,
+         "selected_position": selected_position, "tracking_epoch": tracking_epoch})
 
 
 @server.tool(annotations=ToolAnnotations(readOnlyHint=False, destructiveHint=False,

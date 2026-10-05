@@ -100,6 +100,9 @@ test('successive controller ray hits move one visible marker while hover and obj
   world.spatial.originUnavailable=false;
   world.spatial.alignmentVerified=false;
   view.refreshSelectedPointMarker();
+  assert.equal(view.selectedPointMarker.visible,true,'free AR keeps the marker without fit confirmation');
+  world.fitToRoom=true;
+  view.refreshSelectedPointMarker();
   assert.equal(view.selectedPointMarker.visible,false);
   assert.equal(captureAgentContext(world,view,'client-1','text').selectedPlacement,null);
   assert.deepEqual(errors,[]);

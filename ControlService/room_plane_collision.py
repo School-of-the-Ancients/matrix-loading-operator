@@ -48,6 +48,12 @@ def _inverse(point, pose):
                  for index, axis in enumerate(("x", "y", "z")))
 
 
+def point_between_frames(point, source_pose, target_pose):
+    """Convert a validated anchor-local point using the runtime's observed poses."""
+    result = _inverse(_apply(tuple(point[axis] for axis in "xyz"), source_pose), target_pose)
+    return {axis: round(result[index], 6) for index, axis in enumerate("xyz")}
+
+
 def _cross(a, b):
     return a[0] * b[1] - a[1] * b[0]
 

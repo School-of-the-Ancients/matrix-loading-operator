@@ -540,7 +540,9 @@ class AgentPortalTests(unittest.TestCase):
                                          "source": "raycast"}}
         virtual = build_matrix_turn_message("Put a chair there", context)
         self.assertIn('"anchorId":"web-floor"', virtual)
-        self.assertIn("Digital edits need no measured support", virtual)
+        self.assertIn("ordinary AR edits use digital actions without footprint or clearance checks", virtual)
+        self.assertIn("preserving rotation and size unless requested", virtual)
+        self.assertIn("matrix_move_to_selected_point", virtual)
         measured = build_matrix_turn_message(
             "Put a chair there",
             {**context, "runtimeDescriptor": {**context["runtimeDescriptor"],

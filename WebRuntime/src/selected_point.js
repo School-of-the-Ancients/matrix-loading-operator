@@ -10,10 +10,12 @@ export function currentSelectedPoint(world,selected,trackingEpoch){
   if(selected.presentation!=='ar')return selected.anchorId==='web-floor'?selected:null;
   const spatial=world.spatial;
   if(!spatial||world.digitalWorldVisit||spatial.stale||spatial.originUnavailable||
-     !spatial.alignmentVerified||
+     world.fitToRoom===true&&!spatial.alignmentVerified||
      selected.trackingEpoch!==trackingEpoch||
      selected.trackingEpoch!==spatial.trackingEpoch||
-     !world.originFresh()||!world.planeFresh())return null;
+     !world.originFresh())return null;
+  if(selected.anchorId==='web-floor'&&world.fitToRoom!==true)return selected;
+  if(!world.planeFresh())return null;
   const anchor=(spatial.observedAnchors||spatial.anchors).find(item=>
     item.anchorId===selected.anchorId&&item.source==='webxr'&&
     item.surface?.kind==='support');

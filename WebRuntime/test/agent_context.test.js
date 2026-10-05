@@ -37,7 +37,8 @@ test('captures selected object and a distinct pointing hit at send time',()=>{
   assert.equal(context.viewerFrame.anchorId,'floor-1');
   assert.equal(context.inputSource,'voice_transcript');
   assert.equal(context.roomId,'webxr-session-1');
-  assert.equal(context.schemaVersion,3);
+  assert.equal(context.schemaVersion,4);
+  assert.equal(context.fitToRoom,false);
   assert.equal(context.selectedPlacement,null);
   assert.equal(context.presentation,'ar');
   assert.equal(context.trackingEpoch,4);

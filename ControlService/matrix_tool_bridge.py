@@ -81,6 +81,12 @@ def move_object(url: str, token: str, value: dict) -> dict:
     return _request_json(url[:-6] + "/move", token, value)
 
 
+def move_selected_point(url: str, token: str, value: dict) -> dict:
+    if not url.endswith("/scene"):
+        raise ValueError("Invalid Matrix tool bridge URL")
+    return _request_json(url[:-6] + "/move-point", token, value)
+
+
 def move_with_room_constraint(url: str, token: str, value: dict) -> dict:
     if not url.endswith("/scene"):
         raise ValueError("Invalid Matrix tool bridge URL")
@@ -359,6 +365,7 @@ def scene_summary(state) -> dict:
                           "alignmentVerified": room_context.get("alignmentVerified", False),
                           "readOnly": snapshot.get("readOnly", False)} if online else None),
                 "digitalWorldVisit": snapshot.get("digitalWorldVisit", False) if online else None,
+                "pointPlacement": copy.deepcopy(snapshot.get("pointPlacement")) if online else None,
                 "runtimeDescriptor": snapshot.get("runtimeDescriptor") if online else None,
                 "objectCount": len(objects) if online else 0,
                 "assetCount": len(assets),
@@ -408,13 +415,13 @@ def scene_summary(state) -> dict:
 
 
 CONCEPT_SCENE_MUTATIONS = frozenset({
-    "/manipulation", "/move", "/move-room", "/spawn", "/spawn-surface", "/spawn-builtin", "/procedural", "/bind-game",
+    "/manipulation", "/move", "/move-room", "/move-point", "/spawn", "/spawn-surface", "/spawn-builtin", "/procedural", "/bind-game",
     "/update-game", "/display", "/control", "/rigid", "/entity-action",
     "/world-archive", "/bind-animation", "/component-action", "/physics",
     "/interaction", "/scale", "/environment"})
 
 BRIDGE_POST_PATHS = frozenset({
-    "/manipulation", "/move", "/move-room", "/spawn", "/spawn-surface", "/spawn-builtin", "/procedural", "/bind-game", "/update-game",
+    "/manipulation", "/move", "/move-room", "/move-point", "/spawn", "/spawn-surface", "/spawn-builtin", "/procedural", "/bind-game", "/update-game",
     "/display", "/control", "/rigid", "/inspect-entity", "/entity-action",
     "/world-archive", "/bind-animation", "/register-glb", "/publish-component",
     "/component-action", "/scale", "/physics", "/interaction", "/concept-build",
@@ -776,6 +783,12 @@ class _Handler(BaseHTTPRequestHandler):
                 while result['status'] == 'queued' and time.monotonic() < deadline:
                     time.sleep(.1)
                     result = self.server.state.agent_manipulation_status(result['requestId'])
+            elif self.path == "/move-point":
+                result = self.server.state.agent_move_selected_point(value)
+                deadline = time.monotonic() + MOVE_WAIT
+                while result["status"] == "queued" and time.monotonic() < deadline:
+                    time.sleep(.1)
+                    result = self.server.state.agent_move_status(result["requestId"])
             elif self.path == "/move-room":
                 result = self.server.state.agent_move_room(value)
                 deadline = time.monotonic() + MOVE_WAIT

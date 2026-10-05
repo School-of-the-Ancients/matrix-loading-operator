@@ -226,7 +226,7 @@ class AgentSessionTests(unittest.TestCase):
                               "matrix_register_glb", "matrix_register_panorama",
                               "matrix_set_environment", "matrix_remove_environment",
                               "matrix_spawn_asset", "matrix_spawn_builtin",
-                              "matrix_spawn_on_surface",
+                              "matrix_spawn_on_surface", "matrix_move_to_selected_point",
                               "matrix_create_procedural", "matrix_update_procedural",
                               "matrix_bind_game", "matrix_update_game",
                               "matrix_set_display", "matrix_remove_display",

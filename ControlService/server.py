@@ -58,7 +58,7 @@ from procedural_contract import (ProceduralError, GENERATOR_ID, VERSION,
                                  CURVED_BENCH_PARAMETERS,
                                  checked_recipe, checked_generators, available_recipe,
                                  interaction_bounds, new_recipe, revised_recipe)
-from room_plane_collision import overlapping_room_plane
+from room_plane_collision import overlapping_room_plane, point_between_frames
 
 MAX_BODY = 1024 * 1024
 MAX_EXCHANGE_BODY = 3 * 1024 * 1024  # two bounded snapshots plus a base64 JPEG
@@ -1399,6 +1399,12 @@ def snapshot(value):
     result = {"scene": scene(value.get("scene")),
               "assets": catalog(value.get("assets"), "assetId", 512),
               "anchors": catalog(value.get("anchors"), "anchorId", 128)}
+    if "pointPlacement" in value:
+        preference = value["pointPlacement"]
+        require(type(preference) is dict and set(preference) == {"schemaVersion", "fitToRoom"} and
+                type(preference["schemaVersion"]) is int and preference["schemaVersion"] == 1 and
+                type(preference["fitToRoom"]) is bool, "Invalid point placement settings")
+        result["pointPlacement"] = copy.deepcopy(preference)
     if "environmentSchemaVersion" in value:
         require(type(value["environmentSchemaVersion"]) is int and
                 value["environmentSchemaVersion"] == 1,
@@ -1776,7 +1782,7 @@ def command(value, *, allow_precondition=False):
         allowed |= {"anchorId", "transform", "placement", "roomConstraint"}
     if op == "set_transform":
         allowed |= {"anchorId", "placement", "expectedAssetId",
-                    "expectedCreatorRevision", "roomConstraint"}
+                    "expectedCreatorRevision", "roomConstraint", "pointTarget"}
     if allow_precondition and op in RESIDENT_PRECONDITION_OPS:
         allowed.add("expectedTransform")
     if allow_precondition and op == "attach_component":
@@ -1817,6 +1823,17 @@ def command(value, *, allow_precondition=False):
     if "placement" in value:
         require(value["placement"] == "surface", "Unknown placement mode")
         result["placement"] = "surface"
+    if "pointTarget" in value:
+        target = value["pointTarget"]
+        require(op == "set_transform" and type(target) is dict and
+                set(target) == {"anchorId", "position", "presentation", "trackingEpoch", "fitToRoom"} and
+                target["presentation"] in ("desktop", "vr", "ar") and
+                type(target["fitToRoom"]) is bool and
+                (target["presentation"] != "ar" and target["trackingEpoch"] is None or
+                 target["presentation"] == "ar" and type(target["trackingEpoch"]) is int and
+                 0 <= target["trackingEpoch"] <= 9007199254740991), "Invalid point target")
+        result["pointTarget"] = {**target, "anchorId": text(target["anchorId"], "point anchorId"),
+                                 "position": vector(target["position"], "point position")}
     if "roomConstraint" in value:
         constraint = value["roomConstraint"]
         require(op in ("spawn", "set_transform") and type(constraint) is dict and
@@ -3308,6 +3325,8 @@ def agent_capability_context(current):
                  "environmentSchemaVersion",
                  "worldSlotSchemaVersion")
                 if key in current}
+    if "pointPlacement" in current:
+        versions["pointPlacementSchemaVersion"] = current["pointPlacement"]["schemaVersion"]
     return {"runtimeDescriptor": current.get("runtimeDescriptor"),
             "capabilityVersions": versions,
             "assetCatalogCount": len(current["assets"]),
@@ -3524,6 +3543,7 @@ def agent_runtime_context(state, *, include_scene=False):
                     "assetCatalogCount": None, "proceduralGeneratorCount": 0,
                     "creatorMode": None}),
                 "room": agent_room_status(current) if current else None,
+                "fitToRoom": (current.get("pointPlacement") or {}).get("fitToRoom", False) if current else False,
                 **({"sceneSummary": agent_scene_summary(current, include_asset_details=True)}
                     if current and include_scene else {})}
 
@@ -3548,6 +3568,54 @@ def _selected_point_on_surface(point, boundary):
     return inside
 
 
+def selected_point_world_position(state, current, anchor_id, point, *, fit_to_room=False):
+    """Resolve a retained point without making object fitting a prerequisite."""
+    if anchor_id == "web-floor":
+        require(any(a["anchorId"] == anchor_id for a in current["anchors"]),
+                "Virtual floor is unavailable", 409)
+        if (current.get("runtimeDescriptor") or {}).get("presentation") == "ar":
+            require(not current.get("readOnly") and not current.get("digitalWorldVisit") and
+                    (current.get("spatialObservation") or {}).get("webFloorPose") is not None,
+                    "Current AR origin is unavailable", 409)
+        require(not fit_to_room or
+                (current.get("runtimeDescriptor") or {}).get("presentation") != "ar",
+                "Fit to room needs a selected measured surface", 409)
+        return copy.deepcopy(point)
+    support = next((a for a in current["anchors"] if a["anchorId"] == anchor_id and
+                    a.get("source") == "webxr" and a.get("surface", {}).get("kind") == "support"), None)
+    observation = current.get("spatialObservation") or {}
+    age = observation.get("planeAgeMs")
+    if type(age) in (int, float):
+        age += max(0, state.clock() - state.last_seen) * 1000
+    require(support is not None and support.get("roomPose") is not None and
+            observation.get("webFloorPose") is not None and
+            type(age) in (int, float) and 0 <= age <= MAX_ROOM_PLANE_AGE_MS and
+            not current.get("readOnly") and not current.get("digitalWorldVisit") and
+            _selected_point_on_surface(point, support["surface"]["boundary"]),
+            "Selected room point changed; aim and select again", 409)
+    if fit_to_room:
+        require(room_spatial_summary(state, current, (anchor_id,))["usable"],
+                "Confirm current room alignment before using Fit to room", 409)
+    return vector(point_between_frames(point, support["roomPose"], observation["webFloorPose"]),
+                  "resolved point")
+
+
+def validate_point_target(state, current, target, object_id):
+    require(current.get("pointPlacement") == {"schemaVersion": 1, "fitToRoom": target["fitToRoom"]} and
+            (current.get("runtimeDescriptor") or {}).get("presentation") == target["presentation"],
+            "Point placement setting or presentation changed", 409)
+    selected = current.get("selection") or {}
+    require(selected.get("anchorId") == target["anchorId"] and
+            selected.get("position") == target["position"] and
+            selected.get("objectId") == object_id,
+            "Selected point or object changed; aim and select again", 409)
+    if target["presentation"] == "ar":
+        require((current.get("spatialObservation") or {}).get("trackingEpoch") == target["trackingEpoch"],
+                "Room tracking changed; aim and select again", 409)
+    return selected_point_world_position(state, current, target["anchorId"], target["position"],
+                                         fit_to_room=target["fitToRoom"])
+
+
 @traced_stage('context.assemble')
 def agent_turn_context(state, value, *, creation=False):
     """Reduce one wearer-owned semantic hit to bounded, advisory agent data."""
@@ -3558,9 +3626,11 @@ def agent_turn_context(state, value, *, creation=False):
               (value.get("schemaVersion") == 2 and
                set(value) == common | {"presentation", "trackingEpoch"}) or
               (value.get("schemaVersion") == 3 and
-               set(value) == common | {"presentation", "trackingEpoch", "selectedPlacement"})),
+               set(value) == common | {"presentation", "trackingEpoch", "selectedPlacement"}) or
+              (value.get("schemaVersion") == 4 and
+               set(value) == common | {"presentation", "trackingEpoch", "selectedPlacement", "fitToRoom"})),
             "Invalid Matrix Agent context")
-    require(type(value["schemaVersion"]) is int and value["schemaVersion"] in (1, 2, 3),
+    require(type(value["schemaVersion"]) is int and value["schemaVersion"] in (1, 2, 3, 4),
             "Unsupported Matrix Agent context version")
     require(value["inputSource"] in ("text", "voice_transcript"), "Invalid Agent input source")
     client_id = text(value["clientId"], "Agent clientId")
@@ -3574,6 +3644,11 @@ def agent_turn_context(state, value, *, creation=False):
         require(state.online() and state.client_id == client_id and state.latest,
                 "Matrix world is not connected for spatial context", 409)
         current = state.latest
+        fit_to_room = value.get("fitToRoom", False)
+        require(type(fit_to_room) is bool, "Invalid Fit to room setting")
+        if value["schemaVersion"] == 4:
+            require(current.get("pointPlacement") == {"schemaVersion": 1, "fitToRoom": fit_to_room},
+                    "Placement setting changed; capture current context and retry", 409)
         require(current["scene"]["roomId"] == room_id, "Matrix room changed; point and retry", 409)
         descriptor = current.get("runtimeDescriptor") or {}
         presentation = descriptor.get("presentation")
@@ -3613,7 +3688,7 @@ def agent_turn_context(state, value, *, creation=False):
                       "position": vector(target["position"], "position")}
         placement = value.get("selectedPlacement")
         if placement is not None:
-            require(value["schemaVersion"] == 3 and isinstance(placement, dict) and
+            require(value["schemaVersion"] >= 3 and isinstance(placement, dict) and
                     set(placement) == {"anchorId", "position", "source"} and
                     placement["source"] in ("raycast", "hit-test", "adjusted"),
                     "Invalid selected placement")
@@ -3626,17 +3701,8 @@ def agent_turn_context(state, value, *, creation=False):
                     current_selection.get("position") == point,
                     "Selected Matrix point or object changed; aim and select again", 409)
             if presentation == "ar":
-                support = next((item for item in current["anchors"]
-                                if item["anchorId"] == anchor_id and
-                                item.get("source") == "webxr" and
-                                item["surface"]["kind"] == "support"), None)
-                require(support is not None, "Selected support is no longer available", 409)
-                spatial = room_spatial_summary(state, current, (anchor_id,))
-                require(spatial["usable"] and
-                        spatial["planeAgeMs"] is not None and
-                        spatial["planeAgeMs"] <= MAX_ROOM_PLANE_AGE_MS and
-                        _selected_point_on_surface(point, support["surface"]["boundary"]),
-                        "Selected room point changed; aim and select again", 409)
+                selected_point_world_position(state, current, anchor_id, point,
+                    fit_to_room=fit_to_room if value["schemaVersion"] == 4 else True)
             else:
                 require(anchor_id == "web-floor", "Virtual placement needs the virtual floor")
             placement = {"anchorId": anchor_id, "position": point,
@@ -3668,7 +3734,11 @@ def agent_turn_context(state, value, *, creation=False):
                 "room": agent_room_status(current),
                 "selectedObject": summarized[selected_id] if selected_id else None,
                 "pointingTarget": target,
-                **({"selectedPlacement": placement} if value["schemaVersion"] == 3 else {}),
+                **({"selectedPlacement": placement} if value["schemaVersion"] >= 3 else {}),
+                "fitToRoom": fit_to_room,
+                "worldPlacement": ({"anchorId": "web-floor", "position":
+                    selected_point_world_position(state, current, placement["anchorId"],
+                        placement["position"], fit_to_room=fit_to_room)} if placement else None),
                 "viewerFrame": frame,
                  "sceneSummary": summary,
                  "roomSpatial": room_spatial_summary(state, current, priority_anchors)}
@@ -5385,6 +5455,10 @@ class State:
                 elif item["op"] == "set_transform":
                     obj = next((obj for obj in self.latest["scene"]["objects"]
                                 if obj["objectId"] == item["objectId"]), None)
+                    if "pointTarget" in item:
+                        resolved = validate_point_target(self, self.latest, item["pointTarget"], item["objectId"])
+                        require(resolved == item["transform"]["position"],
+                                "Selected point transform changed", 409)
                     if "roomConstraint" in item:
                         constraint = item["roomConstraint"]
                         spatial = room_spatial_summary(self, self.latest,
@@ -5603,7 +5677,7 @@ class State:
                 result['status'] = 'succeeded' if observed else 'unconfirmed'
             return result
 
-    def agent_move(self, value):
+    def agent_move(self, value, *, point_target=None):
         """Queue one virtual-floor transform edit through the normal command path."""
         required = {"room_id", "scene_revision", "object_id", "expected_asset_id", "position"}
         require(isinstance(value, dict) and required <= set(value) <= required | {"rotation", "scale"},
@@ -5657,7 +5731,8 @@ class State:
                                   "transform": transform,
                                   "expectedTransform": copy.deepcopy(item["transform"]),
                                   "expectedAssetId": asset_id,
-                                  "expectedCreatorRevision": mode["revision"]}])["commands"][0]
+                                  "expectedCreatorRevision": mode["revision"],
+                                  **({"pointTarget": point_target} if point_target is not None else {})}])["commands"][0]
             request_id = queued["requestId"]
             self.agent_move_ids[request_id] = {"roomId": room_id, "objectId": object_id,
                                                "assetId": asset_id, "transform": transform}
@@ -5665,7 +5740,48 @@ class State:
                 self.agent_move_ids.popitem(last=False)
             return self.agent_move_status(request_id)
 
-    def agent_move_room(self, value):
+    def agent_move_selected_point(self, value):
+        """Resolve the current retained point and reuse the ordinary or precise move path."""
+        required = {"room_id", "scene_revision", "object_id", "expected_asset_id",
+                    "anchor_id", "selected_position", "tracking_epoch"}
+        require(type(value) is dict and set(value) == required, "Invalid selected-point move")
+        for key in ("room_id", "object_id", "expected_asset_id", "anchor_id"):
+            text(value[key], key)
+        revision = value["scene_revision"]
+        require(type(revision) is int and revision >= 0, "Invalid scene revision")
+        point = vector(value["selected_position"], "selected position")
+        epoch = value["tracking_epoch"]
+        require(epoch is None or type(epoch) is int and 0 <= epoch <= 9007199254740991,
+                "Invalid point tracking epoch")
+        with self.lock:
+            self.expire()
+            require(self.online() and self.latest is not None, self.room_unavailable_message(), 409)
+            current = self.latest
+            require(current["scene"]["roomId"] == value["room_id"] and self.revision == revision,
+                    "Matrix scene changed; inspect and retry", 409)
+            preference = current.get("pointPlacement")
+            require(preference is not None, "Update the browser for direct point placement", 409)
+            presentation = (current.get("runtimeDescriptor") or {}).get("presentation")
+            require(presentation in ("desktop", "vr", "ar") and
+                    (presentation == "ar" and epoch is not None or presentation != "ar" and epoch is None),
+                    "Point presentation or tracking changed", 409)
+            target = {"anchorId": value["anchor_id"], "position": point, "presentation": presentation,
+                      "trackingEpoch": epoch, "fitToRoom": preference["fitToRoom"]}
+            position = validate_point_target(self, current, target, value["object_id"])
+            move = {key: value[key] for key in ("room_id", "scene_revision", "object_id", "expected_asset_id")}
+            move["position"] = position
+            if preference["fitToRoom"] and presentation == "ar":
+                spatial = room_spatial_summary(self, current, (target["anchorId"],))
+                support = next(p for p in spatial["planes"] if p["anchorId"] == target["anchorId"])
+                item = next((o for o in current["scene"]["objects"] if o["objectId"] == value["object_id"]), None)
+                require(item is not None, "Selected object is unavailable", 409)
+                # Precise support placement deliberately stands the object upright.
+                move.update(anchor_id=target["anchorId"], spatial_token=support["spatialToken"],
+                            rotation={"x": 0, "y": item["transform"]["rotation"]["y"], "z": 0})
+                return self.agent_move_room(move, point_target=target)
+            return self.agent_move(move, point_target=target)
+
+    def agent_move_room(self, value, *, point_target=None):
         """Move an existing virtual object against one fresh measured AR support."""
         required = {"room_id", "scene_revision", "spatial_token", "anchor_id",
                     "object_id", "expected_asset_id", "position"}
@@ -5757,7 +5873,8 @@ class State:
                                   "expectedAssetId": asset_id,
                                   "expectedCreatorRevision": mode["revision"],
                                   "roomConstraint": {"anchorId": anchor_id,
-                                                     "trackingEpoch": spatial["trackingEpoch"]}}])["commands"][0]
+                                                     "trackingEpoch": spatial["trackingEpoch"]},
+                                  **({"pointTarget": point_target} if point_target is not None else {})}])["commands"][0]
             request_id = queued["requestId"]
             self.agent_move_ids[request_id] = {"roomId": room_id, "objectId": object_id,
                                                "assetId": asset_id, "transform": transform,
