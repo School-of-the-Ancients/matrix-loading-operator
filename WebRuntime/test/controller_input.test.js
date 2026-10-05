@@ -196,7 +196,7 @@ function selectableFirefly(){
   view.grab=null;view.pointerGrab=null;view.raycaster=new THREE.Raycaster();
   view.operatorPanel={group:{visible:false}};
   view.objectRoots=new Map([[object.objectId,root]]);
-  view.world={spatial:{stale:false,originUnavailable:false},requireObject:()=>object,setSelection(){}};
+  view.world={scene:{objects:[object]},spatial:{stale:false,originUnavailable:false},requireObject:()=>object,setSelection(){}};
   view.highlight=()=>{};view.onSelection=()=>{};view.onAssetError=()=>{};
   return {view,controller,root,glowCount:()=>glowCount};
 }

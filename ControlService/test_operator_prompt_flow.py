@@ -161,7 +161,8 @@ class OperatorPromptFlowTests(unittest.TestCase):
     def test_two_turn_dragon_load_bind_and_relative_room_move_have_matching_receipts(self):
         first_context, first_message = self.turn(LOAD_REQUEST)
         self.assertEqual(first_context["sceneSummary"]["objectCount"], 0)
-        self.assertIn("matrix_list_assets", first_message)
+        self.assertIn("Detailed world/entity state", first_message)
+        self.assertIn("matrix_list_assets", RecordingBackend.enabled_matrix_tools)
         spawn_receipt = self.spawn_observed_dragon()
         bind_id = self.bind_flight()
         self.assertEqual(animation_status(self.bridge.url, self.bridge.token, bind_id)["status"],

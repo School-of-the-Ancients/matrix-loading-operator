@@ -110,7 +110,7 @@ class AgentSessionTests(unittest.TestCase):
             executable = Path(folder) / "codex.exe"
             executable.write_bytes(b"MZ test")
             bridge = SimpleNamespace(url="http://127.0.0.1:1234/scene", token="PC-only")
-            prompted_tools = {"matrix_move_object", "matrix_move_with_room_constraint",
+            prompted_tools = {"matrix_set_manipulation", "matrix_move_object", "matrix_move_with_room_constraint",
                               "matrix_scale_block", "matrix_reset_block_scale",
                               "matrix_register_glb", "matrix_register_panorama",
                               "matrix_set_environment", "matrix_remove_environment",

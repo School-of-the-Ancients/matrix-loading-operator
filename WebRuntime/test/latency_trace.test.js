@@ -69,3 +69,55 @@ test('instrumented exchanges preserve command receipts and their acknowledgement
     assert.equal(JSON.stringify(trace.snapshot()).includes('private-request'),false);
   }finally{globalThis.sessionStorage=previousStorage;globalThis.fetch=previousFetch;}
 });
+
+test('a receipt during a delayed panorama batch cannot mark an unsynchronized frame visible',async()=>{
+  const previousStorage=globalThis.sessionStorage;
+  globalThis.sessionStorage={getItem:()=>null,setItem:()=>{}};
+  try{
+    const world=new MatrixWorld(()=> 'spawned-block'),trace=new LatencyTrace();
+    const id='a'.repeat(32),events=[];
+    let displayedObjects=[],releaseDependency,enteredDependency;
+    const waiting=new Promise(resolve=>{enteredDependency=resolve;});
+    const dependency=new Promise(resolve=>{releaseDependency=resolve;});
+    const bridge=new MatrixBridge(world,()=>'',event=>{
+      events.push(event);
+      if(event.type==='scene'){
+        displayedObjects=structuredClone(world.scene.objects);
+        trace.sceneSynchronized(event.visibleMutations);
+      }
+    });
+    bridge.latencyTrace=trace;
+    bridge.request=async()=>({commands:[
+      {op:'spawn',requestId:id,assetId:'block',anchorId:'web-floor',transform:{
+        position:{x:0,y:.5,z:-2},rotation:{x:0,y:0,z:0},scale:{x:1,y:1,z:1}}},
+      {op:'load',requestId:'b'.repeat(32),scene:{...world.scene,
+        environment:{assetId:'uncached-panorama'}}},
+    ]});
+    bridge.prepareEnvironment=async()=>{
+      enteredDependency();await dependency;
+      throw Error('Panorama unavailable; keep the successful spawn');
+    };
+    const exchange=bridge.exchange(null);
+    await waiting;
+    assert.equal(world.scene.objects.length,1);
+    assert.equal(bridge.receipts.get(id).ok,true);
+    assert.equal(displayedObjects.length,0);
+    assert.equal(events.some(event=>event.type==='scene'),false);
+    trace.rendered();
+    assert.equal(trace.snapshot().records.some(r=>r.stage==='frame.visible'),false);
+    releaseDependency();await exchange;
+    assert.equal(displayedObjects[0].objectId,'spawned-block');
+    trace.rendered();trace.rendered();
+    const visible=trace.snapshot().records.filter(r=>r.stage==='frame.visible');
+    assert.deepEqual(visible.map(r=>r.requestId),[id]);
+    assert.equal(visible[0].traceId,trace.traceId);
+    assert.equal(bridge.receipts.get('b'.repeat(32)).ok,false);
+  }finally{globalThis.sessionStorage=previousStorage;}
+});
+
+test('clearing tracing discards synchronized markers awaiting a rendered frame',()=>{
+  const trace=new LatencyTrace();
+  trace.sceneSynchronized([{traceId:trace.traceId,requestId:'a'.repeat(32)}]);
+  trace.clear();trace.rendered();
+  assert.deepEqual(trace.snapshot().records,[]);
+});
