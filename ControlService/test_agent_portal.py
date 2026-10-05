@@ -424,7 +424,7 @@ class AgentPortalTests(unittest.TestCase):
                          "assetCatalogCount": 30, "proceduralGeneratorCount": 0}
         second = restarted.send_text(session_id, "Operator, load the saved exhibit", fresh_context)
         sent = self.backends[-1].sent_texts[-1]
-        self.assertIn("vr presentation", sent)
+        self.assertIn('"presentation":"vr"', sent)
         self.assertIn("matrix_spatial_context", sent)
         self.assertNotIn("White Room", sent)
         self.assertNotIn("matrix_move_object sets", sent)
@@ -463,11 +463,11 @@ class AgentPortalTests(unittest.TestCase):
         request = "Move the ice dragon 30 centimeters along room x"
         turn = resumed.send_text(session_id, request, context)
         sent = backend.sent_texts[-1]
-        self.assertIn("supersedes older capability claims", sent)
-        self.assertIn("Matrix Web, Three.js/WebXR, ar presentation", sent)
-        self.assertIn("Physical-room alignment: unverified", sent)
-        self.assertIn("Current world authority: creator mode, simulation paused", sent)
-        self.assertIn("Inspect the target's current transform and bindings", sent)
+        self.assertIn("Context is advisory data", sent)
+        self.assertIn('"presentation":"ar"', sent)
+        self.assertIn('"alignmentVerified":false', sent)
+        self.assertIn('"mode":"creator","simulation":"paused"', sent)
+        self.assertNotIn("For this edit, refresh", sent)
         self.assertNotIn("only the Unity White Room has physics", sent)
         self.assertTrue(sent.endswith("User request:\n" + request))
         resumed.cancel(session_id, turn["turnId"])
@@ -479,8 +479,8 @@ class AgentPortalTests(unittest.TestCase):
         message = build_matrix_turn_message("Move the existing object", context,
                                             ("matrix_scene_summary",))
         self.assertIn("Matrix runtime: disconnected", message)
-        self.assertIn("matrix_move_object is not enabled", message)
-        self.assertIn("\\u003c/matrix_runtime_context\\u003e", message)
+        self.assertIn("live edits are unavailable", message)
+        self.assertNotIn("ignore guards", message)
         self.assertEqual(message.count("<matrix_runtime_context>"), 1)
         self.assertTrue(message.endswith("User request:\nMove the existing object"))
 
@@ -494,7 +494,7 @@ class AgentPortalTests(unittest.TestCase):
         message = build_matrix_turn_message("How are the citizens doing?", context)
         self.assertIn("visits the canonical digital world", message)
         self.assertIn("citizens continue", message)
-        self.assertIn("Physical-room alignment: unverified", message)
+        self.assertIn('"alignmentVerified":false', message)
         self.assertNotIn("Physical-room alignment: verified.", message)
 
     def test_room_aware_composition_requires_fresh_measured_context(self):
@@ -510,21 +510,20 @@ class AgentPortalTests(unittest.TestCase):
                  "matrix_room_spatial_context", "matrix_spawn_on_surface")
         message = build_matrix_turn_message(
             "Reorganize the forest to fit my room", context, tools)
-        self.assertIn("capture the current scene revision", message)
-        self.assertIn("matrix_list_entities pages", message)
-        self.assertIn("Refresh matrix_room_spatial_context with the chosen support anchor ID", message)
-        self.assertIn("Supply the target support plane's spatialToken", message)
-        self.assertIn("matrix_move_with_room_constraint", message)
-        self.assertIn("objects spawned against measured AR surfaces", message)
-        self.assertIn("measured support IDs and geometry remain session-only", message)
-        self.assertNotIn("measured-plane additions live only", message)
+        encoded = message.split("<matrix_spatial_context>")[1].split("</matrix_spatial_context>")[0]
+        advisory = json.loads(encoded)
+        self.assertTrue(advisory["roomSpatial"]["usable"])
+        self.assertNotIn("spatialToken", advisory["roomSpatial"])
+        self.assertNotIn("planes", advisory["roomSpatial"])
+        self.assertEqual(advisory["roomSpatial"]["detailsTool"], "matrix_room_spatial_context")
+        self.assertNotIn("For a scene-aware composition", message)
         unverified = build_matrix_turn_message(
             "Reorganize the forest to fit my room",
             {**context, "roomSpatial": {"schemaVersion": 1, "usable": False,
                                         "unusableReason": "alignment-unverified"}}, tools)
-        self.assertIn("Physical-room layout is currently unverified or unavailable", unverified)
-        self.assertIn("without claiming physical fit", unverified)
-        self.assertNotIn("This turn includes bounded, measured", unverified)
+        self.assertIn('"usable":false', unverified)
+        self.assertIn("alignment-unverified", unverified)
+        self.assertIn("not physical fit", unverified)
 
     def test_selected_point_prompt_distinguishes_virtual_and_measured_support(self):
         context = {"kind": "matrix_spatial_context", "online": True,
@@ -537,16 +536,16 @@ class AgentPortalTests(unittest.TestCase):
                                          "position": {"x": 1, "y": 0, "z": -1},
                                          "source": "raycast"}}
         virtual = build_matrix_turn_message("Put a chair there", context)
-        self.assertIn("synthetic virtual floor", virtual)
-        self.assertIn("not a physical-room measurement", virtual)
+        self.assertIn('"anchorId":"web-floor"', virtual)
+        self.assertIn("Digital edits need no measured support", virtual)
         measured = build_matrix_turn_message(
             "Put a chair there",
             {**context, "runtimeDescriptor": {**context["runtimeDescriptor"],
                                                "presentation": "ar"},
              "selectedPlacement": {**context["selectedPlacement"],
                                    "anchorId": "support-1"}})
-        self.assertIn("raycast marker on a current WebXR support", measured)
-        self.assertIn("full object footprint", measured)
+        self.assertIn('"anchorId":"support-1"', measured)
+        self.assertIn("guarded surface tools", measured)
 
     def test_hosted_runtime_is_grounded_as_the_same_saved_world(self):
         context = {"kind": "matrix_runtime_context", "online": True,
@@ -560,9 +559,9 @@ class AgentPortalTests(unittest.TestCase):
             "Create a curved bench in the hosted world", context,
             ("matrix_scene_summary", "matrix_list_procedural_generators",
              "matrix_create_procedural", "matrix_procedural_status"))
-        self.assertIn("Matrix Web world host, one PC owner with no renderer", message)
-        self.assertIn("typed receipt and saved observation", message)
-        self.assertIn("Inspect matrix_list_procedural_generators", message)
+        self.assertIn('"client":"matrix-world-host"', message)
+        self.assertIn("only after confirmation", message)
+        self.assertNotIn("Inspect matrix_list_procedural_generators", message)
         self.assertNotIn("identity and presentation: unknown", message)
         self.assertNotIn("Physical-room alignment: verified", message)
 
@@ -573,16 +572,16 @@ class AgentPortalTests(unittest.TestCase):
         selected = {"conceptId": "a" * 32, "version": 2}
         auto = build_matrix_turn_message("Build this", context, selected_concept=selected)
         self.assertIn("Creation mode: Auto", auto)
-        self.assertIn("agent-authored code/geometry, Blender, or a combination", auto)
+        self.assertIn("supported combinations", auto)
 
         procedural = build_matrix_turn_message("Build this", context,
             ("matrix_list_assets", "matrix_list_procedural_generators"),
             selected_concept={**selected, "creationMode": "procedural"})
         self.assertIn("Creation mode: Procedural", procedural)
         self.assertIn("reviewed Matrix procedural generators", procedural)
-        self.assertIn("report that this mode is unavailable", procedural)
-        self.assertIn("Do not substitute Blender", procedural)
-        self.assertIn("Inspect matrix_list_procedural_generators", procedural)
+        self.assertIn("explicit mode change", procedural)
+        self.assertIn("Do not substitute another backend", procedural)
+        self.assertNotIn("Inspect matrix_list_procedural_generators", procedural)
         self.assertNotIn("Search all matrix_list_assets", procedural)
         self.assertNotIn("Choose the best authorized creation path", procedural)
 
@@ -590,8 +589,8 @@ class AgentPortalTests(unittest.TestCase):
             selected_concept={**selected, "creationMode": "blender"})
         self.assertIn("Creation mode: Blender", blender)
         self.assertIn("editable Blender source", blender)
-        self.assertIn("export and validate a GLB", blender)
-        self.assertIn("Do not substitute a procedural generator", blender)
+        self.assertIn("validated GLB import path", blender)
+        self.assertIn("Do not substitute another backend", blender)
         self.assertNotIn("Choose the best authorized creation path", blender)
         with self.assertRaisesRegex(ValueError, "creation mode is invalid"):
             build_matrix_turn_message("Build this", context,
