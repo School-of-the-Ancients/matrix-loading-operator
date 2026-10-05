@@ -2,6 +2,15 @@
 
 The native Unity builds below are historical releases, not the build path for new coursework. The owner selected Three.js/WebXR for future Matrix runtime and submissions; source is retained in the [Unity archive](../Archive/Unity/README.md). Download all preserved builds from [GitHub Releases](https://github.com/School-of-the-Ancients/matrix-loading-operator/releases). Each prerelease has its own source and validation scope; later tests do not retroactively validate an older package.
 
+## Current WebXR releases
+
+| Version | Published date | Status | Source checkpoint |
+| --- | --- | --- | --- |
+| [v1.2.0](https://github.com/School-of-the-Ancients/matrix-loading-operator/releases/tag/v1.2.0) | October 4, 2026, America/Denver | Checkpoint prerelease; remaining acceptance in #173 | `858d486e9ee8507af36e2a05d78f1d34fc9ca2b0` |
+| [v1.1.0](https://github.com/School-of-the-Ancients/matrix-loading-operator/releases/tag/v1.1.0) | September 29, 2026 | Stable Latest | `9453ef06b1873937822c1cf985115f05f72e1e20` |
+
+The [v1.2 checkpoint guide](V1.2-Checkpoint.md) records verified ZIP/manifest/checksums, startup, controls, scope deferrals and validation limits. GitHub records its publication at October 5, 2026, 00:15:34 UTC, which is October 4 in the owner's timezone. The package is PC/WebXR, not an APK. Keep published tags/assets fixed; newer documentation on main is not part of the frozen ZIP.
+
 ## Historical Unity milestones
 
 | Version | Original build date | Experience | APK variants | Source checkpoint |

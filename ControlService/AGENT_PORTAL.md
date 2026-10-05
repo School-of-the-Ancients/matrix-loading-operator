@@ -7,29 +7,29 @@ historical compatibility surfaces, not another forward runtime. Start with the
 [repository project map](../PROJECTS.md) and [Web runtime guide](../WebRuntime/README.md)
 for the current product path.
 
-## Free AR creation and optional fitting
+## Free AR creation and explicit measured tools
 
-**Fit to room** defaults off in each browser session. The checkbox beside Agent
-context and the XR Creator/Play page use the same setting. It changes placement
-constraints, not Creator/Play authority or the world. Room context remains
-available for creative scale, composition and layout in either mode.
+The wearer deferred **Fit to room** from v1.2. Its browser checkbox and XR mode
+control are removed; ordinary creation and selected-point moves use free
+placement. Room context remains available for scale, composition and layout.
+This choice does not change Creator/Play authority or certify physical clearance.
 
-With fitting off, a selected-point move preserves the object's rotation and
-scale, allows overhang, and needs no object bounds, clearance calculation or
-alignment-confirmation workflow. A fresh room hit still needs its current
-coordinate frame; a digital-floor marker also works without measured planes.
-With fitting on, AR support placement uses the existing alignment, tracking,
-whole-footprint and room-plane overlap checks. Precise placement stands a tilted
-object upright while preserving yaw and scale. The setting cannot change during
-an active Agent turn or voice preparation.
+A free selected-point move preserves the object's rotation and scale, allows
+overhang, and needs no object bounds, clearance calculation or alignment
+confirmation. A fresh room hit still needs its current coordinate frame;
+a digital-floor marker also works without measured planes. Existing explicit
+measured-placement tools keep their alignment, tracking, eligible-static-object,
+whole-footprint and clearance checks. Physics bodies, running animations and
+unsupported procedural fitting are not silently treated as eligible static props.
 
 Context schema 4 carries the setting and retains the original anchor-local
 `selectedPlacement`. The PC supplies `worldPlacement` in `web-floor` coordinates
 using observed runtime poses. `matrix_move_to_selected_point` resolves that same
 point in code and reuses the existing move/receipt paths in one tool call. The
-browser's current setting selects ordinary movement or precise fitting; the
-model does not supply a replacement preference. The point, selected object,
-presentation, tracking epoch and setting are checked before queueing and again
+browser supplies the default free-placement policy in v1.2; compatible fitting
+fields remain for existing APIs. The model does not supply a replacement
+preference. The point, selected object, presentation, tracking epoch and setting
+are checked before queueing and again
 at runtime execution. Source-code discovery and model-authored coordinate math
 are not part of ordinary placement.
 
@@ -37,6 +37,19 @@ Legacy context versions and explicitly constrained tools retain their prior
 behavior. Runtime receipts, permissions, stable IDs, Undo and world persistence
 are unchanged. This removes unnecessary fitting and planning from the common
 path; measured improvement still requires new model/Quest timing samples.
+
+## Speech uses one Codex conversation
+
+Speech from every Operator page opens the shared Codex conversation. During
+an active turn, **Hold to Add** steers that captured turn and **Stop Turn**
+remains reachable on WORLD and other pages. The desktop text planner is a
+separate explicit proposal workflow; selecting it does not reroute speech.
+
+An expired-turn or bounded transcription rejection retains the editable draft
+and refreshes authoritative session/permission status without replaying the
+instruction. A failed status read keeps the connection error. Apply the chosen
+permissions and connect to Codex before speaking. See the
+[checkpoint and remaining acceptance](../Docs/V1.2-Checkpoint.md).
 
 ## Integration decision
 

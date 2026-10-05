@@ -38,6 +38,29 @@ AI Citizens
 
 The original Unity Matrix/White Room implementation is preserved in [Archive/Unity](Archive/Unity/README.md) as read-only history. **New runtime work targets Three.js/WebXR.**
 
+## Download and run
+
+[v1.2.0 is the published checkpoint prerelease](https://github.com/School-of-the-Ancients/matrix-loading-operator/releases/tag/v1.2.0).
+Download its PC/WebXR ZIP, manifest and checksums, then follow the bundled
+`RELEASE-README.md` to start the matching PC service and open `/web/` on desktop
+or Quest Browser. This is a WebXR bundle, not an APK. Python and native Codex
+sign-in are separate prerequisites; local speech models and Blender are optional
+external installations for their respective capabilities.
+
+The checkpoint includes compact Operator context, persisted object locks,
+browser Reviewed/Full access choices, readable XR controls and one shared Codex
+speech destination. **Hold for Codex** opens that conversation from every
+Operator page; **Hold to Add** and **Stop Turn** are available during a turn.
+Select an object, pin a fresh point and ask Codex to move it there. Ordinary AR
+creation and movement use free placement; **Fit to room** is deferred from
+v1.2. Free placement does not certify physical clearance.
+
+The [v1.2 checkpoint guide](Docs/V1.2-Checkpoint.md) records downloads, exact
+source/checksums, permission choices, validation and remaining acceptance.
+v1.1.0 remains the stable Latest release. Complete Quest and matched latency
+acceptance stays open in [#173](https://github.com/School-of-the-Ancients/matrix-loading-operator/issues/173);
+publication of this checkpoint is not a blanket acceptance pass.
+
 ## Start here
 
 - [VISION.md](VISION.md) — the product idea and boundaries.
@@ -46,7 +69,7 @@ The original Unity Matrix/White Room implementation is preserved in [Archive/Uni
 - [RESOURCES.md](RESOURCES.md) — references for creation and AI citizens.
 - [AGENTS.md](AGENTS.md) — rules for coding agents.
 - [WebRuntime/README.md](WebRuntime/README.md#quest-controls-faq) — Quest controls and Operator screen FAQ.
-- [#122 Immersive Creator Mode](https://github.com/School-of-the-Ancients/matrix-loading-operator/issues/122) — current implementation focus.
+- [#173 v1.2 fast simple creation](https://github.com/School-of-the-Ancients/matrix-loading-operator/issues/173) — merged checkpoint and remaining acceptance.
 
 Detailed technical runbooks and evidence live under `Docs/` and `Validation/`.
 The ordinary `/web/` page is an interactive browser-owned world. The
