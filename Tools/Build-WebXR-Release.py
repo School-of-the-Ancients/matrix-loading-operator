@@ -334,6 +334,12 @@ for #150 panorama rules.
 Open `http://127.0.0.1:18796/web/` on the PC, or run
 `adb reverse tcp:18796 tcp:18796` for Quest Browser. Choose a free port and use
 the same value in the launcher, URL, and USB mapping.
+After **Start or resume Codex**, choose **Reviewed** or **Full access** in the
+browser's Codex section before entering AR or VR. Full access requires the
+permission checkbox and **Enable Full access**; it allows PC files, network and
+configured tools with automatic approvals for this service session. Change
+permissions only while the Agent is idle. Reviewed mode uses this interactive
+PC terminal for full command and Blender/MCP approval prompts.
 On the desktop `/web/` page, after connecting to Codex, use
 **VISUAL CONCEPTS → Image source** to select the option beginning **ComfyUI**
 before entering VR.

@@ -6,6 +6,7 @@ import base64
 import ssl
 import collections
 import copy
+from dataclasses import replace
 import hashlib
 import hmac
 import ipaddress
@@ -3272,11 +3273,23 @@ def loopback(host):
         return False
 
 
-def local_agent_backend(state=None):
-    config = CodexConfig.from_environment()
+def local_agent_backend(state=None, permissions_mode=None):
+    config = getattr(state, "agent_startup_config", None)
+    if config is None:
+        config = CodexConfig.from_environment()
     if config is None:
         raise AgentPortalError(503, "Configure the local Codex provider for Agent Portal")
     config.validate()
+    if state is not None and getattr(state, "agent_startup_config", None) is None:
+        state.agent_startup_config = config
+    if permissions_mode == "full-access":
+        config = replace(config, agent_sandbox="danger-full-access", agent_approval_policy="never")
+    elif permissions_mode == "reviewed":
+        config = replace(config, agent_sandbox=(config.agent_sandbox
+                         if config.agent_approval_policy == "on-request" else "workspace-write"),
+                         agent_approval_policy="on-request")
+    elif permissions_mode is not None:
+        raise AgentPortalError(400, "Invalid Agent permissions mode")
     if state is not None and state.matrix_tool_bridge is None:
         state.matrix_tool_bridge = MatrixToolBridge(state)
     return LocalCodexAgentBackend(config, Path(__file__).resolve().parent.parent,
@@ -3764,6 +3777,21 @@ def concept_reference_matches(value, selected):
                 for match in _CONCEPT_ID_REFERENCE.finditer(request)))
 
 
+def agent_concept_create(state, body):
+    """Bind session validation and image reservation to one admission slot."""
+    if not state.agent_turn_submission_lock.acquire(blocking=False):
+        raise AgentPortalError(409, "An Agent request is starting; try again shortly")
+    try:
+        state.agent_portal_status(body["sessionId"])
+        return state.concepts.create(body["sessionId"], body.get("prompt"),
+                                     source_concept_id=body.get("sourceConceptId"),
+                                     negative_prompt=body.get("negativePrompt"),
+                                     provider_id=body.get("providerId"),
+                                     purpose=body.get("purpose", "concept"))
+    finally:
+        state.agent_turn_submission_lock.release()
+
+
 def agent_portal_action(state, path, body):
     portal = state.agent_portal
     if path == "/api/agent/transcribe":
@@ -3784,6 +3812,44 @@ def agent_portal_action(state, path, body):
     if path == "/api/agent/status":
         require(set(body) in ({"sessionId"}, {"sessionId", "cursor"}), "Invalid Agent status request")
         return state.agent_portal_status(body["sessionId"], body.get("cursor", 0))
+    if path == "/api/agent/new-conversation":
+        require(set(body) == {"sessionId"}, "Invalid new Agent conversation request")
+        if not state.agent_turn_submission_lock.acquire(blocking=False):
+            raise AgentPortalError(409, "An Agent turn is starting; try again when it is idle")
+        try:
+            # A new session has a separate gallery and build history. Keep all
+            # work owned by the old session reachable until it is terminal.
+            with state.concepts.lock:
+                require(isinstance(body["sessionId"], str), "Invalid Agent session ID")
+                entry = state.concepts.data["sessions"].get(body["sessionId"], {})
+                if (any(job.get("status") in ("queued", "generating") for job in entry.get("jobs", []))
+                        or any(build.get("status") == "requested" for build in entry.get("builds", []))):
+                    raise AgentPortalError(409, "Finish or cancel pending images and builds before starting a new conversation")
+                return portal.new_conversation(body["sessionId"])
+        finally:
+            state.agent_turn_submission_lock.release()
+    if path == "/api/agent/permissions":
+        require(set(body) == {"sessionId", "mode", "confirmed"}, "Invalid Agent permissions request")
+        if not state.agent_turn_submission_lock.acquire(blocking=False):
+            raise AgentPortalError(409, "An Agent turn is starting; try again when it is idle")
+        try:
+            state.agent_portal_status(body["sessionId"])
+            # A native turn can end before its image is copied into the durable
+            # concept store. Preserve that result before closing its transport,
+            # and prevent a new image reservation during the handoff.
+            with state.concepts.lock:
+                def pending_native_images():
+                    images = state.concepts.status(body["sessionId"], refresh=False)
+                    return [job for job in images["jobs"] + images["panoramaJobs"]
+                            if job.get("providerId") == "codex-native"
+                            and job.get("status") in ("queued", "generating")]
+                for job in pending_native_images():
+                    state.concepts.refresh(body["sessionId"], job["conceptId"])
+                if pending_native_images():
+                    raise AgentPortalError(409, "Native image results are not ready; refresh the image gallery before changing permissions")
+                return portal.change_permissions(body["sessionId"], body["mode"], body["confirmed"])
+        finally:
+            state.agent_turn_submission_lock.release()
     if path == "/api/agent/turn":
         # Reserve admission before reading status or changing a concept guard.
         if not state.agent_turn_submission_lock.acquire(blocking=False):
@@ -4154,7 +4220,9 @@ class State:
             self.web_assets, citizen_directory=self.directory / "citizen_blender_jobs")
         self.matrix_tool_bridge = None
         self.latency_traces = TraceStore()
-        self.agent_portal = AgentPortal(self.directory / ".agent_portal", lambda: local_agent_backend(self))
+        self.agent_startup_config = None
+        self.agent_portal = AgentPortal(self.directory / ".agent_portal", lambda: local_agent_backend(self),
+                                       permissions_factory=lambda mode: local_agent_backend(self, mode))
         self.concept_build_guard = None
         self.agent_turn_submission_lock = threading.Lock()
         self.clock = clock
@@ -8881,6 +8949,8 @@ class Handler(BaseHTTPRequestHandler):
             if not client_api_path(path):
                 self.authenticate()
             origin = self.headers.get("Origin")
+            if path in ("/api/agent/permissions", "/api/agent/new-conversation"):
+                require(origin is not None, "Agent session changes require a same-origin browser request", 403)
             require(origin is None or origin.lower() == self.server.scheme + "://" + host,
                     "Cross-origin mutation rejected", 403)
             require(self.headers.get_content_type() == "application/json", "Content-Type must be application/json", 415)
@@ -8912,22 +8982,13 @@ class Handler(BaseHTTPRequestHandler):
                 require({"sessionId", "prompt"} <= set(body) <=
                         {"sessionId", "prompt", "negativePrompt", "providerId", "purpose"},
                         "Invalid concept generation request")
-                state.agent_portal_status(body["sessionId"])
-                data = state.concepts.create(body["sessionId"], body["prompt"],
-                                             negative_prompt=body.get("negativePrompt"),
-                                             provider_id=body.get("providerId"),
-                                             purpose=body.get("purpose", "concept"))
+                data = agent_concept_create(state, body)
             elif path == "/api/agent/concepts/variation":
                 require({"sessionId", "sourceConceptId"} <= set(body) <=
                         {"sessionId", "sourceConceptId", "prompt", "negativePrompt",
                          "providerId", "purpose"},
                         "Invalid concept variation request")
-                state.agent_portal_status(body["sessionId"])
-                data = state.concepts.create(body["sessionId"], body.get("prompt"),
-                                             source_concept_id=body["sourceConceptId"],
-                                             negative_prompt=body.get("negativePrompt"),
-                                             provider_id=body.get("providerId"),
-                                             purpose=body.get("purpose", "concept"))
+                data = agent_concept_create(state, body)
             elif path == "/api/agent/concepts/select":
                 require({"sessionId", "conceptId"} <= set(body) <=
                         {"sessionId", "conceptId", "designNotes", "purpose"},

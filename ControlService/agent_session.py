@@ -42,7 +42,9 @@ class AgentSessionBackend(Protocol):
     def poll(self, cursor: int) -> tuple[int, list[dict]]: ...
     def events_since(self, cursor: int) -> list[dict]: ...
     def pending_approvals(self) -> list[dict]: ...
+    def pending_pc_approvals(self) -> list[dict]: ...
     def pending_pc_commands(self) -> list[dict]: ...
+    def decide_pc(self, approval: dict, approve: bool) -> None: ...
     def decide(self, approval_id: int | str, conversation_id: str, turn_id: str, approve: bool) -> None: ...
     def cancel(self, conversation_id: str, turn_id: str) -> None: ...
     def native_image_capability(self) -> tuple[bool, str | None]: ...
@@ -108,6 +110,7 @@ def _approval_description(method: str, params: dict, cwd: Path) -> tuple[str, bo
 
 
 MAX_PC_COMMAND_REVIEW = 64 * 1024
+MAX_PC_APPROVAL_REVIEW = MAX_PC_COMMAND_REVIEW
 
 _XR_ENTITY_ID = re.compile(r"[A-Za-z0-9._:-]{1,128}\Z")
 _XR_RECEIPT_ID = re.compile(r"[0-9a-f]{32}\Z")
@@ -946,15 +949,16 @@ class LocalCodexAgentBackend:
                              "summary": summary, "reviewable": reviewable})
         return safe
 
-    def pending_pc_commands(self) -> list[dict]:
-        """Complete native generic commands for an attached PC console only.
+    def pending_pc_approvals(self) -> list[dict]:
+        """Complete native command/MCP requests for an attached PC console only.
 
         This return value must never be included in an HTTP response or browser
         event. Incomplete and oversized requests cannot receive PC approval.
         """
-        commands = []
+        approvals = []
         for approval in self.transport.pending_approvals():
-            if approval.get("method") != "item/commandExecution/requestApproval":
+            method = approval.get("method")
+            if method not in ("item/commandExecution/requestApproval", "mcpServer/elicitation/request"):
                 continue
             params = approval.get("params")
             request_id = approval.get("requestId")
@@ -965,25 +969,53 @@ class LocalCodexAgentBackend:
             thread_id = _identifier(params.get("threadId"))
             turn_id = _identifier(params.get("turnId"))
             item_id = _identifier(params.get("itemId"))
-            command = params.get("command")
-            cwd = params.get("cwd")
-            if (not all((thread_id, turn_id, item_id)) or
-                    not isinstance(command, str) or not command or
-                    not isinstance(cwd, str) or not cwd or
-                    _approval_description("item/commandExecution/requestApproval", params,
-                                          self.transport.cwd)[1]):
+            if not thread_id or not turn_id:
                 continue
             try:
                 native = json.dumps(params, ensure_ascii=True, sort_keys=True,
                                     allow_nan=False, separators=(",", ":"))
-                if len(native.encode("utf-8")) > MAX_PC_COMMAND_REVIEW:
+                if len(native.encode("utf-8")) > MAX_PC_APPROVAL_REVIEW:
                     continue
             except (TypeError, ValueError, RecursionError):
                 continue
-            commands.append({"approvalId": request_id, "conversationId": thread_id,
-                             "turnId": turn_id, "itemId": item_id,
-                             "nativeParams": native})
-        return commands
+            if method == "item/commandExecution/requestApproval":
+                command = params.get("command")
+                cwd = params.get("cwd")
+                if (not item_id or not isinstance(command, str) or not command or
+                        not isinstance(cwd, str) or not cwd or
+                        _approval_description(method, params, self.transport.cwd)[1]):
+                    continue
+                kind = "command"
+            else:
+                meta = params.get("_meta")
+                server = params.get("serverName")
+                message = params.get("message")
+                if (params.get("mode") != "form" or
+                        (params.get("itemId") is not None and item_id is None) or
+                        not isinstance(meta, dict) or meta.get("codex_approval_kind") != "mcp_tool_call" or
+                        not isinstance(meta.get("tool_params"), dict) or
+                        not isinstance(server, str) or not server.strip() or len(server) > 256 or
+                        not isinstance(message, str) or not message.strip() or len(message) > 16384 or
+                        _mcp_approval_description(params)[1]):
+                    continue
+                kind = "mcp"
+            approvals.append({"approvalId": request_id, "conversationId": thread_id,
+                              "turnId": turn_id, "itemId": item_id, "method": method,
+                              "kind": kind, "nativeParams": native})
+        return approvals
+
+    def pending_pc_commands(self) -> list[dict]:
+        """Compatibility view for consumers that only review commands."""
+        return [approval for approval in self.pending_pc_approvals() if approval["kind"] == "command"]
+
+    def decide_pc(self, approval: dict, approve: bool) -> None:
+        """Bind a PC decision to the exact complete request that was displayed."""
+        if type(approve) is not bool:
+            raise ValueError("Approval decision must be a boolean")
+        self.transport.respond_approval(approval["approvalId"], approval["conversationId"],
+                                        approval["turnId"], "accept" if approve else "decline",
+                                        expected_request={"method": approval["method"],
+                                                          "params": json.loads(approval["nativeParams"])})
 
     def decide(self, approval_id: int | str, conversation_id: str, turn_id: str, approve: bool) -> None:
         if type(approve) is not bool:

@@ -15,11 +15,18 @@ from agent_session import _mcp_approval_description
 from matrix_tool_bridge import scene_summary
 from server import (APIError, Server, State, agent_runtime_context, agent_turn_context,
                     scene_revision_data, snapshot)
-from test_agent_portal import FakeBackend
+from test_agent_portal import FakeBackend, PCMCPBackend, PCInput, PCOutput
 from test_scene_capture import JPEG, capture_result
 from test_server import SNAPSHOT
 from test_web_assets import glb
 from web_assets import WebAssetCatalog
+
+
+class HTTPMCPBackend(PCMCPBackend):
+    def send_text(self, identifier, text):
+        turn_id = super().send_text(identifier, text)
+        self.approval["action"] = "using_tool"
+        return turn_id
 
 
 class AgentPortalHTTPTests(unittest.TestCase):
@@ -390,7 +397,8 @@ class AgentPortalHTTPTests(unittest.TestCase):
         self.post("/api/agent/turn", {"sessionId": session_id, "text": "Another action"})
         backend.approval.update(action="using_tool", summary="X" * 241, reviewable=True)
         pending = self.post("/api/agent/status", {"sessionId": session_id})[1]["pendingApprovals"][0]
-        self.assertEqual(pending["summary"], "Codex action needs PC review.")
+        self.assertEqual(pending["summary"],
+                         "This request has no supported approval view. Deny or stop it; PC repair is required.")
         self.assertFalse(pending["reviewable"])
         self.assertEqual(self.post("/api/agent/approval", {"sessionId": session_id,
                          "turnId": pending["turnId"], "approvalId": pending["approvalId"],
@@ -416,6 +424,71 @@ class AgentPortalHTTPTests(unittest.TestCase):
                                     "approvalId": pending["approvalId"], "approve": True})
         self.assertEqual(code, 409)
         self.assertNotIn("SECRET_NATIVE_COMMAND", json.dumps(response))
+
+    def check_external_mcp_http_review(self, interactive):
+        self.state.agent_portal.close()
+        backend = HTTPMCPBackend(self.persisted)
+        pc_input, pc_output = PCInput(interactive), PCOutput(interactive)
+        portal = AgentPortal(Path(self.temp.name) / ".agent_portal", lambda: backend,
+                             pc_input=pc_input, pc_output=pc_output)
+        self.state.agent_portal = portal
+        try:
+            code, opened = self.post("/api/agent/session", {})
+            self.assertEqual(code, 200)
+            session_id = opened["sessionId"]
+            code, started = self.post("/api/agent/turn", {"sessionId": session_id,
+                                                        "text": "Inspect Blender"})
+            self.assertEqual(code, 200)
+            if interactive:
+                self.assertTrue(pc_output.prompted.wait(2))
+                self.assertIn("SECRET_COMMAND", pc_output.getvalue())
+            else:
+                self.assertIsNone(portal._pc_reviewer)
+                self.assertEqual(pc_output.getvalue(), "")
+            code, status = self.post("/api/agent/status", {"sessionId": session_id})
+            self.assertEqual(code, 200)
+            pending = status["pendingApprovals"][0]
+            self.assertEqual(pending["action"], "using_tool")
+            self.assertFalse(pending["reviewable"])
+            self.assertIn("PC service terminal" if interactive else "interactive service terminal",
+                          pending["summary"])
+            private_values = ("SECRET_COMMAND", "C:/Private/model.blend", "execute_blender_code",
+                              "nativeParams", "tool_params", "serverName")
+            for response in (opened, started, status):
+                for private in private_values:
+                    self.assertNotIn(private, json.dumps(response))
+            decision = {"sessionId": session_id, "turnId": pending["turnId"],
+                        "approvalId": pending["approvalId"], "approve": True}
+            code, rejected = self.post("/api/agent/approval", decision)
+            self.assertEqual(code, 409)
+            self.assertEqual(backend.decisions, [])
+            for private in private_values:
+                self.assertNotIn(private, json.dumps(rejected))
+            self.assertEqual(self.post("/api/agent/approval", {**decision, "approve": False})[0], 200)
+            self.assertEqual(backend.decisions,
+                             [(pending["approvalId"], "native-thread-id", pending["turnId"], False)])
+            self.assertEqual(self.post("/api/agent/approval", decision)[0], 409)
+            self.assertEqual(len(backend.decisions), 1)
+            self.post("/api/agent/status", {"sessionId": session_id})
+            code, next_turn = self.post("/api/agent/turn", {"sessionId": session_id,
+                                                          "text": "Inspect Blender again"})
+            self.assertEqual(code, 200)
+            self.assertEqual(self.post("/api/agent/cancel", {"sessionId": session_id,
+                                                           "turnId": next_turn["turnId"]})[0], 200)
+            code, stopped = self.post("/api/agent/status", {"sessionId": session_id})
+            self.assertEqual(code, 200)
+            self.assertIsNone(stopped["activeTurnId"])
+            self.assertEqual(stopped["pendingApprovals"], [])
+            self.assertEqual(len(backend.decisions), 1)
+        finally:
+            portal.close()
+            pc_input.lines.put("\n")
+
+    def test_external_mcp_http_stays_private_and_deny_stop_work_with_terminal(self):
+        self.check_external_mcp_http_review(True)
+
+    def test_external_mcp_http_stays_private_and_deny_stop_work_without_terminal(self):
+        self.check_external_mcp_http_review(False)
 
     def test_spatial_turn_is_bounded_validated_and_keeps_user_transcript_clean(self):
         room = {"scene": {"schemaVersion": 1, "roomId": "web-virtual-room-v1",

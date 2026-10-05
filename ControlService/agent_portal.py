@@ -50,6 +50,33 @@ def _pc_json(value) -> str:
     return json.dumps(value, ensure_ascii=True, allow_nan=False).replace("\x7f", "\\u007f")
 
 
+def _pc_approval_identity(item: dict) -> tuple:
+    """Bind a console answer to the exact request that was displayed."""
+    return (item["method"], item["approvalId"], item["conversationId"],
+            item["turnId"], item["itemId"],
+            hashlib.sha256(item["nativeParams"].encode("utf-8")).hexdigest())
+
+
+def _pc_approval_prompt(item: dict) -> str:
+    params = json.loads(item["nativeParams"])
+    if item["kind"] == "mcp":
+        title = "Matrix PC tool approval"
+        details = (f"MCP server: {_pc_json(params['serverName'])}\n"
+                   f"Request: {_pc_json(params['message'])}\n"
+                   f"Tool arguments (exact native value, JSON escaped): "
+                   f"{_pc_json(params['_meta']['tool_params'])}\n")
+    else:
+        title = "Matrix PC command approval"
+        details = (f"Command (exact native value, JSON escaped): {_pc_json(params['command'])}\n"
+                   f"Working directory (native cwd): {_pc_json(params['cwd'])}\n"
+                   f"Reason: {_pc_json(params.get('reason'))}\n"
+                   f"Network context: {_pc_json(params.get('networkApprovalContext'))}\n")
+    native = item["nativeParams"].replace("\x7f", "\\u007f")
+    return (f"\n{title}\nApproval ID: {_pc_json(item['approvalId'])}\n"
+            f"{details}Full native request parameters: {native}\n"
+            "Type approve to run once or deny. Enter defaults to deny.\n> ")
+
+
 def _selected_concept_input(record: dict, directory: Path) -> tuple[dict, Path]:
     """Bind one immutable PC image to a turn, never a browser-supplied path."""
     if type(record) is not dict or record.get("status") != "ready":
@@ -254,10 +281,14 @@ class AgentPortal:
     """PC-owned session broker. Browser clients receive only the Matrix ID."""
 
     def __init__(self, directory: str | Path, backend_factory: Callable[[], AgentSessionBackend],
-                 *, pc_input=None, pc_output=None):
+                 *, permissions_factory: Callable[[str], AgentSessionBackend] | None = None,
+                 pc_input=None, pc_output=None):
         self.directory = Path(directory)
         self.path = self.directory / "agent_portal.json"
         self.backend_factory = backend_factory
+        self.permissions_factory = permissions_factory
+        # A browser choice lasts only for this service instance, never on disk.
+        self._permissions_mode: str | None = None
         self.lock = threading.RLock()
         self._loaded = False
         self._session_id: str | None = None
@@ -273,6 +304,7 @@ class AgentPortal:
         self._capture_files: set[Path] = set()
         self._turn_capture_files: dict[str, Path] = {}
         self._native_starting = False
+        self._starting_turn = False
         self._native_turns: deque[str] = deque(maxlen=128)
         self._native_capability: tuple[bool, str | None] | None = None
         self._native_capability_checked_at = 0.0
@@ -285,7 +317,7 @@ class AgentPortal:
         except (AttributeError, OSError, ValueError):
             self._pc_console_available = False
         self._pc_reviewer: threading.Thread | None = None
-        self._reviewed_commands: set[tuple] = set()
+        self._reviewed_approvals: set[tuple] = set()
         self._stopping_turn: str | None = None
         self._stop = threading.Event()
         self.last_error: str | None = None  # PC diagnostics only.
@@ -420,11 +452,104 @@ class AgentPortal:
             if path is not None:
                 path.unlink(missing_ok=True)
 
+    def _create_selected_backend(self) -> AgentSessionBackend:
+        return (self.permissions_factory(self._permissions_mode)
+                if self.permissions_factory is not None and self._permissions_mode is not None
+                else self.backend_factory())
+
+    def _archive_current_conversation(self) -> None:
+        """Preserve a complete PC-only mapping before explicitly starting fresh."""
+        self._persist()
+        temporary = None
+        try:
+            history = self.directory / "history"
+            history.mkdir(parents=True, exist_ok=True)
+            raw = self.path.read_bytes()
+            with tempfile.NamedTemporaryFile(mode="wb", dir=history, prefix="archive-",
+                                             suffix=".tmp", delete=False) as stream:
+                temporary = Path(stream.name)
+                stream.write(raw)
+                stream.flush()
+                os.fsync(stream.fileno())
+            os.replace(temporary, history / f"{self._session_id}-{uuid.uuid4().hex}.json")
+        except OSError:
+            raise AgentPortalError(507, "Previous Agent conversation could not be archived") from None
+        finally:
+            if temporary is not None:
+                temporary.unlink(missing_ok=True)
+
+    def new_conversation(self, session_id: str) -> dict:
+        """Explicitly start fresh context, retaining the previous native history."""
+        with self.lock:
+            # Do not resume the previous native thread merely to leave it. This
+            # also recovers a saved conversation currently owned by another app.
+            self._load()
+            if not isinstance(session_id, str) or session_id != self._session_id:
+                raise AgentPortalError(404, "Agent Portal session not found")
+            if self._backend is not None:
+                self._refresh()
+            if (self._active_turn is not None or self._starting_turn or self._native_starting
+                    or self._stopping_turn is not None):
+                raise AgentPortalError(409, "Stop the active Agent turn before starting a new conversation")
+            if self._backend is not None:
+                try:
+                    pending = self._backend.pending_approvals()
+                except Exception:
+                    raise AgentPortalError(503, "Agent approval status is unavailable; reconnect before starting a new conversation") from None
+                if pending:
+                    raise AgentPortalError(409, "Resolve pending approvals before starting a new conversation")
+            self._archive_current_conversation()
+            old_backend = self._backend
+            candidate = old_backend
+            try:
+                if candidate is None:
+                    candidate = self._create_selected_backend()
+                    candidate.start()
+            except Exception as error:
+                self.last_error = str(error)
+                if candidate is not None and candidate is not old_backend:
+                    try:
+                        candidate.close()
+                    except Exception:
+                        pass
+                raise AgentPortalError(503, "New Agent conversation could not be started; previous history is preserved") from None
+            previous = (self._session_id, self._conversation_id, self._transcript, self._sequence)
+            self._session_id = uuid.uuid4().hex
+            # Match initial Portal startup: Codex cannot resume an empty native
+            # thread, so defer its creation until the first submitted message.
+            self._conversation_id = None
+            self._transcript = []
+            self._sequence = 0
+            try:
+                self._persist()
+            except AgentPortalError:
+                (self._session_id, self._conversation_id, self._transcript, self._sequence) = previous
+                if candidate is not old_backend:
+                    try:
+                        candidate.close()
+                    except Exception:
+                        pass
+                raise
+            self._backend = candidate
+            self._events.clear()
+            self._native_turns.clear()
+            self._reset_backend_caches()
+            self._activity = "idle"
+            self.latency_run = None
+            self.last_error = None
+            return self._snapshot(0)
+
+    def _reset_backend_caches(self) -> None:
+        self._backend_cursor = 0
+        self._native_capability = None
+        self._native_capability_checked_at = 0.0
+        self._reviewed_approvals.clear()
+
     def _connect(self) -> None:
         if self._backend is not None:
             return
         try:
-            backend = self.backend_factory()
+            backend = self._create_selected_backend()
             backend.start()
             if self._conversation_id is not None:
                 backend.resume_conversation(self._conversation_id)
@@ -439,8 +564,102 @@ class AgentPortal:
                        "Local Codex Agent Portal is unavailable")
             raise AgentPortalError(503, message) from None
         self._backend = backend
-        self._native_capability = None
-        self._native_capability_checked_at = 0.0
+        self._reset_backend_caches()
+
+    def _permissions_change_allowed(self) -> bool:
+        if (self.permissions_factory is None or self._backend is None
+                or self._active_turn is not None or self._starting_turn
+                or self._native_starting or self._stopping_turn is not None):
+            return False
+        try:
+            return not self._backend.pending_approvals()
+        except Exception:
+            return False
+
+    def change_permissions(self, session_id: str, mode: str, confirmed: bool) -> dict:
+        """Replace the transport before applying a different MCP/sandbox policy."""
+        with self.lock:
+            self._require_session(session_id)
+            if (type(mode) is not str or mode not in ("reviewed", "full-access")
+                    or type(confirmed) is not bool):
+                raise AgentPortalError(400, "Invalid Agent permissions request")
+            if mode == "full-access" and confirmed is not True:
+                raise AgentPortalError(400, "Confirm Full access before applying it")
+            self._refresh()
+            if self.permissions_factory is None:
+                raise AgentPortalError(409, "This Agent backend cannot change permissions")
+            if not self._permissions_change_allowed():
+                raise AgentPortalError(409, "Stop the active Agent turn and resolve pending approvals before changing permissions")
+            old_backend = self._backend
+            already_selected = (
+                old_backend.approval_mode == ("automatic" if mode == "full-access" else "reviewed")
+                and (mode != "full-access" or old_backend.access_mode == "danger-full-access"))
+            if already_selected:
+                return self._snapshot(0)
+            old_policy = (old_backend.access_mode, old_backend.approval_mode)
+            candidate = None
+            try:
+                candidate = self.permissions_factory(mode)
+                if candidate is old_backend:
+                    raise RuntimeError("Permissions require a new Agent backend")
+                candidate.start()
+                if (candidate.approval_mode != ("automatic" if mode == "full-access" else "reviewed")
+                        or candidate.access_mode not in ("read-only", "workspace-write", "danger-full-access")
+                        or (mode == "full-access" and candidate.access_mode != "danger-full-access")):
+                    raise RuntimeError("Permissions backend did not apply the requested mode")
+            except Exception as error:
+                self.last_error = str(error)
+                if candidate is not None and candidate is not old_backend:
+                    try:
+                        candidate.close()
+                    except Exception:
+                        pass
+                raise AgentPortalError(503, "Agent permissions could not be changed; the previous mode is still selected") from None
+            # Codex permits only one writer per native conversation. Prepare the
+            # new process first, then release the old writer before resuming.
+            self._backend = None
+            self._reset_backend_caches()
+            try:
+                old_backend.close()
+                if self._conversation_id is not None:
+                    resumed = candidate.resume_conversation(self._conversation_id)
+                    if resumed != self._conversation_id:
+                        raise RuntimeError("Permissions backend resumed a different conversation")
+            except Exception as error:
+                self.last_error = str(error)
+                try:
+                    candidate.close()
+                except Exception:
+                    pass
+                restored = None
+                try:
+                    # _permissions_mode changes only after success, so this
+                    # reconstructs the previous startup or browser-selected policy.
+                    restored = self._create_selected_backend()
+                    if restored is old_backend or restored is candidate:
+                        raise RuntimeError("Restoring permissions requires a new Agent backend")
+                    restored.start()
+                    if (restored.access_mode, restored.approval_mode) != old_policy:
+                        raise RuntimeError("Previous Agent policy could not be restored")
+                    if (self._conversation_id is not None
+                            and restored.resume_conversation(self._conversation_id) != self._conversation_id):
+                        raise RuntimeError("Restored backend resumed a different conversation")
+                    self._backend = restored
+                    self._reset_backend_caches()
+                except Exception as restore_error:
+                    self.last_error = f"Permissions change failed: {error}; restoring previous mode failed: {restore_error}"
+                    if restored is not None:
+                        try:
+                            restored.close()
+                        except Exception:
+                            pass
+                    raise AgentPortalError(503, "Agent permissions could not be changed and the previous connection could not be restored; Agent is unavailable, reconnect before retrying") from None
+                raise AgentPortalError(503, "Agent permissions could not be changed; the previous mode was restored") from None
+            self._backend = candidate
+            self._permissions_mode = mode
+            self._reset_backend_caches()
+            # A blocked PC input reader checks backend identity before deciding.
+            return self._snapshot(0)
 
     def open(self) -> dict:
         with self.lock:
@@ -593,6 +812,7 @@ class AgentPortal:
                 staged_capture = self._stage_capture(capture_pixels)
                 image_path = staged_capture
             try:
+                self._starting_turn = True
                 with span('agent.start'):
                     conversation_id = (self._backend.start_conversation() if provisional
                                        else self._conversation_id)
@@ -607,6 +827,7 @@ class AgentPortal:
                     self._delete_capture(staged_capture)
                 raise AgentPortalError(502, "Agent message could not be sent") from None
             finally:
+                self._starting_turn = False
                 self._native_starting = False
             self._conversation_id = conversation_id
             self._active_turn = turn_id
@@ -616,7 +837,7 @@ class AgentPortal:
             if native_image:
                 self._native_turns.append(turn_id)
             self._stopping_turn = None
-            self._reviewed_commands.clear()
+            self._reviewed_approvals.clear()
             self._activity = "working"
             self._transcript.append({"user": value, "userTruncated": False,
                                      "assistant": "", "assistantTruncated": False,
@@ -644,7 +865,7 @@ class AgentPortal:
             self._watcher.start()
             if (self._pc_console_available and
                     (self._pc_reviewer is None or not self._pc_reviewer.is_alive())):
-                self._pc_reviewer = threading.Thread(target=self._review_pc_commands,
+                self._pc_reviewer = threading.Thread(target=self._review_pc_approvals,
                                                      name="matrix-agent-pc-review", daemon=True)
                 self._pc_reviewer.start()
             return {**self._snapshot(self._sequence), "turnId": turn_id,
@@ -694,7 +915,7 @@ class AgentPortal:
                 raise AgentPortalError(507, "Instruction reached Codex but its Agent Portal transcript could not be saved; inspect the turn before retrying") from None
             return {"sessionId": self._session_id, "turnId": turn_id, "activity": self._activity}
 
-    def _review_pc_commands(self) -> None:
+    def _review_pc_approvals(self) -> None:
         """Wait for explicit terminal input without holding the browser's lock."""
         while not self._stop.wait(0.1):
             with self.lock:
@@ -704,32 +925,20 @@ class AgentPortal:
                         self._active_turn in self._native_turns):
                     continue
                 try:
-                    commands = backend.pending_pc_commands()
+                    approvals = backend.pending_pc_approvals()
                 except Exception as error:
                     self.last_error = str(error)
                     return
-                pending = next((item for item in commands
+                pending = next((item for item in approvals
                                 if item["conversationId"] == self._conversation_id
                                 and item["turnId"] == self._active_turn
-                                and (item["approvalId"], item["conversationId"],
-                                     item["turnId"], item["itemId"]) not in self._reviewed_commands), None)
+                                and _pc_approval_identity(item) not in self._reviewed_approvals), None)
                 if pending is None:
                     continue
-                identity = (pending["approvalId"], pending["conversationId"],
-                            pending["turnId"], pending["itemId"])
-                self._reviewed_commands.add(identity)
+                identity = _pc_approval_identity(pending)
+                self._reviewed_approvals.add(identity)
             try:
-                params = json.loads(pending["nativeParams"])
-                safe_native = pending["nativeParams"].replace("\x7f", "\\u007f")
-                prompt = ("\nMatrix PC command approval\n"
-                          f"Approval ID: {_pc_json(pending['approvalId'])}\n"
-                          f"Command (exact native value, JSON escaped): {_pc_json(params['command'])}\n"
-                          f"Working directory (native cwd): {_pc_json(params['cwd'])}\n"
-                          f"Reason: {_pc_json(params.get('reason'))}\n"
-                          f"Network context: {_pc_json(params.get('networkApprovalContext'))}\n"
-                          f"Full native request parameters: {safe_native}\n"
-                          "Type approve to run once or deny. Enter defaults to deny.\n> ")
-                self._pc_output.write(prompt)
+                self._pc_output.write(_pc_approval_prompt(pending))
                 self._pc_output.flush()
                 answer = self._pc_input.readline()
             except Exception as error:
@@ -750,14 +959,16 @@ class AgentPortal:
                     self._refresh()
                     if self._active_turn != pending["turnId"]:
                         continue
-                    current = next((item for item in backend.pending_pc_commands()
-                                    if (item["approvalId"], item["conversationId"],
-                                        item["turnId"], item["itemId"]) == identity
+                    current = next((item for item in backend.pending_pc_approvals()
+                                    if _pc_approval_identity(item) == identity
                                     and item["nativeParams"] == pending["nativeParams"]), None)
                     if current is None:
                         continue
-                    backend.decide(pending["approvalId"], pending["conversationId"],
-                                   pending["turnId"], approve)
+                    backend.decide_pc(current, approve)
+                    if self.latency_run and self.latency_run.approval_started is not None:
+                        self.latency_run.record('approval.wait', self.latency_run.approval_started,
+                                                outcome='ok' if approve else 'failed')
+                        self.latency_run.approval_started = None
                     self._activity = "working"
                 except Exception as error:
                     self.last_error = str(error)
@@ -832,6 +1043,7 @@ class AgentPortal:
                     self._transcript[-1]["status"] = event["activity"]
                     self._clear_turn_capture(turn_id or self._active_turn)
                     self._active_turn = None
+                    self._stopping_turn = None
             elif event.get("type") == "approval":
                 self._activity = "waiting_for_approval"
                 if self.latency_run and self.latency_run.approval_started is None:
@@ -869,12 +1081,28 @@ class AgentPortal:
             raise AgentPortalError(400, "Invalid Agent Portal cursor")
         pending = []
         if self._backend is not None and self._active_turn is not None:
+            # Full native requests never cross the browser boundary, including
+            # on loopback: Quest USB forwarding also arrives over loopback.
+            pc_approvals = (getattr(self._backend, "pending_pc_approvals", lambda: [])()
+                            if self._active_turn not in self._native_turns else [])
             for item in ([] if self._active_turn in self._native_turns else
                          self._backend.pending_approvals()):
                 if (item.get("conversationId") != self._conversation_id
                         or item.get("turnId") != self._active_turn):
                     continue
                 summary, reviewable = _xr_approval_summary(item)
+                if not reviewable:
+                    pc_reviewable = any(
+                        candidate["approvalId"] == item["approvalId"] and
+                        candidate["conversationId"] == self._conversation_id and
+                        candidate["turnId"] == self._active_turn for candidate in pc_approvals)
+                    if pc_reviewable and self._pc_console_available:
+                        summary = "Review this request in the PC service terminal. Type approve to run once or deny."
+                    elif pc_reviewable:
+                        summary = ("PC review needs an interactive service terminal. "
+                                   "Deny or stop this request, restart the service in a terminal, then retry.")
+                    else:
+                        summary = "This request has no supported approval view. Deny or stop it; PC repair is required."
                 pending.append({"approvalId": item["approvalId"], "turnId": item["turnId"],
                                 "action": item.get("action") if item.get("action") in
                                 ("running_command", "editing_files") else "using_tool",
@@ -888,6 +1116,7 @@ class AgentPortal:
         return {"sessionId": self._session_id, "activity": self._activity,
                 **({'latencyTrace': self.latency_run.snapshot()} if self.latency_run else {}),
                 "accessMode": access_mode, "approvalMode": approval_mode,
+                "permissionsChangeAllowed": self._permissions_change_allowed(),
                 "activeTurnId": self._active_turn, "transcript": deepcopy(self._transcript),
                 "pendingApprovals": pending, "cursor": self._sequence,
                 "events": deepcopy([event for event in self._events if event["sequence"] > cursor][-16:])}

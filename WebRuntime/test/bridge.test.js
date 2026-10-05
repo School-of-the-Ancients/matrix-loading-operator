@@ -6,6 +6,31 @@ import {createCitizensDemo} from '../src/citizens.js';
 import {applyPCWorld} from '../src/world_checkpoint.js';
 import {storedWorld} from '../src/scene_store.js';
 import {executeWorldSlotCommand} from '../src/world_slots.js';
+import {AgentClient,AGENT_SESSION_KEY} from '../src/agent_client.js';
+
+test('Agent reconnect receives the HTTP missing-session status and adopts the current conversation',async()=>{
+  const previousStorage=globalThis.sessionStorage,previousFetch=globalThis.fetch;
+  globalThis.sessionStorage={getItem:()=>null,setItem:()=>{}};
+  try{
+    const oldId='a'.repeat(32),newId='b'.repeat(32),requests=[];
+    const saved=new Map([[AGENT_SESSION_KEY,oldId]]);
+    const current={sessionId:newId,activity:'idle',activeTurnId:null,transcript:[],cursor:0};
+    globalThis.fetch=async path=>{
+      requests.push(path);
+      return path==='/api/agent/status'?
+        {ok:false,status:404,json:async()=>({error:'Agent session not found'})}:
+        {ok:true,status:200,json:async()=>current};
+    };
+    const bridge=new MatrixBridge(new MatrixWorld(),()=>'',()=>{});
+    const client=new AgentClient((path,body)=>bridge.request(path,body),{
+      getItem:key=>saved.get(key),setItem:(key,value)=>saved.set(key,value)});
+    await client.connect();
+    assert.deepEqual(requests,['/api/agent/status','/api/agent/session']);
+    assert.equal(client.sessionId,newId);
+    assert.equal(saved.get(AGENT_SESSION_KEY),newId);
+    assert.equal(client.error,'');
+  }finally{globalThis.fetch=previousFetch;globalThis.sessionStorage=previousStorage;}
+});
 
 test('a never-settling read-only status fetch times out and permits a later poll',async()=>{
   const previousStorage=globalThis.sessionStorage,previousFetch=globalThis.fetch;

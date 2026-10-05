@@ -103,7 +103,11 @@ try {
     Write-Host "Matrix WebXR: http://127.0.0.1:$Port/web/"
     Write-Host "Archived Unity Operator: http://127.0.0.1:$Port/legacy/operator"
     Write-Host 'Keep this terminal open. Ctrl+C stops the service.'
-    if ($AgentApprovals -eq 'reviewed') { Write-Host 'Review each AI proposal before applying it.' }
+    Write-Host 'Before entering AR/VR, connect to Codex in the browser and choose Reviewed or Full access permissions.'
+    if ($AgentApprovals -eq 'reviewed') {
+        Write-Host 'Review each AI proposal before applying it.'
+        Write-Host 'Keep this interactive terminal open to review full command and Blender/MCP tool approvals.'
+    }
     $serviceArgs = @(Get-ControlServiceArguments -ServicePort $Port -ScenesPath $Scenes `
         -WebAssetsPath $WebAssets -WebEnvironmentsPath $WebEnvironments)
     & $python (Join-Path $PSScriptRoot 'ControlService\server.py') @serviceArgs

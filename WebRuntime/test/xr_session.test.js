@@ -2,6 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import {MatrixView} from '../src/view.js';
 import {XRSessionController,bindXRPageLifecycle} from '../src/xr_session.js';
+import {AgentClient} from '../src/agent_client.js';
 
 function session(){
   const value=new EventTarget();
@@ -114,6 +115,50 @@ test('a world restore blocks XR entry before requestSession, including for a rea
   await new Promise(resolve=>setImmediate(resolve));
   assert.equal(view.xrControls.busy,false);
   assert.deepEqual(errors,['PC world restore in progress']);
+});
+
+test('unapplied Agent permissions block both native XR entries until applied or returned to the active mode',async t=>{
+  const xrRenderer=rendererXR(),requests=[],errors=[];
+  const xr={isSessionSupported:async()=>true,requestSession:async mode=>{
+    requests.push(mode);return session();
+  }};
+  const oldNavigator=Object.getOwnPropertyDescriptor(globalThis,'navigator');
+  const oldDocument=Object.getOwnPropertyDescriptor(globalThis,'document');
+  class Button extends EventTarget{
+    setAttribute(){}
+    click(){if(!this.disabled)this.dispatchEvent(new Event('click'));}
+  }
+  Object.defineProperty(globalThis,'navigator',{configurable:true,value:{xr}});
+  Object.defineProperty(globalThis,'document',{configurable:true,value:{
+    createElement:()=>new Button(),getElementById:()=>({})
+  }});
+  t.after(()=>{
+    if(oldNavigator)Object.defineProperty(globalThis,'navigator',oldNavigator);else delete globalThis.navigator;
+    if(oldDocument)Object.defineProperty(globalThis,'document',oldDocument);else delete globalThis.document;
+  });
+  const client=new AgentClient(async()=>{}, {getItem:()=>null});
+  client.status={accessMode:'workspace-write',approvalMode:'reviewed'};
+  client.permissionDraft='full-access';
+  const view=Object.create(MatrixView.prototype);
+  view.renderer={xr:xrRenderer};view.onAssetError=message=>errors.push(message);
+  view.xrEntryBlocker=()=>client.pendingPermissionChange();
+  const buttons={children:[],textContent:'',append(button){this.children.push(button);}};
+  await view.initXR(buttons);
+  const [notice,ar,vr]=buttons.children;
+  ar.click();vr.click();
+  assert.deepEqual(requests,[]);
+  assert.match(notice.textContent,/Not applied: Full access/);
+  assert.equal(errors.length,2);
+  client.permissionDraft='reviewed';
+  ar.click();
+  await new Promise(resolve=>setImmediate(resolve));
+  assert.deepEqual(requests,['immersive-ar']);
+  await view.exitXR();
+  client.permissionDraft='full-access';
+  client.status={accessMode:'danger-full-access',approvalMode:'automatic'};
+  vr.click();
+  await new Promise(resolve=>setImmediate(resolve));
+  assert.deepEqual(requests,['immersive-ar','immersive-vr']);
 });
 
 test('pending and ending sessions reject another immersive entry until sessionend',async()=>{

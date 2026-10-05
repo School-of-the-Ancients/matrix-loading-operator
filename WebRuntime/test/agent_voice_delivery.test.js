@@ -2,6 +2,36 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import {deliverAgentVoiceTranscript} from '../src/agent_voice_delivery.js';
 import {verifyAgentContextAtDelivery} from '../src/agent_context.js';
+import {AgentClient} from '../src/agent_client.js';
+
+test('an unapplied permission choice retains transcribed speech without starting a new turn',async()=>{
+  const sessionId='a'.repeat(32),calls=[];
+  const current={sessionId,transcript:[],cursor:0,activeTurnId:null,
+    accessMode:'workspace-write',approvalMode:'reviewed'};
+  const agentClient=new AgentClient(async(path)=>{calls.push(path);return current;},
+    {getItem:()=>sessionId,setItem(){}});
+  agentClient.status=current;agentClient.permissionDraft='full-access';
+  const input={value:'Keep the landing legs'};
+  let deliveries=0;
+  await assert.rejects(deliverAgentVoiceTranscript({agentClient,input,transcript:'Create a rocket',
+    deliverWhenIdle:async()=>{deliveries++;return 'sent';}}),/Not applied: Full access/);
+  assert.equal(deliveries,0);
+  assert.deepEqual(calls,['/api/agent/status']);
+  assert.equal(input.value,'Keep the landing legs\nCreate a rocket');
+});
+
+test('active voice steering is allowed while a different permission choice is unapplied',async()=>{
+  const calls=[],input={value:''};
+  const agentClient={
+    async restore(){return {activeTurnId:'current-turn'};},
+    assertPermissionsApplied(){throw Error('Must not block steering');},
+    async steer(text,context,turnId){calls.push([text,turnId]);}
+  };
+  assert.equal(await deliverAgentVoiceTranscript({agentClient,input,transcript:'Make it blue',
+    deliverWhenIdle:async()=>{throw Error('Must not start another turn');}}),'steered');
+  assert.deepEqual(calls,[['Make it blue','current-turn']]);
+  assert.equal(input.value,'');
+});
 
 test('voice steer retains transcript when a pinned point moves during transcription',async()=>{
   const pin=x=>({anchorId:'table-1',position:{x,y:0,z:.1},source:'raycast'});

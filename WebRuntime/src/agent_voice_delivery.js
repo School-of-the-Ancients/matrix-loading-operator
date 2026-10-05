@@ -10,7 +10,10 @@ export async function deliverAgentVoiceTranscript({agentClient,input,transcript,
   const turnId=capturedTurnId||(await agentClient.restore())?.activeTurnId;
   let kind;
   if(turnId){await agentClient.steer(transcript,await resolveContext(),turnId);kind='steered';}
-  else kind=await deliverWhenIdle();
+  else {
+    agentClient.assertPermissionsApplied?.();
+    kind=await deliverWhenIdle();
+  }
   if(input.value===staged)input.value=previous;
   return kind;
 }
