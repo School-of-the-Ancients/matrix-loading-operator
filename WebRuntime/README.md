@@ -18,6 +18,28 @@ In VR or AR, hold the trigger on an editable object. Physical movement and rotat
 
 ### Quest controls FAQ
 
+**How does AR point placement work?** Select a prop, pin a destination, and
+ask Codex to move it there. Ordinary AR creation and point moves use free
+placement. They do not automatically resize, straighten, or certify physical
+clearance. The **Fit to room** control and its measured-fitting acceptance
+are deferred from v1.2 by the wearer. Existing explicit measured-placement
+tools retain their eligibility, tracking, footprint and clearance checks.
+
+**Where does speech go?** **Hold for Codex** opens the shared Codex conversation
+from every Operator page. Panel navigation never switches speech to a different
+planner. While Codex is working, **Hold to Add** adds an instruction to that
+captured turn, and **Stop Turn** remains available even on the World page.
+Connect to Codex and apply the intended permissions before speaking. A stale
+or failed delivery keeps the recognized words in the editable Codex input.
+The desktop **Operator Planner** still offers an explicit text proposal workflow;
+choosing its text planner does not change the destination of speech.
+
+If a turn finishes before an added voice instruction arrives, the words stay
+in the Codex input for review. The browser refreshes the current conversation
+and permissions without retrying the instruction or starting another turn.
+No-speech and busy-transcription rejections also refresh the session; an actual
+failed status read still requires reconnecting.
+
 **Where did the Operator screen go?** Click down on either controller thumbstick to bring it back. If you are grabbing an object, release it first. The same click hides a following panel when you are not grabbing an object. During a grab, stick click with the grabbing hand changes its Y axis to height control and does not toggle the panel.
 
 **How do I leave VR or AR?** Open **WORLD** on the Operator, then select **EXIT VR** or **EXIT AR** in its upper-left corner with a controller trigger. This ends the current immersive session and returns to the same `/web/` browser page. The [Quest wearer check](../Validation/Operator-XR-Exit-2026-09-27.md) confirmed a return to the 2D page in both modes.

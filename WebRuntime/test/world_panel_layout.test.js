@@ -32,7 +32,7 @@ test('AR and VR world controls are readable and independently clickable above th
     for(const presentation of ['ar','vr']){
       panel.setXRMode(presentation);
       const unlock=painted.buttons.find(button=>button.label==='UNLOCK SELECTED OBJECT');
-      const voice=painted.buttons.find(button=>button.label==='HOLD TO SPEAK');
+      const voice=painted.buttons.find(button=>button.label==='HOLD FOR CODEX');
       assert.ok(unlock&&voice);
       assert.ok(unlock.y+unlock.h<=voice.y-16,'unlock needs a visible gap above the persistent footer');
       assert.equal(hit(panel,unlock.x+unlock.w/2,unlock.y+unlock.h/2),'toggle-manipulation');
@@ -42,7 +42,7 @@ test('AR and VR world controls are readable and independently clickable above th
       }
       const expected={'SAVE WORLD':'save-world','RESTORE SAVED':'restore-world','UNDO':'undo',
         'REDO':'redo','WORLDS':'toggle-archives','ENABLE CAMERA':'toggle-camera',
-        'HOLD TO SPEAK':'voice','PIN TO WALL':'pin','VOICE ON':'voice-output','NEXT':'next'};
+        'HOLD FOR CODEX':'voice','PIN TO WALL':'pin','VOICE ON':'voice-output','NEXT':'next'};
       for(const [label,action] of Object.entries(expected)){
         const button=painted.buttons.find(item=>item.label===label);assert.ok(button,label);
         // The old unlock row intercepted the top part of the voice footer.
@@ -69,5 +69,26 @@ test('world lock control displays selection and unavailable reason without admit
     panel.setWorldInfo({canSetManipulation:true,selectedObjectLabel:'Starfall rocket',selectedManipulation:'grabbable'});
     const lock=painted.buttons.find(button=>button.label==='LOCK SELECTED OBJECT');
     assert.equal(hit(panel,lock.x+lock.w/2,lock.y+lock.h/2),'toggle-manipulation');
+  });
+});
+
+test('World keeps voice steering and Stop accessible without covering the lock control',()=>{
+  fixture((panel,painted)=>{
+    panel.toggleWorld();
+    panel.setWorldInfo({canSetManipulation:true,selectedObjectLabel:'Docking gate',selectedManipulation:'locked'});
+    panel.setAgentStatus({active:true,connected:true,pending:false,content:'Moving cube',activity:'Working'});
+    const add=painted.buttons.find(b=>b.label==='HOLD TO ADD');
+    const stop=painted.buttons.find(b=>b.label==='STOP TURN');
+    const unlock=painted.buttons.find(b=>b.label==='UNLOCK SELECTED OBJECT');
+    assert.ok(add&&stop&&unlock);
+    assert.equal(hit(panel,add.x+add.w/2,add.y+add.h/2),'voice');
+    assert.equal(hit(panel,stop.x+stop.w/2,stop.y+stop.h/2),'agent-stop');
+    assert.equal(overlaps(add,unlock)||overlaps(stop,unlock),false);
+    panel.setVoiceInputLabel('RELEASE TO SEND');
+    assert.ok(painted.buttons.some(b=>b.label==='RELEASE TO SEND'));
+    panel.setVoiceInputLabel('HOLD FOR CODEX');
+    panel.setAgentStatus({active:false,connected:true,pending:false,content:'Done',activity:'Completed'});
+    assert.ok(painted.buttons.some(b=>b.label==='HOLD FOR CODEX'));
+    assert.ok(painted.buttons.some(b=>b.label==='PIN TO WALL'));
   });
 });

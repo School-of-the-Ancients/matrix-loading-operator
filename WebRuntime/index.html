@@ -50,10 +50,11 @@
         <label for="agent-input">Message to Codex</label>
         <textarea id="agent-input" rows="3" placeholder="Create a physics playground with a ramp, grabbable objects, and a challenge."></textarea>
         <label class="check-label"><input id="agent-include-context" type="checkbox" /> Attach selected object and current pointing hit</label>
-        <label class="check-label"><input id="fit-to-room" type="checkbox" aria-describedby="fit-to-room-help" /> Fit to room</label>
-        <p id="fit-to-room-help" class="hint">Off for free AR creation and movement. Room context can still inspire your scene. Enable for precise surface fitting and interior layouts.</p>
         <div class="row"><button id="agent-send" class="primary" aria-describedby="agent-send-hint">Send to Codex</button><button id="agent-stop" disabled>Stop turn</button></div>
         <p id="agent-send-hint" class="hint">Send starts a turn in this Codex conversation.</p>
+        <div class="row voice-row"><button id="voice-button" aria-describedby="voice-route-help">Speak to Codex</button><span id="voice-status" role="status">Local speech on PC</span></div>
+        <p id="voice-route-help" class="hint">Speech goes to this Codex conversation from every page. While Codex is working, speech adds an instruction to that turn.</p>
+        <label class="check-label"><input id="speak-replies" type="checkbox" checked> Speak replies aloud</label>
         <details id="concept-panel" class="concept-panel panel-section section-nested">
           <summary class="panel-title"><span id="concept-heading">VISUAL CONCEPTS</span><span id="concept-summary">No concept selected</span></summary>
           <div class="section-content">
@@ -115,7 +116,7 @@
         </div>
       </details>
       <details id="section-planner" class="panel-section">
-        <summary class="panel-title"><span>OPERATOR PLANNER &amp; VOICE</span><span>Requests and proposals</span></summary>
+        <summary class="panel-title"><span>OPERATOR PLANNER</span><span>Requests and proposals</span></summary>
         <div class="section-content">
       <label for="mode">Planner</label>
       <select id="mode"><option value="offline-rules">Offline commands</option><option value="codex-cli">Codex AI on PC</option></select>
@@ -124,8 +125,6 @@
       <button id="propose" class="primary">Create proposal</button>
       <button id="blender-request">Create requested object in Blender</button>
       <div class="row"><button id="new-chat">New conversation</button><span id="conversation-status" class="asset-count">0 recent turns in this tab</span></div>
-      <div class="row voice-row"><button id="voice-button">Tap to speak</button><span id="voice-status" role="status">Local speech on PC</span></div>
-      <label class="check-label"><input id="speak-replies" type="checkbox" checked> Speak Operator replies aloud</label>
       <label class="check-label"><input id="auto-apply-safe" type="checkbox" checked> Automatically apply safe scene requests</label>
       <div id="proposal" class="proposal hidden" aria-live="polite">
         <div class="proposal-label">REVIEW BEFORE APPLY</div>

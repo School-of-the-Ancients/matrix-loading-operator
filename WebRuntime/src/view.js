@@ -152,7 +152,7 @@ export function operatorPanel({createImage=()=>new Image()}={}){
   let agent={activity:'Not connected',content:'Connect to Codex on the PC.',pending:false,approvalReviewable:false,active:false,connected:false,voiceStatus:'',latestTurnId:''};
   let creationMode='auto';
   let pinLabel='PIN TO WALL',voiceLabel='VOICE ON',originLabel='ROOM ORIGIN UNKNOWN',conversationCount=0,xrMode=null;
-  let voiceInputLabel='HOLD TO SPEAK';
+  let voiceInputLabel='HOLD FOR CODEX';
   let gameStatus='No game running.',worldInfo={objects:0,canConfirm:false,alignment:'No room scan'},worldWarning='';
   let creatorMode={mode:'creator',simulation:'paused',revision:0};
   let worldNotice={text:'',tone:'idle'};
@@ -217,13 +217,8 @@ export function operatorPanel({createImage=()=>new Image()}={}){
           creatorMode.simulation==='running'?'STOP / PAUSE':'RESUME PLAY',525,440,444,86,
           creatorMode.simulation==='running');
       }
-      button('toggle-world','WORLD / SAVE',55,553,285,72);
-      if(worldInfo.canSetFitToRoom!==false)
-        button('toggle-fit-to-room',`FIT TO ROOM: ${worldInfo.fitToRoom?'ON':'OFF'}`,370,553,285,72,
-          worldInfo.fitToRoom===true);
-      else {ctx.fillStyle='#8bb8c2';ctx.font='bold 21px sans-serif';
-        ctx.fillText(`FIT TO ROOM: ${worldInfo.fitToRoom?'ON':'OFF'}`,380,596);}
-      button('agent-stop','STOP OPERATOR',685,553,285,72);
+      button('toggle-world','WORLD / SAVE',55,553,440,72);
+      button('agent-stop','STOP OPERATOR',525,553,444,72);
     }else if(mode==='world'){
       ctx.fillStyle='#dff7f8';ctx.font='29px sans-serif';
       ctx.fillText(`${worldInfo.objects} scene objects · ${worldInfo.alignment}`,55,180);
@@ -428,6 +423,7 @@ export function operatorPanel({createImage=()=>new Image()}={}){
       ctx.fillStyle='#8bb8c2';ctx.font='24px sans-serif';ctx.fillText(`Page ${page+1}/${pages}`,55,596);
     }
     if(worldWarning){ctx.fillStyle='#ffad8d';ctx.font='bold 19px sans-serif';ctx.fillText(worldWarning,55,625);}
+    const speakLabel=voiceInputLabel==='HOLD FOR CODEX'&&agent.active?'HOLD TO ADD':voiceInputLabel;
     if(mode==='agent'){
       if(agent.pending){
         if(agent.approvalReviewable)button('agent-approve','APPROVE ONCE',35,636,275,90,true);
@@ -438,28 +434,32 @@ export function operatorPanel({createImage=()=>new Image()}={}){
         button('next','NEXT',776,636,213,90);
       }else{
         if(agent.active){
-          button('voice',voiceInputLabel==='HOLD TO SPEAK'?'HOLD TO ADD':voiceInputLabel,
+          button('voice',speakLabel,
             35,636,472,90,true);
           button('agent-stop','STOP TURN',519,636,210,90);
           button('next','NEXT',741,636,248,90);
         }else{
           button(agent.connected?'voice':'agent-connect',
-            agent.connected?voiceInputLabel:'CONNECT CODEX',35,636,472,90);
+            agent.connected?speakLabel:'CONNECT CODEX',35,636,472,90);
           button('pin',pinLabel,519,636,210,90);
           button('next','NEXT',741,636,248,90);
         }
       }
+    }else if(agent.active){
+      button('voice',speakLabel,35,636,472,90,true);
+      button('agent-stop','STOP TURN',519,636,210,90);
+      button('next','NEXT',741,636,248,90);
     }else if(mode==='concepts'||mode==='panoramas'){
       button(mode==='panoramas'?'panorama-back':'concept-back','BACK TO CODEX',35,636,472,90,true);
       button('pin',pinLabel,519,636,210,90);
-      button('voice',voiceInputLabel,741,636,248,90);
+      button('voice',speakLabel,741,636,248,90);
     }else if(mode==='proposal'&&proposal){
-      button('voice',voiceInputLabel,35,636,330,90,true);
+      button('voice',speakLabel,35,636,330,90,true);
       button('apply','APPLY',377,636,207,90,true);
       button('discard','DISCARD',596,636,207,90);
       button('next','NEXT',815,636,174,90);
     }else{
-      button('voice',voiceInputLabel,35,636,472,90,true);
+      button('voice',speakLabel,35,636,472,90,true);
       button('pin',pinLabel,519,636,210,90);
       button('voice-output',voiceLabel,741,636,132,90);
       button('next','NEXT',885,636,104,90);
@@ -496,7 +496,8 @@ export function operatorPanel({createImage=()=>new Image()}={}){
   const setCameraStatus=(next,active)=>{if(cameraStatus!==next||cameraActive!==active){cameraStatus=next;cameraActive=active;paint();}};
   const setAgentStatus=next=>{if(JSON.stringify(agent)!==JSON.stringify(next)){
     if(agent.pending!==next.pending||agent.voiceStatus!==next.voiceStatus||agent.latestTurnId!==next.latestTurnId)page=0;
-    agent=next;if(mode==='agent'||mode==='concepts'||mode==='panoramas')paint();
+    const controlsChanged=agent.active!==next.active;
+    agent=next;if(controlsChanged||mode==='agent'||mode==='concepts'||mode==='panoramas')paint();
   }};
   const setConceptGallery=next=>{
     const key=JSON.stringify(next||[]);
@@ -540,6 +541,7 @@ export function operatorPanel({createImage=()=>new Image()}={}){
   const toggleModePage=()=>{mode=mode==='modes'?'chat':'modes';page=0;paint();};
   const toggleAgent=()=>{if(mode==='concepts'||mode==='panoramas'){mode='agent';paint();return;}
     mode=mode==='agent'?'chat':'agent';page=0;paint();};
+  const openAgent=()=>{if(mode!=='agent')toggleAgent();};
   const toggleConcepts=()=>{mode=mode==='concepts'?'agent':'concepts';paint();};
   const togglePanoramas=()=>{mode=mode==='panoramas'?'agent':'panoramas';paint();};
   const previousConcept=()=>{if(concepts.length){conceptIndex=(conceptIndex+concepts.length-1)%concepts.length;paint();}};
@@ -558,7 +560,7 @@ export function operatorPanel({createImage=()=>new Image()}={}){
     setProposal,setWorldInfo,setWorldNotice,setGameStatus,setCreatorMode,setWarning,setCameraStatus,
     setAgentStatus,setConceptGallery,setPanoramaGallery,setCreationMode,setVoiceInputLabel,toggleWorld,openLayout,toggleArchives,
     toggleModePage,toggleAgent,toggleConcepts,togglePanoramas,previousConcept,nextConcept,
-    previousPanorama,nextPanorama,isAgentMode,openProposal,hit,nextPage};
+    previousPanorama,nextPanorama,isAgentMode,openAgent,openProposal,hit,nextPage};
 }
 const v3=v=>new THREE.Vector3(v.x,v.y,v.z);
 const plain=v=>({x:Number(v.x.toFixed(3)),y:Number(v.y.toFixed(3)),z:Number(v.z.toFixed(3))});
@@ -1009,7 +1011,7 @@ export class MatrixView {
   isOperatorAgentMode(){return this.operatorPanel.isAgentMode();}
   showOperatorAgentMode(){
     if(this.readOnly)return false;
-    if(!this.operatorPanel.isAgentMode())this.operatorPanel.toggleAgent();
+    this.operatorPanel.openAgent();
     if(this.renderer.xr.isPresenting){
       this.operatorPanel.group.visible=true;
       this.positionOperatorPanel();
