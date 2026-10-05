@@ -5,6 +5,14 @@ Vite routes from that revision, and verifies the resulting ZIP after extraction.
 It does not tag, upload, publish, or copy local browser/PC state by default.
 The manifest labels a stable version such as `v1.0.0` as a release and a
 suffixed version such as `v1.0.0-rehearsal` as a prerelease.
+
+GitHub's prerelease/Latest flags are set separately during publication. The
+[v1.2.0 checkpoint](https://github.com/School-of-the-Ancients/matrix-loading-operator/releases/tag/v1.2.0)
+uses that version label but is published as a GitHub prerelease, with v1.1.0
+remaining stable Latest. Its [guide](../Docs/V1.2-Checkpoint.md) records the
+frozen source, verified assets and remaining acceptance. Documentation changes
+on main do not change the release ZIP; never overwrite a published tag/assets
+to incorporate a later documentation or runtime change.
 The filenames and root-level bundle layout follow v0.7:
 
 - `Matrix-WebXR-PC-VERSION.zip`

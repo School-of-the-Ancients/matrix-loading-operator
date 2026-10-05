@@ -27,11 +27,18 @@ Do **not** rebuild the engine, create another Matrix repository, introduce a sec
 
 ## Current work
 
-The published baseline is v1.1.0, source `9453ef06b1873937822c1cf985115f05f72e1e20`.
-Follow [#173](https://github.com/School-of-the-Ancients/matrix-loading-operator/issues/173)
-for v1.2: measure #171, simplify #163/#171, then implement the bounded #158
-lock slice. #154/#172 are conditional after the core-loop gate; v2 #156 is
-out of scope. Use draft PRs. Do not merge or release without authorization.
+The stable baseline remains v1.1.0, source `9453ef06b1873937822c1cf985115f05f72e1e20`.
+The [v1.2.0 checkpoint prerelease](https://github.com/School-of-the-Ancients/matrix-loading-operator/releases/tag/v1.2.0)
+is published from `858d486e9ee8507af36e2a05d78f1d34fc9ca2b0`.
+Its eight implementation PRs are merged; do not rebuild the context, lock,
+approval, speech or point-movement slices. Follow
+[#173](https://github.com/School-of-the-Ancients/matrix-loading-operator/issues/173)
+for remaining matched-latency and physical acceptance. The wearer explicitly
+deferred Fit to room controls and their measured-fitting checks from v1.2;
+ordinary AR edits use free placement while explicit measured tools keep their
+guards. #154/#172 and v2 #156 are outside this checkpoint. Use draft PRs.
+Do not merge or release without authorization. Keep the published tag/assets
+fixed; documentation updates on main do not change the frozen release source.
 
 Read [the sprint acceptance record](Validation/V1.2-Headset-Acceptance.md)
 at startup and after every goal refresh. Run automated/desktop checks during

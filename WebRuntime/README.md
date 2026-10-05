@@ -4,6 +4,13 @@
 
 ## Run on desktop
 
+For the prebuilt PC/Quest package, download the
+[v1.2.0 checkpoint prerelease](https://github.com/School-of-the-Ancients/matrix-loading-operator/releases/tag/v1.2.0)
+and follow its bundled `RELEASE-README.md`. The
+[checkpoint guide](../Docs/V1.2-Checkpoint.md) records the exact source,
+checksums, permission choices and remaining acceptance. The commands below
+build and run a source checkout.
+
 ```powershell
 Set-Location WebRuntime
 npm.cmd install

@@ -1,6 +1,12 @@
 # Matrix Operator checkpoints
 
-These are dated evidence records, not a live PR-status list or current work queue. The owner selected Three.js/WebXR for new runtime and coursework work and placed native Unity source in a [read-only archive](../Archive/Unity/README.md). Historical Unity device observations do not validate equivalent WebXR behavior; use the [WebXR Quest acceptance matrix](../WebRuntime/QUEST3_ACCEPTANCE.md) for remaining wearer checks.
+These are dated evidence records, not a live PR-status list or current work queue. The owner selected Three.js/WebXR for new runtime and coursework work and placed native Unity source in a [read-only archive](../Archive/Unity/README.md). Historical Unity device observations do not validate equivalent WebXR behavior. Use the [v1.2 consolidated record](../Validation/V1.2-Headset-Acceptance.md) for that checkpoint; preserve the earlier [WebXR Quest acceptance matrix](../WebRuntime/QUEST3_ACCEPTANCE.md) as dated evidence.
+
+## Published v1.2 checkpoint October 4 2026
+
+[v1.2.0 is published as a checkpoint prerelease](https://github.com/School-of-the-Ancients/matrix-loading-operator/releases/tag/v1.2.0) from `858d486e9ee8507af36e2a05d78f1d34fc9ca2b0`. The eight Creator/context/locks/approval/speech and development-runner PRs are merged. The [checkpoint guide](V1.2-Checkpoint.md) records all three downloadable assets and verified hashes, startup/control behavior, test results and explicit scope decisions. v1.1.0 remains stable Latest.
+
+Fit to room controls and measured-fitting checks were deferred by the wearer; ordinary AR point edits use free placement and explicit measured tools retain their guards. Five varied creative requests and partial lock/physics/speech/save observations are retained. Complete exact-artifact Quest and matched-latency acceptance remains open in [#173](https://github.com/School-of-the-Ancients/matrix-loading-operator/issues/173) and the [consolidated record](../Validation/V1.2-Headset-Acceptance.md). This checkpoint does not retroactively pass older cases, close broader feature issues, or reset the private world. The earlier dated evidence below is preserved.
 
 ## Merged Creator Mode source and dated desktop evidence (September 26–27, 2026)
 
