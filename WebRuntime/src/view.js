@@ -182,12 +182,12 @@ export function operatorPanel({createImage=()=>new Image()}={}){
     const ctx=canvas.getContext('2d');ctx.fillStyle='#071923';ctx.fillRect(0,0,1024,768);
     ctx.strokeStyle=tone==='error'?'#ffad8d':'#55e9d2';ctx.lineWidth=9;ctx.strokeRect(10,10,1004,748);
     buttons=[];
-    const button=(id,label,x,y,w,h,active=false)=>{
-      ctx.fillStyle=active?'#53dcc5':'#245568';ctx.fillRect(x,y,w,h);
-      ctx.fillStyle=active?'#062b34':'#e9f9fa';ctx.font=`bold ${label.length>15?21:25}px sans-serif`;
+    const button=(id,label,x,y,w,h,active=false,enabled=true)=>{
+      ctx.fillStyle=!enabled?'#183744':active?'#53dcc5':'#245568';ctx.fillRect(x,y,w,h);
+      ctx.fillStyle=!enabled?'#a8c8ce':active?'#062b34':'#e9f9fa';ctx.font=`bold ${label.length>15?21:25}px sans-serif`;
       ctx.textAlign='center';ctx.textBaseline='middle';ctx.fillText(label,x+w/2,y+h/2,w-12);
       ctx.textAlign='left';ctx.textBaseline='alphabetic';
-      buttons.push({id,x,y,w,h});
+      if(enabled)buttons.push({id,x,y,w,h});
     };
     if(mode==='world'&&xrMode)button('exit-xr',xrMode==='ar'?'EXIT AR':'EXIT VR',35,35,240,72);
     else {ctx.fillStyle='#75f4df';ctx.font='bold 30px sans-serif';ctx.fillText('◈  OPERATOR',55,83);}
@@ -233,11 +233,15 @@ export function operatorPanel({createImage=()=>new Image()}={}){
       ctx.font='21px sans-serif';ctx.fillStyle='#75f4df';
       ctx.fillText((worldInfo.environmentLabel||'Panorama: none').slice(0,85),
         55,265,910);
-      ctx.fillStyle='#8bb8c2';ctx.fillText(`Conversation: ${conversationCount} recent turn${conversationCount===1?'':'s'}`,55,290);
+      ctx.fillStyle='#8bb8c2';ctx.fillText(worldInfo.selectedObjectLabel?
+        `Selected: ${worldInfo.selectedObjectLabel} · ${worldInfo.selectedManipulation}`:
+        'Select an object to lock or unlock it.',55,290,910);
       if(worldNotice.text){
         ctx.fillStyle=worldNotice.tone==='error'?'#ffad8d':worldNotice.tone==='pending'?'#dff7f8':'#75f4df';
         ctx.font='bold 21px sans-serif';ctx.fillText(worldNotice.text,55,317);
       }
+      else if(worldInfo.manipulationUnavailableReason)
+        ctx.fillText(worldInfo.manipulationUnavailableReason,55,317,910);
       if(worldInfo.originUnavailable&&worldInfo.canRetryOrigin)
         button('retry-room-origin','RETRY SAVED ROOM ORIGIN',55,328,914,76,true);
       else if(worldInfo.canConfirm&&worldInfo.canPlaceLayout){
@@ -258,20 +262,21 @@ export function operatorPanel({createImage=()=>new Image()}={}){
         ctx.fillStyle='#8bb8c2';ctx.font='22px sans-serif';
         ctx.fillText('SAVE / RESTORE / EDIT LOCKED UNTIL ORIGIN RECOVERS',55,485);
       }else{
-        button('save-world','SAVE WORLD',55,440,285,76);
-        button('restore-world',worldInfo.restoreArmed?'CONFIRM RESTORE':'RESTORE SAVED',370,440,285,76);
-        button('undo','UNDO',685,440,285,76);
+        button('save-world','SAVE WORLD',55,440,218,76);
+        button('restore-world',worldInfo.restoreArmed?'CONFIRM RESTORE':'RESTORE SAVED',287,440,218,76);
+        button('undo','UNDO',519,440,218,76);
+        button('redo','REDO',751,440,218,76);
       }
       if(worldInfo.resetAvailable){
         button('rebase-room-origin',worldInfo.recoveryArmed==='rebase'?'CONFIRM PLACE HERE':'ARCHIVE + PLACE HERE',55,535,440,76);
         button('reset-room-origin',worldInfo.recoveryArmed==='empty'?'CONFIRM START EMPTY':'ARCHIVE + START EMPTY',525,535,445,76);
       }else{
-        button('redo','REDO',55,535,285,76);
-        button('toggle-archives','WORLDS',370,535,285,76);
-        button('toggle-camera',cameraActive?'STOP CAMERA':'ENABLE CAMERA',685,535,285,76);
+        button('toggle-archives','WORLDS',55,535,218,76);
+        button('toggle-camera',cameraActive?'STOP CAMERA':'ENABLE CAMERA',287,535,218,76);
+        button('toggle-manipulation',worldInfo.selectedObjectLabel?
+          `${worldInfo.selectedManipulation==='grabbable'?'LOCK':'UNLOCK'} SELECTED OBJECT`:
+          'SELECT AN OBJECT',519,535,450,76,false,worldInfo.canSetManipulation===true);
       }
-      if(worldInfo.canSetManipulation)button('toggle-manipulation',
-        `${worldInfo.selectedManipulation==='grabbable'?'LOCK':'UNLOCK'} SELECTED OBJECT`,55,625,914,64);
     }else if(mode==='layout'){
       const offset=worldInfo.arLayoutOffset||{x:0,z:0,yawDegrees:0};
       ctx.fillStyle='#dff7f8';ctx.font='bold 33px sans-serif';
