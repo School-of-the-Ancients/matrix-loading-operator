@@ -1,3 +1,5 @@
+import {latencyRequestStage} from './latency_trace.js';
+
 const validRequestId=value=>typeof value==='string'&&value.length>0&&
   value.length<=128&&!/[\x00-\x1f]/.test(value);
 const READ_ONLY_OPS=new Set(['get_scene','get_environment','list_assets','list_targets','inspect_entity',
@@ -18,6 +20,7 @@ export class MatrixBridge {
     this.getCapture=null;this.captureInFlight=false;this.captureReceipt=null;
     this.captureJob=null;this.captureTimeoutMs=CAPTURE_TIMEOUT_MS;
     this.onWorldSlotCommand=null;
+    this.latencyTrace=null;
     this.prepareEnvironment=async()=>{};
     this.getCaptureCapabilities=()=>({modes:['virtual'],device:'Matrix WebXR',
       mixedStatus:'permission_required',reason:'Environment camera has not been tested in this browser.',
@@ -26,12 +29,15 @@ export class MatrixBridge {
   async request(path, body, {signal,timeoutMs=0}={}) {
     if(timeoutMs>0&&body!==undefined)throw Error('Timed requests are available only for read-only GETs');
     const headers={}; const token=this.getToken();
+    if(this.latencyTrace)headers['X-Matrix-Trace']=this.latencyTrace.traceId;
     if(token)headers.Authorization=`Bearer ${token}`;
     if(body!==undefined)headers['Content-Type']='application/json';
     const controller=timeoutMs>0?new AbortController():null;
     const abort=()=>controller?.abort();
     if(controller&&signal){if(signal.aborted)abort();else signal.addEventListener('abort',abort,{once:true});}
     let timeoutId;
+    const finishTrace=this.latencyTrace?.begin(latencyRequestStage(path));
+    let traceOutcome='failed';
     const timed=controller?new Promise((_,reject)=>{timeoutId=setTimeout(()=>{
       const error=Error(`Read-only request ${path} timed out`);error.name='TimeoutError';
       reject(error);controller.abort();
@@ -41,11 +47,16 @@ export class MatrixBridge {
         const response=await fetch(path,{method:body===undefined?'GET':'POST',headers,
           body:body===undefined?undefined:JSON.stringify(body),cache:'no-store',signal:controller?.signal||signal});
         const data=await response.json();
+        if(this.latencyTrace){
+          try{const trace=response.headers?.get('X-Matrix-Latency');
+            if(trace)this.latencyTrace.ingestService(JSON.parse(trace));}catch{}
+        }
         if(!response.ok)throw Error(data.error||`HTTP ${response.status}`);
         return data;
       })();
-      return timed?await Promise.race([request,timed]):await request;
-    }finally{clearTimeout(timeoutId);if(controller&&signal)signal.removeEventListener('abort',abort);}
+      const data=timed?await Promise.race([request,timed]):await request;
+      traceOutcome='ok';return data;
+    }finally{finishTrace?.(traceOutcome);clearTimeout(timeoutId);if(controller&&signal)signal.removeEventListener('abort',abort);}
   }
   async exchange(viewer,worldRestoreExpectedRevision=null) {
     const sent=[...this.receipts.values()];
@@ -70,6 +81,7 @@ export class MatrixBridge {
     // the restored browser copy even though its receipt never reached the PC.
     // Reject commands from the first successful exchange to avoid replaying it.
     const rejectPending=this.rejectPendingOnNextExchange;
+    if(sent.length){const done=this.latencyTrace?.begin('receipts.acknowledged');done?.('ok');}
     for(const result of sent)this.receipts.delete(result.requestId);
     if(this.captureReceipt===sentCapture)this.captureReceipt=null;
     let changed=false;
@@ -126,12 +138,15 @@ export class MatrixBridge {
           error:String(error?.message||error).slice(0,1000),objectId:''};
       }
     };
-    for(const command of data.commands||[]) {
+    for(const rawCommand of data.commands||[]) {
+      const {latencyTraceId,...command}=rawCommand;
       // A panorama fetch/decode can use most of the runtime's 15-second lease.
       // Send its receipt on the next exchange before starting another such
       // dependency. The PC retains unacknowledged commands in order.
       if(dependencyPreflightUsed)break;
       if(this.receipts.has(command.requestId))continue;
+      const traceId=/^[0-9a-f]{32}$/.test(latencyTraceId||'')?latencyTraceId:this.latencyTrace?.traceId;
+      const finishCommandTrace=this.latencyTrace?.begin('command.apply',{traceId,requestId:command.requestId});
       let result;
       if(rejectPending||worldSwitched)
         result={requestId:command.requestId,ok:false,
@@ -151,6 +166,7 @@ export class MatrixBridge {
         }
       }else result=await apply(command);
       this.receipts.set(command.requestId,result);
+      finishCommandTrace?.(result.ok?'ok':'failed');
       this.commandGuards.delete(command.requestId);
       this.recentReceipts.set(command.requestId,result);
       while(this.recentReceipts.size>64)this.recentReceipts.delete(this.recentReceipts.keys().next().value);
@@ -161,7 +177,8 @@ export class MatrixBridge {
         worldSwitched=true;
       changed=changed||(result.ok&&!READ_ONLY_OPS.has(command.op));
       completed.set(command.requestId,result);
-      this.onUpdate({type:'receipt',result});
+      this.onUpdate({type:'receipt',result,...(traceId?{traceId,
+        visibleMutation:result.ok&&!READ_ONLY_OPS.has(command.op)}:{})});
     }
     if(rejectPending)this.rejectPendingOnNextExchange=false;
     if(worldSwitched)this.rejectPendingOnNextExchange=true;

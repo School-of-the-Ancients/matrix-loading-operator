@@ -1,5 +1,6 @@
 """One durable Matrix Agent Portal conversation, independent of scene state."""
 from __future__ import annotations
+from latency_trace import current_trace, span, traced_stage
 
 from collections import deque
 from copy import deepcopy
@@ -169,6 +170,7 @@ def _capture_turn_input(value: dict) -> tuple[bytes, str]:
     return pixels, note
 
 
+@traced_stage('prompt.build')
 def build_matrix_turn_message(user_text: str, context: dict,
                               enabled_tools: tuple[str, ...] = (),
                               selected_concept: dict | None = None) -> str:
@@ -406,6 +408,7 @@ class AgentPortal:
         self._events: deque[dict] = deque(maxlen=128)
         self._backend: AgentSessionBackend | None = None
         self._active_turn: str | None = None
+        self.latency_run = None
         self._capture_directory = self.directory / "turn-captures"
         self._capture_files: set[Path] = set()
         self._turn_capture_files: dict[str, Path] = {}
@@ -720,6 +723,9 @@ class AgentPortal:
                 if len(message) > 16000:
                     raise AgentPortalError(400, "Agent message plus camera context exceeds 16000 characters")
             provisional = self._conversation_id is None
+            trace = current_trace.get()
+            if trace:
+                trace.record('prompt.build', size=len(message.encode('utf-8')))
             if native_image:
                 self._native_starting = True
             staged_capture = None
@@ -727,13 +733,14 @@ class AgentPortal:
                 staged_capture = self._stage_capture(capture_pixels)
                 image_path = staged_capture
             try:
-                conversation_id = (self._backend.start_conversation() if provisional
-                                   else self._conversation_id)
-                turn_id = (self._backend.start_native_image(conversation_id, message)
-                           if native_image else
-                           self._backend.send_text(conversation_id, message, image_path=image_path)
-                           if image_path is not None else
-                           self._backend.send_text(conversation_id, message))
+                with span('agent.start'):
+                    conversation_id = (self._backend.start_conversation() if provisional
+                                       else self._conversation_id)
+                    turn_id = (self._backend.start_native_image(conversation_id, message)
+                               if native_image else
+                               self._backend.send_text(conversation_id, message, image_path=image_path)
+                               if image_path is not None else
+                               self._backend.send_text(conversation_id, message))
             except Exception as error:
                 self.last_error = str(error)
                 if staged_capture is not None:
@@ -743,6 +750,7 @@ class AgentPortal:
                 self._native_starting = False
             self._conversation_id = conversation_id
             self._active_turn = turn_id
+            self.latency_run = trace
             if staged_capture is not None:
                 self._turn_capture_files[turn_id] = staged_capture
             if native_image:
@@ -953,12 +961,21 @@ class AgentPortal:
                 turn["assistant"] = joined[-MAX_TRANSCRIPT_TEXT:]
             elif event.get("type") == "activity":
                 self._activity = event["activity"]
+                if self.latency_run:
+                    if event['activity'] in ('using_tool', 'running_command', 'using_blender') and not self.latency_run.first_tool:
+                        self.latency_run.first_tool = True
+                        self.latency_run.record('agent.first_tool')
+                    if event['activity'] in ('completed', 'failed', 'cancelled'):
+                        self.latency_run.record('agent.completed',
+                            outcome='ok' if event['activity']=='completed' else 'failed')
                 if event["activity"] in ("completed", "failed", "cancelled") and self._transcript:
                     self._transcript[-1]["status"] = event["activity"]
                     self._clear_turn_capture(turn_id or self._active_turn)
                     self._active_turn = None
             elif event.get("type") == "approval":
                 self._activity = "waiting_for_approval"
+                if self.latency_run and self.latency_run.approval_started is None:
+                    self.latency_run.approval_started = self.latency_run.now()
         if native_to_interrupt is not None and native_to_interrupt == self._active_turn:
             try:
                 self._backend.cancel(self._conversation_id, native_to_interrupt)
@@ -1009,6 +1026,7 @@ class AgentPortal:
         if approval_mode not in ("reviewed", "automatic"):
             approval_mode = None
         return {"sessionId": self._session_id, "activity": self._activity,
+                **({'latencyTrace': self.latency_run.snapshot()} if self.latency_run else {}),
                 "accessMode": access_mode, "approvalMode": approval_mode,
                 "activeTurnId": self._active_turn, "transcript": deepcopy(self._transcript),
                 "pendingApprovals": pending, "cursor": self._sequence,
@@ -1039,6 +1057,10 @@ class AgentPortal:
             except Exception as error:
                 self.last_error = str(error)
                 raise AgentPortalError(502, "Approval response failed") from None
+            if self.latency_run and self.latency_run.approval_started is not None:
+                self.latency_run.record('approval.wait', self.latency_run.approval_started,
+                                        outcome='ok' if approve else 'failed')
+                self.latency_run.approval_started = None
             self._activity = "working"
             return self._snapshot(self._sequence)
 

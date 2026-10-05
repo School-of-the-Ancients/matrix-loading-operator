@@ -24,6 +24,7 @@ import urllib.parse
 import urllib.request
 import uuid
 import unicodedata
+from latency_trace import TraceStore, current_trace, span, traced_stage, traced_request
 
 from ai_adapter import (Planner, PlannerError, validate_local_bounds, validate_viewer,
                         validate_anchor_metadata, validate_room_context, validate_pointing,
@@ -3523,6 +3524,7 @@ def _selected_point_on_surface(point, boundary):
     return inside
 
 
+@traced_stage('context.assemble')
 def agent_turn_context(state, value, *, creation=False):
     """Reduce one wearer-owned semantic hit to bounded, advisory agent data."""
     common = {"schemaVersion", "inputSource", "clientId", "roomId",
@@ -3761,7 +3763,8 @@ def agent_portal_action(state, path, body):
         require(state.voice_worker.acquire(blocking=False),
                 "Speech recognition is still busy; try again shortly", 409)
         try:
-            return {"transcript": speech.transcribe(audio)}
+            with span('speech.transcribe'):
+                return {"transcript": speech.transcribe(audio)}
         finally:
             state.voice_worker.release()
     if path == "/api/agent/session":
@@ -4143,6 +4146,7 @@ class State:
         self.blender_authoring = BlenderAuthoringJobs(
             self.web_assets, citizen_directory=self.directory / "citizen_blender_jobs")
         self.matrix_tool_bridge = None
+        self.latency_traces = TraceStore()
         self.agent_portal = AgentPortal(self.directory / ".agent_portal", lambda: local_agent_backend(self))
         self.concept_build_guard = None
         self.agent_turn_submission_lock = threading.Lock()
@@ -4656,6 +4660,10 @@ class State:
                             result.pop("outcome", None)
                     else:
                         result.pop("outcome", None)
+                    trace = self.latency_traces.for_request(result['requestId'])
+                    if trace:
+                        trace.record('receipt.received', request_id=result['requestId'],
+                                     outcome='ok' if result['ok'] else 'failed')
                     del self.pending[result["requestId"]]
                     self.results.append(result)
             visit_started = (current is not None and current.get("digitalWorldVisit", False) and
@@ -4689,6 +4697,10 @@ class State:
             self.receive_capture(body.get("capture"))
             content_request = self.content.exchange(content_capabilities, body.get("contentReceipt"))
             response = {"commands": copy.deepcopy(list(self.pending.values()))}
+            for queued in response['commands']:
+                trace = self.latency_traces.for_request(queued['requestId'])
+                if trace:
+                    queued['latencyTraceId'] = trace.trace_id
             if content_request is not None:
                 response["contentInstall"] = content_request
             if self.capture_status()["status"] == "pending":
@@ -5432,6 +5444,9 @@ class State:
                     # earlier effect in the same proposal failed in the browser.
                     item["requiresSuccessOf"] = previous_request_id
                 self.pending[item["requestId"]] = item
+                trace = current_trace.get() or self.agent_portal.latency_run
+                if trace:
+                    trace.record('command.queued', request_id=item['requestId'])
                 previous_request_id = item["requestId"]
             self.revision += 1
             return {"commands": copy.deepcopy(checked)}
@@ -8502,6 +8517,9 @@ class Handler(BaseHTTPRequestHandler):
         self.send_header("Content-Type", content_type)
         self.send_header("Content-Length", str(len(raw)))
         self.send_header("Cache-Control", "no-store")
+        trace = current_trace.get()
+        if trace:
+            self.send_header('X-Matrix-Latency', json.dumps(trace.snapshot(), separators=(',', ':')))
         self.send_header("X-Content-Type-Options", "nosniff")
         script_sources = "'self' 'unsafe-inline'"
         if allow_webassembly:
@@ -8771,6 +8789,7 @@ class Handler(BaseHTTPRequestHandler):
         except (OSError, ValueError):
             self.send_api_error(APIError(500, "Service I/O error"))
 
+    @traced_request
     def do_POST(self):
         try:
             host = self.validate_host()

@@ -2105,5 +2105,6 @@ export class MatrixView {
     }
     this.refreshDisplays(false,time);
     this.renderer.render(this.scene,this.camera);
+    this.onRendered?.();
   }
 }
