@@ -52,6 +52,12 @@ Useful references include Generative Agents, SwarmWorld, Agent Office, Voyager a
 
 Citizens do not receive unrestricted Operator or PC credentials. They request world actions through explicit capabilities and world permissions.
 
+## School of the Ancients experience
+
+An ancient professor can explain an idea, request a bounded demonstration through Operator, inspect the resulting experiment, and help the learner revise it. Teaching content and learner records remain School-owned; the professor and exhibit inhabit the ordinary Matrix world. Longer-term Citizens may use an in-world workstation to run bounded child experiments.
+
+The [professor and generative Citizens implementation plan](Docs/School-Generative-Agents-Plan.md) starts with one text-first lesson and one editable exhibit, then adds grounded memory, a small agent society and sandboxed inner simulations. These are proposed increments, not claims of current implementation.
+
 ## Persistence
 
 A Matrix world should survive leaving and returning.

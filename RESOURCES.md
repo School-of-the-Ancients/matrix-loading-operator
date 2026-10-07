@@ -49,6 +49,15 @@ Existing implementation owners include:
 - **Social Simulacra** — large-scale social simulation reference: https://arxiv.org/abs/2208.04024
 - **Generative Agent Simulations of 1,000 People** — behavioral simulation reference: https://arxiv.org/abs/2411.10109
 
+### School professor and 3D-world authoring references
+
+- **Matt Shumer: How to Build 3D Worlds with Astra** — reference/assets/assembly/critique workflow and existing-engine authoring: https://somethingbig.ai/3d-worlds
+- **Matt Shumer: Astra review** — reported AI-resident world experiments and separate development-agent orchestration: https://somethingbig.ai/astra-review
+- **Generative Agents code** — research implementation of the paper's memory/planning ideas; not a replacement for Matrix's runtime: https://github.com/joonspk-research/generative_agents
+- **Quaternius Universal Base Characters** — candidate rigged human assets; verify the selected asset's license and Matrix GLB/animation contract before import: https://quaternius.com/packs/universalbasecharacters.html
+
+The [School professor implementation plan](Docs/School-Generative-Agents-Plan.md) selects a small proposed teaching slice. The reported nested-computer and NYC examples are inspiration with unverified implementation details; they are not current Matrix capabilities or a new city scope.
+
 ### Decision/action references
 
 - **Jev / TypeSafe AI** — candidate bounded fast action selector: https://typesafe.ai/
