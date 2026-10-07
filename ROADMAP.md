@@ -60,6 +60,12 @@ Milestones are tracked as GitHub issues, following the existing repository conve
 - #189 follows #188's immediate wireless path and evaluates local/remote/hybrid presentation on verified devices. Neither XREAL support nor remote rendering is presumed proven.
 - #156 remains the v2 north star: gameplay → Citizens capabilities → two-human shared authority → portals → School → bounded personal-state bridge → deeper geospatial overlay. Its older v1.0 prerequisite is satisfied only by actual release history; current work still preserves the v1.2/v1.3 gates.
 
+## School professor and generative Citizens planning
+
+The owner requested the [School professor and generative Citizens plan](Docs/School-Generative-Agents-Plan.md) on October 6. It proposes one text-first professor lesson, a scoped Operator-created exhibit, one revision and save/reopen as a small demonstration for the reported October 14 CSCI 4519 lifelog. Implementation is deferred until after the reported October 7 midterm; available time and the actual lifelog rubric still determine delivery scope. This is a planning record, not an automatic scheduled task or a change to #173/#187 release acceptance.
+
+Reuse #23 for School teaching, #29 for generic Citizens and #109 for mediated resident creation. Later work adds memory/reflection, a small community, the #20/#148 persistent hosted path and a bounded workstation child simulation under the existing #156 direction. Keep School records separate from Matrix state. A desktop local fixture, real School integration and Quest wearer acceptance remain distinct results. This selected proposal does not add Citizens to the v1.3 sprint, claim the wider issues complete or replace #179/#180's Boulder scope with an unverified NYC comparison.
+
 ## Issue intake and work selection
 
 1. Review the full new/changed issue and relevant comments, current milestone issues, sprint trackers, related PRs and existing implementations before assigning it. Reuse an existing issue-based milestone where it already owns the outcome.
