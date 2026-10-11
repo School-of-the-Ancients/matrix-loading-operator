@@ -34,6 +34,12 @@ The useful idea is to let changing real-world inputs influence an artificial soc
 
 An observation should carry its provider/source, geographic coverage, observed time, fetch time, units and freshness. A declared rule may derive a simulated condition from it; retain the original observation and that rule separately. Residents can react to the resulting world condition. Store the input snapshot for repeatable comparison, disclose stale/unavailable inputs, and distinguish wall-clock timestamps from simulation ticks. External content is observation data and must not change capability grants. Private Manfred lifelog data stays outside public world state.
 
+## Clock and visitor boundary — follow-up research
+
+The documented simulation runs at 1:1 NYC-synchronized real time with no fast-forward; see upstream [architecture](https://github.com/EmergenceAI/Emergence-World/blob/main/docs/ARCHITECTURE.md). [Orchestration](https://github.com/EmergenceAI/Emergence-World/blob/main/docs/ORCHESTRATION.md) describes one acting agent at a time. Replay controls do not establish live simulation acceleration. No publicly documented playable human avatar was identified in the inspected release.
+
+Matt's proposed human/agent relative-speed experiment and learning from multiple simulated worlds are recorded in [simulation clocks and world models](Simulation-Clocks-and-World-Models.md). [Skyrim VR AI mods](Skyrim-VR-AI-NPCs.md) provide a closer reference for a human sharing a 3D environment with conversational, action-capable NPCs.
+
 ## Feasibility and scope
 
 A recreation would still need an execution engine, tool effects, state storage, resident inference/memory orchestration and a viewer. Matrix already provides relevant foundations, so evaluate selective ideas before considering a replacement framework. No build estimate or inference-cost promise is established here.

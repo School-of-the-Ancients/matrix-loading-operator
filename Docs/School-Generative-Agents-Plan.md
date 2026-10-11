@@ -147,6 +147,8 @@ Matt Shumer's [3D-world workflow](https://somethingbig.ai/3d-worlds) and [review
 
 [Emergence World](Research/Emergence-World.md) supplies a documented 2026 comparator for P4's small community and P6's bounded teaching experiments: persistent memory, needs/resources, social rules and recorded outcomes. Its public release supplies reference material and traces; no runnable engine was identified. Keep NYC time/weather grounding distinct from a street-accurate reconstruction and from the earlier unverified NYC authoring example. Selective comparisons should reuse Matrix's existing authority/capability/persistence path; they do not expand P1-P3 or start implementation.
 
+[Skyrim VR AI research](Research/Skyrim-VR-AI-NPCs.md) adds an embodied counterpart: agents request supported actions while the engine executes and observes movement. [Simulation clocks and world models](Research/Simulation-Clocks-and-World-Models.md) records Matt's human/agent speed experiment and cross-simulation training idea. Keep child experiment time distinct from outer-world time, and simulated forecasts distinct from measured reality. These references do not expand P1-P3 or select a new runtime.
+
 ## Evidence and completion checks
 
 For P1-P3, keep a concise run record keyed by source/build, world, professor, lesson and request IDs. Record wall-clock UTC timestamps for submit, policy decision, dispatch, receipt and observed result; record simulation ticks separately. Measure dialogue latency separately from exhibit creation and human waiting. Do not derive a total duration from unrelated job timestamps.
