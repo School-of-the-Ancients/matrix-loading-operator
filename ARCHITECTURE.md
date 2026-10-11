@@ -83,6 +83,10 @@ Citizens can grow toward memory, reflection, needs, schedules, planning, navigat
 
 Do not create a resident-only scene graph, executor, physics system or hidden second world.
 
+## External observations: research direction
+
+[Emergence World research](Docs/Research/Emergence-World.md) informs a possible public-data input to the existing world owner. Preserve the source, geography, observation/fetch timestamps, units and freshness; distinguish the observation from a rule-derived simulated condition and a Citizen inference. Replay would need the recorded input snapshot. External information must not grant capabilities or create another simulation owner/clock. This is a proposed contract, not an implemented data adapter or NYC reconstruction; private Manfred context remains separate.
+
 ## Persistence
 
 Save enough versioned state to reconstruct the supported experience without silently resetting unrelated work. Preserve stable entity/citizen IDs and authored parameters where practical.

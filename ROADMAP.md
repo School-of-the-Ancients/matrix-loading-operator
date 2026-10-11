@@ -66,6 +66,10 @@ The owner requested the [School professor and generative Citizens plan](Docs/Sch
 
 Reuse #23 for School teaching, #29 for generic Citizens and #109 for mediated resident creation. Later work adds memory/reflection, a small community, the #20/#148 persistent hosted path and a bounded workstation child simulation under the existing #156 direction. Keep School records separate from Matrix state. A desktop local fixture, real School integration and Quest wearer acceptance remain distinct results. This selected proposal does not add Citizens to the v1.3 sprint, claim the wider issues complete or replace #179/#180's Boulder scope with an unverified NYC comparison.
 
+## Emergence World research
+
+The [Emergence World note](Docs/Research/Emergence-World.md), added October 11, records the 2026 papers, public prompts/datasets, missing runnable engine and reuse constraints. It informs later #29 memory/planning/society experiments, #20/#148 hosting and #179 public-data feasibility before #180's bounded Boulder block. NYC time/weather in a simplified reference world does not replace that local scope. This research intake creates no implementation task, deadline or change to #173/#187.
+
 ## Issue intake and work selection
 
 1. Review the full new/changed issue and relevant comments, current milestone issues, sprint trackers, related PRs and existing implementations before assigning it. Reuse an existing issue-based milestone where it already owns the outcome.

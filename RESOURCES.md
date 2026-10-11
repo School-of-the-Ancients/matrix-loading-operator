@@ -49,6 +49,21 @@ Existing implementation owners include:
 - **Social Simulacra** — large-scale social simulation reference: https://arxiv.org/abs/2208.04024
 - **Generative Agent Simulations of 1,000 People** — behavioral simulation reference: https://arxiv.org/abs/2411.10109
 
+### Emergence World: persistent societies and external data
+
+- **Emergence World (Emergence AI, 2026)** — persistent model-driven residents, needs/resources, memory, governance and trace-based comparison:
+  - repository: https://github.com/EmergenceAI/Emergence-World
+  - Season 1 paper: https://arxiv.org/abs/2606.08367
+  - Season 2 paper: https://arxiv.org/abs/2609.17320
+  - architecture: https://github.com/EmergenceAI/Emergence-World/blob/main/docs/ARCHITECTURE.md
+  - memory: https://github.com/EmergenceAI/Emergence-World/blob/main/docs/MEMORY.md
+  - replay website: https://world.emergence.ai/
+- **Release boundary, checked October 11, 2026:** profiles, world/tool descriptions, prompts and datasets are public; no runnable frontend/backend or custom agent-framework implementation was identified. Treat this as a blueprint/data reference, not a clone-and-run dependency.
+- **Data boundary:** NYC time/weather and external information ground a simplified world; they do not establish a street-accurate NYC digital twin.
+- **Reuse boundary:** upstream material is CC BY-NC 4.0 for noncommercial research/education with attribution; preserve its license/provenance before adapting it.
+
+See [the Matrix research note](Docs/Research/Emergence-World.md) for Citizens (#29), hosting (#20/#148), School experiments and public-data/geospatial research (#179/#180). These connections do not select implementation or expand the current sprint.
+
 ### School professor and 3D-world authoring references
 
 - **Matt Shumer: How to Build 3D Worlds with Astra** — reference/assets/assembly/critique workflow and existing-engine authoring: https://somethingbig.ai/3d-worlds
