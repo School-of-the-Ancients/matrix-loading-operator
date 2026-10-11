@@ -143,6 +143,10 @@ Persist recipe/code hash, seed, version, resource limits, results and source eve
 
 Matt Shumer's [3D-world workflow](https://somethingbig.ai/3d-worlds) and [review](https://somethingbig.ai/astra-review) provide build-process and AI-resident inspiration, not a published drop-in Matrix NPC runtime. Use their reference/assets/assembly/critique approach for authoring. Build workers and in-world Citizens are separate roles. The exact implementation of the reported recursive-computer demo has not been verified here; this section is our proposed architecture, not a reconstruction of his unpublished code. The reported NYC example is also an unverified reference; it does not replace the repository's bounded Boulder direction (#179/#180).
 
+## Additional society research, October 11
+
+[Emergence World](Research/Emergence-World.md) supplies a documented 2026 comparator for P4's small community and P6's bounded teaching experiments: persistent memory, needs/resources, social rules and recorded outcomes. Its public release supplies reference material and traces; no runnable engine was identified. Keep NYC time/weather grounding distinct from a street-accurate reconstruction and from the earlier unverified NYC authoring example. Selective comparisons should reuse Matrix's existing authority/capability/persistence path; they do not expand P1-P3 or start implementation.
+
 ## Evidence and completion checks
 
 For P1-P3, keep a concise run record keyed by source/build, world, professor, lesson and request IDs. Record wall-clock UTC timestamps for submit, policy decision, dispatch, receipt and observed result; record simulation ticks separately. Measure dialogue latency separately from exhibit creation and human waiting. Do not derive a total duration from unrelated job timestamps.
