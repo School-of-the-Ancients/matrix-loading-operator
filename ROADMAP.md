@@ -12,6 +12,8 @@ The implementation stack #175 → #176 → #178 → #192 → #193 → #194 → #
 
 Applicable suites, production build, matching independent packages and extracted smoke are recorded for the frozen checkpoint. Continue the remaining wearer cases through the durable [v1.2 acceptance record](Validation/V1.2-Headset-Acceptance.md). Preserve unchanged evidence; invalidate only affected checks with a reason. Retain failed, blocked and unrun gates. Keep the published tag and assets unchanged.
 
+**Release metadata discrepancy, verified October 14, 2026, 06:45 UTC:** GitHub's [Latest endpoint](https://api.github.com/repos/School-of-the-Ancients/matrix-loading-operator/releases/latest) now returns v1.2.0 with `prerelease: false`; its release metadata was last updated October 10 at 16:25:26 UTC. Release prose and the annotated tag message still say checkpoint prerelease. The tag remains at `858d486e9ee8507af36e2a05d78f1d34fc9ca2b0`, and published asset sizes/digests match the recorded checkpoint. This metadata is separate from acceptance: #173 stays open and integrated #187 remains gated; no new runtime, Quest or matched-latency evidence was found.
+
 ## Next: v1.3 image to polished world
 
 [#187](https://github.com/School-of-the-Ancients/matrix-loading-operator/issues/187) is the bounded sprint contract after v1.2 review and acceptance. Planning can proceed without claiming a reviewed or accepted integrated baseline.
