@@ -51,6 +51,8 @@ Applicable suites, production build, matching independent packages and extracted
 3. One polished, editable autumn trail bend with walkable 3D foreground, measured Quest budgets and reference-versus-runtime comparison. Obtain actual owner images 7699.jpg, 7701.jpg and 7703.jpg; they are not attached to #185.
 4. One manual #154 in-place refinement, retaining identity/lineage, locks, transforms, unrelated edits and saved state. Failed/stale refinement must not damage the draft.
 
+**AI world-review intake — October 17:** #186 now owns the October 16 owner-directed inspect → interact → check → fix → recheck plan. Reuse the existing shared-image review and merged #191 runner, while distinguishing their current composition/contract evidence from faithful production-renderer and real-input coverage. The proposed sequence is faithful virtual capture → isolated rendered/input fixture → development-only IWER feasibility → exact-build device association and supported Quest execution. Native rendering with synthetic input remains separate from wearer evidence; retain the one #173/#174 checklist. This refines the existing tooling backlog, not #187's selected scope, a renderer migration, or authorization to start implementation. Broader autonomous review and unsupported-device work remain in #186; no new deadline or #201 demo prerequisite is created.
+
 #185 and #186 remain full-scope owning issues. Their v1.3 membership covers only #187's selected slice and does not close their wider acceptance. #154 stays in the later-quality milestone because its full automatic/overnight queue is deferred. No georeconstruction, Citizens, new renderer or second queue enters this sprint.
 
 ## Separate access workstream
