@@ -4,6 +4,17 @@ Decision record: October 16, 2026, America/Denver. Captures the owner's choices 
 
 **Build order: polish the existing Playground demo -> one working professor and exhibit -> two generative Citizens -> an optional digital-self observation feed.** The ML coursework proceeds independently in parallel; it must not wait for the world integration.
 
+## UX organization follow-up — October 17 UTC
+
+The [modular UX and guided-lesson plan](Matrix-Modular-UX-Plan.md) records the
+owner's subsequent simplification direction: one Operator journey, Create/Play,
+contextual controls, and distinct Matrix/Citizens/School responsibilities.
+Apply the focused UI cleanup as upcoming increments are selected; it does not
+add a rewrite or professor dependency to the October 27 demo. The professor
+remains the first complete learning experience. Its world changes use reviewed,
+bounded capabilities; a lesson role does not grant PC privileges or imply an
+implemented autonomous lesson-session permission.
+
 ## Selected outcomes
 
 | Deliverable | Target | Distinct contribution |
