@@ -1,8 +1,70 @@
 # Bounded development checks (#186)
 
-This independent draft branches from main `8cb165475420a865d4b810b5dc4be59fb8c8fa97`.
-It does not change the frozen #175/#176/#178 stack or establish an integrated
-v1.3 baseline. It is a reusable runner foundation, not completion of #186/#187.
+The merged #191 foundation is extended here with an opt-in rendered/input
+fixture under #186. It does not change the published checkpoint or establish
+an integrated v1.3 baseline. Full #186/#187 acceptance remains open.
+
+## Production-rendered, emulated input command
+
+With the same prerequisites as the desktop command and the locked development
+dependency `iwer` 2.5.0 installed by `npm ci` in `WebRuntime`:
+
+```sh
+python Tools/automated_checks/runner.py --mode rendered --output /tmp/matrix-rendered.json
+```
+
+The same runner builds a separate entry containing the production `MatrixView`,
+Operator panel, world and storage code. It enters VR through the normal entry
+button in a disposable Chromium context. Standalone IWER supplies emulated
+poses and trigger input through WebXR and Three's controller events. It tests
+selectstart -> held controller movement -> selectend -> successful production
+movement receipt, the real Operator HIDE ray/hit target, and durable browser
+save/reopen in a new page with no session storage. The initial spawn is a typed
+fixture command. This does not test natural-language creation, service transport,
+approval UI, resize, animation, physical input or grab momentum.
+The report records the executed spawn/movement commands and matches each
+request/object identity and movement transform to its successful receipt.
+The fixture directly calls the production save/restore functions and re-shows
+the panel for capture; these are not save-button or panel-recall input tests.
+It uses the default virtual background, not a loaded panorama. Production
+`main.js` panel status/conversation updates are not exercised; the captured
+panel contains its default text, including the room-origin status.
+
+Six PNG artifacts (first-person, left and right, before/after reopen) are saved
+alongside the JSON in `<output-stem>.artifacts/`. Each has a SHA-256, dimensions,
+timestamp, fixture action revision, stable object IDs, complete snapshot and
+independent camera/reference-space metadata. IWER's emulated user agent must
+not be interpreted as an actual Quest/browser version; `browserVersion` records
+the real host Chromium. Build hashes identify the exact fixture bundles.
+
+`MatrixView`'s explicit `developmentReview` constructor option enables the
+`developer-review` capture profile. It preserves the actual virtual background
+and optionally the currently visible Operator panel. The bounded inspection
+cameras leave the viewer and panel placement unchanged. The target uses the
+renderer's output color space; these are independent monocular perspective
+images, not stereo/passthrough or the headset compositor. Existing production
+shared-image and physical-camera capture defaults are unchanged. This fixture
+neither sends images to an AI provider nor creates an autonomous fix loop or a
+new Portal surface; the artifacts are suitable inputs for the existing review
+workflow's next bounded adapter.
+
+Missing rendered geometry, an incorrect rendered transform and a hidden
+required panel are deliberately introduced in fresh fixture pages and must
+fail their assertions. A blank/uniform capture throws instead of yielding
+successful image evidence. These are deterministic checks, not AI judgments
+of quality, readability, occlusion, comfort or visual similarity.
+
+IWER is used only by the separate development entrypoint. Full emulation is
+force-installed solely in the owned context because Chromium may expose a
+native XRSystem without a usable headset. There is no production query-string
+hook, remote-control server, physical pairing, live storage or native override.
+Do not install full emulation and a native override on the same XRDevice.
+Meta's [native override documentation](https://meta-quest.github.io/immersive-web-emulation-runtime/api/native-webxr-override.html)
+describes a later device adapter; it must be installed before session creation,
+and browser-owned session entry/visibility and exact device/build association
+still need to be verified. The [IWSDK CLI](https://github.com/facebook/immersive-web-sdk/tree/main/packages/cli)
+currently distinguishes host-only screenshot/capture tools from physical target
+runtime commands. No physical screenshot support is inferred here.
 
 ## Desktop command
 

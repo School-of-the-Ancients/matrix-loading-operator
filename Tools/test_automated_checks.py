@@ -15,6 +15,62 @@ SPEC.loader.exec_module(runner)
 
 
 class RunnerTests(unittest.TestCase):
+    def test_rendered_command_receipts_reject_corruption(self):
+        transform = {'position': {'x': .6, 'y': .75, 'z': -2.2},
+                     'rotation': {'x': 0, 'y': 0, 'z': 0}, 'scale': {'x': 1, 'y': 1, 'z': 1}}
+        receipts = [{'requestId': name, 'objectId': 'automated-check-block', 'ok': True}
+                    for name in ['rendered-spawn', 'production-move']]
+        before = {'scene': {'objects': [{'transform': transform}]}, 'receipts': receipts,
+                  'commands': [{'command': {'requestId': 'rendered-spawn', 'op': 'spawn', 'assetId': 'block'},
+                                'receipt': copy.deepcopy(receipts[0])},
+                               {'command': {'requestId': 'production-move', 'op': 'set_transform',
+                                            'objectId': 'automated-check-block', 'transform': transform},
+                                'receipt': copy.deepcopy(receipts[1])}]}
+        runner.assert_rendered_execution(before)
+        for field, value in [('requestId', 'wrong-request'), ('objectId', 'wrong-object'), ('ok', False)]:
+            for both_copies in (False, True):
+                corrupted = copy.deepcopy(before)
+                corrupted['receipts'][1][field] = value
+                if both_copies:
+                    corrupted['commands'][1]['receipt'][field] = value
+                with self.subTest(field=field, both_copies=both_copies), self.assertRaisesRegex(AssertionError, 'command/receipt mismatch'):
+                    runner.assert_rendered_execution(corrupted)
+        corrupted = copy.deepcopy(before)
+        corrupted['commands'][1]['command']['op'] = 'spawn'
+        with self.assertRaisesRegex(AssertionError, 'command sequence'):
+            runner.assert_rendered_execution(corrupted)
+        for field, value in [('objectId', 'wrong-object'), ('transform', {})]:
+            corrupted = copy.deepcopy(before)
+            corrupted['commands'][1]['command'][field] = value
+            with self.subTest(field=field), self.assertRaisesRegex(AssertionError, 'movement command mismatch'):
+                runner.assert_rendered_execution(corrupted)
+
+    def test_real_rendered_fixture_rejects_wrong_object_receipt(self):
+        original = runner.evaluate
+        def corrupted(context, page, expression):
+            value = original(context, page, expression)
+            if expression == 'matrixReview.exercise()':
+                value['receipts'][1]['objectId'] = 'wrong-object'
+            return value
+        report = runner.Report('rendered-negative-control')
+        with patch.object(runner, 'evaluate', corrupted):
+            report.check('wrong-object-receipt', lambda: runner.desktop(
+                report, os.environ.get('MATRIX_CHECK_BROWSER'), rendered=True))
+        self.assertEqual(report.value['status'], 'fail', report.value['checks'])
+        self.assertIn('command/receipt mismatch', report.value['checks'][0]['reason'])
+
+    def test_real_rendered_input_fixture(self):
+        report = runner.Report('rendered')
+        report.check('rendered-input-save-reopen', lambda: runner.desktop(
+            report, os.environ.get('MATRIX_CHECK_BROWSER'), rendered=True))
+        self.assertEqual(report.value['status'], 'pass', report.value['checks'])
+        self.assertEqual(report.value['runtime']['descriptor']['presentation'], 'vr')
+        self.assertEqual(len(report.value['artifacts']), 6)
+        self.assertEqual(len(report.value['observations']['negativeControls']), 3)
+        self.assertTrue(all(item['detected'] for item in report.value['observations']['negativeControls']))
+        self.assertEqual(report.value['checks'][0]['evidence']['evidenceClass'], 'desktop-emulated-xr')
+        self.assertIsNone(report.value['device'])
+
     def test_fixture_module_mime_ignores_host_file_mappings(self):
         handler = object.__new__(runner.QuietHandler)
         with patch('mimetypes.guess_type', return_value=('text/plain', None)):
@@ -167,6 +223,7 @@ import sys, unittest
 if sys.flags.optimize < 1:
     raise RuntimeError('Regression must run under optimization')
 suite = unittest.defaultTestLoader.loadTestsFromNames([
+    'test_automated_checks.RunnerTests.test_rendered_command_receipts_reject_corruption',
     'test_automated_checks.RunnerTests.test_deliberate_transform_corruption_fails',
     'test_automated_checks.RunnerTests.test_real_browser_detects_wrong_expected_transform',
     'test_automated_checks.RunnerTests.test_real_browser_rejects_corrupted_receipts_and_reopen',

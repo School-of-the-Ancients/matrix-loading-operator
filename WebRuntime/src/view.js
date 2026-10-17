@@ -600,6 +600,7 @@ export class MatrixView {
   constructor(container,world,onSelection,getToken=()=>'',onAssetError=()=>{},onSceneEdit=()=>{},onRuntimeChange=()=>{},onVoiceStart=()=>{},onVoiceEnd=()=>{},onVoiceOutputToggle=()=>{},onVisualReview=()=>{},onNewChat=()=>{},options={}){
     this.world=world;this.onSelection=onSelection;this.getToken=getToken;this.onAssetError=onAssetError;this.onSceneEdit=onSceneEdit;this.onRuntimeChange=onRuntimeChange;this.onVoiceStart=onVoiceStart;this.onVoiceEnd=onVoiceEnd;this.onVoiceOutputToggle=onVoiceOutputToggle;this.onVisualReview=onVisualReview;this.onNewChat=onNewChat;this.onPanelAction=()=>{};this.onFrame=()=>{};this.onAssetReadinessChange=()=>{};this.onPhysicsContacts=()=>{};this.onPlayInteraction=()=>{};
     this.readOnly=options.readOnly===true;
+    this.developmentReview=options.developmentReview===true;
     this.observationStale=false;
     this.appliedARLayoutKey=JSON.stringify(world.arLayoutOffset);
     this.appliedARWorldEpoch=world.placementWorldEpoch;
@@ -1978,7 +1979,11 @@ export class MatrixView {
     const horizontal=direction.clone().setY(0);if(horizontal.length()<.01)horizontal.set(0,0,-1);horizontal.normalize();
     return {frames:[{anchorId:'web-floor',position:plain(position),forward:plain(horizontal),lookDirection:plain(direction.normalize())}]};
   }
-  renderVirtualFrame(request,clientId,width,height){
+  renderVirtualFrame(request,clientId,width,height,review=null){
+    if(review&&(!this.developmentReview||review.profile!=='developer-review'||
+       !['first-person','left','right'].includes(review.viewpoint)||
+       typeof review.includeOperator!=='boolean'||!Number.isSafeInteger(request.revision)||
+       request.revision<0))throw Error('Invalid or unavailable development review profile');
     const started=performance.now();
     const camera=new THREE.PerspectiveCamera(70,width/height,.02,100);
     if(this.renderer.xr.isPresenting){
@@ -1988,14 +1993,22 @@ export class MatrixView {
       camera.position.copy(this.camera.position);camera.quaternion.copy(this.camera.quaternion);
       camera.fov=this.camera.fov;camera.updateProjectionMatrix();
     }
+    if(review&&review.viewpoint!=='first-person'){
+      const focus=camera.position.clone().add(new THREE.Vector3(0,0,-3).applyQuaternion(camera.quaternion));
+      camera.position.add(new THREE.Vector3(review.viewpoint==='left'?-.9:.9,.3,0).applyQuaternion(camera.quaternion));
+      camera.lookAt(focus);
+    }
     const target=new THREE.WebGLRenderTarget(width,height,{depthBuffer:true});
+    // The canvas encoder consumes display-space bytes. Keep the review target
+    // in the renderer's output color space rather than encoding linear pixels.
+    if(review)target.texture.colorSpace=this.renderer.outputColorSpace;
     const previousTarget=this.renderer.getRenderTarget(),previousBackground=this.scene.background;
     const previousXr=this.renderer.xr.enabled,panelVisible=this.operatorPanel.group.visible;
     const pixels=new Uint8Array(width*height*4);
     try{
       this.renderer.xr.enabled=false;
-      this.scene.background=new THREE.Color(0x101820);
-      this.operatorPanel.group.visible=false;
+      if(!review)this.scene.background=new THREE.Color(0x101820);
+      this.operatorPanel.group.visible=!!review&&review.includeOperator&&panelVisible;
       this.renderer.setRenderTarget(target);
       this.renderer.render(this.scene,camera);
       this.renderer.readRenderTargetPixels(target,0,0,width,height,pixels);
@@ -2005,6 +2018,13 @@ export class MatrixView {
       this.scene.background=previousBackground;
       this.operatorPanel.group.visible=panelVisible;
       target.dispose();
+    }
+    if(review){
+      let variation=0;
+      for(let i=0;i<pixels.length;i+=4)for(let channel=0;channel<3;channel++){
+        variation=Math.max(variation,Math.abs(pixels[i+channel]-pixels[channel]));
+      }
+      if(variation<8)throw Error('Review capture unavailable: blank or uniform render');
     }
     const rendered=performance.now();
     const canvas=document.createElement('canvas');canvas.width=width;canvas.height=height;
@@ -2023,6 +2043,17 @@ export class MatrixView {
       spatialProvenance:{source:'virtual',roomId:snapshot.scene.roomId,anchorCount:snapshot.anchors.length,
         alignmentVerified:false,depthOcclusion:false,physicalDepthIncluded:false},
       renderMs:rendered-started,frameTimeMs:0};
+    if(review)virtual.source='matrix_developer_virtual_review';
+    if(review)virtual.review={profile:review.profile,viewpoint:review.viewpoint,
+      capturedAtUtc:new Date().toISOString(),sceneRevision:request.revision,
+      objectIds:snapshot.scene.objects.map(object=>object.objectId).sort(),
+      referenceSpace:this.renderer.xr.isPresenting?(this.isAR?'local':'local-floor'):'desktop-world',
+      projection:'independent-monocular-perspective',liveViewUnchanged:true,
+      outputColorSpace:target.texture.colorSpace,
+      includesVirtualBackground:true,virtualBackground:this.scene.background===null?'transparent':
+        this.scene.background.isTexture?'texture':'color',
+      includesOperator:review.includeOperator&&panelVisible,operatorWasVisible:panelVisible,
+      includesPhysicalCamera:false,includesStereo:false};
     return {canvas,virtual,renderedAtMs:rendered};
   }
   captureVirtual(request,clientId){
