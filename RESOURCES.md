@@ -73,6 +73,29 @@ See [the Matrix research note](Docs/Research/Emergence-World.md) for Citizens (#
 
 The [School professor implementation plan](Docs/School-Generative-Agents-Plan.md) selects a small proposed teaching slice. The reported nested-computer and NYC examples are inspiration with unverified implementation details; they are not current Matrix capabilities or a new city scope.
 
+### Skyrim VR: embodied AI NPCs
+
+- **Mantella** — conversation/memory plus configurable NPC actions: https://art-from-the-machine.github.io/Mantella/
+- **CHIM** — broader gameplay actions and background resident activity: https://dwemerdynamics.com/chim/index.html
+  - Background Life: https://dwemerdynamics.com/chim/background-life.html
+- **SkyrimNet** — native in-game AI plugin with semantic memory and supported actions: https://fateless.ai/
+- **Mantella movement source** — concrete model-intention → native-AI-package → observed-distance pattern:
+  - action schema: https://github.com/art-from-the-machine/Mantella/blob/main/data/actions/functions/move_npc.json
+  - executor: https://github.com/art-from-the-machine/Mantella-Spell/blob/main/Scripts/Source/MantellaAdvancedAction_MoveTo.psc
+
+See [Skyrim VR research](Docs/Research/Skyrim-VR-AI-NPCs.md) for the Creation Engine platform, XYZ/context distinction and Matrix transfer questions.
+
+### Interactive platforms, clocks and predictive-model research
+
+- **AI Town** — deployable generative-agent town: https://github.com/a16z-infra/ai-town
+- **Mindcraft / MineCollab** — Minecraft embodied-agent collaboration:
+  - platform: https://github.com/mindcraft-bots/mindcraft
+  - paper: https://arxiv.org/abs/2504.17950
+- **World Models** — learned dynamics: https://worldmodels.github.io/
+- **DreamerV3** — learning through imagined trajectories: https://danijar.com/project/dreamerv3/
+
+See [simulation clocks and world-model research](Docs/Research/Simulation-Clocks-and-World-Models.md) for human participation, simulation/replay speed and Matt's cross-simulation training idea. Emergence World's documented clock is 1:1 with no fast-forward; an accelerated interactive visitor mode is a separate proposal.
+
 ### Decision/action references
 
 - **Jev / TypeSafe AI** — candidate bounded fast action selector: https://typesafe.ai/
