@@ -4,6 +4,16 @@ Decision record: October 16, 2026, America/Denver. Captures the owner's choices 
 
 **Build order: polish the existing Playground demo -> one working professor and exhibit -> two generative Citizens -> an optional digital-self observation feed.** The ML coursework proceeds independently in parallel; it must not wait for the world integration.
 
+## October 17 release-planning follow-up, America/Denver
+
+The [v1.3 implementation plan](V1.3-Implementation-Plan.md) now proposes the
+professor/exhibit loop as the next release outcome under #187. It connects the
+existing School lesson and records to WebXR, then advances to two residents.
+This explicitly changes the earlier separate image-world sprint ordering
+referenced below; #185/#154 retain that work and its acceptance. The course
+delivery order, October 27 demo scope, product ownership and #173's remaining
+acceptance are unchanged.
+
 ## UX organization follow-up — October 17 UTC
 
 The [modular UX and guided-lesson plan](Matrix-Modular-UX-Plan.md) records the

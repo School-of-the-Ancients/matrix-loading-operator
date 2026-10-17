@@ -1,6 +1,21 @@
 # Matrix roadmap
 
-Detailed requirements and acceptance stay in their owning issues; exact-build evidence stays in `Docs/` and `Validation/`. This roadmap organizes the 28 open issues reviewed on October 1, 2026. Issue-based milestone placement is planning metadata, not proof of implementation or release acceptance. No dates are promised for undated work.
+Detailed requirements and acceptance stay in their owning issues; exact-build evidence stays in `Docs/` and `Validation/`. The original grouping reviewed 28 open issues on October 1, 2026; the October 17 execution update below proposes the next release order. Issue-based milestone placement is planning metadata, not proof of implementation or release acceptance. No dates are promised for undated work.
+
+## Execution update — October 17, America/Denver
+
+**Recommended v1.3: connect the existing School lesson to WebXR.** Follow the
+[v1.3 implementation plan](Docs/V1.3-Implementation-Plan.md) and #187 for the
+ordered queue and completion checks. It resolves the earlier image-world and
+modular-UX proposals into one next product outcome: one professor, one exhibit,
+one observed revision, save and return. The first new feature is #32's immersive
+experiment/observation surface through #31, then School's existing lesson.
+
+The dated planning records below retain their context. This proposed ordering
+moves rich image-world authoring to #185/#154's creator-quality backlog and
+uses only the UI/review work needed for the lesson. It preserves #201's October
+27 delivery scope and #173's remaining acceptance. No runtime work or release
+is completed by this planning update.
 
 ## Coursework delivery priorities — October 16
 
@@ -58,18 +73,59 @@ Applicable suites, production build, matching independent packages and extracted
 
 **Release metadata discrepancy, verified October 14, 2026, 06:45 UTC:** GitHub's [Latest endpoint](https://api.github.com/repos/School-of-the-Ancients/matrix-loading-operator/releases/latest) now returns v1.2.0 with `prerelease: false`; its release metadata was last updated October 10 at 16:25:26 UTC. Release prose and the annotated tag message still say checkpoint prerelease. The tag remains at `858d486e9ee8507af36e2a05d78f1d34fc9ca2b0`, and published asset sizes/digests match the recorded checkpoint. This metadata is separate from acceptance: #173 stays open and integrated #187 remains gated; no new runtime, Quest or matched-latency evidence was found.
 
-## Next: v1.3 image to polished world
+## Proposed next release: v1.3 School in WebXR
 
-[#187](https://github.com/School-of-the-Ancients/matrix-loading-operator/issues/187) is the bounded sprint contract after v1.2 review and acceptance. Planning can proceed without claiming a reviewed or accepted integrated baseline.
+The [v1.3 implementation plan](Docs/V1.3-Implementation-Plan.md) and
+[#187](https://github.com/School-of-the-Ancients/matrix-loading-operator/issues/187)
+recommend **one professor, one exhibit, one observed revision, save and return**.
 
-1. A bounded #186 local Quest runner: readiness, logs, load/transforms/save-reopen and truthful pass/fail/blocked evidence. Broader automation remains open; it is not all a prerequisite to authoring.
-2. #185: upload a real reference or describe → generate variants → explicitly select one; pass its actual pixels and provenance to the existing Operator. Audit and reuse completed #91.
-3. One polished, editable autumn trail bend with walkable 3D foreground, measured Quest budgets and reference-versus-runtime comparison. Obtain actual owner images 7699.jpg, 7701.jpg and 7703.jpg; they are not attached to #185.
-4. One manual #154 in-place refinement, retaining identity/lineage, locks, transforms, unrelated edits and saved state. Failed/stale refinement must not damage the draft.
+This October 17 planning update follows the owner's request to move from
+WebXR/Codex/Blender creation toward School and a generative society, with a
+manageable work queue. It explicitly proposes a new order for the earlier
+image-to-polished-world sprint. It does not claim implementation or change
+#173's remaining exact-candidate acceptance.
 
-**AI world-review intake — October 17:** #186 now owns the October 16 owner-directed inspect → interact → check → fix → recheck plan. Reuse the existing shared-image review and merged #191 runner, while distinguishing their current composition/contract evidence from faithful production-renderer and real-input coverage. The proposed sequence is faithful virtual capture → isolated rendered/input fixture → development-only IWER feasibility → exact-build device association and supported Quest execution. Native rendering with synthetic input remains separate from wearer evidence; retain the one #173/#174 checklist. This refines the existing tooling backlog, not #187's selected scope, a renderer migration, or authorization to start implementation. Broader autonomous review and unsupported-device work remain in #186; no new deadline or #201 demo prerequisite is created.
+1. Prove the current local School companion -> WebXR block-scale request,
+   owner Apply and confirmed observation (#31/#32).
+2. Complete #32's immersive controls/display through the shared experiment
+   state. Pull only the relevant #203 presentation changes.
+3. Present the existing School Galileo lesson and live text provider in WebXR,
+   under [School #7](https://github.com/School-of-the-Ancients/school-of-the-ancients/issues/7).
+   Matrix owns world/professor identity; School owns teaching and learner records.
+4. Restore the supported world, re-observe the exhibit and resume School's
+   existing lesson/history. New pairings cannot replay old requests.
+5. Use bounded #186 rendered/input checks and one consolidated exact-candidate
+   wearer review. The full autonomous-review backlog is not a prerequisite.
 
-#185 and #186 remain full-scope owning issues. Their v1.3 membership covers only #187's selected slice and does not close their wider acceptance. #154 stays in the later-quality milestone because its full automatic/overnight queue is deferred. No georeconstruction, Citizens, new renderer or second queue enters this sprint.
+**Now:** #201's existing Playground rehearsal and materials, plus #173's
+remaining evidence where available. **Next feature:** the #32/#31 experiment
+slice above, then the linked School lesson. **After the professor:** two
+residents with selective observations, communication and grounded memory under
+#29. Keep one implementation slice active; research and new ideas remain in the
+owning backlog until selected. This adds no new prerequisite to October 27.
+
+### Earlier image-world proposal, retained as creator-quality backlog
+
+The former #187 target remains open under #185 and #154: upload an actual
+reference or describe -> generate variants -> explicitly select one -> build an
+editable autumn trail -> manually refine one object in place -> save/reopen.
+#91 and the existing Operator/image/assets/persistence paths are foundations.
+Owner photos 7699.jpg, 7701.jpg and 7703.jpg are not in the repository or attached
+to #185; locate them for that photo-specific demo. Their absence does not block
+the professor plan.
+
+Preserve the original detailed requirements and historical #187 text. #185's
+world-authoring acceptance and #154's broader automatic/overnight refinement
+remain open. The original foreground geometry, reference comparison, editable
+trees/path, identity/lock preservation, measured Quest budgets, failure
+retention and stale-result rejection are not canceled or claimed complete.
+
+**AI world review:** #186 owns the inspect -> interact -> check -> fix -> recheck
+direction. Reuse merged #191 and existing shared-image review; extend faithful
+production rendering/input coverage for the active feature. Broader IWER/native
+device feasibility and exact-build Quest automation stay in #186. Keep native
+rendering with synthetic input distinct from wearer evidence and retain the
+#173/#174 consolidated process.
 
 ## Separate access workstream
 
@@ -87,15 +143,15 @@ Origin migration needs authored-state export/recovery and possible room re-regis
 | Issue-based roadmap track | Open issues | Sequencing and boundary |
 | --- | --- | --- |
 | v1.2 Fast simple creation | #158, #163, #171, #173, #174 | Active core acceptance only; exact-build gate above |
-| v1.3 Image to polished world | #185, #186, #187 | Next bounded sprint; full umbrella acceptance remains visible |
+| Proposed v1.3 School in WebXR | #187; bounded #32/#31/#29, School #7, supporting #203/#186 | One professor/exhibit journey; full umbrella acceptance remains open |
 | Wireless access and hosting | #188 | LAN → 3660 → school; optional streaming later |
 | ChatGPT integration | #181, #182, #183, #184 | #181 existing capability adapter + #182 secure pairing/tool journey before #183 UI; reuse #31 |
-| Later creator quality and content | #9, #154, #172 | Broader catalogs, automatic refinement and wrist/full-panel UX; one manual #154 slice only is in v1.3 |
+| Later creator quality and content | #9, #154, #172, #185 | Original image-world/manual-refinement requirements retained; select a bounded follow-up after the professor |
 | v2 Connected inhabited worlds | #20, #22, #29, #31, #32, #148, #156, #180 | Persistent Citizens/shared authority, client-neutral/School experiments and one-block Boulder prototype; select small slices later |
 | Research and feasibility | #177, #179, #189 | SAM 3D, geospatial source/location/alignment study and hybrid glasses compute; research is not committed runtime delivery |
 | Coursework and release delivery | #24 | Exact artifacts/runbooks plus report/video/slides; verify course dates/rubric before scheduling |
 
-Milestones are tracked as GitHub issues, following the existing repository convention. #173 owns the active sprint, #187 the next sprint, #184 ChatGPT integration, #188 access/hosting and #156 the later v2 roadmap. The thematic rows above are roadmap groupings, not new native GitHub Milestone objects or eight additional tracker issues. The owning issues remain authoritative for detailed scope and acceptance.
+Milestones are tracked as GitHub issues, following the existing repository convention. #173 owns remaining baseline acceptance, #187 the proposed next release, #184 ChatGPT integration, #188 access/hosting and #156 the later v2 roadmap. The thematic rows above are roadmap groupings, not new native GitHub Milestone objects or eight additional tracker issues. The owning issues remain authoritative for detailed scope and acceptance.
 
 ### Important cross-track dependencies
 
