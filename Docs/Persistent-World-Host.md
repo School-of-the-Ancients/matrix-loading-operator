@@ -193,8 +193,8 @@ creations; other actions remain denied. The generated path extends the
 existing capability journal and Blender, GLB registration, Matrix spawn, and
 interaction machinery. The human Operator procedural path remains available
 in a world with no autonomous addition. See
-`Validation/Citizen-Capabilities-2026-09-27.md` for the procedural proof and
-`Validation/Citizen-Generated-Asset-2026-09-27.md` for generated-asset evidence.
+[Citizen-Capabilities-2026-09-27.md](https://github.com/School-of-the-Ancients/matrix-loading-operator/blob/main/Archive/v1.2-freeze-2026-10-17/Validation/Citizen-Capabilities-2026-09-27.md) for the procedural proof and
+[Citizen-Generated-Asset-2026-09-27.md](https://github.com/School-of-the-Ancients/matrix-loading-operator/blob/main/Archive/v1.2-freeze-2026-10-17/Validation/Citizen-Generated-Asset-2026-09-27.md) for generated-asset evidence.
 
 ## Read-only observation contract
 

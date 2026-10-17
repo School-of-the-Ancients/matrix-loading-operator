@@ -8,4 +8,4 @@ This static, original asset was built and revised through Blender MCP in one con
 
 The exported GLB contains only evaluated model geometry. Its floor, camera, and lights remain in the `.blend` for preview work. `inspect_glb` accepted 1,694,104 bytes, 51 meshes, 50,130 referenced vertices, no external resources, and no clips. SHA-256: `4a239db63c676b1bedb3e106ecf7eb98dedfc58cbccddec841fda117ed7e1ffa`. Measured bounds are `(−1.452961, 0.025, −0.737716)` to `(1.452961, 3.152961, 0.737887)` metres.
 
-The [desktop M1 trace](../../../Validation/WebRuntime-Blender-MCP-M1-2026-09-25.md) records the creation, revision, registration, runtime receipts, visual check, and browser reload. It does not establish Quest visibility or physical-surface placement.
+The [desktop M1 trace](../../../Archive/v1.2-freeze-2026-10-17/Validation/WebRuntime-Blender-MCP-M1-2026-09-25.md) records the creation, revision, registration, runtime receipts, visual check, and browser reload. It does not establish Quest visibility or physical-surface placement.

@@ -48,7 +48,7 @@ Citizens can grow toward:
 - persistent state;
 - world building through the same bounded creation capabilities available to humans.
 
-Useful references include Generative Agents, SwarmWorld, Agent Office, Voyager and other agent-society work collected in [RESOURCES.md](RESOURCES.md).
+Useful references include Generative Agents, SwarmWorld, Agent Office, Voyager and other agent-society work collected in [RESOURCES.md](https://github.com/School-of-the-Ancients/matrix-loading-operator/blob/main/RESOURCES.md).
 
 Citizens do not receive unrestricted Operator or PC credentials. They request world actions through explicit capabilities and world permissions.
 
@@ -56,7 +56,7 @@ Citizens do not receive unrestricted Operator or PC credentials. They request wo
 
 School is an independent experience centered on conversations with historical minds. A figure can explain an idea and request any supported presentation material through Operator. School owns the mentor's identity, conversation, teaching and learner records; Matrix creates, presents and runs the requested material. A visible guide can use an ordinary Matrix avatar/entity without requiring a resident simulation.
 
-The [reference integration plan](Docs/V1.3-Implementation-Plan.md) uses an existing School lesson to prove that connection. School and Civilization are independent workstreams; current delivery choices belong in [ROADMAP.md](ROADMAP.md).
+The [archived reference integration proposal](https://github.com/School-of-the-Ancients/matrix-loading-operator/blob/main/Archive/v1.2-freeze-2026-10-17/Docs/V1.3-Implementation-Plan.md) uses an existing School lesson to prove that connection. School and Civilization are independent workstreams; current delivery choices belong in [ROADMAP.md](ROADMAP.md).
 
 ## Persistence
 

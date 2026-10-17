@@ -79,7 +79,7 @@ School owns historical-figure conversations, mentor identities, teaching and lea
 
 ## Geographic observations: research direction
 
-[Emergence World research](Docs/Research/Emergence-World.md) informs a possible Civilization public-data input to the existing world owner. Civilization owns the data's geographic and simulation meaning; Matrix receives bounded world actions. Preserve the source, geography, observation/fetch timestamps, units and freshness; distinguish the observation from a rule-derived simulated condition and a Citizen inference. Replay would need the recorded input snapshot. External information must not grant capabilities or create another simulation owner/clock. This is a proposed contract, not an implemented data adapter or NYC reconstruction; private Manfred context remains separate.
+[Emergence World research](https://github.com/School-of-the-Ancients/matrix-loading-operator/blob/main/Archive/v1.2-freeze-2026-10-17/Docs/Research/Emergence-World.md) informs a possible Civilization public-data input to the existing world owner. Civilization owns the data's geographic and simulation meaning; Matrix receives bounded world actions. Preserve the source, geography, observation/fetch timestamps, units and freshness; distinguish the observation from a rule-derived simulated condition and a Citizen inference. Replay would need the recorded input snapshot. External information must not grant capabilities or create another simulation owner/clock. This is a proposed contract, not an implemented data adapter or NYC reconstruction; private Manfred context remains separate.
 
 ## Persistence
 
@@ -98,7 +98,7 @@ These are responsibility boundaries, not mandatory deployments or repository spl
 
 ## UX and guided lessons
 
-The [modular UX plan](Docs/Matrix-Modular-UX-Plan.md) applies these boundaries to
+The [archived modular UX proposal](https://github.com/School-of-the-Ancients/matrix-loading-operator/blob/main/Archive/v1.2-freeze-2026-10-17/Docs/Matrix-Modular-UX-Plan.md) applies these boundaries to
 one Operator experience across desktop/VR/AR. Modules are responsibilities,
 not mandatory new repositories or tabs. School requests supported presentation material;
 Operator orchestrates and Matrix executes. Create/Play and capability authority
