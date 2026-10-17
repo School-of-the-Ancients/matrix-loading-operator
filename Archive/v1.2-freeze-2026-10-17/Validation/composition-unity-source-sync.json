@@ -1,0 +1,36 @@
+{
+  "updatedUtc": "20260920_215221",
+  "scope": "Authored scripts only; existing user scenes, prefabs and project settings preserved",
+  "targets": [
+    {
+      "target": "Quest",
+      "copied": [
+        "Assets/Sandbox/Editor/SandboxCoreChecks.cs",
+        "Assets/Sandbox/Editor/WhiteRoomSceneSetup.cs",
+        "Assets/Sandbox/Runtime/PcBridge.cs",
+        "Assets/Sandbox/Runtime/SandboxApp.cs",
+        "Assets/Sandbox/Runtime/SandboxData.cs",
+        "Assets/Sandbox/Runtime/SandboxWorld.cs",
+        "Assets/Sandbox/Runtime/WhiteRoomDesktopControls.cs",
+        "Assets/Sandbox/Runtime/WhiteRoomXrControls.cs"
+      ],
+      "alreadyCurrent": [],
+      "preservedChanges": []
+    },
+    {
+      "target": "Desktop",
+      "copied": [
+        "Assets/Sandbox/Editor/SandboxCoreChecks.cs",
+        "Assets/Sandbox/Editor/WhiteRoomSceneSetup.cs",
+        "Assets/Sandbox/Runtime/PcBridge.cs",
+        "Assets/Sandbox/Runtime/SandboxApp.cs",
+        "Assets/Sandbox/Runtime/SandboxData.cs",
+        "Assets/Sandbox/Runtime/SandboxWorld.cs",
+        "Assets/Sandbox/Runtime/WhiteRoomDesktopControls.cs",
+        "Assets/Sandbox/Runtime/WhiteRoomXrControls.cs"
+      ],
+      "alreadyCurrent": [],
+      "preservedChanges": []
+    }
+  ]
+}

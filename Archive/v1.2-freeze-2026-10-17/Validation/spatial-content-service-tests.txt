@@ -1,0 +1,40 @@
+Spatial capture and content service validation
+Recorded UTC: 2026-09-21T21:49:49.456147+00:00
+
+Python: 378 tests passed, 0 failed; 55.908 seconds (unittest timer).
+Command: python -m unittest discover -s ControlService -v
+Node: operator panel interaction checks passed (exit code 0); 0.100 seconds wall time.
+Command: node ControlService/test_operator_panel.js
+
+This final full run includes the contentLibrary capability flag and the
+review regressions. A successful content receipt during an AR room reload
+keeps its heartbeat valid until the matching localized catalog is available.
+An expired client lease now retires pending content installs before a returning
+heartbeat can renew that same client ID. The regression covers a late success
+receipt, no intervening status poll, no stale install resend, and resumed
+heartbeat availability. A late receipt does not revive the expired job.
+
+The initial install response is copied before its asynchronous worker starts,
+preventing concurrent dictionary mutation during response serialization. A
+deterministic scheduling regression covers worker completion at that boundary.
+Worker-start failures now retire the job, signal cancellation, return HTTP 503,
+and leave the service available for an explicit retry instead of permanently
+blocking edits and installations behind an orphaned preparing job.
+
+The earlier 374-test, 375-test, and 376-test full runs also passed. This run uses the final
+sources listed below; no automatic retry or test workaround was applied.
+
+Scope: isolated Python service/provider tests and Node interaction checks.
+No Unity build, live model request, headset, or rendering validation is
+claimed by this report. Those results have separate runtime/build evidence.
+
+SHA-256 of reviewed/tested integration sources (unchanged during this run):
+ed9defe02f8e0289d1c2894c728153ea5679c9f27ab9e2211729113fc6bbc01a  ControlService/content_service.py
+1cad4364917a7197a35e27cce01ada1f0955c15e2a63de26fb03b4ba11a8cf42  ControlService/test_content_service.py
+9970c146dc2f06f494c71a890d767d13890ce7d87e328044a2cb0d33e8ae6a39  ControlService/server.py
+7ada7cd1f69c673a06a14d550cd00cbf04cdb3782fa8471b966b582d52d85933  ControlService/ai_adapter.py
+e3ab7361c25a3bfca80cfe1644ffb10e6228ac0321733406c2f8785f47f9d38d  ControlService/content_catalog.py
+4add43382b82298444e01d8a20f1cf055479b32b2f8181a94cd4f546729aa401  ControlService/test_content_catalog.py
+a3008d22d5e76d0de59398587ffe8b48b7499e482be0cd97afc39b9445c20c57  ControlService/comfy_workflow.py
+8a3f2379ef517ffdb24b71f0e69d9fb421b9882d07a2e3eb3a1bb33c72550834  ControlService/test_comfy_workflow.py
+2d683198f055b802fb41fd29662a64277559a3924d5d1055333afbf55e9702e2  ControlService/test_operator_panel.js

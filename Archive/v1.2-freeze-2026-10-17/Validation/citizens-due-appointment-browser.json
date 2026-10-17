@@ -1,0 +1,71 @@
+{
+  "date": "2026-09-26",
+  "branch": "codex/citizens-due-appointment",
+  "service": "http://127.0.0.1:19858/web/",
+  "isolation": "Port 19858 uses a separate copy of the two-GLB catalog and world-checkpoint state in this task's citizens-due-appointment-catalog and citizens-due-appointment-state directories. Earlier services and saved worlds were left in place.",
+  "scenario": "Restored the browser-generated, paused, seed-29 minute-1 two-station world from critical-generated-m1. Ada held chair claim execution 1; Bo had optional chair FIFO ticket 2 and hunger 41.55. In the desktop browser, scheduled Bo's eat appointment for minutes 2 through 40, then saved due-meal-m1.",
+  "worldVersion": 3,
+  "citizensVersion": 11,
+  "objectCount": 4,
+  "assetDependencies": [
+    "web:citizens-demo-chair:fb5408949487",
+    "web:citizens-demo-food-table:53b79a6a6f7f"
+  ],
+  "observations": [
+    {
+      "minute": 2,
+      "bo": "Released optional chair FIFO ticket 2, selected the due eat appointment, and began food travel as execution 3. Hunger fell from 41.55 to 41.1 through normal decay; no rest or eat benefit was granted by the switch.",
+      "chair": "Ada retained chair claim execution 1; the FIFO wait list became empty.",
+      "food": "Bo claimed the food station as execution 3.",
+      "appointment": "appointment-1 active, linked to execution 3",
+      "log": "Bo interrupted optional rest execution 2 for appointment-1; claim or FIFO ticket released."
+    },
+    {
+      "minute": 10,
+      "bo": "Completed eat with hunger 69.5 and entered food-station egress under execution 3.",
+      "appointment": "appointment-1 completed by the inclusive deadline with Matrix receipt citizens-29-action-3-12",
+      "chair": "Ada still held execution 1."
+    }
+  ],
+  "checkpoints": [
+    {
+      "name": "due-meal-m1",
+      "minute": 1,
+      "payloadSha256": "379b647fca0022d47e4c5b025962287fa375f50d0344cde2bc089aadf4a5aee8"
+    },
+    {
+      "name": "due-meal-m2-started",
+      "minute": 2,
+      "payloadSha256": "6a5b308179dcd84de2c6838296f3c34d1672cb54d6b1bc66458003ce580c6c87"
+    },
+    {
+      "name": "due-meal-m2-replay",
+      "minute": 2,
+      "payloadSha256": "6a5b308179dcd84de2c6838296f3c34d1672cb54d6b1bc66458003ce580c6c87"
+    },
+    {
+      "name": "due-meal-m10-completed",
+      "minute": 10,
+      "payloadSha256": "487a712749204c85f514b7e296328817ccce68c5047db554f6671ce8193f64a5"
+    },
+    {
+      "name": "due-meal-m10-replay",
+      "minute": 10,
+      "payloadSha256": "487a712749204c85f514b7e296328817ccce68c5047db554f6671ce8193f64a5"
+    }
+  ],
+  "replay": "Restored due-meal-m1 through the PC world-checkpoint UI and took nine paused Step actions. The saved minute-2 and minute-10 whole-world/dependency payload hashes exactly matched the first run. Browser reload retained the minute-10 scene, appointment outcome and receipt after the two GLBs rendered and were verified.",
+  "browserConsoleErrors": 0,
+  "checks": {
+    "webRuntimeTests": "365/365",
+    "controlServiceTests": "693/693",
+    "viteBuild": "passed",
+    "pythonCompilation": "passed",
+    "diffCheck": "passed"
+  },
+  "screenshots": [
+    "citizens-due-appointment-m2.png",
+    "citizens-due-appointment-m10.png"
+  ],
+  "limits": "This browser run verifies one optional FIFO ticket takeover and later receipt-backed meal completion in the desktop two-resident world. Focused tests cover same-kind execution adoption, optional travel, unavailable routes, cooldown, blocked station handoff, protected use/egress/social and appointment-linked work, deadline misses, and deterministic restore. Trace-free in-flight work after any appointment booking remains committed. Moving or animated stations, social-route recovery, full #17 scheduling, and Quest wearer checks remain open."
+}

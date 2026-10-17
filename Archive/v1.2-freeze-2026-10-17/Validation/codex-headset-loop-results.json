@@ -1,0 +1,102 @@
+{
+  "status": "failed",
+  "startedUtc": "2026-09-20T21:13:21.988593+00:00",
+  "scope": "Live Codex CLI inference plus existing executor HTTP loop with connected headset package inspection",
+  "mode": "codex-controlled-run",
+  "deviceProcessObserved": true,
+  "runtimeExecutionObserved": true,
+  "wearerVisualCheck": "Not performed by this harness",
+  "trackingAndControllerInputTested": false,
+  "languageModelUsed": true,
+  "commandPath": "Live codex-cli proposal, narrow programmatic review, explicit Apply, runtime acknowledgement",
+  "runtimeAttribution": "Operator must confirm this service is paired with the selected headset; the bridge exposes no device identity",
+  "operatorConfirmedPairing": true,
+  "deviceSerialRecorded": false,
+  "package": "com.matt.matrixoperator.whiteroom",
+  "pretestSceneRestored": true,
+  "undoHistoryRestored": false,
+  "inferenceSteps": [
+    {
+      "prompt": "Summon one chair here at its normal catalog size with zero rotation. Make no other changes.",
+      "inference": {
+        "transport": "codex-cli",
+        "completedTurn": true,
+        "toolCallCount": 0,
+        "usage": {
+          "input_tokens": 10927,
+          "cached_input_tokens": 0,
+          "output_tokens": 120,
+          "reasoning_output_tokens": 0
+        }
+      },
+      "reviewed": true,
+      "applied": true,
+      "commands": [
+        {
+          "op": "spawn",
+          "assetId": "chair",
+          "anchorId": "white-floor",
+          "transform": {
+            "position": {
+              "x": -2.2587709426879883,
+              "y": 0.0,
+              "z": -2.28108549118042
+            },
+            "rotation": {
+              "x": 0.0,
+              "y": 0.0,
+              "z": 0.0
+            },
+            "scale": {
+              "x": 1.0,
+              "y": 1.0,
+              "z": 1.0
+            }
+          }
+        }
+      ]
+    }
+  ],
+  "plannedInferenceCalls": 5,
+  "recoveryTransport": "Inherited typed executor backup restore; no additional inference",
+  "appPid": 10902,
+  "roomId": "white-room-v1",
+  "pretestObjectCount": 3,
+  "pretestSceneDigest": "f4822400614daaec6506ba01dd62f6e0916b406dd7af53624bad180f857d5780",
+  "pretestBackupName": "CodexBackup_20260920_211322_4819b3b1",
+  "testObjectId": "fea5aff2598741afa93d3417813daa87",
+  "error": "/api/plan returned HTTP 409",
+  "recoverySaveName": "HeadsetRecovery_55ceb457d88d451a8f5d79002bdf0df4",
+  "checks": [
+    "ADB executable is available",
+    "Exactly one authorized device is required; use --serial when several are connected",
+    "The exact expected package is already running on the selected device",
+    "Existing PC service is healthy",
+    "No active learning session or checkpoint restore will be disturbed",
+    "Runtime uses the supported portable scene schema",
+    "Expected virtual floor anchor is present",
+    "Bundled chair prefab is available",
+    "Chair catalog scale can safely double within executor limits",
+    "The scene has capacity for one temporary test chair",
+    "Existing PC service is configured for Codex CLI; no inference runs during preflight",
+    "Runtime has a selected point on the expected virtual floor",
+    "Unique Codex validation saves will not overwrite existing saves",
+    "Original scene is saved before the first model proposal",
+    "spawn: no commands are pending before inference",
+    "spawn: proposal explicitly reports Codex mode and requires Apply",
+    "spawn: model proposal did not change the scene or selection",
+    "spawn: proposal contains exactly the intended operation",
+    "spawn: object identity and all requested fields passed programmatic review",
+    "spawn: server supplied a reviewed proposal identifier",
+    "spawn: runtime acknowledged the reviewed command",
+    "Live Codex spawn produces a new runtime-assigned object ID",
+    "Headset runtime state matches the reviewed chair pose",
+    "Model spawn preserves all pre-existing scene objects",
+    "The spawned chair is selected for the next natural-language reference",
+    "set_transform: no commands are pending before inference",
+    "Finally restored the complete pretest scene from its PC backup"
+  ],
+  "passed": 27,
+  "failed": 1,
+  "completedUtc": "2026-09-20T21:13:39.771876+00:00"
+}

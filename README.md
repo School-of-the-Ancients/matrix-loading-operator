@@ -19,7 +19,8 @@ The implementation and checkpoint packaging are complete. **Matched latency and 
 | Understand the product and module boundaries | [Vision](VISION.md) and [architecture](ARCHITECTURE.md) |
 | Use the desktop or Quest controls | [Runtime guide](WebRuntime/README.md) |
 | Work on this repository | [Agent instructions](AGENTS.md) |
-| Find an old plan, build log or screenshot | [Archive index](Archive/README.md) |
+| Browse research, papers and project references | [Research index](https://github.com/School-of-the-Ancients/matrix-loading-operator/blob/main/RESOURCES.md) |
+| Find an old plan, build log or screenshot | [Archive index](https://github.com/School-of-the-Ancients/matrix-loading-operator/blob/main/Archive/README.md) — files remain in the repository. |
 
 ## Modules
 
@@ -38,6 +39,6 @@ These boundaries organize responsibilities and issues. Current Citizens code rem
 - [Release builder](Tools/README-WebXR-Release.md) — build and verify a package from an exact committed revision.
 - [World checkpoints](ControlService/WORLD_CHECKPOINTS.md) — save and recovery contracts.
 - [Persistent host](Docs/Persistent-World-Host.md) — the separately started, PC-owned Citizens fixture and read-only viewer. The ordinary `/web/` world remains browser-owned.
-- [Unity archive](Archive/Unity/README.md) — preserved early implementation.
+- [Unity archive](https://github.com/School-of-the-Ancients/matrix-loading-operator/blob/main/Archive/Unity/README.md) — preserved early implementation.
 
 Operator can use procedural creation, reusable assets or Blender with validated import; an image mockup can guide a build. All use the same Matrix world and executor. Preserve existing worlds and stable identities when continuing the implementation.

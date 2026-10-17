@@ -1,0 +1,66 @@
+{
+  "schemaVersion": 1,
+  "world": {
+    "version": 2,
+    "scene": {
+      "schemaVersion": 1,
+      "roomId": "web-virtual-room-v1",
+      "objects": [
+        {
+          "objectId": "e647674f24c541758de23075de9561c1",
+          "assetId": "block",
+          "anchorId": "web-floor",
+          "transform": {
+            "position": {
+              "x": 0,
+              "y": 0,
+              "z": -2
+            },
+            "rotation": {
+              "x": 0,
+              "y": 0,
+              "z": 0
+            },
+            "scale": {
+              "x": 1,
+              "y": 1,
+              "z": 1
+            }
+          }
+        },
+        {
+          "objectId": "0b8d7b29509943898939e9f01ab83a14",
+          "assetId": "web:luminous-garden-footbridge-v4:27db9e18cca4",
+          "anchorId": "web-floor",
+          "transform": {
+            "position": {
+              "x": -3,
+              "y": 0,
+              "z": -2
+            },
+            "rotation": {
+              "x": 0,
+              "y": 0,
+              "z": 0
+            },
+            "scale": {
+              "x": 1,
+              "y": 1,
+              "z": 1
+            }
+          }
+        }
+      ]
+    },
+    "game": null
+  },
+  "dependencies": [
+    {
+      "assetId": "web:luminous-garden-footbridge-v4:27db9e18cca4",
+      "sha256": "27db9e18cca49ee37a249f0e30919bb852b30876361bed15e4d11e0e27524e3c",
+      "spawnScale": 1,
+      "animationClips": []
+    }
+  ],
+  "payloadSha256": "2b5c4bf3492000b0b721991b212d229cc20c502b1e2b84e345e24d98ef961a4e"
+}

@@ -1,0 +1,124 @@
+{
+  "milestone": "Live runtime Rotate and Bob behaviors",
+  "recordedUtc": "2026-09-21T00:12:30.974011+00:00",
+  "implemented": [
+    "Bounded rotate and upward bob",
+    "Independent enable, pause, resume and removal",
+    "Placed wrapper separated from animated prefab child",
+    "Stable-ID edits, undo/redo, old-save compatibility and behavior persistence",
+    "Real-AI command/schema/context integration",
+    "Capability-derived runtime skill catalog inspired by LLMR",
+    "PC selected-object behavior status"
+  ],
+  "pythonTests": {
+    "passed": 292,
+    "failed": 0,
+    "newBehaviorTests": 26
+  },
+  "operatorPanel": {
+    "interactionChecksPassed": true,
+    "browserUpdatedControlsVisible": true,
+    "modelAndReasoningPreferencesPreserved": true
+  },
+  "builds": {
+    "desktop": {
+      "status": "succeeded",
+      "unityChecksPassed": 301,
+      "unityChecksFailed": 0,
+      "artifact": "Builds/WhiteRoomDesktop/MatrixOperator.exe",
+      "bytes": 667136,
+      "sha256": "718444f6a718fa668da96eb0a58445b009673310e6129152a63dbf7a92b8de00",
+      "scope": "Editor compile, deterministic core checks and player build"
+    },
+    "whiteRoomQuest": {
+      "status": "succeeded",
+      "unityChecksPassed": 301,
+      "unityChecksFailed": 0,
+      "artifact": "Builds/WhiteRoomQuest/MatrixOperator.apk",
+      "bytes": 53847545,
+      "sha256": "429dd09c0b40006ab22c175fc56ff451ea8bdb515957a77e439e480c773158bd",
+      "scope": "Editor compile, deterministic core checks and player build"
+    },
+    "roomARQuest": {
+      "status": "succeeded",
+      "unityChecksPassed": 301,
+      "unityChecksFailed": 0,
+      "artifact": "Builds/RoomARQuest/MatrixOperatorAR.apk",
+      "bytes": 84679008,
+      "sha256": "c94a760f55b15b01cf7e5facfcf6cdde165ab4bbc91014567a49f18df9a79dac",
+      "scope": "Editor compile, deterministic core checks and player build"
+    }
+  },
+  "desktopRuntime": {
+    "status": "passed",
+    "checksPassed": 46,
+    "checksFailed": 0,
+    "realCodexRequests": 4,
+    "receipt": "behavior-desktop-results.json",
+    "headsetMicrophoneOrDisplay": false
+  },
+  "hardware": {
+    "arUpdateInstalled": true,
+    "updatedRuntimeConnected": true,
+    "behaviorKinds": [
+      "rotate",
+      "bob"
+    ],
+    "wearerVerifiedOutlinesAfterUpdate": true,
+    "originalOrbRestoredExactlyAndSelected": true,
+    "voiceBehaviorApplied": true,
+    "wearerSawBobbing": true,
+    "behaviorSaveRestore": true,
+    "voiceDiagnostic": {
+      "observed": "Listening then no audible speech captured",
+      "recordAudioPermission": true,
+      "systemMicrophoneMute": true,
+      "pcVoiceJobCreated": false,
+      "resolution": "Recovered after the user-reported restart and USB/developer authorization recovery. ADB became authorized, port 8765 was restored, current system microphone mute was false, and actual headset speech completed transcription, real Codex planning and both behavior commands. No microphone code or silence threshold was changed; the original OS/HAL mute policy remains unidentified.",
+      "systemMuteObservedDuringCapture": true,
+      "activeCaptureSamples": 8,
+      "activeCaptureSecondsApprox": 5,
+      "recordingClientSilenced": false,
+      "systemMuteSources": {
+        "switch": false,
+        "restrictions": false,
+        "api": false
+      },
+      "systemMicrophoneMuteAfterRecovery": false
+    },
+    "postRestartRoomAndVoiceVerified": true,
+    "staleVoiceStatusObservedInCode": true,
+    "wearerVerifiedRestoredBehaviorAlignment": true,
+    "actualQuestChecksPassed": 30,
+    "actualQuestChecksFailed": 0,
+    "headsetReceipt": "behavior-headset-results.json",
+    "visibleRotationVerified": false,
+    "postRestartRoomRestoreScope": "Same manually configured room and saved anchor IDs; wearer verified outlines, and the saved orb restored exactly. No recreated or deleted native-anchor recovery test."
+  },
+  "preservation": {
+    "baseCommit": "6962eaf",
+    "originalSceneSave": "BeforeBehaviors_20260920_172929",
+    "localPriorApkAndSaveCheckpoint": "../checkpoints/RoomARBeforeBehaviors_20260920",
+    "whiteRoomQuestUpdateInstalled": false,
+    "credentialsOnPC": true,
+    "preVoiceRetestSave": "BeforeBehaviorVoice_20260920_174538",
+    "preVoiceRetestObjects": 2,
+    "unityHubExportsSourceVerified": true,
+    "localBehaviorCheckpoint": "../checkpoints/RuntimeBehaviors_20260920",
+    "desktopFullCloneAndBuildsSynchronized": true,
+    "latestBeforeAppRestartSave": "BeforeVoiceRestart_20260920_175100",
+    "latestBeforeAppRestartObjects": 1,
+    "animatedSceneSave": "AnimatedRoomBehavior_20260920_181054",
+    "originalPretestSceneRestoredExactly": true,
+    "originalOrbReselected": true,
+    "liveSceneAtEnd": "One original orb without behaviors; animated version remains available as a separate save"
+  },
+  "limitations": [
+    "Only rotate and bob are implemented; general programs, interaction triggers and physics remain proposed",
+    "Animation phase is not persisted; restored paused behavior starts at baseline phase",
+    "Animated swept volumes are not collision checked; rotation may intersect physical surfaces",
+    "Nonuniformly scaled parents can deform rotating visuals",
+    "No arbitrary generated C# execution, autonomous navigation or artificial AR locomotion",
+    "The voice room-loading status can remain after room readiness; current room state and outlines must be checked. This cosmetic status issue is documented but not changed in the installed build."
+  ]
+}

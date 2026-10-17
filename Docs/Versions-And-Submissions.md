@@ -52,8 +52,8 @@ do not assume they are included in a package.
 
 [GitHub Releases](https://github.com/School-of-the-Ancients/matrix-loading-operator/releases)
 retains the published downloads. The
-[preserved version record](https://github.com/School-of-the-Ancients/matrix-loading-operator/blob/60ab4599752147f2e590293208bee4692965a524/Docs/Versions-And-Submissions.md)
+[preserved version record](https://github.com/School-of-the-Ancients/matrix-loading-operator/blob/main/Archive/v1.2-freeze-2026-10-17/Docs/Versions-And-Submissions.md)
 contains the original Unity APK provenance, earlier WebXR checkpoints, matching
 runtime/service instructions and proposed course submissions. Unity source
-remains in [Archive/Unity](../Archive/Unity/README.md). Those historical build
+remains in [Archive/Unity](https://github.com/School-of-the-Ancients/matrix-loading-operator/blob/main/Archive/Unity/README.md). Those historical build
 and device observations keep their original identities and scope.

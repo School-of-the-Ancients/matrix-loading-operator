@@ -1,0 +1,44 @@
+{
+  "schemaVersion": 1,
+  "providerType": "self-hosted-comfyui",
+  "workflow": "reviewed-krea-image-v1",
+  "realProvider": true,
+  "submittedRuns": 1,
+  "status": "completed",
+  "resolution": [
+    512,
+    512
+  ],
+  "steps": 4,
+  "batchSize": 1,
+  "outputBytes": 406581,
+  "outputSha256": "547d47bd737a8467f0006bb16a237a2edc90e7bfe10fbda2cdc0a17fad3d690c",
+  "originalUiSha256": "e975d652f907d0ab8825de18e7be777aff1339c605d1237aa4937b7847a1e85b",
+  "secondsUntilVerification": 68.4,
+  "note": "Single bounded image generation completed and downloaded through the catalog connector; video and runtime skybox use are not validated.",
+  "checkedAtUtc": "2026-09-21T21:18:07.085412+00:00",
+  "convertedApiNodeCount": 10,
+  "sourceUiUnchanged": true,
+  "removedDisconnectedNotes": 2,
+  "bypassedDisabledLoraCount": 1,
+  "originalWorkflowFilesPreserved": 2,
+  "productionWorkflowRetained": {
+    "targetMegapixels": 1,
+    "steps": 8
+  },
+  "submittedRequestBounds": {
+    "width": 512,
+    "height": 512,
+    "steps": 4,
+    "batchSize": 1
+  },
+  "elapsedMeaning": "Wall time from submission until verified download, including independent work between polls; not measured GPU inference time.",
+  "validationScope": [
+    "Real self-hosted image generation completed",
+    "Output retrieved through configured ContentCatalog connector",
+    "PNG signature, dimensions, byte length and SHA-256 verified",
+    "Generated image visually inspected",
+    "No video or MiniMax generation submitted",
+    "No automatic texture or skybox installation claimed"
+  ]
+}

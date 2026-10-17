@@ -78,7 +78,7 @@ The checked-in [chair](../WebRuntime/test/fixtures/citizens-demo-chair.glb) and
 [food table](../WebRuntime/test/fixtures/citizens-demo-food-table.glb) have matching
 [rest](../WebRuntime/test/fixtures/citizens-demo-chair-interaction.json) and
 [eat](../WebRuntime/test/fixtures/citizens-demo-food-table-interaction.json)
-descriptors. The [preserved registration/setup recipe](https://github.com/School-of-the-Ancients/matrix-loading-operator/blob/60ab4599752147f2e590293208bee4692965a524/Docs/Citizens-Shared-World.md#two-reviewed-stations-in-one-world)
+descriptors. The [preserved registration/setup recipe](https://github.com/School-of-the-Ancients/matrix-loading-operator/blob/main/Archive/v1.2-freeze-2026-10-17/Docs/Citizens-Shared-World.md#two-reviewed-stations-in-one-world)
 records exact asset IDs, bounds and poses. Use those fixtures from a source
 checkout; the runtime ZIP does not supply a portable demo world.
 
@@ -178,7 +178,7 @@ slot is separate from manual checkpoints.
 
 ## Evidence
 
-The [complete pre-cleanup guide](https://github.com/School-of-the-Ancients/matrix-loading-operator/blob/60ab4599752147f2e590293208bee4692965a524/Docs/Citizens-Shared-World.md)
+The [complete pre-cleanup guide](https://github.com/School-of-the-Ancients/matrix-loading-operator/blob/main/Archive/v1.2-freeze-2026-10-17/Docs/Citizens-Shared-World.md)
 preserves dated builds, exact seeds, hashes, ports, replay procedures and linked
 screenshots/JSON. Those candidate-specific desktop results do not establish a
 complete Quest, multiplayer, physical-room or frozen-package pass. Current v1.2

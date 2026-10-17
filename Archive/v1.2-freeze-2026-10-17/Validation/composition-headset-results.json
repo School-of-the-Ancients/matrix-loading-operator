@@ -1,0 +1,380 @@
+{
+  "status": "passed",
+  "startedUtc": "2026-09-20T21:55:15.934316+00:00",
+  "scope": "Real Codex composition, Quest executor and PC persistence",
+  "mode": "composition-controlled-run",
+  "deviceProcessObserved": true,
+  "runtimeExecutionObserved": true,
+  "wearerVisualCheck": "Not performed by this harness",
+  "trackingAndControllerInputTested": false,
+  "languageModelUsed": true,
+  "commandPath": "Live codex-cli proposal, narrow programmatic review, explicit Apply, runtime acknowledgement",
+  "runtimeAttribution": "Operator must confirm this service is paired with the selected headset; the bridge exposes no device identity",
+  "operatorConfirmedPairing": true,
+  "deviceSerialRecorded": false,
+  "package": "com.matt.matrixoperator.whiteroom",
+  "pretestSceneRestored": true,
+  "undoHistoryRestored": false,
+  "inferenceSteps": [
+    {
+      "prompt": "put a table in front of me with two chairs.",
+      "inference": {
+        "transport": "codex-cli",
+        "completedTurn": true,
+        "toolCallCount": 0,
+        "usage": {
+          "input_tokens": 12200,
+          "cached_input_tokens": 0,
+          "output_tokens": 709,
+          "reasoning_output_tokens": 392
+        }
+      },
+      "summary": "Proposes a 1.4 \u00d7 0.8 m table about 2.2 m in front of your tracked viewpoint, with two chairs facing each other across its long sides. Placement is fixed to the floor and will not follow later head movement. Changes occur only after Apply.",
+      "assumptions": [
+        "The existing table remains unchanged.",
+        "The new table and chairs use their catalog sizes.",
+        "About 1.1 m of clear space remains between the viewpoint and the nearest chair."
+      ],
+      "commands": [
+        {
+          "op": "spawn",
+          "assetId": "table",
+          "anchorId": "white-floor",
+          "transform": {
+            "position": {
+              "x": -4.927,
+              "y": 0,
+              "z": -0.72
+            },
+            "rotation": {
+              "x": 0,
+              "y": -115,
+              "z": 0
+            },
+            "scale": {
+              "x": 1,
+              "y": 1,
+              "z": 1
+            }
+          }
+        },
+        {
+          "op": "spawn",
+          "assetId": "chair",
+          "anchorId": "white-floor",
+          "transform": {
+            "position": {
+              "x": -5.698,
+              "y": 0,
+              "z": -1.079
+            },
+            "rotation": {
+              "x": 0,
+              "y": -115,
+              "z": 0
+            },
+            "scale": {
+              "x": 1,
+              "y": 1,
+              "z": 1
+            }
+          }
+        },
+        {
+          "op": "spawn",
+          "assetId": "chair",
+          "anchorId": "white-floor",
+          "transform": {
+            "position": {
+              "x": -4.156,
+              "y": 0,
+              "z": -0.361
+            },
+            "rotation": {
+              "x": 0,
+              "y": 65,
+              "z": 0
+            },
+            "scale": {
+              "x": 1,
+              "y": 1,
+              "z": 1
+            }
+          }
+        }
+      ],
+      "reviewed": true,
+      "applied": true,
+      "viewerAtRequest": {
+        "anchorId": "white-floor",
+        "position": {
+          "x": -2.932326316833496,
+          "y": 1.163941502571106,
+          "z": 0.20811215043067932
+        },
+        "forward": {
+          "x": -0.906649649143219,
+          "y": 0.0,
+          "z": -0.4218844771385193
+        }
+      },
+      "spawnedObjectIds": [
+        "1c050a2f362e4129a9f372a1560e9a45",
+        "5360be2cb3f2434cb02fde787164b3b5",
+        "7939b54bd0c348dea4dffd4ae52f68ac"
+      ]
+    },
+    {
+      "prompt": "create a room",
+      "inference": {
+        "transport": "codex-cli",
+        "completedTurn": true,
+        "toolCallCount": 0,
+        "usage": {
+          "input_tokens": 12214,
+          "cached_input_tokens": 0,
+          "output_tokens": 755,
+          "reasoning_output_tokens": 288
+        }
+      },
+      "summary": "Proposes a roofless 5 m by 5 m room around the selected floor point, using five wall pieces with a centered 1.2 m entrance. The existing table remains inside with clearance from the walls; the opening is geometric and not a functional door.",
+      "assumptions": [
+        "The selected floor point at (0, 0, 2) is the room center.",
+        "Walls are 2.5 m high and approximately 0.12 m thick.",
+        "The entrance is centered on the side at local Z = -0.5.",
+        "No roof, door panel, lighting, or scripted behavior is included."
+      ],
+      "commands": [
+        {
+          "op": "spawn",
+          "assetId": "wall",
+          "anchorId": "white-floor",
+          "transform": {
+            "position": {
+              "x": 0,
+              "y": 0,
+              "z": 4.5
+            },
+            "rotation": {
+              "x": 0,
+              "y": 0,
+              "z": 0
+            },
+            "scale": {
+              "x": 2,
+              "y": 1,
+              "z": 1
+            }
+          }
+        },
+        {
+          "op": "spawn",
+          "assetId": "wall",
+          "anchorId": "white-floor",
+          "transform": {
+            "position": {
+              "x": -2.5,
+              "y": 0,
+              "z": 2
+            },
+            "rotation": {
+              "x": 0,
+              "y": 90,
+              "z": 0
+            },
+            "scale": {
+              "x": 2,
+              "y": 1,
+              "z": 1
+            }
+          }
+        },
+        {
+          "op": "spawn",
+          "assetId": "wall",
+          "anchorId": "white-floor",
+          "transform": {
+            "position": {
+              "x": 2.5,
+              "y": 0,
+              "z": 2
+            },
+            "rotation": {
+              "x": 0,
+              "y": 90,
+              "z": 0
+            },
+            "scale": {
+              "x": 2,
+              "y": 1,
+              "z": 1
+            }
+          }
+        },
+        {
+          "op": "spawn",
+          "assetId": "wall",
+          "anchorId": "white-floor",
+          "transform": {
+            "position": {
+              "x": -1.55,
+              "y": 0,
+              "z": -0.5
+            },
+            "rotation": {
+              "x": 0,
+              "y": 0,
+              "z": 0
+            },
+            "scale": {
+              "x": 0.76,
+              "y": 1,
+              "z": 1
+            }
+          }
+        },
+        {
+          "op": "spawn",
+          "assetId": "wall",
+          "anchorId": "white-floor",
+          "transform": {
+            "position": {
+              "x": 1.55,
+              "y": 0,
+              "z": -0.5
+            },
+            "rotation": {
+              "x": 0,
+              "y": 0,
+              "z": 0
+            },
+            "scale": {
+              "x": 0.76,
+              "y": 1,
+              "z": 1
+            }
+          }
+        }
+      ],
+      "reviewed": true,
+      "applied": true,
+      "spawnedObjectIds": [
+        "33aebc8705b34d5abcb9d25ad5010fe7",
+        "42c5d10f56ed406da47ba1ae7b43ed1d",
+        "4f94a934bc3643bb9f2292aebfa79f5e",
+        "b2e05bd124c14093ba3cd89898f6652c",
+        "ea6e938890d646a980352974e8992e7a"
+      ]
+    }
+  ],
+  "plannedInferenceCalls": 2,
+  "recoveryTransport": "Inherited typed executor backup restore; no additional inference",
+  "architecturalQualityAssessed": false,
+  "collisionClearanceAssessed": false,
+  "compositionReviewScope": "Known upright pieces, bounded geometry, furniture placement and exact executor/persistence state; no visual or room-enclosure assessment",
+  "appPid": 16718,
+  "roomId": "white-room-v1",
+  "pretestObjectCount": 1,
+  "pretestSceneDigest": "d6f9e1549b79f7f6d85430081fcb64bed28a8444e66b60e30653ebdcbe56e5ff",
+  "pretestBackupName": "CompositionBackup_20260920_215516_d6b911a4",
+  "furnitureSaveName": "CompositionFurniture_20260920_215516_d6b911a4",
+  "roomSaveName": "CompositionRoom_20260920_215516_d6b911a4",
+  "checks": [
+    "ADB executable is available",
+    "Exactly one authorized device is required; use --serial when several are connected",
+    "The exact expected package is already running on the selected device",
+    "Existing PC service is healthy",
+    "No active learning session or checkpoint restore will be disturbed",
+    "Runtime uses the supported portable scene schema",
+    "Expected virtual floor anchor is present",
+    "Bundled chair prefab is available",
+    "Chair catalog scale can safely double within executor limits",
+    "The scene has capacity for one temporary test chair",
+    "Existing PC service is configured for Codex CLI; no inference runs during preflight",
+    "Runtime has a selected point on the expected virtual floor",
+    "Quest runtime supplies measured prefab geometry",
+    "Quest runtime supplies a tracked viewer frame for the expected floor",
+    "Room remains within object budget for temporary compositions",
+    "Composition test saves will not overwrite any existing scene",
+    "Original scene backup exists before any composition edits",
+    "Composition produces an actionable Codex proposal",
+    "Composition only adds known pieces on the expected floor",
+    "Planning leaves the scene selection and catalogs unchanged; head tracking may update",
+    "Every proposed piece has measured geometry for review",
+    "Temporary composition pieces remain upright",
+    "Furniture base rests on the virtual floor",
+    "Temporary piece geometry stays within ten metres",
+    "Every proposed piece has measured geometry for review",
+    "Temporary composition pieces remain upright",
+    "Furniture base rests on the virtual floor",
+    "Temporary piece geometry stays within ten metres",
+    "Every proposed piece has measured geometry for review",
+    "Temporary composition pieces remain upright",
+    "Furniture base rests on the virtual floor",
+    "Temporary piece geometry stays within ten metres",
+    "Exact user request produces one table and two chairs",
+    "Furniture proposal records the actual captured floor-relative viewer frame",
+    "Table is ahead of the actual captured headset viewpoint",
+    "Chair is arranged near the table",
+    "Chair is arranged near the table",
+    "Service supplied the reviewed composition identifier",
+    "Apply queues exactly the reviewed model commands",
+    "Every queued piece has a unique request identifier",
+    "Each composition piece receives a fresh distinct runtime object ID",
+    "Quest acknowledged and captured the exact model-authored piece",
+    "Each composition piece receives a fresh distinct runtime object ID",
+    "Quest acknowledged and captured the exact model-authored piece",
+    "Each composition piece receives a fresh distinct runtime object ID",
+    "Quest acknowledged and captured the exact model-authored piece",
+    "Composition preserves every existing object",
+    "Composed furniture clears through existing executor",
+    "PC save restores all composed pieces with exact IDs and poses",
+    "Original scene is restored before the independent room request",
+    "Composition produces an actionable Codex proposal",
+    "Composition only adds known pieces on the expected floor",
+    "Planning leaves the scene selection and catalogs unchanged; head tracking may update",
+    "Every proposed piece has measured geometry for review",
+    "Temporary composition pieces remain upright",
+    "Room pieces stay above ground and below ten metres; elevated lintels are allowed",
+    "Temporary piece geometry stays within ten metres",
+    "Every proposed piece has measured geometry for review",
+    "Temporary composition pieces remain upright",
+    "Room pieces stay above ground and below ten metres; elevated lintels are allowed",
+    "Temporary piece geometry stays within ten metres",
+    "Every proposed piece has measured geometry for review",
+    "Temporary composition pieces remain upright",
+    "Room pieces stay above ground and below ten metres; elevated lintels are allowed",
+    "Temporary piece geometry stays within ten metres",
+    "Every proposed piece has measured geometry for review",
+    "Temporary composition pieces remain upright",
+    "Room pieces stay above ground and below ten metres; elevated lintels are allowed",
+    "Temporary piece geometry stays within ten metres",
+    "Every proposed piece has measured geometry for review",
+    "Temporary composition pieces remain upright",
+    "Room pieces stay above ground and below ten metres; elevated lintels are allowed",
+    "Temporary piece geometry stays within ten metres",
+    "Broad room request composes multiple wall prefabs",
+    "Service supplied the reviewed composition identifier",
+    "Apply queues exactly the reviewed model commands",
+    "Every queued piece has a unique request identifier",
+    "Each composition piece receives a fresh distinct runtime object ID",
+    "Quest acknowledged and captured the exact model-authored piece",
+    "Each composition piece receives a fresh distinct runtime object ID",
+    "Quest acknowledged and captured the exact model-authored piece",
+    "Each composition piece receives a fresh distinct runtime object ID",
+    "Quest acknowledged and captured the exact model-authored piece",
+    "Each composition piece receives a fresh distinct runtime object ID",
+    "Quest acknowledged and captured the exact model-authored piece",
+    "Each composition piece receives a fresh distinct runtime object ID",
+    "Quest acknowledged and captured the exact model-authored piece",
+    "Composition preserves every existing object",
+    "Composed room clears through the existing executor",
+    "PC save restores the composed room with exact IDs assets anchors and poses",
+    "Both observed Codex compositions passed programmatic review and runtime acknowledgement",
+    "Finally restored the complete pretest scene from its PC backup",
+    "Original object selection is restored"
+  ],
+  "passed": 93,
+  "failed": 0,
+  "completedUtc": "2026-09-20T21:56:03.960861+00:00"
+}

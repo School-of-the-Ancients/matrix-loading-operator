@@ -290,7 +290,7 @@ The same Codex thread persists across turns and resumes after a supported
 service restart. Its older conversation can contain outdated capability claims;
 the current connected snapshot and tool contract must be checked again before
 an edit. Source changes on `main` do not update an already-running service,
-MCP subprocess, or headset page. See the [prompt-source audit](https://github.com/School-of-the-Ancients/matrix-loading-operator/blob/60ab4599752147f2e590293208bee4692965a524/Validation/Operator-Prompt-Audit-2026-09-27.md)
+MCP subprocess, or headset page. See the [prompt-source audit](https://github.com/School-of-the-Ancients/matrix-loading-operator/blob/main/Archive/v1.2-freeze-2026-10-17/Validation/Operator-Prompt-Audit-2026-09-27.md)
 for the exact source boundaries and remaining verification work under #116.
 
 ## PC concept versions
@@ -312,7 +312,7 @@ needs `promptNode`, `promptInput`, `seedNode`, and `seedInput`; it may also set
 `negativePromptNode` and `negativePromptInput`. For the reviewed Krea2 image
 graph, these map to text node `53`, KSampler seed node `55`, and optional
 negative text node `78`; the endpoint-free
-[acceptance graph](https://github.com/School-of-the-Ancients/matrix-loading-operator/blob/60ab4599752147f2e590293208bee4692965a524/Validation/concept-91-krea2-workflow.json) records the exact
+[acceptance graph](https://github.com/School-of-the-Ancients/matrix-loading-operator/blob/main/Archive/v1.2-freeze-2026-10-17/Validation/concept-91-krea2-workflow.json) records the exact
 node inputs used for the live run. Keep the worker address, configured graph,
 and any credential environment variables in PC-private configuration. When
 several workflows are enabled, set `MATRIX_CONCEPT_PROVIDER_ID` and
@@ -403,4 +403,4 @@ not physical room measurements, geometry, or automatic Matrix placement.
 
 ## Historical capability observations
 
-The [preserved installed-version record](https://github.com/School-of-the-Ancients/matrix-loading-operator/blob/60ab4599752147f2e590293208bee4692965a524/ControlService/AGENT_PORTAL.md#dated-installed-version-observations) retains the earlier Codex/Blender trials and their limits. Current v1.2 status is in the [single acceptance record](https://github.com/School-of-the-Ancients/matrix-loading-operator/blob/main/Validation/V1.2-Headset-Acceptance.md); check the actual running service and tool capabilities before a request.
+The [preserved installed-version record](https://github.com/School-of-the-Ancients/matrix-loading-operator/blob/main/Archive/v1.2-freeze-2026-10-17/ControlService/AGENT_PORTAL.md#dated-installed-version-observations) retains the earlier Codex/Blender trials and their limits. Current v1.2 status is in the [single acceptance record](https://github.com/School-of-the-Ancients/matrix-loading-operator/blob/main/Validation/V1.2-Headset-Acceptance.md); check the actual running service and tool capabilities before a request.

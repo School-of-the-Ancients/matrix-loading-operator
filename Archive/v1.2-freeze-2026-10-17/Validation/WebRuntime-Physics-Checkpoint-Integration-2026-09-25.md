@@ -1,0 +1,187 @@
+# Matrix Web physics and checkpoint integration — 2026-09-25
+
+## Source and scope
+
+This local integration branch starts at PR #93 (`61927bc`) and merges the open
+M1 asset trace (#87), M2 whole-world checkpoint (#88), and M4 XR transition
+stack (#86, #89, #90). The PRs remain open; none was merged on GitHub. The
+combined check uses the current Three.js WebRuntime and PC ControlService.
+
+The first combined test exposed a real M2/M3 contract gap:
+`State._checked_world_checkpoint` forwarded component and animation capability
+versions to `snapshot`, but omitted `physicsSchemaVersion`. A connected browser
+that advertised physics could run a GLB drop, yet **Save world** rejected its
+authored physics configuration with “Scene physics requires the WebXR physics
+runtime.” The integration change forwards that already-advertised version.
+The new Python regression failed before this fix and passed afterward.
+
+Review of the integrated Agent and checkpoint flow found a second race: a
+queued Agent command could enter a staged PC-restored world before the browser
+completed its restore exchange. PR #88 now pauses periodic exchanges, drains
+any active exchange before staging, and uses a revision-guarded restore
+exchange. The service rejects a changed revision or pending command without
+replacing the active snapshot. Browser rollback preserves the previous world
+and any command receipt. The combined branch includes that upstream fix.
+
+## Automated checks
+
+- Windows 11, Python 3.13.14: `python -m unittest discover -s ControlService
+  -p test_*.py -q` — **638 passed**.
+- Node 24.16.0: `npm test` in `WebRuntime` — **126 passed**.
+- Vite 7.3.6: `npm run build` — passed.
+- `git diff --check` — passed.
+
+The new browser test combines an imported animated GLB, verified rendered
+bounds, floor contact, browser storage restore, and AR entry/exit. It asserts
+that the authored height, stable object ID, clips and physics configuration
+survive, while the transient solver state does not. It also requires an
+explicit new run after the restored GLB instance has been verified. The new
+ControlService test covers the PC checkpoint with an animated registered GLB,
+settled observation, a fresh service-state instance, and the same persistence
+boundary.
+
+## Isolated desktop browser and PC restart
+
+Used scratch scenes and a copy of the existing test GLB catalog. Port 18776
+served the initial browser; port 18777 served a fresh PC process and browser
+origin with the **same** scratch scene and asset directories. The normal live
+Matrix service and saved scenes were not changed.
+
+1. The PC command API queued a spawn for the real Ice Dragon
+   (`web:ice-dragon:2f5620d245e2`) at authored `(0, 2, -2)`, scale `0.5`.
+   Receipt `3f15be17…` succeeded with object ID
+   `3b4d8e8b9c4f48289d9694669c3b4d23`. The browser rendered the GLB.
+2. Bound `Flight` as its loop and `Frost Burst` on selection; receipt
+   `f983c643…` succeeded. `set_physics` with restitution `0.35` returned
+   successful receipt `5e664f61…`; the browser reported a matching `settled`
+   run at virtual-floor y=0 with five approximate contacts. The authored
+   transform remained y=2. The desktop browser visibly showed the Dragon on
+   the White Room floor.
+3. The browser **Save world** control saved `Integrated Physics Dragon`.
+   Its checkpoint payload digest is
+   `92ae6907e1263544f0861a5af6ed5ab3b8adcace4ac4b3805aeb1b454da803fa`.
+   The file contains the exact ID, transform, both clips, physics config and
+   full GLB hash dependency. It contains no `physicsStates`.
+4. After a PC service restart on port 18777, a new desktop browser origin
+   started with zero objects. **Restore world → Confirm restore** reported
+   success and displayed the same Dragon at authored y=2. The PC snapshot
+   retained the same object ID, clips and physics config with an empty
+   `physicsStates` array.
+5. Explicit `set_physics` produced successful receipt `836ef94e…`, a new
+   execution ID and five approximate floor contacts. It did not resume merely
+   because the checkpoint was restored.
+
+The simple offline proposal parser did not recognize the exploratory prompt
+“Spawn the Ice Dragon two meters above the White Room floor in front of me”; it
+reported that the asset was missing or ambiguous. The tested placement used
+the typed, validated Matrix command API instead. This check does not establish
+that the offline parser handles that wording or that a Codex turn authored this
+particular placement.
+
+## Quest 3 VR check on the combined build
+
+With USB ADB reverse `tcp:18777`, the wearer opened
+`http://127.0.0.1:18777/web/` and confirmed the VR White Room was visible.
+The browser connected as a ready `white-room` client with an empty Quest scene.
+The Quest 3 ran Quest Browser `152.0.0.44.30.1069357998` on Android 14. The
+combined runtime source was commit `a991f4e`; the build used the same
+WebRuntime source (the later changes to this report do not change runtime code).
+
+The first Dragon spawned with receipt `e382c60f…`, object ID
+`8ef557a9598645bc961291e99ca071e2`, and its Flight/Frost Burst binding
+received `adb793a6…`. Its pose then changed in the Quest scene to a moved and
+rotated transform. A physics request was correctly rejected with “Physics
+needs an upright start 0-5 metres above the virtual floor.” The test left that
+user-moved object in place.
+
+A second Dragon spawned at `(-1.2, 2, -2)` with receipt `335863b5…`, object ID
+`4ed1612f846c4271bb810ee5a6778009`. Flight/Frost Burst binding receipt
+`99420797…` succeeded. Physics receipt `17824934…` succeeded; the PC observed
+that execution `settled` at virtual-floor y=0 with five approximate contacts,
+while its authored transform remained y=2. The wearer confirmed that this
+second Dragon **visibly fell to the VR floor and kept its Flight animation**.
+This is direct Quest evidence for the bounded VR floor drop and animation
+combination; the runtime receipt and wearer observation agree.
+
+The prior port-18772 #90 wearer run separately established VR → AR → VR entry
+and correct VR floor; its VR CODEX push-to-talk check showed changing labels
+and one turn. The combined port-18777 run did not test AR physics, a full Agent
+conversation, or headset save/reopen. AR physical-floor contact,
+object-to-object collision, and general rigid-body physics remain outside this
+bounded virtual-floor capability.
+
+## Agent Portal desktop follow-up on the combined build
+
+An isolated Agent-enabled service on port 18778 used a separate scratch scene
+and copied test GLB catalog. Its PC gateway reported Codex CLI with full PC
+access and automatic approvals, matching the user's configured preference.
+One continuing Codex conversation received an Operator request to load the
+registered Ice Dragon at `(0, 1.5, -2)`, scale `0.5`, and bind `Flight`.
+Spawn receipt `3a6cace3a9b24f4fb24309816f75a6e7` and animation receipt
+`213bdfb7bb144bdb83a3cedcc5609ede` both succeeded for exact object ID
+`75735dcc16c747f3aeb8426e74bfffa5`.
+
+In the **same** conversation, a follow-up asked for virtual-floor gravity and
+a soft bounce while retaining `Flight`. Physics receipt
+`89c85c415f7c45b1ba8e55c6536e1260` succeeded. The service observed three
+approximate floor contacts and a settled runtime pose `(0, 0, -2)`; the
+authored pose stayed `(0, 1.5, -2)`, `Flight` stayed bound, and physics config
+was `gravity-floor` with restitution `0.2`. The desktop **Save world** control
+reported a saved PC checkpoint named `Agent Physics Dragon`, including the
+scene and game progress. On a fresh service and browser origin (port 18780)
+using the updated combined source and the same scratch checkpoint and GLB
+catalog, **Restore world → Confirm restore** succeeded. The restored snapshot
+had the exact same object ID, authored y=`1.5`, `Flight` binding and restitution
+`0.2`; `physicsStates` was empty and no command was pending. This exercised the
+new revision-guarded restore exchange end to end. These were desktop checks;
+the Quest browser checkpoint is exercised separately below.
+
+## Quest 3 Agent and browser checkpoint journey
+
+The wearer then used the isolated Agent-enabled combined service on port 18778
+through the USB ADB reverse tunnel. PC-local speech was configured, and the
+Codex Agent session reported `danger-full-access` with automatic approvals.
+The Quest client connected as a ready White Room. Via the in-world CODEX
+push-to-talk control, the wearer asked the Agent to load the registered Ice
+Dragon at `(0, 1.5, -2)`, scale `0.5`, and bind `Flight`. Spawn receipt
+`ba5c3f56af4d468eaf22c56cc5b136e7` and binding receipt
+`1add319e59df469c98dfb71cc04b5fa4` succeeded for object
+`ed6126a9282547b995e5724fceafe59e`. The wearer confirmed the Dragon
+appeared and Flight was visible.
+
+In the same Agent conversation, a voice follow-up moved that object along room
+X to `0.3` with successful receipt `92f2efd873704850a0179a6f48c8d149`.
+The ID and Flight binding stayed the same, and the wearer confirmed visible
+movement and continued animation. The wearer tapped **WORLD → SAVE WORLD**.
+The PC service wrote scene-only backups; `saveWorld()` creates those only after
+the Quest browser checkpoint write succeeds. The wearer could not tell from
+the WORLD panel whether the save had completed, exposing a feedback bug: the
+success message existed only in desktop `#feedback`. The branch now adds a
+dedicated visible WORLD notice for local save, PC backup outcome, and restore
+status. The new panel regression verifies that notice survives redraws;
+the notice itself still needs a wearer check on the updated bundle.
+
+The wearer closed and reopened Quest Browser at the **same** port 18778 URL
+and re-entered VR. A new runtime client ID exchanged the exact same Dragon ID,
+authored X=`0.3`, and `Flight` binding. The wearer confirmed the Dragon,
+animation, and Codex conversation returned. After reselecting/grabbing the
+Dragon, its live pose changed (including X=`0.704`); the same resumed Agent
+conversation moved that exact object back to room X=`0` with successful receipt
+`98e2ced73b894fd2816af4bde5815625`, keeping its current height, scale,
+and `Flight`. The wearer confirmed the visible move and animation. Selection
+was reacquired after reload; the browser checkpoint retained the earlier
+saved pose rather than subsequent edits. This run did not enable Quest physics
+on that Dragon; the separate port-18777 check above covers the VR floor drop.
+
+After the run, the wearer reported that CODEX page two repeatedly returned to
+page one within a few words, even when the Agent turn said Completed. The
+browser exchanges connection status about every 650 ms; that path called
+`setOperatorStatus`, whose shared page reset also affected the CODEX panel.
+The panel now resets a page only when its active content mode changes or a new
+Agent turn/approval/voice phase requires attention. Repeated background
+Operator messages and proposal cleanup leave the CODEX reading page in place.
+A regression exercises completed transcript paging across repeated status
+updates and continued transcript content. After reloading port 18778 in Quest
+VR, the wearer opened page two of a Completed CODEX reply and confirmed that it
+stayed visible for five seconds without pressing NEXT. The WORLD save notice
+still awaits a separate wearer check.

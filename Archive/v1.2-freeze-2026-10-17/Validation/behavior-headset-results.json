@@ -1,0 +1,163 @@
+{
+  "scope": "Actual Quest Pro command acknowledgements and PC persistence",
+  "checks": [
+    {
+      "name": "Quest online with empty command queue",
+      "passed": true
+    },
+    {
+      "name": "Actual AR room is ready and wearer alignment is confirmed",
+      "passed": true
+    },
+    {
+      "name": "Current scene is editable",
+      "passed": true
+    },
+    {
+      "name": "Current Quest supports both behaviors",
+      "passed": true
+    },
+    {
+      "name": "Preservation baseline contains exactly the one original orb",
+      "passed": true
+    },
+    {
+      "name": "Current room matches the preservation baseline",
+      "passed": true
+    },
+    {
+      "name": "Current scene contains exactly the original orb",
+      "passed": true
+    },
+    {
+      "name": "Current orb matches the preserved stable object identity",
+      "passed": true
+    },
+    {
+      "name": "Existing orb has Rotate and Bob",
+      "passed": true
+    },
+    {
+      "name": "Both initial behavior configurations are enabled and unpaused",
+      "passed": true
+    },
+    {
+      "name": "Behavior addition preserves stable identity and table-relative baseline",
+      "passed": true
+    },
+    {
+      "name": "Other user objects preserved before test",
+      "passed": true
+    },
+    {
+      "name": "Quest acknowledged runtime command",
+      "passed": true
+    },
+    {
+      "name": "Moving animated baseline up one centimeter retains behaviors and identity",
+      "passed": true
+    },
+    {
+      "name": "Quest acknowledged runtime command",
+      "passed": true
+    },
+    {
+      "name": "Undo baseline move restores exact animated object",
+      "passed": true
+    },
+    {
+      "name": "Quest acknowledged runtime command",
+      "passed": true
+    },
+    {
+      "name": "Rotation pauses independently",
+      "passed": true
+    },
+    {
+      "name": "Quest acknowledged runtime command",
+      "passed": true
+    },
+    {
+      "name": "Rotation resumes",
+      "passed": true
+    },
+    {
+      "name": "Quest acknowledged runtime command",
+      "passed": true
+    },
+    {
+      "name": "Remove Bob keeps rotation",
+      "passed": true
+    },
+    {
+      "name": "Quest acknowledged runtime command",
+      "passed": true
+    },
+    {
+      "name": "Undo restores exact behavior configuration",
+      "passed": true
+    },
+    {
+      "name": "Animated room saved on PC",
+      "passed": true
+    },
+    {
+      "name": "Saved scene exactly matches room-relative placement and behaviors",
+      "passed": true
+    },
+    {
+      "name": "Quest acknowledged runtime command",
+      "passed": true
+    },
+    {
+      "name": "Quest clear acknowledged",
+      "passed": true
+    },
+    {
+      "name": "Quest acknowledged runtime command",
+      "passed": true
+    },
+    {
+      "name": "Quest restored exact animated scene and all preserved user objects",
+      "passed": true
+    }
+  ],
+  "stage": "completed",
+  "mutationsStarted": true,
+  "clearAcknowledged": true,
+  "sceneRestoreConfirmed": true,
+  "baselineSave": "BeforeVoiceRestart_20260920_175100",
+  "animatedSave": "AnimatedRoomBehavior_20260920_181054",
+  "status": "passed",
+  "completedUtc": "2026-09-21T00:10:55.893738+00:00",
+  "passed": 30,
+  "failed": 0,
+  "wearerVerifiedVisualMotion": true,
+  "wearerVerifiedRestoredAlignment": true,
+  "originalBaselineRestoredExactly": true,
+  "originalOrbReselected": true,
+  "voice": {
+    "transcript": "Make this orb rotate slowly and float gently above the table",
+    "mode": "codex-cli",
+    "inference": {
+      "transport": "codex-cli",
+      "completedTurn": true,
+      "usage": {
+        "input_tokens": 28682,
+        "cached_input_tokens": 0,
+        "output_tokens": 335,
+        "reasoning_output_tokens": 92
+      },
+      "toolCallCount": 0,
+      "requestedModel": "gpt-5.6-sol",
+      "requestedReasoningEffort": "xhigh"
+    },
+    "operations": [
+      "set_behavior",
+      "set_behavior"
+    ],
+    "twoSuccessfulRuntimeAcknowledgementsForSameOrb": true,
+    "newRuntimeAcknowledgements": 2
+  },
+  "wearerStatement": "Yes, it returned to the same spot and is bobbing"
+}

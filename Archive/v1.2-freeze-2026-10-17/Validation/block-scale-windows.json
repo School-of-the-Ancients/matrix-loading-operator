@@ -1,0 +1,161 @@
+{
+  "schemaVersion": 1,
+  "status": "passed",
+  "startedUtc": "2026-09-22T09:20:23.862801+00:00",
+  "checks": [
+    "Player identifies the owned validation product, separate from normal Matrix",
+    "Persistent profile ownership marker matches the isolated PR35 validation",
+    "Actual Unity heartbeat exposes the virtual room and canonical built-in block",
+    "Discovery advertises block-scale version 1 over the real HTTP server",
+    "Actual spawn receipt identifies an existing block with a nonuniform baseline",
+    "scale-first: proposal is ready but has no confirmed observation",
+    "scale-first: Unity remains unchanged across heartbeats before Apply",
+    "scale-first: proposal retains the original captured baseline",
+    "scale-first: owner review sees one transform command for the actual block",
+    "scale-first: actual runtime receipt and acknowledging snapshot confirm the experiment",
+    "scale-first: receipt correlates the exact command and object",
+    "scale-first: observed and current transforms match independently calculated original-baseline factors",
+    "scale-first: confirmed ratio matches independent transform arithmetic, without a physics claim",
+    "scale-chained: proposal is ready but has no confirmed observation",
+    "scale-chained: Unity remains unchanged across heartbeats before Apply",
+    "scale-chained: proposal retains the original captured baseline",
+    "scale-chained: owner review sees one transform command for the actual block",
+    "scale-chained: actual runtime receipt and acknowledging snapshot confirm the experiment",
+    "scale-chained: receipt correlates the exact command and object",
+    "scale-chained: observed and current transforms match independently calculated original-baseline factors",
+    "scale-chained: confirmed ratio matches independent transform arithmetic, without a physics claim",
+    "scale-reset: proposal is ready but has no confirmed observation",
+    "scale-reset: Unity remains unchanged across heartbeats before Apply",
+    "scale-reset: proposal retains the original captured baseline",
+    "scale-reset: owner review sees one transform command for the actual block",
+    "scale-reset: actual runtime receipt and acknowledging snapshot confirm the experiment",
+    "scale-reset: receipt correlates the exact command and object",
+    "scale-reset: observed and current transforms match independently calculated original-baseline factors",
+    "scale-reset: confirmed ratio matches independent transform arithmetic, without a physics claim",
+    "Reviewed reset restores original position, rotation, and scale",
+    "scale-stale: proposal is ready but has no confirmed observation",
+    "scale-stale: Unity remains unchanged across heartbeats before Apply",
+    "scale-stale: proposal retains the original captured baseline",
+    "scale-stale: owner review sees one transform command for the actual block",
+    "Intervening real runtime edit rejects stale Apply without queueing or overwriting the edit",
+    "Owned persistent content cache remains byte-identical; no content was installed or downloaded"
+  ],
+  "scope": "Actual local Matrix HTTP API with an isolated headless Windows Unity player",
+  "capability": "experiment.block-scale.v1",
+  "serviceBaseCommit": "d9166f3d9f2c3fc05a2e9fe2a168d7d690d7e60d",
+  "serviceSource": "Working implementation frozen before execution; per-file hashes below",
+  "serviceSourceSha256": {
+    "ControlService/ai_adapter.py": "98cef6a90f3b6e0e3f4ec3c6476b29a0bdc2ffd55627d9db74bdbc9c5a136977",
+    "ControlService/client_api.py": "36a0f90e6c506c66e9ee70f40f904ae86fc0e68d21c5a8e7b61ef374c3e9bf38",
+    "ControlService/codex_provider.py": "64943bd1ba609a712fa5237019a74435be4c7915cd1fb8fb9080a593ab9e0ccd",
+    "ControlService/comfy_workflow.py": "a3008d22d5e76d0de59398587ffe8b48b7499e482be0cd97afc39b9445c20c57",
+    "ControlService/content_catalog.py": "690bf51c27c60c81dbb6685106db31e8863fb1d61cd58d9fbe9047586db50e4c",
+    "ControlService/content_service.py": "ed9defe02f8e0289d1c2894c728153ea5679c9f27ab9e2211729113fc6bbc01a",
+    "ControlService/install_speech_model.py": "1d8ba3df13485c0811a78cbab231e9de5b75596a39ffd9f1ba65d5b2afd4d32a",
+    "ControlService/learning.py": "a87773a385f8c183e559b0f934a4bd1774d8369884978d21b640c86953cbb3bf",
+    "ControlService/quest_connection.py": "88bf6ef2589b3009a1a655aa78bfb11e941f30d9648526171225488e9ceaf95a",
+    "ControlService/scale_experiment.py": "c277ad22c97628cfe51673b9e9be0d7fed2a448fb8943355c0f0208268ad8ceb",
+    "ControlService/scene_capture.py": "16f0bad891952d334ced74750dbc5609743f1e4437db053e40ef366cbe2ddec1",
+    "ControlService/server.py": "d46c9160b34f18da73e146009d579387be216637092ed707079cd05d82671e45",
+    "ControlService/speech.py": "69bfe5cd430804483807b6908ff4510bdefaa0c605edca9676b7ade6fbcc4c5d"
+  },
+  "runtimeSourceCommit": "1af3715bcffdcef8e1eb5299b1b4b9918d39b6e9",
+  "unityVersion": "6000.6.0f1",
+  "runtimeTarget": "StandaloneWindows64",
+  "playerExeSha256": "718444f6a718fa668da96eb0a58445b009673310e6129152a63dbf7a92b8de00",
+  "runtimeAssemblySha256": "ffa4c19dd79d44d2c18b6d74c3668b6080b2d06b9269e9df6e0878c8a2ab52bf",
+  "ownerApply": "Authenticated owner HTTP endpoint after harness verifies the exact proposal",
+  "humanClickedApply": false,
+  "syntheticRuntimeUsed": false,
+  "headsetTested": false,
+  "renderingInspected": false,
+  "physicsValidated": false,
+  "physicalRoomTested": false,
+  "languageModelUsed": false,
+  "schoolClientTested": false,
+  "outcomes": [
+    {
+      "action": "configure",
+      "factors": {
+        "x": 2,
+        "y": 2,
+        "z": 2
+      },
+      "usesPriorConfirmedBaseline": false,
+      "status": "succeeded",
+      "observationState": "confirmed",
+      "receiptCount": 1,
+      "observedScale": {
+        "x": 0.6000000238418579,
+        "y": 0.800000011920929,
+        "z": 1.0
+      },
+      "relativeFactors": {
+        "x": 2.0,
+        "y": 2.0,
+        "z": 2.0
+      },
+      "mathematicalVolumeRatio": 8.0,
+      "physicalMeasurement": false
+    },
+    {
+      "action": "configure",
+      "factors": {
+        "x": 2,
+        "y": 0.5,
+        "z": 1
+      },
+      "usesPriorConfirmedBaseline": true,
+      "status": "succeeded",
+      "observationState": "confirmed",
+      "receiptCount": 1,
+      "observedScale": {
+        "x": 0.6000000238418579,
+        "y": 0.20000000298023224,
+        "z": 0.5
+      },
+      "relativeFactors": {
+        "x": 2.0,
+        "y": 0.5,
+        "z": 1.0
+      },
+      "mathematicalVolumeRatio": 1.0,
+      "physicalMeasurement": false
+    },
+    {
+      "action": "reset",
+      "factors": {
+        "x": 1,
+        "y": 1,
+        "z": 1
+      },
+      "usesPriorConfirmedBaseline": true,
+      "status": "succeeded",
+      "observationState": "confirmed",
+      "receiptCount": 1,
+      "observedScale": {
+        "x": 0.30000001192092896,
+        "y": 0.4000000059604645,
+        "z": 0.5
+      },
+      "relativeFactors": {
+        "x": 1.0,
+        "y": 1.0,
+        "z": 1.0
+      },
+      "mathematicalVolumeRatio": 1.0,
+      "physicalMeasurement": false
+    }
+  ],
+  "originalScale": {
+    "x": 0.30000001192092896,
+    "y": 0.4000000059604645,
+    "z": 0.5
+  },
+  "cleanup": {
+    "ownedPlayerStopped": true,
+    "ownedServerStopped": true,
+    "temporaryControlRemoved": true
+  },
+  "completedUtc": "2026-09-22T09:20:31.550092+00:00"
+}

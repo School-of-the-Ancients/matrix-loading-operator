@@ -1,0 +1,83 @@
+{
+  "schemaVersion": 1,
+  "world": {
+    "version": 2,
+    "scene": {
+      "schemaVersion": 1,
+      "roomId": "web-virtual-room-v1",
+      "objects": [
+        {
+          "objectId": "e647674f24c541758de23075de9561c1",
+          "assetId": "block",
+          "anchorId": "web-floor",
+          "transform": {
+            "position": {
+              "x": 0,
+              "y": 0,
+              "z": -2
+            },
+            "rotation": {
+              "x": 0,
+              "y": 0,
+              "z": 0
+            },
+            "scale": {
+              "x": 1,
+              "y": 1,
+              "z": 1
+            }
+          }
+        },
+        {
+          "objectId": "9d34a00ba3de4d6b833e58af7b12bb2e",
+          "assetId": "matrix:procedural",
+          "anchorId": "web-floor",
+          "transform": {
+            "position": {
+              "x": 2.9,
+              "y": 0,
+              "z": -2
+            },
+            "rotation": {
+              "x": 0,
+              "y": 0,
+              "z": 0
+            },
+            "scale": {
+              "x": 1,
+              "y": 1,
+              "z": 1
+            }
+          },
+          "procedural": {
+            "schemaVersion": 1,
+            "generatorId": "bridge",
+            "generatorVersion": "1.0.0",
+            "sourceRevision": "bridge-v1",
+            "parameters": {
+              "lengthMeters": 3.4,
+              "widthMeters": 1.2,
+              "deckHeightMeters": 0.55,
+              "riseMeters": 0.22,
+              "railings": true,
+              "supports": true
+            },
+            "seed": 0,
+            "dependencies": []
+          },
+          "rigidBody": {
+            "schemaVersion": 1,
+            "type": "static",
+            "collider": "procedural-mesh",
+            "restitution": 0,
+            "friction": 0.8,
+            "sensor": false
+          }
+        }
+      ]
+    },
+    "game": null
+  },
+  "dependencies": [],
+  "payloadSha256": "f3b725bbbb8f2297e6eec6e1175ec1b7d85ceb15b0a52bdc1ed3b2c3ec82b9a6"
+}

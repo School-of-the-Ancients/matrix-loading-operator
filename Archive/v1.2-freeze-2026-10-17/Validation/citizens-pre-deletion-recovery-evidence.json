@@ -1,0 +1,13 @@
+{
+  "ok": true,
+  "origin": "http://127.0.0.1:19839",
+  "seed": 17,
+  "firstBackupTick": 1,
+  "undoRestoredSceneOnly": true,
+  "explicitFullWorldRestore": true,
+  "manualCheckpointUntouched": true,
+  "slotClearedAfterDurableSave": true,
+  "secondBackupTick": 2,
+  "secondBackupFresh": true,
+  "pageErrors": []
+}

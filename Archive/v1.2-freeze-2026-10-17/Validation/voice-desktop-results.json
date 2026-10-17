@@ -1,0 +1,276 @@
+{
+  "startedUtc": "2026-09-20T22:27:45.515063+00:00",
+  "status": "passed",
+  "scope": "Supplied WAV recordings, real local STT and Codex, actual Windows player, isolated PC saves",
+  "headsetMicrophoneTested": false,
+  "controllerInputTested": false,
+  "wearerVisualCheck": false,
+  "audioSource": "Windows speech synthesis; not a microphone recording",
+  "audioSha256": [
+    "40864208e79a59c20d238ccf0bdf9d90ee4b6615ccef49458fa0dfd6bb109c0b",
+    "b06c79f96b134a5a550718e267ae41b94c5f5b1d52b1e9f1857d3158ab3115ea"
+  ],
+  "checks": [
+    {
+      "name": "Owned player starts with an empty scene",
+      "passed": true
+    },
+    {
+      "name": "Actual desktop camera supplies request-relative viewpoint",
+      "passed": true
+    },
+    {
+      "name": "Requested model and reasoning pair is discovered from Codex metadata",
+      "passed": true
+    },
+    {
+      "name": "Real speech and model returned a reviewable proposal: ",
+      "passed": true
+    },
+    {
+      "name": "Voice used a completed real Codex inference, without offline substitution",
+      "passed": true
+    },
+    {
+      "name": "Voice inference uses the selected Codex model and reasoning preferences",
+      "passed": true
+    },
+    {
+      "name": "Voice proposal did not execute before Apply",
+      "passed": true
+    },
+    {
+      "name": "Spoken composition produces one table and two chairs",
+      "passed": true
+    },
+    {
+      "name": "Actual Windows player acknowledged all queued commands",
+      "passed": true
+    },
+    {
+      "name": "Actual Windows player acknowledged all queued commands",
+      "passed": true
+    },
+    {
+      "name": "Real speech and model returned a reviewable proposal: ",
+      "passed": true
+    },
+    {
+      "name": "Voice used a completed real Codex inference, without offline substitution",
+      "passed": true
+    },
+    {
+      "name": "Voice inference uses the selected Codex model and reasoning preferences",
+      "passed": true
+    },
+    {
+      "name": "Voice proposal did not execute before Apply",
+      "passed": true
+    },
+    {
+      "name": "Spoken 'this' edits the captured stable selected object ID",
+      "passed": true
+    },
+    {
+      "name": "Actual Windows player acknowledged all queued commands",
+      "passed": true
+    },
+    {
+      "name": "Runtime doubles the same table in all three axes",
+      "passed": true
+    },
+    {
+      "name": "Actual Windows player acknowledged all queued commands",
+      "passed": true
+    },
+    {
+      "name": "Existing undo restores the prior selected table transform",
+      "passed": true
+    },
+    {
+      "name": "Actual Windows player acknowledged all queued commands",
+      "passed": true
+    },
+    {
+      "name": "Voice-built scene saves on the PC",
+      "passed": true
+    },
+    {
+      "name": "Actual Windows player acknowledged all queued commands",
+      "passed": true
+    },
+    {
+      "name": "Actual Windows player acknowledged all queued commands",
+      "passed": true
+    },
+    {
+      "name": "Save, clear and restore preserve exact object IDs, anchors and transforms",
+      "passed": true
+    }
+  ],
+  "voiceSteps": [
+    {
+      "transcript": "Put a table in front of me with two chairs.",
+      "summary": "Places a standard table about 2.2 m in front of the user, with two chairs on its near side facing the table. Approximate footprint is 2.4 m wide by 1.7 m deep.",
+      "commands": [
+        {
+          "op": "spawn",
+          "assetId": "table",
+          "anchorId": "white-floor",
+          "transform": {
+            "position": {
+              "x": 2.016,
+              "y": 0,
+              "z": -2.035
+            },
+            "rotation": {
+              "x": 0,
+              "y": 0,
+              "z": 0
+            },
+            "scale": {
+              "x": 1,
+              "y": 1,
+              "z": 1
+            }
+          }
+        },
+        {
+          "op": "spawn",
+          "assetId": "chair",
+          "anchorId": "white-floor",
+          "transform": {
+            "position": {
+              "x": 3.112,
+              "y": 0,
+              "z": -2.55
+            },
+            "rotation": {
+              "x": 0,
+              "y": 206.565,
+              "z": 0
+            },
+            "scale": {
+              "x": 1,
+              "y": 1,
+              "z": 1
+            }
+          }
+        },
+        {
+          "op": "spawn",
+          "assetId": "chair",
+          "anchorId": "white-floor",
+          "transform": {
+            "position": {
+              "x": 1.77,
+              "y": 0,
+              "z": -3.22
+            },
+            "rotation": {
+              "x": 0,
+              "y": 206.565,
+              "z": 0
+            },
+            "scale": {
+              "x": 1,
+              "y": 1,
+              "z": 1
+            }
+          }
+        }
+      ],
+      "inference": {
+        "transport": "codex-cli",
+        "completedTurn": true,
+        "usage": {
+          "input_tokens": 10409,
+          "cached_input_tokens": 0,
+          "output_tokens": 791,
+          "reasoning_output_tokens": 485
+        },
+        "toolCallCount": 0,
+        "requestedModel": "gpt-5.6-luna",
+        "requestedReasoningEffort": "low"
+      },
+      "viewerAtRequest": {
+        "frames": [
+          {
+            "anchorId": "white-floor",
+            "position": {
+              "x": 3.0,
+              "y": 2.200000047683716,
+              "z": -4.0
+            },
+            "forward": {
+              "x": -0.44721364974975586,
+              "y": 0.0,
+              "z": 0.8944271802902222
+            }
+          }
+        ]
+      }
+    },
+    {
+      "transcript": "Make this twice as big.",
+      "summary": "Scale the selected table to twice its current size, approximately 2.8 m wide, 1.6 m deep, and 1.58 m tall, while preserving its position and rotation.",
+      "commands": [
+        {
+          "op": "set_transform",
+          "objectId": "82a4910fa9ed479caa2eef396a0d94c0",
+          "transform": {
+            "position": {
+              "x": 2.0160000324249268,
+              "y": 0.0,
+              "z": -2.0350000858306885
+            },
+            "rotation": {
+              "x": 0.0,
+              "y": 0.0,
+              "z": 0.0
+            },
+            "scale": {
+              "x": 2.0,
+              "y": 2.0,
+              "z": 2.0
+            }
+          }
+        }
+      ],
+      "inference": {
+        "transport": "codex-cli",
+        "completedTurn": true,
+        "usage": {
+          "input_tokens": 10835,
+          "cached_input_tokens": 0,
+          "output_tokens": 219,
+          "reasoning_output_tokens": 32
+        },
+        "toolCallCount": 0,
+        "requestedModel": "gpt-5.6-luna",
+        "requestedReasoningEffort": "low"
+      },
+      "viewerAtRequest": {
+        "frames": [
+          {
+            "anchorId": "white-floor",
+            "position": {
+              "x": 3.0,
+              "y": 2.200000047683716,
+              "z": -4.0
+            },
+            "forward": {
+              "x": -0.44721364974975586,
+              "y": 0.0,
+              "z": 0.8944271802902222
+            }
+          }
+        ]
+      }
+    }
+  ],
+  "ownedProcessesStopped": true,
+  "evidenceDirectory": "C:\\Users\\theto\\AppData\\Local\\Temp\\matrix-voice-desktop-gd_ls9i8",
+  "passed": 24,
+  "failed": 0
+}

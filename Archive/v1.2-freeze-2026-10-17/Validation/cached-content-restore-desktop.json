@@ -1,0 +1,123 @@
+{
+  "status": "passed",
+  "startedUtc": "2026-09-22T08:45:31.369345+00:00",
+  "checks": [
+    "Owned player uses the desktop WhiteRoom fixture",
+    "Exported pack is absent from the player's baked registry",
+    "First process downloads and acknowledges the actual exported bundle",
+    "First process persists bundle and manifest in its isolated private cache",
+    "New process has a new client ID and no registered downloaded pack",
+    "Cold restore rejects missing manifest and preserves the existing scene",
+    "Rejected missing manifest also retires its queued clear with an explicit receipt",
+    "Rejected missing manifest registers no prefab",
+    "Cold restore rejects malformed manifest and preserves the existing scene",
+    "Rejected malformed manifest also retires its queued clear with an explicit receipt",
+    "Rejected malformed manifest registers no prefab",
+    "Cold restore rejects wrong version and preserves the existing scene",
+    "Rejected wrong version also retires its queued clear with an explicit receipt",
+    "Rejected wrong version registers no prefab",
+    "Cold restore rejects wrong platform and preserves the existing scene",
+    "Rejected wrong platform also retires its queued clear with an explicit receipt",
+    "Rejected wrong platform registers no prefab",
+    "Cold restore rejects wrong Unity version and preserves the existing scene",
+    "Rejected wrong Unity version also retires its queued clear with an explicit receipt",
+    "Rejected wrong Unity version registers no prefab",
+    "Cold restore rejects wrong digest and preserves the existing scene",
+    "Rejected wrong digest also retires its queued clear with an explicit receipt",
+    "Rejected wrong digest registers no prefab",
+    "Cold restore rejects external dependency and preserves the existing scene",
+    "Rejected external dependency also retires its queued clear with an explicit receipt",
+    "Rejected external dependency registers no prefab",
+    "Cold restore rejects missing asset and preserves the existing scene",
+    "Rejected missing asset also retires its queued clear with an explicit receipt",
+    "Rejected missing asset registers no prefab",
+    "Cold restore rejects missing bundle and preserves the existing scene",
+    "Rejected missing bundle also retires its queued clear with an explicit receipt",
+    "Rejected missing bundle registers no prefab",
+    "Cold restore rejects truncated bundle and preserves the existing scene",
+    "Rejected truncated bundle also retires its queued clear with an explicit receipt",
+    "Rejected truncated bundle registers no prefab",
+    "Cold restore rejects corrupt bundle and preserves the existing scene",
+    "Rejected corrupt bundle also retires its queued clear with an explicit receipt",
+    "Rejected corrupt bundle registers no prefab",
+    "Cached restore accepts read-only metadata and leaves it byte-identical",
+    "Cold process restores exact saved IDs poses behaviors and provenance without catalog reinstall",
+    "Cached bundle reappears in the real runtime registry",
+    "Disabled-provider restore and all failures make zero additional PC bundle requests",
+    "Undo after cold restore recovers the entire pre-restore scene",
+    "Redo after cold restore recovers exact saved content"
+  ],
+  "scope": "Actual isolated Windows player, real bundle, PC HTTP, process restart and disabled provider",
+  "headsetTested": false,
+  "renderingInspected": false,
+  "languageModelUsed": false,
+  "runtimeSourceSha256": {
+    "PcBridge.cs": "b0770b7a9ddbe504aa2d03abfe941cd67a1f12ff4dca1429ccc95626374b4e31",
+    "SandboxContentLoader.cs": "f6c44f8309159825e3489da2e19c37682cd188f672e56efce6d2600a12a0b7e7",
+    "SandboxWorld.cs": "4de7720af15a75866a5203f1e384588665031b546de0ba6aab2f523bcfb633b1"
+  },
+  "unityCoreChecks": {
+    "passed": 384,
+    "failed": 0,
+    "unityVersion": "6000.6.0f1",
+    "completedUtc": "2026-09-22T08:44:49.0685501Z"
+  },
+  "rejections": [
+    {
+      "case": "missing manifest",
+      "error": "Required cached content manifest is missing or oversized. Reinstall the exact original pack: scifi-props"
+    },
+    {
+      "case": "malformed manifest",
+      "error": "JSON parse error: Invalid value."
+    },
+    {
+      "case": "wrong version",
+      "error": "Cached manifest does not match the exact saved provider, pack, version, digest, platform and Unity version."
+    },
+    {
+      "case": "wrong platform",
+      "error": "Content pack targets Android; this runtime requires StandaloneWindows64."
+    },
+    {
+      "case": "wrong Unity version",
+      "error": "Content pack Unity version must match the player exactly: 6000.6.0f1."
+    },
+    {
+      "case": "wrong digest",
+      "error": "Cached manifest digest does not match its saved content reference."
+    },
+    {
+      "case": "external dependency",
+      "error": "This runtime requires self-contained packs; external bundle dependencies are unsupported."
+    },
+    {
+      "case": "missing asset",
+      "error": "Saved asset is absent from its cached content manifest: matrix-fixture:scifi-props:1.0.0:beacon"
+    },
+    {
+      "case": "missing bundle",
+      "error": "Required cached bundle is missing or truncated. Reinstall the exact original pack: scifi-props"
+    },
+    {
+      "case": "truncated bundle",
+      "error": "Required cached bundle is missing or truncated. Reinstall the exact original pack: scifi-props"
+    },
+    {
+      "case": "corrupt bundle",
+      "error": "Required cached content bundle failed SHA-256 verification. Reinstall the exact original pack; current objects were preserved."
+    }
+  ],
+  "playerStarts": 2,
+  "initialBundleRequests": 1,
+  "additionalRestoreBundleRequests": 0,
+  "pack": {
+    "providerId": "matrix-fixture",
+    "packId": "scifi-props",
+    "version": "1.0.0",
+    "sha256": "5912d4b7e34adc832cc9a2c2872285fabe8ebc7a0dec1acd646baea460510143",
+    "platform": "StandaloneWindows64",
+    "unityVersion": "6000.6.0f1"
+  },
+  "completedUtc": "2026-09-22T08:46:00.390087+00:00"
+}

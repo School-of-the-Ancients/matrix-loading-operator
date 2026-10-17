@@ -1,0 +1,177 @@
+{
+  "schemaVersion": 1,
+  "recordedUtc": "2026-09-21T21:50:21.046649+00:00",
+  "status": "builds-and-editor-validation-passed-standalone-and-hardware-acceptance-pending",
+  "baseCommit": "67e3ffe5ceb6aea2387aaa0a0ceb241db09561f0",
+  "branch": "codex/quest3-capture-content-catalogs",
+  "unityVersion": "6000.6.0f1",
+  "tests": {
+    "python": {
+      "passed": 378,
+      "failed": 0,
+      "seconds": 55.908,
+      "receipt": "spatial-content-service-tests.txt"
+    },
+    "operatorNode": {
+      "status": "passed",
+      "receipt": "spatial-content-service-tests.txt",
+      "secondsWall": 0.1
+    },
+    "capabilityFlagFollowup": {
+      "passed": 7,
+      "failed": 0,
+      "includedInLaterFullSuite": true
+    },
+    "unityCore": {
+      "passedPerBuild": 352,
+      "failed": 0,
+      "targets": 3
+    },
+    "cameraEditor": {
+      "passed": 14,
+      "failed": 0,
+      "headsetCameraUsed": false,
+      "receipt": "quest-camera-capture-results.json"
+    },
+    "actualBundleEditor": {
+      "passed": 18,
+      "failed": 0,
+      "standalonePlayerUsed": false,
+      "pcServiceUsed": false,
+      "receipt": "content-pack-editor-results.json"
+    }
+  },
+  "builds": {
+    "desktop": {
+      "status": "succeeded",
+      "path": "Builds/ContentPreviewDesktop",
+      "runtimeAssembly": {
+        "path": "Builds/ContentPreviewDesktop/MatrixOperator_Data/Managed/Assembly-CSharp.dll",
+        "bytes": 113664,
+        "sha256": "6d4c23badc5f21634bac63154dc29d9209a7b0e83fe0057a7e2eb918ea6fe911",
+        "modifiedUtc": "2026-09-21T21:23:23.503682+00:00"
+      },
+      "launcher": {
+        "path": "Builds/ContentPreviewDesktop/MatrixOperator.exe",
+        "bytes": 667136,
+        "sha256": "718444f6a718fa668da96eb0a58445b009673310e6129152a63dbf7a92b8de00",
+        "modifiedUtc": "2026-09-21T21:16:21.336346+00:00"
+      },
+      "distributionFiles": 254,
+      "distributionBytes": 160187305,
+      "inventorySha256": "e7c8c42a70aa97028b7a44045d43b4e91d14c243bc2318301b748a9dc136943e",
+      "inventoryFormat": "SHA256 of UTF-8 lines sorted by relative path: relative POSIX path, TAB, byte size, TAB, file SHA256, LF",
+      "note": "The shared Unity launcher hash alone does not identify player content.",
+      "runtimeSources": {
+        "filesCompared": 13,
+        "allMatchCurrentSource": true
+      }
+    },
+    "roomARQuest": {
+      "status": "succeeded",
+      "path": "Builds/SpatialContentPreview/MatrixOperatorAR.apk",
+      "bytes": 84740382,
+      "sha256": "6cd39a227f7decbc040af8f4a39cfd6f51520b7725f94a11513701edc9ff93c4",
+      "modifiedUtc": "2026-09-21T21:26:31.502403+00:00",
+      "installed": false,
+      "runtimeSources": {
+        "filesCompared": 15,
+        "allMatchCurrentSource": true
+      }
+    },
+    "whiteRoomQuest": {
+      "status": "succeeded",
+      "path": "Builds/SpatialContentPreview/MatrixOperatorWhiteRoom.apk",
+      "bytes": 54158252,
+      "sha256": "9f4b2c386f4986af663de408e4e82847c8f07cd30c459c3c065c5df57d959ad3",
+      "modifiedUtc": "2026-09-21T21:32:52.584234+00:00",
+      "installed": false,
+      "runtimeSources": {
+        "filesCompared": 13,
+        "allMatchCurrentSource": true
+      }
+    }
+  },
+  "contentPacks": [
+    {
+      "path": "Builds/ContentPacks/Windows/matrix-fixture-scifi-props-1.0.0-standalonewindows64.bundle",
+      "bytes": 51670,
+      "sha256": "7eceecaee3480572712d8654a7746065c9f82fba26381fec8f6797d896779a42",
+      "modifiedUtc": "2026-09-21T21:28:06.985815+00:00",
+      "platform": "StandaloneWindows64",
+      "providerId": "matrix-fixture",
+      "packId": "scifi-props",
+      "version": "1.0.0",
+      "exportedAfterCorrespondingPlayerBuild": true,
+      "correspondingPlayerArtifact": "Builds/ContentPreviewDesktop/MatrixOperator_Data/Managed/Assembly-CSharp.dll",
+      "standaloneInstalled": false
+    },
+    {
+      "path": "Builds/ContentPacks/Android/matrix-fixture-scifi-props-1.0.0-android.bundle",
+      "bytes": 136097,
+      "sha256": "3b926e9f8cc85282e2814a81483c92aded9dff44f5b0174c5a921bdfb26b68f1",
+      "modifiedUtc": "2026-09-21T21:30:41.380937+00:00",
+      "platform": "Android",
+      "providerId": "matrix-fixture",
+      "packId": "scifi-props",
+      "version": "1.0.0",
+      "exportedAfterCorrespondingPlayerBuild": true,
+      "correspondingPlayerArtifact": "Builds/SpatialContentPreview/MatrixOperatorAR.apk",
+      "standaloneInstalled": false
+    }
+  ],
+  "chronology": "Windows and Android packs were exported after the corresponding desktop/native AR player. The separate white-room Android regression build completed after the Android pack export. Editor-only validation code was added afterward; runtime sources did not change.",
+  "realGeneration": {
+    "providerType": "self-hosted-comfyui",
+    "submittedRuns": 1,
+    "status": "completed",
+    "resolution": [
+      512,
+      512
+    ],
+    "steps": 4,
+    "batchSize": 1,
+    "outputBytes": 406581,
+    "outputSha256": "547d47bd737a8467f0006bb16a237a2edc90e7bfe10fbda2cdc0a17fad3d690c",
+    "imageVisuallyInspected": true,
+    "receipt": "comfy-content-validation.json"
+  },
+  "browser": {
+    "method": "manual observation of isolated offline preview",
+    "port": 8789,
+    "observations": [
+      "Windows and Android pack search results visible",
+      "Install disabled while runtime offline",
+      "Generate disabled without explicit approval checkbox",
+      "Completed generated image available in cached preview"
+    ],
+    "configuredProviders": 3,
+    "queuedAssetStoreImports": 2,
+    "automatedCheckCountClaimed": false
+  },
+  "deployment": {
+    "existingServicePort": 8776,
+    "existingServiceUpdated": false,
+    "isolatedPreviewPort": 8789,
+    "newApkInstalled": false,
+    "quest3HardwareAvailable": false,
+    "automaticApprovalBlocked": [
+      "Standalone acceptance player launch",
+      "Existing service restart",
+      "Isolated preview service restart"
+    ],
+    "standaloneInstallAndAiHarness": "pending manual player launch",
+    "headsetStateOrSceneReplaced": false,
+    "isolatedPreviewUsesFinalPcSource": false,
+    "isolatedPreviewNote": "The preview process loaded before the final capability flag, lease expiry, response serialization and worker-start fixes. The final 378-test PC source is on disk but not loaded by either running service.",
+    "previewRestartRejection": "blocked by policy; rejected before execution; no restart action occurred"
+  },
+  "limitations": [
+    "Quest 3 physical camera permission, registration quality and timing are hardware-unverified",
+    "No standalone PC-to-player download/install or new-asset live-AI acceptance yet",
+    "Runtime packs contain supported static props only; no arbitrary scripts, downloaded animation clips or runtime skyboxes",
+    "Asset Store entries require authorized Unity import/export rather than direct package acquisition",
+    "Verified packs need explicit cached reinstallation after app restart before saved scene restore",
+    "No video or MiniMax generation was submitted"
+  ]
+}

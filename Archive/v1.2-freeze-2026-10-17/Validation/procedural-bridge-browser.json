@@ -1,0 +1,651 @@
+{
+  "schemaVersion": 1,
+  "testOrigin": "http://127.0.0.1:19863/web/",
+  "runtime": {
+    "schemaVersion": 1,
+    "client": "matrix-web",
+    "renderer": "threejs-webxr",
+    "presentation": "desktop"
+  },
+  "firstObjectId": "1f3cca05636c412cb3f4fa0050671be5",
+  "secondObjectId": "5716014aaccf42678f791d3b5a85c5ca",
+  "pcServiceRestarted": true,
+  "browserConsoleErrors": [],
+  "browserConsoleWarnings": [],
+  "checkpoints": [
+    "bridge-acceptance-v1",
+    "bridge-after-reopen",
+    "bridge-after-restore-edit"
+  ],
+  "steps": [
+    {
+      "label": "create six-meter bridge",
+      "serviceRevision": 3,
+      "objectCount": 1,
+      "receipts": [
+        {
+          "requestId": "ef5966d23bc64de98cd8b0288b7aaf5a",
+          "ok": true,
+          "objectId": "1f3cca05636c412cb3f4fa0050671be5"
+        }
+      ]
+    },
+    {
+      "label": "create independent second bridge",
+      "serviceRevision": 5,
+      "objectCount": 2,
+      "receipts": [
+        {
+          "requestId": "ad209d660b014d65b974e7ddd78d553f",
+          "ok": true,
+          "objectId": "5716014aaccf42678f791d3b5a85c5ca"
+        }
+      ],
+      "first": {
+        "parameters": {
+          "lengthMeters": 6,
+          "widthMeters": 1.5,
+          "deckHeightMeters": 1.2,
+          "riseMeters": 0,
+          "railings": false,
+          "supports": false
+        },
+        "transform": {
+          "position": {
+            "x": 0,
+            "y": 0,
+            "z": 0
+          },
+          "rotation": {
+            "x": 0,
+            "y": 0,
+            "z": 0
+          },
+          "scale": {
+            "x": 1,
+            "y": 1,
+            "z": 1
+          }
+        }
+      }
+    },
+    {
+      "label": "rebuild length width supports and railings",
+      "serviceRevision": 7,
+      "objectCount": 2,
+      "receipts": [
+        {
+          "requestId": "c75f25e835ba4a6ea3aeb2480ee2cc7b",
+          "ok": true,
+          "objectId": "1f3cca05636c412cb3f4fa0050671be5"
+        }
+      ],
+      "first": {
+        "parameters": {
+          "lengthMeters": 9,
+          "widthMeters": 2,
+          "deckHeightMeters": 1.2,
+          "riseMeters": 0,
+          "railings": true,
+          "supports": true
+        },
+        "transform": {
+          "position": {
+            "x": 0,
+            "y": 0,
+            "z": 0
+          },
+          "rotation": {
+            "x": 0,
+            "y": 0,
+            "z": 0
+          },
+          "scale": {
+            "x": 1,
+            "y": 1,
+            "z": 1
+          }
+        }
+      },
+      "second": {
+        "parameters": {
+          "lengthMeters": 6,
+          "widthMeters": 1.5,
+          "deckHeightMeters": 1.2,
+          "riseMeters": 0,
+          "railings": false,
+          "supports": false
+        },
+        "transform": {
+          "position": {
+            "x": 10,
+            "y": 0,
+            "z": 0
+          },
+          "rotation": {
+            "x": 0,
+            "y": 0,
+            "z": 0
+          },
+          "scale": {
+            "x": 1,
+            "y": 1,
+            "z": 1
+          }
+        }
+      }
+    },
+    {
+      "label": "move and rotate first bridge",
+      "serviceRevision": 9,
+      "objectCount": 2,
+      "receipts": [
+        {
+          "requestId": "f03aec483fcc4d6986c35baf1d94c185",
+          "ok": true,
+          "objectId": "1f3cca05636c412cb3f4fa0050671be5"
+        }
+      ],
+      "first": {
+        "parameters": {
+          "lengthMeters": 9,
+          "widthMeters": 2,
+          "deckHeightMeters": 1.2,
+          "riseMeters": 0,
+          "railings": true,
+          "supports": true
+        },
+        "transform": {
+          "position": {
+            "x": -3,
+            "y": 0,
+            "z": 2
+          },
+          "rotation": {
+            "x": 0,
+            "y": 20,
+            "z": 0
+          },
+          "scale": {
+            "x": 1,
+            "y": 1,
+            "z": 1
+          }
+        }
+      },
+      "second": {
+        "parameters": {
+          "lengthMeters": 6,
+          "widthMeters": 1.5,
+          "deckHeightMeters": 1.2,
+          "riseMeters": 0,
+          "railings": false,
+          "supports": false
+        },
+        "transform": {
+          "position": {
+            "x": 10,
+            "y": 0,
+            "z": 0
+          },
+          "rotation": {
+            "x": 0,
+            "y": 0,
+            "z": 0
+          },
+          "scale": {
+            "x": 1,
+            "y": 1,
+            "z": 1
+          }
+        }
+      }
+    },
+    {
+      "label": "edit again after transform",
+      "serviceRevision": 11,
+      "objectCount": 2,
+      "receipts": [
+        {
+          "requestId": "8b7c7833da164a2b853ee8a47f732d1f",
+          "ok": true,
+          "objectId": "1f3cca05636c412cb3f4fa0050671be5"
+        }
+      ],
+      "first": {
+        "parameters": {
+          "lengthMeters": 9,
+          "widthMeters": 2,
+          "deckHeightMeters": 1.2,
+          "riseMeters": 0.4,
+          "railings": true,
+          "supports": true
+        },
+        "transform": {
+          "position": {
+            "x": -3,
+            "y": 0,
+            "z": 2
+          },
+          "rotation": {
+            "x": 0,
+            "y": 20,
+            "z": 0
+          },
+          "scale": {
+            "x": 1,
+            "y": 1,
+            "z": 1
+          }
+        }
+      },
+      "second": {
+        "parameters": {
+          "lengthMeters": 6,
+          "widthMeters": 1.5,
+          "deckHeightMeters": 1.2,
+          "riseMeters": 0,
+          "railings": false,
+          "supports": false
+        },
+        "transform": {
+          "position": {
+            "x": 10,
+            "y": 0,
+            "z": 0
+          },
+          "rotation": {
+            "x": 0,
+            "y": 0,
+            "z": 0
+          },
+          "scale": {
+            "x": 1,
+            "y": 1,
+            "z": 1
+          }
+        }
+      }
+    },
+    {
+      "label": "undo recipe revision",
+      "serviceRevision": 13,
+      "objectCount": 2,
+      "receipts": [
+        {
+          "requestId": "a57eaa233e9c428f9528d3dce6b3eea0",
+          "ok": true
+        }
+      ],
+      "first": {
+        "parameters": {
+          "lengthMeters": 9,
+          "widthMeters": 2,
+          "deckHeightMeters": 1.2,
+          "riseMeters": 0,
+          "railings": true,
+          "supports": true
+        },
+        "transform": {
+          "position": {
+            "x": -3,
+            "y": 0,
+            "z": 2
+          },
+          "rotation": {
+            "x": 0,
+            "y": 20,
+            "z": 0
+          },
+          "scale": {
+            "x": 1,
+            "y": 1,
+            "z": 1
+          }
+        }
+      },
+      "second": {
+        "parameters": {
+          "lengthMeters": 6,
+          "widthMeters": 1.5,
+          "deckHeightMeters": 1.2,
+          "riseMeters": 0,
+          "railings": false,
+          "supports": false
+        },
+        "transform": {
+          "position": {
+            "x": 10,
+            "y": 0,
+            "z": 0
+          },
+          "rotation": {
+            "x": 0,
+            "y": 0,
+            "z": 0
+          },
+          "scale": {
+            "x": 1,
+            "y": 1,
+            "z": 1
+          }
+        }
+      }
+    },
+    {
+      "label": "redo recipe revision",
+      "serviceRevision": 15,
+      "objectCount": 2,
+      "receipts": [
+        {
+          "requestId": "c1e60f5edef64db7994cfd9e64f623ab",
+          "ok": true
+        }
+      ],
+      "first": {
+        "parameters": {
+          "lengthMeters": 9,
+          "widthMeters": 2,
+          "deckHeightMeters": 1.2,
+          "riseMeters": 0.4,
+          "railings": true,
+          "supports": true
+        },
+        "transform": {
+          "position": {
+            "x": -3,
+            "y": 0,
+            "z": 2
+          },
+          "rotation": {
+            "x": 0,
+            "y": 20,
+            "z": 0
+          },
+          "scale": {
+            "x": 1,
+            "y": 1,
+            "z": 1
+          }
+        }
+      },
+      "second": {
+        "parameters": {
+          "lengthMeters": 6,
+          "widthMeters": 1.5,
+          "deckHeightMeters": 1.2,
+          "riseMeters": 0,
+          "railings": false,
+          "supports": false
+        },
+        "transform": {
+          "position": {
+            "x": 10,
+            "y": 0,
+            "z": 0
+          },
+          "rotation": {
+            "x": 0,
+            "y": 0,
+            "z": 0
+          },
+          "scale": {
+            "x": 1,
+            "y": 1,
+            "z": 1
+          }
+        }
+      }
+    },
+    {
+      "label": "browser reopened saved bridge",
+      "serviceRevision": 15,
+      "objectCount": 2,
+      "first": {
+        "parameters": {
+          "lengthMeters": 9,
+          "widthMeters": 2,
+          "deckHeightMeters": 1.2,
+          "riseMeters": 0.4,
+          "railings": true,
+          "supports": true
+        },
+        "transform": {
+          "position": {
+            "x": -3,
+            "y": 0,
+            "z": 2
+          },
+          "rotation": {
+            "x": 0,
+            "y": 20,
+            "z": 0
+          },
+          "scale": {
+            "x": 1,
+            "y": 1,
+            "z": 1
+          }
+        }
+      },
+      "second": {
+        "parameters": {
+          "lengthMeters": 6,
+          "widthMeters": 1.5,
+          "deckHeightMeters": 1.2,
+          "riseMeters": 0,
+          "railings": false,
+          "supports": false
+        },
+        "transform": {
+          "position": {
+            "x": 10,
+            "y": 0,
+            "z": 0
+          },
+          "rotation": {
+            "x": 0,
+            "y": 0,
+            "z": 0
+          },
+          "scale": {
+            "x": 1,
+            "y": 1,
+            "z": 1
+          }
+        }
+      }
+    },
+    {
+      "label": "edit after browser reopen",
+      "serviceRevision": 17,
+      "objectCount": 2,
+      "receipts": [
+        {
+          "requestId": "bc02006e01ef44c3babe8a36ca109c0d",
+          "ok": true,
+          "objectId": "1f3cca05636c412cb3f4fa0050671be5"
+        }
+      ],
+      "first": {
+        "parameters": {
+          "lengthMeters": 9,
+          "widthMeters": 2,
+          "deckHeightMeters": 1.2,
+          "riseMeters": 0.6,
+          "railings": true,
+          "supports": true
+        },
+        "transform": {
+          "position": {
+            "x": -3,
+            "y": 0,
+            "z": 2
+          },
+          "rotation": {
+            "x": 0,
+            "y": 20,
+            "z": 0
+          },
+          "scale": {
+            "x": 1,
+            "y": 1,
+            "z": 1
+          }
+        }
+      },
+      "second": {
+        "parameters": {
+          "lengthMeters": 6,
+          "widthMeters": 1.5,
+          "deckHeightMeters": 1.2,
+          "riseMeters": 0,
+          "railings": false,
+          "supports": false
+        },
+        "transform": {
+          "position": {
+            "x": 10,
+            "y": 0,
+            "z": 0
+          },
+          "rotation": {
+            "x": 0,
+            "y": 0,
+            "z": 0
+          },
+          "scale": {
+            "x": 1,
+            "y": 1,
+            "z": 1
+          }
+        }
+      }
+    },
+    {
+      "label": "PC checkpoint restored after service restart",
+      "serviceRevision": 18,
+      "objectCount": 2,
+      "first": {
+        "parameters": {
+          "lengthMeters": 9,
+          "widthMeters": 2,
+          "deckHeightMeters": 1.2,
+          "riseMeters": 0.4,
+          "railings": true,
+          "supports": true
+        },
+        "transform": {
+          "position": {
+            "x": -3,
+            "y": 0,
+            "z": 2
+          },
+          "rotation": {
+            "x": 0,
+            "y": 20,
+            "z": 0
+          },
+          "scale": {
+            "x": 1,
+            "y": 1,
+            "z": 1
+          }
+        }
+      },
+      "second": {
+        "parameters": {
+          "lengthMeters": 6,
+          "widthMeters": 1.5,
+          "deckHeightMeters": 1.2,
+          "riseMeters": 0,
+          "railings": false,
+          "supports": false
+        },
+        "transform": {
+          "position": {
+            "x": 10,
+            "y": 0,
+            "z": 0
+          },
+          "rotation": {
+            "x": 0,
+            "y": 0,
+            "z": 0
+          },
+          "scale": {
+            "x": 1,
+            "y": 1,
+            "z": 1
+          }
+        }
+      }
+    },
+    {
+      "label": "edit after PC service restore",
+      "serviceRevision": 20,
+      "objectCount": 2,
+      "receipts": [
+        {
+          "requestId": "b438b6db6ce24568857c4ca5ebeb0c6b",
+          "ok": true,
+          "objectId": "1f3cca05636c412cb3f4fa0050671be5"
+        }
+      ],
+      "first": {
+        "parameters": {
+          "lengthMeters": 9,
+          "widthMeters": 2,
+          "deckHeightMeters": 1.2,
+          "riseMeters": 0.5,
+          "railings": true,
+          "supports": true
+        },
+        "transform": {
+          "position": {
+            "x": -3,
+            "y": 0,
+            "z": 2
+          },
+          "rotation": {
+            "x": 0,
+            "y": 20,
+            "z": 0
+          },
+          "scale": {
+            "x": 1,
+            "y": 1,
+            "z": 1
+          }
+        }
+      },
+      "second": {
+        "parameters": {
+          "lengthMeters": 6,
+          "widthMeters": 1.5,
+          "deckHeightMeters": 1.2,
+          "riseMeters": 0,
+          "railings": false,
+          "supports": false
+        },
+        "transform": {
+          "position": {
+            "x": 10,
+            "y": 0,
+            "z": 0
+          },
+          "rotation": {
+            "x": 0,
+            "y": 0,
+            "z": 0
+          },
+          "scale": {
+            "x": 1,
+            "y": 1,
+            "z": 1
+          }
+        }
+      }
+    }
+  ]
+}

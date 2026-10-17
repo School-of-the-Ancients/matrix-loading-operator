@@ -1,0 +1,41 @@
+{
+  "date": "2026-09-26",
+  "branch": "codex/citizens-appointments",
+  "service": "http://127.0.0.1:19855/web/",
+  "isolation": "Port 19855 uses copied scene checkpoints and two reviewed static GLB catalog files; existing services on ports 19853 and 19854 were left running.",
+  "startingCheckpoint": "routine-editor-m1",
+  "seed": 29,
+  "worldVersion": 3,
+  "citizensVersion": 10,
+  "worldObjectIds": [
+    "821fc875805840c5b4d3dfa9e4b21d8b",
+    "7448c0018a8a45e1acf5d0a55aa7e561",
+    "48c153fafbb3405590749fabbd0630d8",
+    "3fc1c2b72653498a94baf423dc760e71"
+  ],
+  "assetDependencies": [
+    "web:citizens-demo-chair:fb5408949487",
+    "web:citizens-demo-food-table:53b79a6a6f7f"
+  ],
+  "appointments": [
+    {"resident": "ada", "id": "appointment-1", "kind": "eat", "startTick": 2, "deadlineTick": 40},
+    {"resident": "bo", "id": "appointment-1", "kind": "eat", "startTick": 2, "deadlineTick": 5}
+  ],
+  "browserObservations": [
+    {"minute": 1, "ada": "chair travel execution 1", "bo": "chair FIFO waiter execution 2", "appointments": "both pending"},
+    {"minute": 6, "bo": "eat appointment missed at deadline+1 while chair FIFO execution 2 remained queued", "ada": "eat appointment pending; chair execution 1 continued"},
+    {"minute": 19, "ada": "eat appointment started as execution 3; food claimed", "bo": "chair claimed as original execution 2"},
+    {"minute": 36, "ada": "eat appointment completed with Matrix receipt citizens-29-action-3-38; fullness 88; food egress claim retained", "bo": "eat appointment still missed; chair rest completed at minute 31"}
+  ],
+  "checkpoints": [
+    {"name": "appointments-m1", "minute": 1, "payloadSha256": "1941b496f8768ae1886e2658c7faf945b999cebf98ca05ff7525ce778c89d4a3"},
+    {"name": "appointments-m6-missed", "minute": 6, "payloadSha256": "e4e45e338fca5c005802cac2f36a0597815635d349b8306e8d60c04654a7a3db"},
+    {"name": "appointments-m36", "minute": 36, "payloadSha256": "1524b6122c3e5b1317ca5bac76e1bb5f5477716a97522d4e996cd757942e7a04"},
+    {"name": "appointments-m36-replay", "minute": 36, "payloadSha256": "1524b6122c3e5b1317ca5bac76e1bb5f5477716a97522d4e996cd757942e7a04"}
+  ],
+  "replay": "Browser reload retained minute 36 and both outcomes. Restoring the named PC appointments-m1 world and taking 35 paused Step one minute actions reproduced the exact appointments-m36 world/dependency payload SHA-256. A final named PC restore of appointments-m36 returned to the same visible outcome.",
+  "browserConsoleErrors": 0,
+  "checks": {"webRuntimeTests": "336/336", "controlServiceTests": "691/691", "viteBuild": "passed", "diffCheck": "passed"},
+  "screenshots": ["citizens-appointments-missed.png", "citizens-appointments-started.png", "citizens-appointments-completed.png"],
+  "limits": "This is a two-resident desktop virtual-floor demonstration with reviewed static GLB stations. Appointments do not interrupt in-flight activities, social sessions, or FIFO waits; general moving/animated station handling and independent Quest wearer acceptance remain open."
+}

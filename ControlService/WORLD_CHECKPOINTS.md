@@ -136,5 +136,5 @@ archive metadata through `matrix_list_world_archives`; reviewed
 revision guards and the ordinary runtime receipt path. The agent can reconcile
 an uncertain result through `matrix_world_archive_status`. It does not receive
 raw archive contents. The [Creator Mode runbook](../Docs/Procedural-Creation.md)
-and [desktop validation trace](https://github.com/School-of-the-Ancients/matrix-loading-operator/blob/60ab4599752147f2e590293208bee4692965a524/Validation/Immersive-Creator-Desktop-2026-09-26.md)
+and [desktop validation trace](https://github.com/School-of-the-Ancients/matrix-loading-operator/blob/main/Archive/v1.2-freeze-2026-10-17/Validation/Immersive-Creator-Desktop-2026-09-26.md)
 record the tested new/restore sequence. Quest wearer behavior is still open.

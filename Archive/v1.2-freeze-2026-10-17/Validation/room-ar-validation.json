@@ -1,0 +1,131 @@
+{
+  "milestone": "Quest Pro room-aware AR",
+  "pythonTests": {
+    "passed": 266,
+    "failed": 0,
+    "scope": "PC service, schema, planner, voice, persistence; synthetic fixtures"
+  },
+  "nativeEditor": {
+    "compiled": true,
+    "unityChecksPassed": 236,
+    "unityChecksFailed": 0
+  },
+  "liveProvider": {
+    "passed": 3,
+    "scope": "Real Codex, synthetic room context; no runtime execution",
+    "evidence": "room-context-live-codex.json"
+  },
+  "browser": {
+    "syntheticRoom": true,
+    "alignmentGateVisible": true,
+    "editsDisabledUntilAlignment": true,
+    "readOnlyRecoverySaveAndClearEnabled": true,
+    "recoveryEditingAndPlanningDisabled": true
+  },
+  "androidBuild": {
+    "status": "succeeded",
+    "package": "com.matt.arsandbox",
+    "appName": "Matrix Operator AR",
+    "bytes": 63346980,
+    "sha256": "BD83A89FEC5B4E6D966E7F3AF057CD92F0BC3B1A84954107045F6C7686850111",
+    "abi": "arm64-v8a",
+    "minSdk": 32,
+    "targetSdk": 34,
+    "verifiedManifest": [
+      "com.oculus.permission.USE_SCENE",
+      "android.permission.RECORD_AUDIO",
+      "android.permission.INTERNET",
+      "com.oculus.feature.PASSTHROUGH"
+    ]
+  },
+  "hardware": {
+    "installed": true,
+    "roomLocalized": true,
+    "wearerVerifiedOutlines": true,
+    "voiceOrbPlacement": true,
+    "voiceMovement": true,
+    "tableAlignedSaveRestore": true,
+    "deviceModel": "Quest Pro",
+    "usbForwarding": true,
+    "whiteRoomPackageStillInstalled": true,
+    "wearerPassthroughAndLabeledOutlinesReported": true,
+    "alignmentEvidence": "Wearer reports labeled table top/edges, floor and walls align with reality.",
+    "localizationEvidence": "Live Quest Pro MRUK snapshot through USB/PC bridge plus wearer alignment report.",
+    "pcArConnectionVerified": true,
+    "liveAnchors": 28,
+    "liveSupportSurfaces": 7,
+    "alignmentConfirmedByExecutor": true,
+    "voicePlacementEvidence": {
+      "transcript": "Put an orb on this table",
+      "providerMode": "codex-cli",
+      "physicalTableAnchor": true,
+      "surfacePlacement": true,
+      "runtimeAcknowledged": true,
+      "orbLocalY": 0.0,
+      "wearerConfirmedPlacementOnRealTable": true
+    },
+    "voiceMovementEvidence": {
+      "transcript": "Move the orb five centimeters to the center of the table or just to the center of the table",
+      "providerMode": "codex-cli",
+      "model": "gpt-5.6-sol",
+      "reasoning": "xhigh",
+      "sameObjectId": true,
+      "sameTableAnchorId": true,
+      "scaleAndRotationPreserved": true,
+      "runtimeAcknowledged": true,
+      "wearerConfirmedMovementAndAlignment": true,
+      "interpretation": "User corrected the spoken request to the table center; model proposed and executed that correction.",
+      "resolvedLocalPosition": {
+        "x": 0.0,
+        "y": 0.0,
+        "z": 0.0
+      }
+    },
+    "pcSaveClearRestore": true,
+    "saveRestoreEvidence": {
+      "saveName": "RoomARAcceptance_20260920_171926",
+      "diskSceneExactMatch": true,
+      "clearAcknowledgedAndEmpty": true,
+      "loadAcknowledged": true,
+      "restoredSceneExactMatch": true,
+      "sameRoomObjectAndAnchorIds": true,
+      "identicalAnchorRelativeTransforms": true,
+      "livePoseExcludedFromSave": true,
+      "scope": "Same app session, unchanged manual room setup",
+      "wearerConfirmedRestoredTableAlignment": true,
+      "wearerReport": "Yes, it returned to the same spot on the real table",
+      "desktopFullCheckoutSaveCopyHashVerified": true
+    },
+    "hardwareNotTested": [
+      "App restart and relocalization before restore",
+      "Recreated or removed physical anchors",
+      "Physically induced tracking-loss recovery"
+    ],
+    "clearanceClarification": {
+      "providerMode": "codex-cli",
+      "requestedDistanceCm": 20,
+      "availableClearanceCmApprox": 2.1,
+      "commandsProduced": 0,
+      "orbUnchanged": true
+    },
+    "acceptanceStatus": "passed",
+    "acceptanceCompletedLocal": "2026-09-20 America/Denver"
+  },
+  "note": "Do not infer physical alignment or microphone acceptance from automated/synthetic checks.",
+  "whiteRoomCompatibility": {
+    "installedPreviousBuildConnectedToUpdatedService": true,
+    "observedObjects": 40,
+    "matchesPreArBackup": true,
+    "evidence": "Live service read before AR app switch; later offline snapshot also matched the backup."
+  },
+  "whiteRoomRegression": {
+    "build": "succeeded",
+    "unityChecksPassed": 236,
+    "unityChecksFailed": 0,
+    "apkBytes": 53847545,
+    "apkSha256": "8CC9E39ACF2C9CD1476CEE31DC5D002300798DEE65D4E5CB3E4B183076F6F06C",
+    "installedOnHeadset": false,
+    "note": "Original hardware-tested voice APK remains installed and was archived separately."
+  },
+  "overallStatus": "Ready with limitations: same-session Quest Pro acceptance passed; restart/relocalization and physical anchor-loss recovery not hardware-tested."
+}

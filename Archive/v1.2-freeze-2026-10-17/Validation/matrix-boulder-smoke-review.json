@@ -1,0 +1,13 @@
+{
+  "dateUtc": "2026-09-25",
+  "unityVersion": "6000.6.0f1",
+  "playerSha256": "718444f6a718fa668da96eb0a58445b009673310e6129152a63dbf7a92b8de00",
+  "args": ["-batchmode", "-nographics", "-matrixBoulderSmoke"],
+  "cases": [
+    {"name": "fresh valid save", "exitCode": 0, "successMarker": true, "failureMarker": false, "saveExists": true},
+    {"name": "malformed existing save", "exitCode": 1, "successMarker": false, "failureMarker": true},
+    {"name": "save destination is a directory", "exitCode": 1, "successMarker": false, "failureMarker": true}
+  ],
+  "previousSmokeFixtureRestored": true,
+  "normalCitizenSaveUntouched": true
+}

@@ -1,0 +1,38 @@
+{
+  "date": "2026-09-24",
+  "branch": "codex/4616-miniature-world",
+  "baseCommit": "4041ef4",
+  "unityVersion": "6000.6.0f1",
+  "desktop": {
+    "build": "passed",
+    "coreChecksPassed": 457,
+    "coreChecksFailed": 0,
+    "actualPlayerServiceLoop": "24/24 passed after final lamp visual change",
+    "realCodexReviewedLoop": "27/27 passed before lamp visual change; one Codex proposal required Apply",
+    "desktopExeSha256": "718444F6A718FA668DA96EB0A58445B009673310E6129152A63DBF7A92B8DE00"
+  },
+  "virtualQuest": {
+    "build": "passed",
+    "coreChecksPassed": 457,
+    "coreChecksFailed": 0,
+    "apkBytes": 54298909,
+    "apkSha256": "EDFEB278ACDEC0AF0138B6D99FD8BE00B99A57C3F15E6253AD2DB732BB6A859C",
+    "zipIntegrity": "404 entries, no corrupt entries",
+    "signature": "APK Signature Scheme v2 verified, one signer"
+  },
+  "nativeRoomAr": {
+    "build": "blocked before app compilation",
+    "stage": "Meta.XR.BuildingBlocks.AIBlocks.dll package import",
+    "error": "BeeLocalCacheTool.exe launch returned Windows GetLastError 5: Access is denied",
+    "apkProduced": false
+  },
+  "service": {
+    "pythonTests": "479 passed",
+    "operatorPanel": "passed",
+    "contentPanel": "passed",
+    "clientPanel": "passed"
+  },
+  "prefabPreview": "16 Unity Editor studio renders passed and visually sampled; not headset images",
+  "device": "ADB listed zero connected devices; headset interaction, room alignment and frame time not measured",
+  "character": "deferred: no reviewed compatible rig and licensed clips in the checkout"
+}

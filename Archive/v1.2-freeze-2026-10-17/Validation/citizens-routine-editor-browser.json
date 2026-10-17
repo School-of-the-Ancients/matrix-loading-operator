@@ -1,0 +1,82 @@
+{
+  "date": "2026-09-26",
+  "surface": "built ordinary /web/ desktop virtual room",
+  "isolation": {
+    "loopbackPort": 19854,
+    "sceneDirectory": "work/citizens-routine-editor-state/scenes",
+    "assetDirectory": "work/citizens-routine-editor-catalog",
+    "sourceCheckpoint": "dual-stations-m1",
+    "sourceCheckpointFileSha256": "6f6c572360bda0e3d59a90bef4d1b8ac9d7b5455c715e1731ddb469ead2eca94",
+    "sourceCopyMatchesOriginal": true,
+    "earlierDemoPort19853Untouched": true
+  },
+  "seed": 29,
+  "reviewedStaticAssets": [
+    "web:citizens-demo-chair:fb5408949487",
+    "web:citizens-demo-food-table:53b79a6a6f7f"
+  ],
+  "stableSceneObjectIds": [
+    "821fc875805840c5b4d3dfa9e4b21d8b",
+    "7448c0018a8a45e1acf5d0a55aa7e561",
+    "48c153fafbb3405590749fabbd0630d8",
+    "3fc1c2b72653498a94baf423dc760e71"
+  ],
+  "residentIds": ["ada", "bo"],
+  "editedRoutines": {
+    "residentId": "ada",
+    "evening-rest": {
+      "before": {"startMinute": 1260, "endMinute": 360, "priority": "high"},
+      "after": {"startMinute": 1260, "endMinute": 1440, "priority": "high"}
+    },
+    "morning-meal": {
+      "before": {"startMinute": 420, "endMinute": 600, "priority": "default"},
+      "after": {"startMinute": 0, "endMinute": 120, "priority": "high"}
+    }
+  },
+  "browserObservations": [
+    "The panel rejected equal 1260 start/end without changing the paused minute-1 chair claim or waiter.",
+    "The 1440 end-minute draft survived the panel's half-second refresh before Apply.",
+    "Both edits applied while Ada was already going to rest. Ada retained chair execution 1 and Bo retained FIFO execution 2.",
+    "Browser reload retained both edited routines, the four object IDs, Ada's claim and Bo's wait.",
+    "At minute 14 Ada completed rest. At minute 18 Ada cleared the chair, and Bo acquired its FIFO claim with execution 2.",
+    "At minute 19 Ada chose eat in morning-meal with score 46.05 and claimed food as execution 3.",
+    "At minute 36 Ada completed eat after an observed Matrix interaction outcome, increasing fullness to 88. Bo had completed rest at minute 31.",
+    "While running, Apply routine was disabled and the panel said to pause before editing."
+  ],
+  "checkpoints": {
+    "outerWorldVersion": 3,
+    "citizensSchemaVersion": 9,
+    "routine-editor-m1": {
+      "minute": 1,
+      "chairClaim": {"residentId": "ada", "executionId": 1},
+      "chairWaiter": {"residentId": "bo", "executionId": 2},
+      "payloadSha256": "3421c45d0ccfc0ba61118c1255c5d49a32436376dcf7624135d15c8ed12cbd6d"
+    },
+    "routine-editor-m36": {
+      "minute": 36,
+      "adaLastOutcome": "Completed eat at minute 36",
+      "payloadSha256": "ae12ad99f6a0aef85f1c5dd2ea9fff134cca132bbe4906598038ae3770b0144a"
+    },
+    "routine-editor-m36-replay": {
+      "minute": 36,
+      "stepsAfterRestoringMinute1": 35,
+      "payloadExactlyMatchesMinute36": true,
+      "payloadSha256": "ae12ad99f6a0aef85f1c5dd2ea9fff134cca132bbe4906598038ae3770b0144a"
+    }
+  },
+  "validation": {
+    "webRuntimeTests": "321/321",
+    "controlServiceTests": "689/689",
+    "viteBuild": "passed",
+    "gitDiffCheck": "passed",
+    "browserConsoleErrors": 0,
+    "screenshots": [
+      "citizens-routine-editor-form.png",
+      "citizens-routine-editor-outcome.png"
+    ]
+  },
+  "limits": [
+    "The browser replay used two reviewed static GLBs and one edited resident. Focused tests cover running/AR/stale-binding rejection, active claim and FIFO replay, and an active social-session receipt replay.",
+    "This editor changes existing recurring windows and priorities only; hard appointments, deadline outcomes, active interruption policy, moving affordances, and Quest wearer acceptance remain open."
+  ]
+}

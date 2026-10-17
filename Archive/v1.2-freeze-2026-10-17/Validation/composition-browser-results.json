@@ -1,0 +1,20 @@
+{
+  "date": "2026-09-20",
+  "scope": "Live browser UI connected to the updated PC service and Quest runtime",
+  "providerMode": "codex-cli",
+  "request": "put a table in front of me with two chairs.",
+  "planningProgressVisible": true,
+  "readySummaryVisible": true,
+  "assumptionsVisible": true,
+  "countsVisible": "3 proposed commands · Add 3 props: 1 × Table, 2 × Chair",
+  "applyButtonVisible": "Apply 3 reviewed commands",
+  "rawCommandsCollapsed": true,
+  "appliedDuringBrowserCheck": false,
+  "sceneObjectsAfterProposal": 1,
+  "pendingCommandsAfterProposal": 0,
+  "laterObservedRuntimeAcknowledgements": 3,
+  "laterObservedSceneObjects": 4,
+  "laterObservedPendingCommands": 0,
+  "assistantAppliedTheBrowserProposal": false,
+  "wearerVisualCheck": "Tracked separately from browser and executor evidence"
+}

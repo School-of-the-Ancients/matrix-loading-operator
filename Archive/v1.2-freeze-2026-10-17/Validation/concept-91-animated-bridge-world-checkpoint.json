@@ -1,0 +1,46 @@
+{
+  "schemaVersion": 1,
+  "world": {
+    "version": 2,
+    "scene": {
+      "schemaVersion": 1,
+      "roomId": "web-virtual-room-v1",
+      "objects": [
+        {
+          "objectId": "1710fcd7073340018740c44fc003c6b7",
+          "assetId": "web:luminous-garden-bridge-v4-animated:e3bddc50b628",
+          "anchorId": "web-floor",
+          "transform": {
+            "position": {
+              "x": 0,
+              "y": 0,
+              "z": -2
+            },
+            "rotation": {
+              "x": 0,
+              "y": 0,
+              "z": 0
+            },
+            "scale": {
+              "x": 1,
+              "y": 1,
+              "z": 1
+            }
+          }
+        }
+      ]
+    },
+    "game": null
+  },
+  "dependencies": [
+    {
+      "assetId": "web:luminous-garden-bridge-v4-animated:e3bddc50b628",
+      "sha256": "e3bddc50b62828f1265f46704cef5cad2cd1ddfd6db589554e5937f059d9e49a",
+      "spawnScale": 1,
+      "animationClips": [
+        "Lantern Pulse"
+      ]
+    }
+  ],
+  "payloadSha256": "26139be769bfc2a4fb80fe058277be3c2762975ec15819c03e282bf6232b13d4"
+}

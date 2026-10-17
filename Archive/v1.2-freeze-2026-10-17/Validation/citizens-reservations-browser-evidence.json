@@ -1,0 +1,48 @@
+{
+  "ok": true,
+  "origin": "http://127.0.0.1:19839",
+  "chromeVersion": "153.0.8010.53",
+  "seed": 17,
+  "queueAtTick": 1,
+  "claimant": "ada",
+  "waiter": "bo",
+  "waiterExecutionId": 2,
+  "actorDelete": {
+    "status": 200,
+    "body": {
+      "commands": [
+        {
+          "op": "delete",
+          "objectId": "ddda2e03a9d149ccb18f991a059f9464",
+          "requestId": "062c3416fe41458b95bdef18d63f7794"
+        }
+      ]
+    }
+  },
+  "retiredResidentIds": [
+    "ada"
+  ],
+  "boRestCompletedAtTick": 17,
+  "checkpoint": "CitizensReservations1790417396898",
+  "restoredAndReplayed": true,
+  "resourceDelete": {
+    "status": 200,
+    "body": {
+      "commands": [
+        {
+          "op": "delete",
+          "objectId": "a6b4977336d843538a3dd3a31a7bed6a",
+          "requestId": "d6db9190069142919befcff9076069fd"
+        }
+      ]
+    }
+  },
+  "afterResourceCheckpoint": "CitizensResourceRetired1790417396898",
+  "remainingResidents": [
+    "bo"
+  ],
+  "remainingStations": [
+    "food"
+  ],
+  "pageErrors": []
+}

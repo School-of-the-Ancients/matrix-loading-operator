@@ -1,0 +1,29 @@
+{
+  "exportedUtc": "2026-09-20T21:17:40.6577503Z",
+  "destination": "<Desktop>/Game Design/Matrix Loading Operator",
+  "repositoryOrigin": "https://github.com/School-of-the-Ancients/matrix-loading-operator.git",
+  "branch": "codex/quest-pro-codex-ai",
+  "verifiedSourceContentCommit": "d21203d4621020b89b12fdd64a345164dc20cadd",
+  "trackedFilesAtVerification": 186,
+  "trackedWorkingTreeCleanAtVerification": true,
+  "gitDirectory": "Standalone clone, not a copied worktree pointer",
+  "localOnlyExports": [
+    {
+      "folder": "Builds",
+      "files": 255,
+      "bytes": 201084260.0,
+      "sha256Verified": true,
+      "committedToGit": false
+    },
+    {
+      "folder": "ControlService/scenes",
+      "files": 6,
+      "bytes": 30745.0,
+      "sha256Verified": true,
+      "committedToGit": false
+    }
+  ],
+  "credentialsCopied": false,
+  "unityCachesCopied": false,
+  "openedOrRecompiledAtDestination": false
+}

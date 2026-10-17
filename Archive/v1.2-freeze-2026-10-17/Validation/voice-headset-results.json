@@ -1,0 +1,330 @@
+{
+  "recordedUtc": "2026-09-20T22:36:24.496447+00:00",
+  "status": "passed",
+  "scope": "Actual Quest app microphone -> local PC STT -> real Codex -> proposal -> runtime execution -> observed undo recovery",
+  "appPackage": "com.matt.matrixoperator.whiteroom",
+  "observedAppPid": 19654,
+  "apkSha256": "915651699dfc6b96a70af3043e128c92e2b7318ee296a8ed6025a52fc82cbdae",
+  "sceneObjects": 40,
+  "audioSaved": false,
+  "transcript": "Make this table twice as big and the chairs and the object on the table",
+  "capturedSelectedObjectId": "eee20b8ef756428191d297c7b1bc925e",
+  "inference": {
+    "transport": "codex-cli",
+    "completedTurn": true,
+    "usage": {
+      "input_tokens": 17952,
+      "cached_input_tokens": 0,
+      "output_tokens": 669,
+      "reasoning_output_tokens": 95
+    },
+    "toolCallCount": 0,
+    "requestedModel": "gpt-5.6-sol"
+  },
+  "proposalSummary": "Doubles the selected table, its two nearby chairs, and the jade orb on top. The table becomes approximately 2.8 \u00d7 1.6 \u00d7 1.58 m; the orb is raised to the enlarged tabletop. Changes occur only after Apply.",
+  "commands": [
+    {
+      "op": "set_transform",
+      "objectId": "eee20b8ef756428191d297c7b1bc925e",
+      "transform": {
+        "position": {
+          "x": -4.932000160217285,
+          "y": 0.0,
+          "z": -0.8169999718666077
+        },
+        "rotation": {
+          "x": 0.0,
+          "y": -116.30000305175781,
+          "z": 0.0
+        },
+        "scale": {
+          "x": 2.0,
+          "y": 2.0,
+          "z": 2.0
+        }
+      }
+    },
+    {
+      "op": "set_transform",
+      "objectId": "af80195175da4d99980ff555ff45af09",
+      "transform": {
+        "position": {
+          "x": -4.466000080108643,
+          "y": 0.0,
+          "z": -1.7580000162124634
+        },
+        "rotation": {
+          "x": 0.0,
+          "y": 153.6999969482422,
+          "z": 0.0
+        },
+        "scale": {
+          "x": 2.0,
+          "y": 2.0,
+          "z": 2.0
+        }
+      }
+    },
+    {
+      "op": "set_transform",
+      "objectId": "c22c84e5f96a4fe9866d64fc7cdb0c8e",
+      "transform": {
+        "position": {
+          "x": -5.3979997634887695,
+          "y": 0.0,
+          "z": 0.12399999797344208
+        },
+        "rotation": {
+          "x": 0.0,
+          "y": -26.299999237060547,
+          "z": 0.0
+        },
+        "scale": {
+          "x": 2.0,
+          "y": 2.0,
+          "z": 2.0
+        }
+      }
+    },
+    {
+      "op": "set_transform",
+      "objectId": "dbec2160c45f4a1bb0b39665a45344a9",
+      "transform": {
+        "position": {
+          "x": -4.932000160217285,
+          "y": 1.5800000429153442,
+          "z": -0.8169999718666077
+        },
+        "rotation": {
+          "x": 0.0,
+          "y": 0.0,
+          "z": 0.0
+        },
+        "scale": {
+          "x": 0.3199999928474426,
+          "y": 0.3199999928474426,
+          "z": 0.3199999928474426
+        }
+      }
+    }
+  ],
+  "checks": {
+    "actualQuestProcessObserved": true,
+    "deviceMicrophonePermissionGranted": true,
+    "liveMicrophoneTranscriptReceived": true,
+    "realCodexCompleted": true,
+    "modelUsedNoTools": true,
+    "selectedStableTableIdIsATarget": true,
+    "fourValidatedTransformCommands": true,
+    "proposalWasReviewedBeforeQueue": true,
+    "fourHeadsetAcknowledgements": true,
+    "allFourObjectsDoubled": true,
+    "allObjectsExactlyRestoredAfterUndo": true,
+    "queueDrained": true
+  },
+  "passed": 12,
+  "failed": 0,
+  "wearerConfirmation": "Pending separate response; physical button identity and HUD comfort are not inferred from network observations",
+  "untested": [
+    "Native MRUK/passthrough",
+    "Formal tracking-loss and recentering device checklist",
+    "HUD comfort and readability assessment"
+  ],
+  "stateTransitions": [
+    {
+      "phase": "planning",
+      "observedUtc": "2026-09-20T22:33:42.809971+00:00",
+      "pendingCount": 0,
+      "targetScales": {}
+    },
+    {
+      "phase": "ready",
+      "observedUtc": "2026-09-20T22:33:48.943564+00:00",
+      "pendingCount": 0,
+      "targetScales": {
+        "af80195175da4d99980ff555ff45af09": {
+          "x": 1.0,
+          "y": 1.0,
+          "z": 1.0
+        },
+        "c22c84e5f96a4fe9866d64fc7cdb0c8e": {
+          "x": 1.0,
+          "y": 1.0,
+          "z": 1.0
+        },
+        "dbec2160c45f4a1bb0b39665a45344a9": {
+          "x": 0.1599999964237213,
+          "y": 0.1599999964237213,
+          "z": 0.1599999964237213
+        },
+        "eee20b8ef756428191d297c7b1bc925e": {
+          "x": 1.0,
+          "y": 1.0,
+          "z": 1.0
+        }
+      }
+    },
+    {
+      "phase": "finished",
+      "observedUtc": "2026-09-20T22:33:57.137272+00:00",
+      "pendingCount": 4,
+      "targetScales": {
+        "af80195175da4d99980ff555ff45af09": {
+          "x": 1.0,
+          "y": 1.0,
+          "z": 1.0
+        },
+        "c22c84e5f96a4fe9866d64fc7cdb0c8e": {
+          "x": 1.0,
+          "y": 1.0,
+          "z": 1.0
+        },
+        "dbec2160c45f4a1bb0b39665a45344a9": {
+          "x": 0.1599999964237213,
+          "y": 0.1599999964237213,
+          "z": 0.1599999964237213
+        },
+        "eee20b8ef756428191d297c7b1bc925e": {
+          "x": 1.0,
+          "y": 1.0,
+          "z": 1.0
+        }
+      }
+    },
+    {
+      "phase": "finished",
+      "observedUtc": "2026-09-20T22:33:57.651242+00:00",
+      "pendingCount": 0,
+      "targetScales": {
+        "af80195175da4d99980ff555ff45af09": {
+          "x": 2.0,
+          "y": 2.0,
+          "z": 2.0
+        },
+        "c22c84e5f96a4fe9866d64fc7cdb0c8e": {
+          "x": 2.0,
+          "y": 2.0,
+          "z": 2.0
+        },
+        "dbec2160c45f4a1bb0b39665a45344a9": {
+          "x": 0.3199999928474426,
+          "y": 0.3199999928474426,
+          "z": 0.3199999928474426
+        },
+        "eee20b8ef756428191d297c7b1bc925e": {
+          "x": 2.0,
+          "y": 2.0,
+          "z": 2.0
+        }
+      }
+    },
+    {
+      "phase": "finished",
+      "observedUtc": "2026-09-20T22:34:04.802464+00:00",
+      "pendingCount": 0,
+      "targetScales": {
+        "af80195175da4d99980ff555ff45af09": {
+          "x": 2.0,
+          "y": 2.0,
+          "z": 2.0
+        },
+        "c22c84e5f96a4fe9866d64fc7cdb0c8e": {
+          "x": 2.0,
+          "y": 2.0,
+          "z": 2.0
+        },
+        "dbec2160c45f4a1bb0b39665a45344a9": {
+          "x": 0.1599999964237213,
+          "y": 0.1599999964237213,
+          "z": 0.1599999964237213
+        },
+        "eee20b8ef756428191d297c7b1bc925e": {
+          "x": 2.0,
+          "y": 2.0,
+          "z": 2.0
+        }
+      }
+    },
+    {
+      "phase": "finished",
+      "observedUtc": "2026-09-20T22:34:06.354601+00:00",
+      "pendingCount": 0,
+      "targetScales": {
+        "af80195175da4d99980ff555ff45af09": {
+          "x": 2.0,
+          "y": 2.0,
+          "z": 2.0
+        },
+        "c22c84e5f96a4fe9866d64fc7cdb0c8e": {
+          "x": 1.0,
+          "y": 1.0,
+          "z": 1.0
+        },
+        "dbec2160c45f4a1bb0b39665a45344a9": {
+          "x": 0.1599999964237213,
+          "y": 0.1599999964237213,
+          "z": 0.1599999964237213
+        },
+        "eee20b8ef756428191d297c7b1bc925e": {
+          "x": 2.0,
+          "y": 2.0,
+          "z": 2.0
+        }
+      }
+    },
+    {
+      "phase": "finished",
+      "observedUtc": "2026-09-20T22:34:06.858695+00:00",
+      "pendingCount": 0,
+      "targetScales": {
+        "af80195175da4d99980ff555ff45af09": {
+          "x": 1.0,
+          "y": 1.0,
+          "z": 1.0
+        },
+        "c22c84e5f96a4fe9866d64fc7cdb0c8e": {
+          "x": 1.0,
+          "y": 1.0,
+          "z": 1.0
+        },
+        "dbec2160c45f4a1bb0b39665a45344a9": {
+          "x": 0.1599999964237213,
+          "y": 0.1599999964237213,
+          "z": 0.1599999964237213
+        },
+        "eee20b8ef756428191d297c7b1bc925e": {
+          "x": 2.0,
+          "y": 2.0,
+          "z": 2.0
+        }
+      }
+    },
+    {
+      "phase": "finished",
+      "observedUtc": "2026-09-20T22:34:07.866885+00:00",
+      "pendingCount": 0,
+      "targetScales": {
+        "af80195175da4d99980ff555ff45af09": {
+          "x": 1.0,
+          "y": 1.0,
+          "z": 1.0
+        },
+        "c22c84e5f96a4fe9866d64fc7cdb0c8e": {
+          "x": 1.0,
+          "y": 1.0,
+          "z": 1.0
+        },
+        "dbec2160c45f4a1bb0b39665a45344a9": {
+          "x": 0.1599999964237213,
+          "y": 0.1599999964237213,
+          "z": 0.1599999964237213
+        },
+        "eee20b8ef756428191d297c7b1bc925e": {
+          "x": 1.0,
+          "y": 1.0,
+          "z": 1.0
+        }
+      }
+    }
+  ]
+}

@@ -1,0 +1,144 @@
+{
+  "scope": "Isolated Unity Editor core checks and successful Windows Desktop build; no Quest hardware validation",
+  "unityVersion": "6000.6.0f1",
+  "completedUtc": "2026-09-22T08:44:49.0685501Z",
+  "baselineChecks": 352,
+  "passed": 384,
+  "failed": 0,
+  "addedChecks": [
+    {
+      "name": "content registration leaves authored edit revision unchanged",
+      "passed": true
+    },
+    {
+      "name": "edit revision detects edits undone back to the same pose",
+      "passed": true
+    },
+    {
+      "name": "failed restore leaves authored revision unchanged",
+      "passed": true
+    },
+    {
+      "name": "cold restore rejects a missing cached manifest",
+      "passed": true
+    },
+    {
+      "name": "cold restore rejects a missing cached bundle",
+      "passed": true
+    },
+    {
+      "name": "cold restore resolves exact cache without provider or service URL",
+      "passed": true
+    },
+    {
+      "name": "cold restore registers a shared pack only once",
+      "passed": true
+    },
+    {
+      "name": "warm restore needs no cached files for matching registered assets",
+      "passed": true
+    },
+    {
+      "name": "cold restore rejects conflicting registered provenance",
+      "passed": true
+    },
+    {
+      "name": "cold restore never substitutes a different cached version",
+      "passed": true
+    },
+    {
+      "name": "cold restore rejects wrong cached platform",
+      "passed": true
+    },
+    {
+      "name": "cold restore rejects wrong cached Unity version",
+      "passed": true
+    },
+    {
+      "name": "cold restore rejects undeclared external bundle resolution",
+      "passed": true
+    },
+    {
+      "name": "cold restore rejects asset absent from cached manifest",
+      "passed": true
+    },
+    {
+      "name": "cold restore rejects cached manifest stored under a different digest",
+      "passed": true
+    },
+    {
+      "name": "cold restore rejects truncated cached bundle during preflight",
+      "passed": true
+    },
+    {
+      "name": "cold restore bounds cached metadata before parsing",
+      "passed": true
+    },
+    {
+      "name": "cold restore rejects malformed cached metadata",
+      "passed": true
+    },
+    {
+      "name": "cold restore rejects source path traversal before file access",
+      "passed": true
+    },
+    {
+      "name": "cold restore does not guess provenance for unknown legacy assets",
+      "passed": true
+    },
+    {
+      "name": "cached restore stays before subsequent edits on repeated delivery",
+      "passed": true
+    },
+    {
+      "name": "in-flight heartbeat cannot acknowledge a later restore receipt",
+      "passed": true
+    },
+    {
+      "name": "completed restore redelivery reuses receipt without reexecution",
+      "passed": true
+    },
+    {
+      "name": "queued edit completes after cached restore exactly once",
+      "passed": true
+    },
+    {
+      "name": "successful upload retires only sent command receipts",
+      "passed": true
+    },
+    {
+      "name": "cancelled preload can be redelivered without false completion",
+      "passed": true
+    },
+    {
+      "name": "asynchronous command queue rejects overflow with a receipt",
+      "passed": true
+    },
+    {
+      "name": "bounded queue preserves all accepted command order",
+      "passed": true
+    },
+    {
+      "name": "deferred restore retires following clear on edit and Undo before start",
+      "passed": true
+    },
+    {
+      "name": "deferred restore retires following clear on room replacement before start",
+      "passed": true
+    },
+    {
+      "name": "deferred restore retires following clear on edit after load callback",
+      "passed": true
+    },
+    {
+      "name": "disable after restore callback retains dedup receipt before parent resumes",
+      "passed": true
+    }
+  ],
+  "pythonTests": 407,
+  "nodeSuites": [
+    "test_operator_panel.js",
+    "test_content_panel.js"
+  ],
+  "windowsBuildSucceeded": true
+}

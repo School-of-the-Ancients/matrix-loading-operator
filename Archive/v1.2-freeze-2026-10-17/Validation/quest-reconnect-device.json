@@ -1,0 +1,16 @@
+{
+  "wrongPort": {
+    "status": "other_service",
+    "message": "Matrix Operator AR is configured for PC port 8789. Open that Operator and press Reconnect Quest there. This page uses port 8765.",
+    "operatorUrl": "http://127.0.0.1:8789/"
+  },
+  "matchingPort": {
+    "status": "forwarded",
+    "message": "USB forwarding is ready. Waiting for the Matrix app to connect; keep the Quest awake with Matrix open."
+  },
+  "reverseRulesUnchanged": true,
+  "runtimeOnlineBefore": true,
+  "runtimeOnlineAfter": true,
+  "objectIdsUnchanged": true,
+  "validation": "Real Quest Pro helper check with idempotent forwarding; no app restart, settings changes, scene edits, or live service update."
+}
