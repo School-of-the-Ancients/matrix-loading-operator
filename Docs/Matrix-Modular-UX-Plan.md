@@ -5,6 +5,18 @@ Records the owner's request to simplify the interface and organize the project
 around modules. This is a target design and delivery plan; it does not claim the
 consolidated UI, delegated lesson permissions or professor integration exists.
 
+## October 17 execution follow-up, America/Denver
+
+The [v1.3 implementation plan](V1.3-Implementation-Plan.md) resolves the next
+implementation order following the owner's School/society request: one
+professor and exhibit first, using the existing School lesson. Apply only the
+#203 navigation/state presentation work needed for that journey; the full UI
+cleanup remains its own bounded issue. The earlier references below to keeping
+#187's image-world scope unchanged describe the prior planning state. The new
+proposal explicitly retains that work under #185/#154 while selecting a
+professor-first next release. #173's baseline acceptance and #201's October 27
+scope remain intact.
+
 ## Product direction
 
 **One world, one Operator, two interaction modes: Create and Play.**

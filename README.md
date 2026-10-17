@@ -83,6 +83,7 @@ access are not prerequisites for the class demos.
 - [VISION.md](VISION.md) — the product idea and boundaries.
 - [ARCHITECTURE.md](ARCHITECTURE.md) — how the pieces fit together.
 - [Modular UX and guided lessons](Docs/Matrix-Modular-UX-Plan.md) — one Operator, simpler controls, module boundaries and scoped lesson authority (target design).
+- [v1.3 implementation plan](Docs/V1.3-Implementation-Plan.md) — proposed first School lesson in WebXR, ordered work and completion checks.
 - [ROADMAP.md](ROADMAP.md) — Now / Next / Later.
 - [RESOURCES.md](RESOURCES.md) — references for creation and AI citizens.
 - [AGENTS.md](AGENTS.md) — rules for coding agents.

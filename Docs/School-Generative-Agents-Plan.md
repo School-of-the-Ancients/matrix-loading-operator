@@ -6,6 +6,21 @@ Build this inside the existing Three.js/WebXR Matrix. The first useful experienc
 
 The owner reported a CSCI 4519 midterm on October 7 and a lifelog due October 14. Protect the exam day. The October 14 slice below is a proposed personal demonstration and process record, subject to available time and the actual lifelog rubric; it is not a promised delivery or verified course requirement. This document authorizes no runtime work, service changes, deployment or world mutation.
 
+## October 17 implementation update
+
+The [v1.3 implementation plan](V1.3-Implementation-Plan.md) is the current
+proposed execution order following the owner's School/society priority. A fresh
+audit found that the canonical School repository already implements the Galileo
+lesson, live Codex text adapter, durable lesson records and reviewed Matrix
+suggestions. Connect those to the current WebXR exhibit; do not build another
+tutor/provider/store from the older proposed additions below. School #7 owns
+teaching; Matrix #32/#31 owns the generic immersive experiment/connection.
+
+The October 8–14 calendar below is historical; the semester plan replaced it.
+The new proposal puts one working professor before two generative Citizens and
+moves the earlier #187 trail/refinement target to its existing #185/#154 backlog.
+Existing implementation evidence and #173's acceptance remain in force.
+
 ## Recommended first experience
 
 **One professor, one learner, one exhibit, one meaningful revision, save and return.**
