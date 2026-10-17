@@ -40,7 +40,7 @@ The original Unity Matrix/White Room implementation is preserved in [Archive/Uni
 
 ## Download and run
 
-[v1.2.0 is the published checkpoint prerelease](https://github.com/School-of-the-Ancients/matrix-loading-operator/releases/tag/v1.2.0).
+[v1.2.0 is the published checkpoint](https://github.com/School-of-the-Ancients/matrix-loading-operator/releases/tag/v1.2.0).
 Download its PC/WebXR ZIP, manifest and checksums, then follow the bundled
 `RELEASE-README.md` to start the matching PC service and open `/web/` on desktop
 or Quest Browser. This is a WebXR bundle, not an APK. Python and native Codex
@@ -57,9 +57,26 @@ v1.2. Free placement does not certify physical clearance.
 
 The [v1.2 checkpoint guide](Docs/V1.2-Checkpoint.md) records downloads, exact
 source/checksums, permission choices, validation and remaining acceptance.
-v1.1.0 remains the stable Latest release. Complete Quest and matched latency
+v1.1.0 is preserved as the earlier baseline. See [the roadmap](ROADMAP.md#current-baseline-and-acceptance-gate)
+for the recorded release-metadata discrepancy. Complete Quest and matched latency
 acceptance stays open in [#173](https://github.com/School-of-the-Ancients/matrix-loading-operator/issues/173);
-publication of this checkpoint is not a blanket acceptance pass.
+publication or a GitHub release label is not a blanket acceptance pass.
+
+## Fall 2026 coursework direction
+
+**Polished Playground -> one professor and interactive exhibit -> a small generative-agent world.**
+
+The [semester convergence plan](Docs/Semester-Convergence-2026.md) records the
+October 16 decisions: the October 27 4616 demo, shared professor foundation for
+the December 1/2 finals, an optional 4622 digital-self observation interface,
+and 3104 navigation/network-planning applications. Each course keeps a distinct
+contribution; instructor approval and actual rubrics still govern submissions.
+
+Start with the [October 27 rehearsal runbook](Docs/Matrix-Playground-Demo-2026-10-27.md)
+under [#24](https://github.com/School-of-the-Ancients/matrix-loading-operator/issues/24).
+This is a delivery plan, not implemented professor/GPS functionality or a change
+to the existing release gates. Aura, Skyrim integration, and ChatGPT account-memory
+access are not prerequisites for the class demos.
 
 ## Start here
 
