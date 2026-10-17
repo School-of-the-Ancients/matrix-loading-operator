@@ -49,6 +49,15 @@ Existing implementation owners include:
 - **Social Simulacra** — large-scale social simulation reference: https://arxiv.org/abs/2208.04024
 - **Generative Agent Simulations of 1,000 People** — behavioral simulation reference: https://arxiv.org/abs/2411.10109
 
+### The Nanauts: mixed reality citizens
+
+- **[The Nanauts](https://devpost.com/software/nanauts) (James Kane)** — AI robot explorers built with the Immersive Web SDK. [Demo](https://jameskane05.github.io/nanauts/) · [Creator's case study](https://jamesckane.com/case-study/the-nanauts/).
+- **Room-aware navigation:** the Devpost write-up describes Quest scene understanding generating a dynamic navmesh for agents, with crowd/flocking behavior and navigation-driven procedural animation.
+- **Guided interaction:** voice input through Llama 3.3 supports intent/sentiment responses, while a Professor guides the experience; hand tracking and controllers provide interaction modes.
+- **Browser iteration:** the author used the Immersive Web Emulator for rapid development.
+
+Potential Matrix applications are room-aware Citizens, Operator/professor interaction and the [#186 XR review workflow](https://github.com/School-of-the-Ancients/matrix-loading-operator/issues/186). These are our research connections; the write-up does not establish autonomous XR review or Matrix/headset validation.
+
 ### Emergence World: persistent societies and external data
 
 - **Emergence World (Emergence AI, 2026)** — persistent model-driven residents, needs/resources, memory, governance and trace-based comparison:
