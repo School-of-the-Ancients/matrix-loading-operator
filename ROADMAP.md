@@ -30,6 +30,22 @@ multi-agent, GPS, hosting, Aura, or account-memory integration into the active
 release. No merge, release, deployment, world reset, or additional compute
 budget is authorized by this record.
 
+## UX organization direction — October 17
+
+The owner selected [one Operator experience with clear module boundaries](Docs/Matrix-Modular-UX-Plan.md):
+Create/Play, Operator, contextual selection, World and Settings. Visual concepts,
+panoramas and build review belong to Operator's creation journey. Citizens stays
+a distinct Matrix module; School owns teaching and requests bounded exhibit
+changes through the existing capability boundary. Lesson-wide delegation is a
+proposal, not current client authority.
+
+Track the first navigation/shared-state cleanup in [#203](https://github.com/School-of-the-Ancients/matrix-loading-operator/issues/203), a focused child of #156;
+retain #172 for wall/wrist presentation, #185/#154 for image/refinement work,
+and #32/#31/#29 for the professor/exhibit integration. Reuse closed #122/#132/#109
+and merged #165 rather than reopening completed foundations. This is the selected
+UX direction for subsequent increments, not a new release sprint or an added
+#201 deadline prerequisite. The demo and release gates below stay in place.
+
 ## Current baseline and acceptance gate
 
 [v1.1.0](https://github.com/School-of-the-Ancients/matrix-loading-operator/releases/tag/v1.1.0) is the published baseline at `9453ef06b1873937822c1cf985115f05f72e1e20`. Preserve its supported behavior and earlier contracts. The old v0.8/v1.0 plan remains in [repository history](https://github.com/School-of-the-Ancients/matrix-loading-operator/blob/9453ef06b1873937822c1cf985115f05f72e1e20/ROADMAP.md) and #152; completed features are not new prerequisites.

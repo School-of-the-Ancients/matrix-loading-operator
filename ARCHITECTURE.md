@@ -99,6 +99,15 @@ Save enough versioned state to reconstruct the supported experience without sile
 - **school-of-the-ancients-roadmap:** cross-project coordination/research only.
 - **Unity archive:** historical implementation only.
 
+## UX and guided lessons
+
+The [modular UX plan](Docs/Matrix-Modular-UX-Plan.md) applies these boundaries to
+one Operator experience across desktop/VR/AR. Modules are responsibilities,
+not mandatory new repositories or tabs. School requests bounded exhibit changes;
+Operator orchestrates and Matrix executes. Create/Play and capability authority
+remain separate. The plan distinguishes current reviewed proposals from proposed
+lesson-session delegation and preserves existing world/state ownership.
+
 ## Design rule
 
 Before adding a service/framework/repository, ask whether the existing `WebRuntime/` + `ControlService/` + Citizens boundaries can do the job. Prefer extending the current system.
