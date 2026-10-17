@@ -9,7 +9,7 @@ Read:
 
 ## Product
 
-> **A persistent Three.js/WebXR world where AI citizens can live independently and humans can enter from desktop/VR or visit through AR. Humans and authorized AI citizens can ask Operator to create and change the world. Save it and return.**
+> **A shared Three.js/WebXR runtime for creating, presenting and interacting with persistent digital worlds. Start blank or load a world, ask Operator to create or change it, then save and return from desktop, VR or AR.**
 
 The forward runtime is the existing `WebRuntime/` + `ControlService/`. Unity is read-only history under `Archive/Unity/`.
 
@@ -18,11 +18,11 @@ Do **not** rebuild the engine, create another Matrix repository, introduce a sec
 ## Core invariants
 
 - Desktop, VR and AR are views/access modes for the same digital world.
-- AR does not create another citizen simulation.
-- Persistent citizens should converge on one world/simulation owner rather than one clock per visitor.
-- Matrix executes world actions; Citizens chooses resident intentions.
-- Humans and citizens may use bounded creation capabilities with different authority.
-- Citizens never receive Codex, GitHub, Blender, MCP or owner credentials directly.
+- Generic WebXR and room AR belong to Matrix; geographic overlay data and meaning belong to Civilization. An AR view does not create another citizen simulation.
+- Persistent Civilization residents should converge on one world/simulation owner rather than one clock per visitor.
+- Matrix executes world actions. School chooses teaching/presentation intent; Civilization chooses resident intentions. Both request bounded Matrix capabilities.
+- Humans, School mentors and Civilization residents may use bounded creation capabilities with different authority.
+- School mentors and Civilization residents never receive Codex, GitHub, Blender, MCP or owner credentials directly.
 - Preserve stable IDs, compatible state, validation, approvals and runtime receipts.
 
 ## Current work
@@ -65,8 +65,9 @@ Prefer the fastest suitable path. Do not require Blender when procedural generat
 
 ## Boundaries
 
-- Matrix owns world execution, Operator, creation, WebXR, persistence and AI Citizens.
-- School owns teaching/curriculum/learner records.
+- Matrix owns shared world execution, Operator, creation/presentation, generic WebXR/room AR and world persistence.
+- School owns its independent historical-figure conversations, mentor identities, teaching/curriculum and learner records. A mentor can use a generic Matrix avatar/entity without requiring `CitizensSimulation`.
+- Civilization owns its independent resident/society simulation, Boulder and geographic AR overlay data/meaning. Current Citizens code remains nested in this repository; these logical boundaries do not require extraction or a new renderer, executor or service.
 - Manfred owns private human/wearable context.
 - Privileged credentials stay on the PC side.
 

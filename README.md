@@ -1,40 +1,20 @@
 # Matrix Loading Operator
 
-> **A persistent Three.js/WebXR world where AI citizens can live independently and humans can enter from desktop/VR or visit through AR. Humans and authorized AI citizens can ask Operator to create and change the world. Save it and return.**
+> **A shared Three.js/WebXR runtime for creating, presenting and interacting with persistent digital worlds. Start blank or load a world, ask Operator to create or change it, then save and return from desktop, VR or AR.**
 
-Matrix is inspired by **The Matrix** and **Ready Player One**: one editable persistent digital world rather than a collection of separate prototypes. AR is a view into that same world, not a second citizen simulation.
+Matrix is inspired by **The Matrix** and **Ready Player One**: editable persistent digital worlds that people and authorized experiences can create and use. Desktop, VR and AR are views into the same world instance.
 
 ## What Matrix is
 
-```text
-Human or AI citizen
-        |
-"Operator, load/create/change XYZ"
-        |
-        v
-Creation pipeline
-  - procedural generation
-  - Blender MCP -> validated import
-  - reusable assets/capabilities
-  - optional image mockup -> selected concept -> build
-        |
-        v
-Three.js / WebXR world
-  - desktop
-  - VR
-  - AR
-  - physics and interaction
-  - save / load
-        |
-        v
-AI Citizens
-  - memory
-  - needs / schedules
-  - planning
-  - relationships
-  - world interaction
-  - eventually world building through the same bounded capabilities
-```
+| Module | Responsibility |
+| --- | --- |
+| Matrix | Shared world runtime, Operator, creation/presentation, physics, persistence and generic desktop/VR/room AR access. |
+| School / Cosmos Fair | Independent conversations with historical minds, teaching and learner records; figures request supported presentation material from Matrix. |
+| Civilization | Independent AI residents and society, Boulder and geographic AR overlay data/meaning; it requests bounded Matrix world actions. |
+
+Operator can create through procedural generation, Blender MCP with validated import, or reusable assets/capabilities, with an optional image mockup before a build. These paths use the same Matrix world and executor.
+
+Current Citizens code remains nested here. A School guide can use a generic Matrix avatar/entity without the Citizens simulation; its mentor identity and teaching remain School-owned.
 
 The original Unity Matrix/White Room implementation is preserved in [Archive/Unity](Archive/Unity/README.md) as read-only history. **New runtime work targets Three.js/WebXR.**
 
@@ -57,18 +37,18 @@ v1.2. Free placement does not certify physical clearance.
 
 The [v1.2 checkpoint guide](Docs/V1.2-Checkpoint.md) records downloads, exact
 source/checksums, permission choices, validation and remaining acceptance.
-v1.1.0 is preserved as the earlier baseline. See [the roadmap](ROADMAP.md#current-baseline-and-acceptance-gate)
-for the recorded release-metadata discrepancy. Complete Quest and matched latency
+v1.1.0 is preserved as the earlier baseline. See [the roadmap](ROADMAP.md#current-work)
+for current work and acceptance gates. Complete Quest and matched latency
 acceptance stays open in [#173](https://github.com/School-of-the-Ancients/matrix-loading-operator/issues/173);
 publication or a GitHub release label is not a blanket acceptance pass.
 
 ## Fall 2026 coursework direction
 
-**Polished Playground -> one professor and interactive exhibit -> a small generative-agent world.**
+Matrix polish, School presentations and Civilization research are independent workstreams that can contribute to coursework. Current priorities and dependencies are recorded in [ROADMAP.md](ROADMAP.md).
 
 The [semester convergence plan](Docs/Semester-Convergence-2026.md) records the
-October 16 decisions: the October 27 4616 demo, shared professor foundation for
-the December 1/2 finals, an optional 4622 digital-self observation interface,
+October 16 delivery context: the October 27 4616 demo, the December 1/2 finals,
+an optional 4622 digital-self observation interface,
 and 3104 navigation/network-planning applications. Each course keeps a distinct
 contribution; instructor approval and actual rubrics still govern submissions.
 
@@ -82,9 +62,9 @@ access are not prerequisites for the class demos.
 
 - [VISION.md](VISION.md) — the product idea and boundaries.
 - [ARCHITECTURE.md](ARCHITECTURE.md) — how the pieces fit together.
-- [Modular UX and guided lessons](Docs/Matrix-Modular-UX-Plan.md) — one Operator, simpler controls, module boundaries and scoped lesson authority (target design).
-- [v1.3 implementation plan](Docs/V1.3-Implementation-Plan.md) — proposed first School lesson in WebXR, ordered work and completion checks.
-- [ROADMAP.md](ROADMAP.md) — Now / Next / Later.
+- [Operator UX](Docs/Matrix-Modular-UX-Plan.md) — interface inventory, creation journey and shared desktop/XR controls (target design).
+- [Reference School–Matrix integration](Docs/V1.3-Implementation-Plan.md) — proposed presentation connection and completion checks.
+- [ROADMAP.md](ROADMAP.md) — current work and acceptance gates.
 - [RESOURCES.md](RESOURCES.md) — references for creation and AI citizens.
 - [AGENTS.md](AGENTS.md) — rules for coding agents.
 - [WebRuntime/README.md](WebRuntime/README.md#quest-controls-faq) — Quest controls and Operator screen FAQ.
