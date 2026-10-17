@@ -121,7 +121,7 @@ Otherwise `modes` contains only `offline-rules`. Discovery never runs inference
 or exposes executable paths, model settings, credentials, room data or images.
 Advertisement establishes local configuration, not login, quota, network or
 provider health; actual inference can still fail. The owner configures the
-existing planner as described in [AI Integration](AI-Integration.md).
+existing planner as described in [AI Integration](https://github.com/School-of-the-Ancients/matrix-loading-operator/blob/60ab4599752147f2e590293208bee4692965a524/Docs/AI-Integration.md).
 
 An AI request uses the same envelope with the exact intent
 `{"text":"Arrange a small demonstration using the installed props.","mode":"codex-cli"}`.
@@ -156,7 +156,7 @@ discard stale results. Offline parsing and typed scale intents keep their
 existing synchronous behavior and do not consume this AI slot. Operator and
 voice planning retain their existing workflows.
 
-The [AI request test record](../Validation/client-ai-scene-requests.json) covers
+The [AI request test record](https://github.com/School-of-the-Ancients/matrix-loading-operator/blob/60ab4599752147f2e590293208bee4692965a524/Validation/client-ai-scene-requests.json) covers
 real local HTTP with mocked inference and synthetic runtime/AR fixtures. It does
 not establish live model reasoning, Windows visual behavior or headset acceptance.
 
