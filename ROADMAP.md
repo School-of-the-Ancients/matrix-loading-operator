@@ -2,6 +2,34 @@
 
 Detailed requirements and acceptance stay in their owning issues; exact-build evidence stays in `Docs/` and `Validation/`. This roadmap organizes the 28 open issues reviewed on October 1, 2026. Issue-based milestone placement is planning metadata, not proof of implementation or release acceptance. No dates are promised for undated work.
 
+## Coursework delivery priorities — October 16
+
+The owner selected a shared Matrix platform with distinct course contributions:
+**October 27 Playground demo -> December 1 School professor experience ->
+December 2 generative Citizens**, with an independently developed 4622 activity
+classifier and 3104 navigation/network-planning applications converging later.
+Read the [semester decision record](Docs/Semester-Convergence-2026.md) for the
+scope, ownership, privacy boundaries, and unverified course-approval questions.
+
+**Immediate delivery task:** follow the [October 27 demo runbook](Docs/Matrix-Playground-Demo-2026-10-27.md)
+under #24. Rehearse and package the existing faster loop; do not rebuild merged
+speed/lock/speech features or require the whole #187 sprint for a class demo.
+After that demo, the recommended first new coursework capability is the bounded
+#32 immersive exhibit/observation surface, followed by one professor through
+#31/#29 and the completed #109 capability foundation. School owns teaching and
+learner records; closed #23 is historical ownership context, not a second
+School backlog to reopen automatically.
+
+This is a coursework delivery overlay, not a new release sprint. It supersedes
+the earlier proposed October 8-14 professor work calendar for future planning,
+without asserting that work was completed. Independent preparation and scoped
+prototype work need not wait for unrelated hardware checks, but the existing
+#173 acceptance and integrated #187 gate below remain unchanged. Any integrated
+candidate needs its own affected-path review and evidence. Do not auto-promote
+multi-agent, GPS, hosting, Aura, or account-memory integration into the active
+release. No merge, release, deployment, world reset, or additional compute
+budget is authorized by this record.
+
 ## Current baseline and acceptance gate
 
 [v1.1.0](https://github.com/School-of-the-Ancients/matrix-loading-operator/releases/tag/v1.1.0) is the published baseline at `9453ef06b1873937822c1cf985115f05f72e1e20`. Preserve its supported behavior and earlier contracts. The old v0.8/v1.0 plan remains in [repository history](https://github.com/School-of-the-Ancients/matrix-loading-operator/blob/9453ef06b1873937822c1cf985115f05f72e1e20/ROADMAP.md) and #152; completed features are not new prerequisites.
@@ -62,11 +90,13 @@ Milestones are tracked as GitHub issues, following the existing repository conve
 - #189 follows #188's immediate wireless path and evaluates local/remote/hybrid presentation on verified devices. Neither XREAL support nor remote rendering is presumed proven.
 - #156 remains the v2 north star: gameplay → Citizens capabilities → two-human shared authority → portals → School → bounded personal-state bridge → deeper geospatial overlay. Its older v1.0 prerequisite is satisfied only by actual release history; current work still preserves the v1.2/v1.3 gates.
 
-## School professor and generative Citizens planning
+## Historical October 6 School professor proposal
 
 The owner requested the [School professor and generative Citizens plan](Docs/School-Generative-Agents-Plan.md) on October 6. It proposes one text-first professor lesson, a scoped Operator-created exhibit, one revision and save/reopen as a small demonstration for the reported October 14 CSCI 4519 lifelog. Implementation is deferred until after the reported October 7 midterm; available time and the actual lifelog rubric still determine delivery scope. This is a planning record, not an automatic scheduled task or a change to #173/#187 release acceptance.
 
 Reuse #23 for School teaching, #29 for generic Citizens and #109 for mediated resident creation. Later work adds memory/reflection, a small community, the #20/#148 persistent hosted path and a bounded workstation child simulation under the existing #156 direction. Keep School records separate from Matrix state. A desktop local fixture, real School integration and Quest wearer acceptance remain distinct results. This selected proposal does not add Citizens to the v1.3 sprint, claim the wider issues complete or replace #179/#180's Boulder scope with an unverified NYC comparison.
+
+The October 16 delivery priorities above supersede that proposed work calendar for future planning. In particular, #23's closure comment places School teaching work outside Matrix, while completed #109 is a foundation to reuse rather than a new implementation task. Neither the historical proposal nor this clarification establishes a completed professor integration.
 
 ## Emergence World research
 
