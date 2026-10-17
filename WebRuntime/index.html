@@ -27,9 +27,10 @@
         </div>
       </details>
       <details id="section-agent" class="panel-section agent-panel">
-        <summary class="panel-title"><span id="agent-heading">CODEX AGENT PORTAL</span><span id="agent-activity">Not connected</span></summary>
+        <summary class="panel-title"><span id="agent-heading">OPERATOR</span><span id="agent-activity">Not connected</span></summary>
         <div class="section-content">
-        <p class="hint">Talk to Codex on your PC for world creation, interaction, and reusable capability development.</p>
+        <p class="hint">Ask Operator to build or revise this world. Powered by Codex on your PC.</p>
+        <p id="operator-draft-notice" class="hint hidden" role="status" aria-live="polite"></p>
         <button id="agent-connect">Start or resume Codex</button>
         <p id="agent-access" class="hint" role="status">Permissions unknown. Connect to read the PC service setting.</p>
         <label for="agent-permissions">Change permissions</label>
@@ -116,8 +117,9 @@
         </div>
       </details>
       <details id="section-planner" class="panel-section">
-        <summary class="panel-title"><span>OPERATOR PLANNER</span><span>Requests and proposals</span></summary>
+        <summary class="panel-title"><span>ADVANCED PROPOSALS / OFFLINE</span><span>Separate Planner</span></summary>
         <div class="section-content">
+      <p class="hint">Simple catalog commands and reviewed proposals use this separate Planner. Creative builds and registered assets use Operator above; its conversation and approvals stay separate.</p>
       <label for="mode">Planner</label>
       <select id="mode"><option value="offline-rules">Offline commands</option><option value="codex-cli">Codex AI on PC</option></select>
       <label for="prompt">Request</label>
