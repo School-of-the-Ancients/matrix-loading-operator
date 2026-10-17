@@ -290,7 +290,7 @@ The same Codex thread persists across turns and resumes after a supported
 service restart. Its older conversation can contain outdated capability claims;
 the current connected snapshot and tool contract must be checked again before
 an edit. Source changes on `main` do not update an already-running service,
-MCP subprocess, or headset page. See the [prompt-source audit](../Validation/Operator-Prompt-Audit-2026-09-27.md)
+MCP subprocess, or headset page. See the [prompt-source audit](https://github.com/School-of-the-Ancients/matrix-loading-operator/blob/60ab4599752147f2e590293208bee4692965a524/Validation/Operator-Prompt-Audit-2026-09-27.md)
 for the exact source boundaries and remaining verification work under #116.
 
 ## PC concept versions
@@ -312,7 +312,7 @@ needs `promptNode`, `promptInput`, `seedNode`, and `seedInput`; it may also set
 `negativePromptNode` and `negativePromptInput`. For the reviewed Krea2 image
 graph, these map to text node `53`, KSampler seed node `55`, and optional
 negative text node `78`; the endpoint-free
-[acceptance graph](../Validation/concept-91-krea2-workflow.json) records the exact
+[acceptance graph](https://github.com/School-of-the-Ancients/matrix-loading-operator/blob/60ab4599752147f2e590293208bee4692965a524/Validation/concept-91-krea2-workflow.json) records the exact
 node inputs used for the live run. Keep the worker address, configured graph,
 and any credential environment variables in PC-private configuration. When
 several workflows are enabled, set `MATRIX_CONCEPT_PROVIDER_ID` and
@@ -401,50 +401,6 @@ request-time world context, with verified Matrix receipt and object IDs only
 after a world action actually succeeds. Generated images are art direction,
 not physical room measurements, geometry, or automatic Matrix placement.
 
-## Dated installed-version observations
+## Historical capability observations
 
-The observations below describe their specific installed versions and isolated
-sessions. Later source merges or a different running service require a fresh
-capability check.
-
-On Codex CLI 0.153.4, a real local app-server accepted initialize, thread
-creation, a text turn with streamed completion, `thread/read` with
-`includeTurns: false`, and `thread/resume` after the first completed turn.
-`thread/read` with `includeTurns: true` returned `list_turns is not supported
-yet`. Resuming a newly created thread before its first turn returned `no
-rollout found`. The portal must retain its own bounded, browser-safe transcript
-for reconnect and must not claim that an empty thread is durable.
-
-The app-server protocol remains PC-local; the browser API carries normalized
-portal data. An isolated desktop browser test on the installed Codex version
-started a session, streamed a reply, followed up, resumed after refresh,
-displayed and denied a native command approval, and cancelled a long turn.
-The denied scratch-file command left the file absent. This was not a Quest
-hardware test, and browser microphone/voice operation remains unverified.
-
-On the installed Codex CLI 0.155.0-alpha.16.4, the exact request "create a cool
-flying ice dragon and have it be animated and interactive" reached the Agent
-field in an isolated desktop `/web/` smoke test. The previous `read-only`
-sandbox failed to start a Windows shell command; Blender MCP also requested an
-approval the XR allowlist could not make reviewable. No dragon was created.
-Direct disposable-worktree app-server probes showed `workspace-write` with
-`windows.sandbox="unelevated"` completing a real file edit, and `read-only`
-with the same Windows fallback completing a read command. An isolated
-`danger-full-access` probe also edited a file without an approval request,
-which is why full access requires explicit PC configuration. A subsequent
-isolated `/web/` Agent field run with `workspace-write` and the Windows
-fallback displayed the access mode, created and verified a real workspace
-file, retained the same conversation after page refresh, and read that file
-in a follow-up. The exact dragon request then reached a native MCP approval
-that was not reviewable in XR; Deny and Stop worked. A Blender MCP creation,
-dragon import through the Matrix runtime, and Quest wearer acceptance remain
-unverified.
-
-A later [desktop M1 trace](../Validation/WebRuntime-Blender-MCP-M1-2026-09-25.md)
-used an empty Blender 5.2.2 GUI scratch instance and PC-owned automatic Agent
-approvals. In one restored Agent Portal conversation, Blender MCP created and
-revised a Copper Astrolabe, exported its GLB, and Matrix MCP registered and
-placed the validated asset with an observed runtime receipt. The browser
-rendered it and retained it after reload. This supersedes the older desktop
-Blender-MCP-unverified statement above, but does not claim the same workflow
-was operated from Quest or that every external MCP action is XR-reviewable.
+The [preserved installed-version record](https://github.com/School-of-the-Ancients/matrix-loading-operator/blob/60ab4599752147f2e590293208bee4692965a524/ControlService/AGENT_PORTAL.md#dated-installed-version-observations) retains the earlier Codex/Blender trials and their limits. Current v1.2 status is in the [single acceptance record](https://github.com/School-of-the-Ancients/matrix-loading-operator/blob/main/Validation/V1.2-Headset-Acceptance.md); check the actual running service and tool capabilities before a request.
