@@ -35,7 +35,7 @@ test('Codex XR page exposes one shared creation-mode selector and keeps turn con
     assert.equal(hit(810,212),'creation-mode-blender');
     assert.ok(drawn.some(item=>item.kind==='rect'&&item.x===55&&item.y===176&&
       item.color==='#53dcc5'),'Auto is selected by default');
-    assert.ok(drawn.some(item=>item.kind==='text'&&item.text.startsWith('CODEX AGENT')&&
+    assert.ok(drawn.some(item=>item.kind==='text'&&item.text.startsWith('OPERATOR')&&
       item.y===286),'transcript starts below the selector');
     panel.setCreationMode('blender');
     assert.ok(drawn.some(item=>item.kind==='rect'&&item.x===660&&item.y===176&&

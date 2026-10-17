@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {deliverAgentTextDraft} from '../src/agent_text_delivery.js';
+import {deliverAgentTextDraft,stageAgentTextDraft} from '../src/agent_text_delivery.js';
 
 test('an acknowledged steer preserves a newer draft typed while delivery is pending',async()=>{
   const input={value:'Add lighting'};
@@ -45,4 +45,23 @@ test('an unconfirmed steer retains the submitted draft',async()=>{
     throw Error('Delivery uncertain');
   }),/Delivery uncertain/);
   assert.equal(input.value,'Add lighting');
+});
+
+test('a blocked creation request can be staged without replacing an existing Operator draft',()=>{
+  const input={value:'Keep my pending lighting request'};
+  assert.equal(stageAgentTextDraft(input,'Place Replay Rocket here'),'retained');
+  assert.equal(input.value,'Keep my pending lighting request');
+});
+
+test('opening the handoff stages an empty draft once without concatenating repeated requests',()=>{
+  const input={value:''};
+  assert.equal(stageAgentTextDraft(input,'Build a bridge'),'copied');
+  assert.equal(stageAgentTextDraft(input,'Build a bridge'),'same');
+  assert.equal(input.value,'Build a bridge');
+});
+
+test('an existing matching draft keeps the exact user text',()=>{
+  const input={value:'  Build a bridge\n'};
+  assert.equal(stageAgentTextDraft(input,'Build a bridge'),'same');
+  assert.equal(input.value,'  Build a bridge\n');
 });
