@@ -17,11 +17,13 @@
     <aside id="world-operator-panel" class="panel">
       <div class="panel-title"><span>WORLD OPERATOR</span><span id="object-count">0 objects</span></div>
       <nav class="workspace-nav" aria-label="World workspace">
+        <button type="button" id="professor-open" aria-controls="professor-browser" aria-expanded="false">Professor</button>
         <button type="button" data-panel-target="section-agent" aria-controls="section-agent">Operator</button>
         <button type="button" data-panel-target="section-mode" aria-controls="section-mode">Create / Play</button>
         <button type="button" data-panel-target="section-world" aria-controls="section-world">World / Saves</button>
         <button type="button" data-panel-target="section-help" aria-controls="section-help">Settings / Help</button>
       </nav>
+      <p id="professor-status" class="hint" role="status"></p>
       <p class="hint panel-intro">Ask Operator to create or revise. Use World / Saves to save and return.</p>
       <p id="feedback" role="status">Starting runtime…</p>
       <details id="section-mode" class="panel-section creator-controls">
@@ -297,7 +299,15 @@
     <div class="xr-buttons" id="xr-buttons"></div>
     <div class="view-label" id="view-label">DESKTOP · VIRTUAL ROOM</div>
     <div id="scale-viewport-hint" class="scale-viewport-hint hidden"></div>
-    <div class="xr-overlay" id="xr-overlay" style="display:none"><button id="xr-voice">Tap to speak</button><span id="xr-voice-status">Operator ready</span><button id="xr-exit">Exit AR</button></div>
+    <div class="xr-overlay" id="xr-overlay" style="display:none">
+      <div class="xr-actions"><button id="xr-voice">Tap to speak</button><span id="xr-voice-status">Operator ready</span><button id="professor-open-xr" aria-controls="professor-browser" aria-expanded="false">Professor</button><button id="xr-exit">Exit AR</button></div>
+      <section id="professor-browser" class="professor-browser" aria-label="Full Professor browser" hidden>
+        <header><strong>School of the Ancients — Professor</strong><button id="professor-close" type="button">Close / Back to Matrix</button></header>
+        <p id="professor-notice"></p>
+        <iframe id="professor-frame" title="Complete School of the Ancients Professor app" sandbox="allow-scripts allow-same-origin allow-forms allow-downloads" allow="camera 'none'; microphone 'none'; geolocation 'none'; display-capture 'none'" referrerpolicy="no-referrer"></iframe>
+        <a id="professor-standalone" target="_blank" rel="noopener noreferrer">Open standalone Professor on this PC</a>
+      </section>
+    </div>
   </div>
   <script type="module" src="/src/main.js"></script>
 </body>

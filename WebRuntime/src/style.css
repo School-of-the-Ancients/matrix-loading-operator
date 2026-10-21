@@ -37,3 +37,17 @@ header{position:absolute;top:0;left:0;right:0;height:72px;display:flex;align-ite
 
 .workspace-nav,.operator-tools{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:6px;margin:10px 0}.workspace-nav button,.operator-tools button{white-space:normal;min-height:40px;padding:8px;font-size:11px}.workspace-nav button:focus-visible,.operator-tools button:focus-visible{outline:2px solid #72efdc;outline-offset:2px}.operator-tools button:last-child{grid-column:1/-1}
 .workspace-nav{position:sticky;top:0;z-index:1;background:#0b2433;padding:6px;border-radius:7px}.panel-section>summary{scroll-margin-top:110px}
+
+/* A UA-positioned WebXR DOM overlay. The iframe is the unmodified full School app. */
+.xr-overlay{inset:0;left:0;bottom:0;transform:none;pointer-events:none;display:flex;flex-direction:column;justify-content:flex-end;border:0;border-radius:0;padding:3vh 2vw;background:transparent;box-sizing:border-box}
+.xr-actions{display:flex;align-items:center;flex-wrap:wrap;gap:10px;background:rgba(7,23,34,.94);padding:8px;border:1px solid #55d8c7;border-radius:10px;pointer-events:auto}
+.xr-overlay[data-xr-active="false"] .xr-actions,.xr-overlay[data-professor-open="true"] .xr-actions{display:none}
+.xr-overlay[data-professor-open="true"]{justify-content:center}
+.professor-browser{pointer-events:auto;display:flex;flex-direction:column;width:min(1100px,94vw);height:88vh;max-height:1100px;background:#101c26;border:2px solid #55d8c7;border-radius:12px;padding:12px;box-sizing:border-box;box-shadow:0 8px 36px #0008;overflow:hidden}
+.professor-browser[hidden]{display:none}
+.professor-browser header{position:static;display:flex;flex-wrap:wrap;justify-content:space-between;gap:8px;height:auto;padding:0;background:none;border:0;flex-shrink:0;pointer-events:auto}
+.professor-browser header button{min-height:44px;padding:10px;font-size:14px;white-space:normal}
+.professor-browser p{margin:8px 0;color:#d8ebed;font-size:13px;line-height:1.4}
+.professor-browser iframe{width:100%;flex:1;min-height:0;border:0;background:#0c0a09;border-radius:6px;color-scheme:dark}
+.professor-browser iframe[hidden]{display:none}
+.professor-browser a{color:#8ff5e4;padding-top:8px}

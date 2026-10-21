@@ -38,6 +38,7 @@ import {BlockScaleUI} from './block_scale_ui.js';
 import {CitizensPanel} from './citizens_panel.js';
 import {citizensFurnitureReadiness} from './citizens.js';
 import {initializePanelSections,initializePanelNavigation,revealPanelSection,revealAgentAttention} from './panel_sections.js';
+import {ProfessorOverlay} from './professor_overlay.js';
 
 const $=id=>document.getElementById(id);
 const latencyTrace=new URLSearchParams(location.search).get('latency')==='1'?new LatencyTrace():null;
@@ -92,6 +93,15 @@ const feedback=(message,isError=false)=>{
 };
 const view=new MatrixView($('view'),world,()=>{discardProposal();scaleUI?.refreshTargets();citizensPanel?.render();updateWorldControls();feedback(`Selected ${world.selection.objectId||'placement point'} at ${Object.values(world.selection.position).join(', ')} m.`);},()=>$('token').value.trim(),message=>feedback(message,true),(id,position)=>{discardProposal();const delivered=deliverMovedObject(world,id);if(delivered)speakReply(delivered);renderScene();feedback(delivered||`Moved ${id.slice(0,8)} to ${Object.values(position).join(', ')} m. Undo and Save are available.`);},()=>{if(!view.isAR){cameraStream.stop();bridge.cancelCapture();}if(!view.isAR||!world.spatial?.originUnavailable){roomResetArmedUntil=0;roomRecoveryChoice='';}updateCameraControls();discardProposal();renderScene();},beginVoice,endVoice,()=>{$('speak-replies').checked=!$('speak-replies').checked;view.setVoiceOutputEnabled($('speak-replies').checked);unlockReplyAudio();},reviewView,newChat);
 view.onPanelAction=panelAction;
+const professorOverlay=new ProfessorOverlay({root:$('xr-overlay'),panel:$('professor-browser'),
+  frame:$('professor-frame'),status:$('professor-status'),notice:$('professor-notice'),
+  closeButton:$('professor-close'),standalone:$('professor-standalone'),
+  triggers:[$('professor-open'),$('professor-open-xr')],location:window.location,
+  canOpen:()=>view.grab||view.pointerGrab||view.pointerLook||view.operatorVoiceController||voiceRecording||voiceStarting?
+    'Release the current grab or finish Operator recording before opening Professor.':'',
+  onOpenChange:opened=>{view.professorOpen=opened;view.keys.clear();},
+  onNotice:message=>{feedback(message,true);view.setOperatorStatus(message,'error');}});
+view.onXRSessionChange=session=>professorOverlay.setSession(session);
 view.onSelectedPointChange=()=>{
   updateSelectedPointEditor();
   if(view.selectedPlacementTarget())$('agent-include-context').checked=true;
@@ -1495,6 +1505,7 @@ function toggleSelectedManipulation(){
 }
 
 function panelAction(action){
+  if(action==='open-professor'){professorOverlay.open();return;}
   if(/^layout-(forward|back|left|right|turn-left|turn-right)$/.test(action)){
     if(pendingWorld||pcWorldBusy||worldSwitchBusy||bridge.inFlight||
        bridge.receiptWaiters.size||bridge.commandGuards.size||

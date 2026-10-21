@@ -199,7 +199,8 @@ export function operatorPanel({createImage=()=>new Image()}={}){
     button(proposal&&mode!=='proposal'?'open-proposal':'review-view',proposal&&mode!=='proposal'?'PROPOSAL':'SEND VIEW',670,35,130,72);
     button('hide-panel','HIDE',812,35,164,72);
     ctx.fillStyle='#8bb8c2';ctx.font='bold 21px sans-serif';ctx.fillText(originLabel,55,123);
-    ctx.font='19px sans-serif';ctx.fillText('STICK CLICK: RECALL · HIDE · SHOW',540,123);
+    ctx.font='19px sans-serif';ctx.fillText('STICK: RECALL',540,138);
+    button('open-professor','PROFESSOR',743,110,230,44);
     if(mode==='modes'){
       ctx.fillStyle='#dff7f8';ctx.font='bold 38px sans-serif';
       ctx.fillText(creatorMode.mode==='creator'?'Creator Mode':'Play/Test Mode',55,205);
@@ -647,8 +648,8 @@ export class MatrixView {
       controller.addEventListener('selectend',()=>{this.releaseOperatorVoice(controller);this.releaseGrab(controller);});
       controller.addEventListener('disconnected',event=>{if(controller.userData.inputSource===event.data)
         delete controller.userData.inputSource;this.cancelGrab(controller,event.data);});
-      controller.addEventListener('squeezestart',()=>{if(this.readOnly)return;this.lastPointingController=controller;this.onVoiceStart();});
-      controller.addEventListener('squeezeend',()=>{if(!this.readOnly)this.onVoiceEnd();});
+      controller.addEventListener('squeezestart',()=>{if(this.readOnly||this.professorOpen)return;this.lastPointingController=controller;this.onVoiceStart();});
+      controller.addEventListener('squeezeend',()=>{if(!this.readOnly&&!this.professorOpen)this.onVoiceEnd();});
     }
     this.grab=null;this.pointerGrab=null;this.pointerLook=null;this.heldOutline=null;
     this.renderer.xr.addEventListener('sessionstart',()=>this.onSessionStart());
@@ -658,7 +659,7 @@ export class MatrixView {
     this.renderer.domElement.addEventListener('pointerup',e=>this.pointerUp(e));
     this.renderer.domElement.addEventListener('pointercancel',()=>this.cancelPointer());
     this.renderer.domElement.addEventListener('contextmenu',e=>e.preventDefault());
-    addEventListener('keydown',e=>{if(!this.renderer.xr.isPresenting&&!e.ctrlKey&&!e.altKey&&!e.metaKey&&
+    addEventListener('keydown',e=>{if(!this.professorOpen&&!this.renderer.xr.isPresenting&&!e.ctrlKey&&!e.altKey&&!e.metaKey&&
       !['INPUT','TEXTAREA','SELECT'].includes(e.target?.tagName)&&!e.target?.isContentEditable&&
       ['ArrowUp','ArrowDown','ArrowLeft','ArrowRight','KeyW','KeyA','KeyS','KeyD'].includes(e.code)){
       e.preventDefault();this.keys.add(e.code);
@@ -714,6 +715,7 @@ export class MatrixView {
     this.world.runtimePresentation=this.isAR?'ar':'vr';
     document.getElementById('xr-exit').textContent=this.isAR?'Exit AR':'Exit VR';
     if(session.domOverlayState)document.getElementById('xr-overlay').style.display='';
+    this.onXRSessionChange?.(session);
     this.operatorPanel.setXRMode(this.isAR?'ar':'vr');
     this.operatorPanel.group.visible=!this.readOnly;
     this.operatorMount={kind:'head'};this.operatorPanel.setPinLabel(this.isAR?'PIN TO WALL':'PIN HERE');
@@ -994,6 +996,7 @@ export class MatrixView {
     setRoomContentVisible(this,true);this.virtualFloorRoot.position.set(0,0,0);this.virtualFloorRoot.quaternion.identity();this.virtualFloorCalibrated=false;
     this.world.leaveAR();this.world.runtimePresentation='desktop';this.sync();this.onRuntimeChange();
     document.getElementById('xr-overlay').style.display='none';document.getElementById('xr-exit').textContent='Exit AR';this.floor.visible=true;this.grid.visible=true;
+    this.onXRSessionChange?.(null);
     this.syncEnvironment();document.getElementById('view-label').textContent='DESKTOP · VIRTUAL ROOM';
   }
   setOperatorStatus(message,tone='idle'){this.operatorPanel.setMessage(message,tone);}
@@ -1078,7 +1081,7 @@ export class MatrixView {
     const sources=this.renderer.xr.getSession()?.inputSources||[];
     // The xr-standard mapping reserves button 3 for the thumbstick click.
     const pressed=Array.from(sources).some(source=>source.gamepad?.mapping==='xr-standard'&&source.gamepad.buttons?.[3]?.pressed);
-    if(pressed&&!this.operatorThumbstickHeld&&!this.grab)this.toggleOperatorPanel();
+    if(pressed&&!this.operatorThumbstickHeld&&!this.grab&&!this.professorOpen)this.toggleOperatorPanel();
     this.operatorThumbstickHeld=pressed;
   }
   clearPlanes(){for(const group of this.planeOutlines.values()){this.scene.remove(group);disposeGroup(group);}this.planeOutlines.clear();}
@@ -1549,7 +1552,7 @@ export class MatrixView {
     this.raycaster.setFromCamera(this.pointer,this.camera);
   }
   pointerDown(event){
-    if(this.renderer.xr.isPresenting||![0,2].includes(event.button))return;
+    if(this.professorOpen||this.renderer.xr.isPresenting||![0,2].includes(event.button))return;
     if(this.readOnly&&event.button!==2)return;
     this.renderer.domElement.focus?.({preventScroll:true});
     this.renderer.domElement.setPointerCapture(event.pointerId);
@@ -1700,7 +1703,7 @@ export class MatrixView {
     if(moveGrab(this.grab))this.moveHeldRigid(this.grab);
   }
   selectFromController(controller,inputSource=null){
-    if(this.readOnly)return;
+    if(this.readOnly||this.professorOpen)return;
     if(this.grab)return;
     controller.updateMatrixWorld(true);const origin=new THREE.Vector3().setFromMatrixPosition(controller.matrixWorld);
     const direction=new THREE.Vector3(0,0,-1).applyQuaternion(controller.getWorldQuaternion(new THREE.Quaternion()));
