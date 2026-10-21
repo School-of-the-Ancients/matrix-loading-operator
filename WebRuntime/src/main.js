@@ -39,6 +39,7 @@ import {CitizensPanel} from './citizens_panel.js';
 import {citizensFurnitureReadiness} from './citizens.js';
 import {initializePanelSections,initializePanelNavigation,revealPanelSection,revealAgentAttention} from './panel_sections.js';
 import {ProfessorOverlay} from './professor_overlay.js';
+import {ProfessorOperator} from './professor_operator.js';
 
 const $=id=>document.getElementById(id);
 const latencyTrace=new URLSearchParams(location.search).get('latency')==='1'?new LatencyTrace():null;
@@ -707,6 +708,18 @@ panoramaUI=new PanoramaUI({client:conceptUI.client,
   apply:(asset,yaw)=>changeWorldPanorama('set',asset,yaw),
   remove:()=>changeWorldPanorama('remove'),onChange:renderAgent});
 panoramaUI.bind();
+if(professorOverlay.route.available)new ProfessorOperator({frame:$('professor-frame'),
+  origin:new URL(professorOverlay.route.url).origin,request:(path,body)=>bridge.request(path,body),
+  ensureSession:async()=>{
+    agentClient.assertPermissionsApplied();
+    if(!agentClient.status||agentClient.error)await agentClient.connect();
+    return agentClient.sessionId;
+  },onChange:()=>void conceptUI.refresh().catch(()=>{}),onReview:kind=>{
+    professorOverlay.close();
+    revealPanelSection($(kind==='artifact'?'concept-panel':'panorama-panel'));
+    if(view.renderer.xr.isPresenting){view.showOperatorAgentMode();
+      if(kind==='artifact')view.operatorPanel.toggleConcepts();else view.operatorPanel.togglePanoramas();}
+  }});
 renderAgent();
 if(agentClient.sessionId)agentClient.restore().then(()=>conceptUI.refresh()).catch(()=>{});
 setInterval(()=>{if(agentClient.sessionId&&!agentClient.error&&!agentActionBusy)agentClient.poll().catch(()=>{});},800);

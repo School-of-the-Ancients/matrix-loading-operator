@@ -1,5 +1,10 @@
 # Full Professor page: local DOM-overlay prototype
 
+The later local action connection is implemented and tested in
+[Professor-Operator-Connection.md](Professor-Operator-Connection.md). Its optional
+same-origin PC mount resolves the local iframe CSP path without opening headset
+network access. The original prototype/evidence below remains historical.
+
 This isolated local candidate preserves the complete existing School Professor
 web interface. It does not build a second mentor/chat/quiz UI, a professor avatar,
 voice path, scene loader or Blender adapter. No builder request is executed by

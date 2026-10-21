@@ -35,6 +35,8 @@ from codex_provider import CodexConfig, CodexProviderError, codex_options, selec
 from agent_session import LocalCodexAgentBackend
 from agent_portal import AgentPortal, AgentPortalError
 from concept_store import ConceptStore
+import professor_actions
+import professor_mount
 from matrix_tool_bridge import MatrixToolBridge
 import speech
 import tts
@@ -8757,6 +8759,8 @@ class Server(ThreadingHTTPServer):
                  world_view_token != token),
                 "SANDBOX_WORLD_VIEW_TOKEN requires a distinct SANDBOX_TOKEN; both must be at least 24 characters")
         self.state, self.token = state, token
+        self.professor_ui = None
+        self.professor_port = 3108
         self.world_view_token = world_view_token
         self.state.client_pairing_enabled = len(token) >= 24
         self.quest_connection = QuestConnection()
@@ -8906,6 +8910,8 @@ class Handler(BaseHTTPRequestHandler):
             self.validate_host()
             url = urllib.parse.urlsplit(self.path)
             path = url.path
+            if professor_mount.serve(self, "GET", loopback=loopback):
+                return
             if path == "/" and loopback(self.client_address[0]):
                 # Preserve the native content browser's old selected-prefab bookmark.
                 query = urllib.parse.parse_qs(url.query)
@@ -8959,7 +8965,12 @@ class Handler(BaseHTTPRequestHandler):
                 self.send_data(200, asset.read_bytes(), "model/gltf-binary")
                 return
             self.authenticate()
-            if path == "/api/agent/concepts":
+            if path == "/api/professor/actions":
+                require(self.server.is_loopback and loopback(self.client_address[0]), "Professor actions are PC-loopback only", 403)
+                query = urllib.parse.parse_qs(url.query, keep_blank_values=True)
+                require(set(query) == {"sessionId", "actionId"} and all(len(value) == 1 for value in query.values()), "Invalid Professor status query")
+                data = professor_actions.status(self.server.state, query["sessionId"][0], query["actionId"][0])
+            elif path == "/api/agent/concepts":
                 query = urllib.parse.parse_qs(url.query, keep_blank_values=True)
                 require(set(query) == {"sessionId"} and len(query["sessionId"]) == 1,
                         "Concept status requires one Agent session ID")
@@ -9070,6 +9081,8 @@ class Handler(BaseHTTPRequestHandler):
                 require(origin is not None, "Agent session changes require a same-origin browser request", 403)
             require(origin is None or origin.lower() == self.server.scheme + "://" + host,
                     "Cross-origin mutation rejected", 403)
+            if professor_mount.serve(self, "POST", loopback=loopback):
+                return
             require(self.headers.get_content_type() == "application/json", "Content-Type must be application/json", 415)
             require(not self.headers.get("Transfer-Encoding"), "Transfer encoding is unsupported", 400)
             try:
@@ -9087,6 +9100,9 @@ class Handler(BaseHTTPRequestHandler):
             state = self.server.state
             if client_api_path(path):
                 data = self.client_api(path, "POST", body)
+            elif path == "/api/professor/actions":
+                require(self.server.is_loopback and loopback(self.client_address[0]), "Professor actions are PC-loopback only", 403)
+                data = professor_actions.submit(state, body)
             elif path == "/api/exchange":
                 data = state.exchange(body)
             elif path == "/api/runtime/reconnect":
@@ -9225,6 +9241,9 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--host", default="127.0.0.1")
     parser.add_argument("--port", type=int, default=8765)
+    parser.add_argument("--professor-ui", type=Path, help="Optional existing Professor build (PC-loopback only)")
+    parser.add_argument("--professor-port", type=int, choices=(3108, 3110), default=3108,
+                        help="Existing Professor loopback API, or isolated candidate on 3110")
     parser.add_argument("--scenes", type=Path, default=Path(__file__).with_name("scenes"))
     parser.add_argument("--web-assets", type=Path, default=Path(__file__).with_name("web_assets"))
     parser.add_argument("--web-environments", type=Path,
@@ -9240,6 +9259,10 @@ def main():
                                                        web_environments_directory=args.web_environments),
                         os.environ.get("SANDBOX_TOKEN", ""),
                         os.environ.get("SANDBOX_WORLD_VIEW_TOKEN", ""))
+        if args.professor_ui:
+            require(server.is_loopback and (args.professor_ui / "index.html").is_file(), "Professor mount requires a built UI and loopback service")
+            server.professor_ui = args.professor_ui.resolve()
+            server.professor_port = args.professor_port
         if args.tls_cert:
             context = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
             context.load_cert_chain(args.tls_cert, args.tls_key)

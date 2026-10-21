@@ -1,7 +1,7 @@
 // Reuse the real Professor page. This is a browser-owned DOM surface, not a 3D browser.
 export function professorRoute(location) {
   const local = location.protocol === 'http:' && ['127.0.0.1', 'localhost'].includes(location.hostname);
-  return { available: local, url: local ? `http://${location.hostname}:3108/` : null,
+  return { available: local, url: local ? (location.port === '8765' ? `http://${location.hostname}:8765/professor/` : `http://${location.hostname}:3108/`) : null,
     reason: local ? '' : 'Professor is restricted to the PC loopback address. This device URL needs an approved same-origin connection before the full page can be embedded. No network access was changed.' };
 }
 
