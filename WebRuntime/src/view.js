@@ -191,7 +191,7 @@ export function operatorPanel({createImage=()=>new Image()}={}){
     };
     if(mode==='world'&&xrMode)button('exit-xr',xrMode==='ar'?'EXIT AR':'EXIT VR',35,35,240,72);
     else {ctx.fillStyle='#75f4df';ctx.font='bold 30px sans-serif';ctx.fillText('◈  OPERATOR',55,83);}
-    button('toggle-agent',mode==='agent'?'CHAT':'CODEX',290,35,103,72,
+    button('toggle-agent',mode==='agent'?'ACTIVITY':'OPERATOR',290,35,103,72,
       mode==='agent'||mode==='concepts'||mode==='panoramas');
     button('toggle-world',mode==='world'?'CHAT':'WORLD',404,35,120,72,
       mode==='world'||mode==='archives');
@@ -261,6 +261,8 @@ export function operatorPanel({createImage=()=>new Image()}={}){
         button('restore-world',worldInfo.restoreArmed?'CONFIRM RESTORE':'RESTORE SAVED',287,440,218,76);
         button('undo','UNDO',519,440,218,76);
         button('redo','REDO',751,440,218,76);
+        ctx.fillStyle='#8bb8c2';ctx.font='18px sans-serif';
+        ctx.fillText('Save: full browser world + PC scene backup. Restore: browser checkpoint.',55,531,914);
       }
       if(worldInfo.resetAvailable){
         button('rebase-room-origin',worldInfo.recoveryArmed==='rebase'?'CONFIRM PLACE HERE':'ARCHIVE + PLACE HERE',55,535,440,76);
@@ -367,7 +369,7 @@ export function operatorPanel({createImage=()=>new Image()}={}){
         const previewFailed=concept.previewStatus==='error'||preview?.state==='error';
         if(previewFailed)button(`${prefix}-retry-${concept.version}`,'RETRY PREVIEW',680,495,285,60);
         else if(agent.pending){ctx.fillStyle='#ffad8d';ctx.font='20px sans-serif';
-          ctx.fillText('Codex review waiting · return to CODEX',680,535,285);}
+          ctx.fillText('Review waiting · return to OPERATOR',680,535,285);}
         button(`${prefix}-prev`,'PREVIOUS',55,566,205,63);
         button(`${prefix}-next`,panoramaMode?'NEXT PANORAMA':'NEXT IMAGE',275,566,205,63);
         if(!concept.selected&&preview?.state==='ready')button(`${prefix}-select-${concept.version}`,
@@ -398,7 +400,7 @@ export function operatorPanel({createImage=()=>new Image()}={}){
       if(mode==='agent'&&panoramas.length)
         button('open-panoramas',`PANORAMAS · ${panoramas.length} VERSION${panoramas.length===1?'':'S'}`,
           55,concepts.length?326:258,914,61,true);
-      const content=mode==='agent'?`CODEX AGENT · ${agent.activity}\n\n${agent.content}`:mode==='proposal'&&proposal?
+      const content=mode==='agent'?`OPERATOR · ${agent.activity}\n\n${agent.content}`:mode==='proposal'&&proposal?
         `REVIEW BEFORE APPLY\n${proposal.summary||''}\n\n${proposal.kind==='game'?
           `GAME: ${proposal.gamePlan?.title||''}\nROLES\n${proposal.gamePlan?.roles?.map(role=>`${role.count} × ${role.assetId} as ${role.roleId} (${role.kind})`).join('\n')||''}\nRULES\n${proposal.gamePlan?.rules?.map(rule=>`${rule.actorRoleId} → ${rule.targetRoleId}: ${rule.event} within ${rule.distanceMeters} m, +${rule.scorePoints}`).join('\n')||''}\nOBJECTIVES\n${proposal.gamePlan?.objectives?.map(objective=>objective.kind==='score-at-least'?`At least ${objective.targetPoints} points`:`${objective.roleId}: ${objective.targetCount} delivered`).join('\n')||''}`:
           `COMMANDS (${proposal.commands?.length||0})\n${JSON.stringify(proposal.commands||[],null,2)}`}`:message;
@@ -440,7 +442,7 @@ export function operatorPanel({createImage=()=>new Image()}={}){
           button('next','NEXT',741,636,248,90);
         }else{
           button(agent.connected?'voice':'agent-connect',
-            agent.connected?speakLabel:'CONNECT CODEX',35,636,472,90);
+            agent.connected?speakLabel:'CONNECT OPERATOR',35,636,472,90);
           button('pin',pinLabel,519,636,210,90);
           button('next','NEXT',741,636,248,90);
         }
@@ -450,7 +452,7 @@ export function operatorPanel({createImage=()=>new Image()}={}){
       button('agent-stop','STOP TURN',519,636,210,90);
       button('next','NEXT',741,636,248,90);
     }else if(mode==='concepts'||mode==='panoramas'){
-      button(mode==='panoramas'?'panorama-back':'concept-back','BACK TO CODEX',35,636,472,90,true);
+      button(mode==='panoramas'?'panorama-back':'concept-back','BACK TO OPERATOR',35,636,472,90,true);
       button('pin',pinLabel,519,636,210,90);
       button('voice',speakLabel,741,636,248,90);
     }else if(mode==='proposal'&&proposal){

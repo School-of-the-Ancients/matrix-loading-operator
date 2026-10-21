@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {readFileSync} from 'node:fs';
-import {initializePanelSections,revealPanelSection,revealAgentAttention} from '../src/panel_sections.js';
+import {initializePanelSections,initializePanelNavigation,revealPanelSection,revealAgentAttention} from '../src/panel_sections.js';
 
 function details(id,open=false,parentElement=null){
   const listeners=new Map();
@@ -59,6 +59,25 @@ test('a new Agent approval reopens a manually collapsed active-turn section once
   assert.equal(agent.open,true,'a later approval also opens the section');
 });
 
+test('navigation repeatedly reveals nested tools without toggling or replacing their state',()=>{
+  const agent=details('section-agent'),planner=details('section-planner',false,agent);
+  const focus=[],scroll=[];
+  const summary={focus:options=>focus.push(options),scrollIntoView:options=>scroll.push(options)};
+  planner.querySelector=selector=>selector==='summary'?summary:null;
+  let navigate;
+  const button={dataset:{panelTarget:'section-planner'},addEventListener:(name,fn)=>{navigate=fn;}};
+  const root={querySelectorAll:selector=>selector.startsWith('details')?[agent,planner]:[button]};
+  initializePanelNavigation(root);
+  navigate();navigate();
+  assert.equal(agent.open,true);
+  assert.equal(planner.open,true,'reopening stays open instead of hiding an existing proposal');
+  assert.deepEqual(focus,[{preventScroll:true},{preventScroll:true}]);
+  assert.deepEqual(scroll,[{block:'start'},{block:'start'}]);
+  button.dataset.panelTarget='missing';
+  assert.doesNotThrow(()=>navigate());
+  assert.equal(focus.length,2,'unknown targets do not focus unrelated controls');
+});
+
 test('main browser controls remain in the intended expandable sections',()=>{
   const html=readFileSync(new URL('../index.html',import.meta.url),'utf8');
   const order=['section-mode','section-agent','section-planner','section-room',
@@ -72,5 +91,10 @@ test('main browser controls remain in the intended expandable sections',()=>{
   assert.match(html.slice(starts[4],starts[5]),/id="save-pc-world"/);
   assert.match(html.slice(starts[5],starts[6]),/id="citizens-routine-apply"/);
   assert.match(html.slice(starts[7]),/id="token"/);
-  assert.doesNotMatch(html,/<details id="section-agent"[^>]*\bopen>/);
+  assert.match(html,/<details id="section-agent"[^>]*\bopen>/);
+  assert.match(html.slice(starts[1],starts[2]),/id="agent-approval"[\s\S]*id="agent-transcript"[\s\S]*id="concept-panel"/);
+  assert.match(html.slice(starts[2],starts[3]),/class="panel-section section-nested"/);
+  for(const id of ['section-agent','section-mode','section-world','section-help',
+    'concept-panel','panorama-panel','section-planner'])
+    assert.ok(html.includes(`data-panel-target="${id}" aria-controls="${id}"`));
 });

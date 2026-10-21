@@ -16,7 +16,13 @@
     <button id="toggle-sidebar" class="sidebar-toggle" type="button" aria-controls="world-operator-panel" aria-expanded="true">Hide controls</button>
     <aside id="world-operator-panel" class="panel">
       <div class="panel-title"><span>WORLD OPERATOR</span><span id="object-count">0 objects</span></div>
-      <p class="hint panel-intro">Choose a section to work on this world.</p>
+      <nav class="workspace-nav" aria-label="World workspace">
+        <button type="button" data-panel-target="section-agent" aria-controls="section-agent">Operator</button>
+        <button type="button" data-panel-target="section-mode" aria-controls="section-mode">Create / Play</button>
+        <button type="button" data-panel-target="section-world" aria-controls="section-world">World / Saves</button>
+        <button type="button" data-panel-target="section-help" aria-controls="section-help">Settings / Help</button>
+      </nav>
+      <p class="hint panel-intro">Ask Operator to create or revise. Use World / Saves to save and return.</p>
       <p id="feedback" role="status">Starting runtime…</p>
       <details id="section-mode" class="panel-section creator-controls">
         <summary class="panel-title"><span>CREATOR / PLAY</span><strong id="creator-mode-status" role="status">Creator Mode · simulation paused</strong></summary>
@@ -26,10 +32,11 @@
         <p id="game-status" class="hint" role="status">No game running.</p>
         </div>
       </details>
-      <details id="section-agent" class="panel-section agent-panel">
-        <summary class="panel-title"><span id="agent-heading">CODEX AGENT PORTAL</span><span id="agent-activity">Not connected</span></summary>
+      <details id="section-agent" class="panel-section agent-panel" open>
+        <summary class="panel-title"><span id="agent-heading">OPERATOR</span><span id="agent-activity">Not connected</span></summary>
         <div class="section-content">
-        <p class="hint">Talk to Codex on your PC for world creation, interaction, and reusable capability development.</p>
+        <p class="hint">Ask Operator to build or revise this world. Powered by Codex on your PC.</p>
+        <p id="operator-draft-notice" class="hint hidden" role="status" aria-live="polite"></p>
         <button id="agent-connect">Start or resume Codex</button>
         <p id="agent-access" class="hint" role="status">Permissions unknown. Connect to read the PC service setting.</p>
         <label for="agent-permissions">Change permissions</label>
@@ -55,6 +62,17 @@
         <div class="row voice-row"><button id="voice-button" aria-describedby="voice-route-help">Speak to Codex</button><span id="voice-status" role="status">Local speech on PC</span></div>
         <p id="voice-route-help" class="hint">Speech goes to this Codex conversation from every page. While Codex is working, speech adds an instruction to that turn.</p>
         <label class="check-label"><input id="speak-replies" type="checkbox" checked> Speak replies aloud</label>
+        <div id="agent-approval" class="proposal hidden" role="alert">
+          <div class="proposal-label">APPROVAL REQUIRED</div>
+          <p id="agent-approval-summary"></p>
+          <div class="row"><button id="agent-approve" class="primary">Approve once</button><button id="agent-deny">Deny</button></div>
+        </div>
+        <div id="agent-transcript" class="agent-transcript" aria-live="polite">Connect to start a Codex conversation.</div>
+        <nav class="operator-tools" aria-label="Operator tools">
+          <button type="button" data-panel-target="concept-panel" aria-controls="concept-panel">Images</button>
+          <button type="button" data-panel-target="panorama-panel" aria-controls="panorama-panel">Backgrounds</button>
+          <button type="button" data-panel-target="section-planner" aria-controls="section-planner">Advanced proposals / offline</button>
+        </nav>
         <details id="concept-panel" class="concept-panel panel-section section-nested">
           <summary class="panel-title"><span id="concept-heading">VISUAL CONCEPTS</span><span id="concept-summary">No concept selected</span></summary>
           <div class="section-content">
@@ -107,17 +125,10 @@
           <p id="panorama-apply-status" class="hint" role="status" aria-live="polite">Apply in paused Creator Mode on desktop or VR.</p>
           </div>
         </details>
-        <div id="agent-approval" class="proposal hidden" role="alert">
-          <div class="proposal-label">APPROVAL REQUIRED</div>
-          <p id="agent-approval-summary"></p>
-          <div class="row"><button id="agent-approve" class="primary">Approve once</button><button id="agent-deny">Deny</button></div>
-        </div>
-        <div id="agent-transcript" class="agent-transcript" aria-live="polite">Connect to start a Codex conversation.</div>
-        </div>
-      </details>
-      <details id="section-planner" class="panel-section">
-        <summary class="panel-title"><span>OPERATOR PLANNER</span><span>Requests and proposals</span></summary>
+      <details id="section-planner" class="panel-section section-nested">
+        <summary class="panel-title"><span>ADVANCED PROPOSALS / OFFLINE</span><span>Separate Planner</span></summary>
         <div class="section-content">
+      <p class="hint">Simple catalog commands and reviewed proposals use this separate Planner. Creative builds and registered assets use Operator; its conversation and approvals stay separate.</p>
       <label for="mode">Planner</label>
       <select id="mode"><option value="offline-rules">Offline commands</option><option value="codex-cli">Codex AI on PC</option></select>
       <label for="prompt">Request</label>
@@ -132,6 +143,8 @@
         <pre id="proposal-commands"></pre>
         <div class="row"><button id="apply" class="primary">Apply proposal</button><button id="discard">Discard</button></div>
       </div>
+        </div>
+      </details>
         </div>
       </details>
       <details id="section-room" class="panel-section">
@@ -271,7 +284,7 @@
         </div>
       </details>
       <details id="section-help" class="panel-section">
-        <summary class="panel-title"><span>HELP &amp; CONNECTION</span><span>Controls and demos</span></summary>
+        <summary class="panel-title"><span>SETTINGS &amp; HELP</span><span>Controls and demos</span></summary>
         <div class="section-content">
           <p class="hint">Describe the experience to Operator, inspect its objects and rules, then enter Play/Test. Desktop: WASD moves, right-drag looks, left-drag grabs a dynamic body, and click activates a labeled world control. In VR or AR, open the in-world Operator panel with either thumbstick; use the controller trigger to grab a dynamic body or activate a labeled control. Return to Creator Mode to revise the same world.</p>
           <label for="token">Service token <small>(only if configured)</small></label>

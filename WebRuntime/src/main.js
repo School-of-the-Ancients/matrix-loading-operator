@@ -9,7 +9,7 @@ import {CameraStream,bindCameraPageLifecycle} from './camera_stream.js';
 import {bindXRPageLifecycle} from './xr_session.js';
 import {AgentClient,agentActivityLabel,agentAccessLabel,agentPermissionMode} from './agent_client.js';
 import {deliverAgentVoiceTranscript,prepareAgentVoiceRecording} from './agent_voice_delivery.js';
-import {deliverAgentTextDraft} from './agent_text_delivery.js';
+import {deliverAgentTextDraft,stageAgentTextDraft} from './agent_text_delivery.js';
 import {ConceptUI} from './concept_ui.js';
 import {PanoramaUI} from './panorama_ui.js';
 import {loadCreationMode,saveCreationMode,creationModeFromPanelAction} from './creation_mode.js';
@@ -37,13 +37,14 @@ import {archiveAndClearRoom,archiveAndRebaseRoom,roomArchives,
 import {BlockScaleUI} from './block_scale_ui.js';
 import {CitizensPanel} from './citizens_panel.js';
 import {citizensFurnitureReadiness} from './citizens.js';
-import {initializePanelSections,revealPanelSection,revealAgentAttention} from './panel_sections.js';
+import {initializePanelSections,initializePanelNavigation,revealPanelSection,revealAgentAttention} from './panel_sections.js';
 
 const $=id=>document.getElementById(id);
 const latencyTrace=new URLSearchParams(location.search).get('latency')==='1'?new LatencyTrace():null;
 if(latencyTrace)window.matrixLatencyTrace=Object.freeze({
   snapshot:()=>latencyTrace.snapshot(),clear:()=>latencyTrace.clear()});
 initializePanelSections($('world-operator-panel'),sessionStorage);
+initializePanelNavigation($('world-operator-panel'));
 const sidebarToggle=$('toggle-sidebar');
 sidebarToggle.addEventListener('click',()=>{
   const expanded=sidebarToggle.getAttribute('aria-expanded')==='true';
@@ -74,6 +75,7 @@ let cameraBusy=false;
 const recorder=new VoiceRecorder();let voiceStarting=false,voiceRecording=false,voiceStopRequested=false,voiceJob=null,voiceAgentContext=null;
 let replyContext=null,replySource=null;
 let agentClient=null,conceptUI=null,panoramaUI=null,agentActionBusy=false,agentVoiceStatus='',voiceSteerTurnId=null,agentAttentionKey='',reviewBusy=false;
+let operatorDraftNotice='',operatorDraftUnconfirmed=false;
 let creationMode=loadCreationMode(sessionStorage);
 const pendingBlenderReceiptIds=new Set();
 function unlockReplyAudio(){
@@ -415,10 +417,10 @@ const bridge=new MatrixBridge(world,()=>$('token').value.trim(),event=>{
     latencyTrace?.sceneSynchronized(event.visibleMutations||[]);
   }
   if(event.type==='connection'){
-    $('connection').textContent=event.online?'Operator connected':event.error||'Operator unavailable';
+    $('connection').textContent=event.online?'PC service connected':event.error||'PC service unavailable';
     $('connection-dot').classList.toggle('online',event.online);
-    if(!event.online)view.setOperatorStatus(`Connection lost: ${event.error||'Operator unavailable'}${lastOperatorReply?`\n\n${lastOperatorReply}`:''}`,'error');
-    else if(lastConnectionOnline===false||!voiceStarting&&!voiceRecording&&!voiceJob&&performance.now()>operatorMessageUntil)view.setOperatorStatus(lastOperatorReply||'Operator connected. Aim at the panel and hold trigger, or hold either grip, to speak.');
+    if(!event.online)view.setOperatorStatus(`Connection lost: ${event.error||'PC service unavailable'}${lastOperatorReply?`\n\n${lastOperatorReply}`:''}`,'error');
+    else if(lastConnectionOnline===false||!voiceStarting&&!voiceRecording&&!voiceJob&&performance.now()>operatorMessageUntil)view.setOperatorStatus(lastOperatorReply||'PC service connected. Open OPERATOR to check Codex and speak.');
     lastConnectionOnline=event.online;
   }
   if(event.type==='receipt'){
@@ -538,6 +540,8 @@ function renderAgent(){
   const status=agentClient?.status,turns=status?.transcript||[],pending=status?.pendingApprovals?.[0];
   const activity=agentClient?.error?'Connection needs attention':status?agentActivityLabel(status.activity):'Not connected';
   $('agent-activity').textContent=activity;
+  $('operator-draft-notice').textContent=operatorDraftNotice;
+  $('operator-draft-notice').classList.toggle('hidden',!operatorDraftNotice);
   const confirmedStatus=agentClient?.error?null:status;
   const accessLabel=agentAccessLabel(confirmedStatus);
   $('agent-access').textContent=confirmedStatus?`Active: ${accessLabel}`:accessLabel;
@@ -602,7 +606,7 @@ function renderAgent(){
     status?'Ready. Hold the trigger or grip to speak to Codex.':'Connect to Codex on the PC.';
   const conceptStatus=conceptUI?.statusForWorld()||'';
   const panoramaStatus=panoramaUI?.statusForWorld()||'';
-  view.setOperatorAgentStatus({activity,content:[accessLabel,pendingPermission,conceptStatus,panoramaStatus,agentVoiceStatus,agentApprovalText(pending),
+  view.setOperatorAgentStatus({activity,content:[accessLabel,pendingPermission,agentApprovalText(pending),operatorDraftNotice,conceptStatus,panoramaStatus,agentVoiceStatus,
     status?.activeTurnId?'Hold to add an instruction to this turn, or choose Stop. Earlier world edits remain.':'',
     agentClient?.error?`Connection: ${agentClient.error}`:'',inWorld].filter(Boolean).join('\n\n'),
     pending:!!pending,approvalReviewable:pending?.reviewable===true,
@@ -701,7 +705,14 @@ setInterval(()=>{if(agentClient.sessionId&&!conceptUI.busy)
 async function agentAction(action){
   if(agentActionBusy)return;
   agentActionBusy=true;renderAgent();
-  try{await action();}
+  try{
+    await action();
+    // Reconnect/Stop do not establish whether a prior send changed the world.
+    // Keep that warning until the user edits the draft or delivery clears it.
+    if(!operatorDraftUnconfirmed||!$('agent-input').value.trim()){
+      operatorDraftNotice='';operatorDraftUnconfirmed=false;
+    }
+  }
   catch(error){feedback(`Codex Agent: ${error.message}`,true);}
   finally{agentActionBusy=false;renderAgent();}
 }
@@ -801,6 +812,9 @@ $('agent-stop').addEventListener('click',()=>agentAction(()=>agentClient.cancel(
 $('agent-approve').addEventListener('click',()=>decideAgent(true));
 $('agent-deny').addEventListener('click',()=>decideAgent(false));
 $('agent-input').addEventListener('keydown',event=>{if(event.key==='Enter'&&(event.ctrlKey||event.metaKey))sendAgent();});
+$('agent-input').addEventListener('input',()=>{
+  if(operatorDraftNotice){operatorDraftNotice='';operatorDraftUnconfirmed=false;renderAgent();}
+});
 $('token').addEventListener('change',()=>{if(agentClient.sessionId)agentClient.restore().catch(()=>{});});
 async function refreshAssets(silent=false,{strict=false}={}){
   try{
@@ -911,22 +925,46 @@ function operatorRoute(text){
 async function sendToAgentFromChat(text,context){
   view.showOperatorAgentMode();
   if(!agentClient.status||agentClient.error)await agentClient.connect();
-  if(agentClient.status?.activeTurnId)throw Error('Wait for the current CODEX turn or stop it first.');
+  if(agentClient.status?.activeTurnId)throw Error('Wait for the current Operator turn or stop it first.');
   agentClient.assertPermissionsApplied();
   const expectedConcept=await conceptUI.expectedBuild(text);
   const currentContext=await currentAgentContextForSend(context);
   if(/\b(?:in front of me|ahead of me|where i am pointing)\b/i.test(text)&&!currentContext.viewerFrame)
     throw Error('Current viewer tracking is unavailable. Restore tracking, then send this spatial request again.');
   await agentClient.send(text,currentContext,expectedConcept,creationMode);
-  const message='Sent this request to CODEX with the current Matrix context. Review its tools and Matrix receipts in the CODEX panel.';
+  const message='Sent this request to Operator with the current Matrix context. Review its tools and Matrix receipts in Operator.';
   feedback(message);view.setOperatorStatus(message);
+}
+function showOperatorRequestError(text,error,{unconfirmed=false}={}){
+  unconfirmed=unconfirmed||operatorDraftUnconfirmed;
+  const staged=stageAgentTextDraft($('agent-input'),text);
+  const draftMessage=staged==='retained'?
+    'Your existing Operator draft is kept. This request remains in Advanced proposals / offline.':
+    unconfirmed?'This request is kept in Operator; delivery was not confirmed.':
+      'This request is ready in the Operator message box. It has not been sent.';
+  operatorDraftNotice=`${error.message} ${draftMessage}${unconfirmed?
+    ' Check the current turn and Matrix receipts before sending again.':''}`;
+  operatorDraftUnconfirmed=unconfirmed;
+  revealPanelSection($('section-agent'));
+  renderAgent();view.showOperatorAgentMode();
+  if(!view.renderer.xr.isPresenting)$('operator-draft-notice').scrollIntoView({block:'nearest'});
+  feedback(operatorDraftNotice,true);
 }
 async function propose(){
   const text=$('prompt').value.trim();if(!text){feedback('Enter a request first.',true);return;}
   const route=operatorRoute(text);
+  if(route.destination==='agent'&&(!agentClient.status||agentClient.error)){
+    const reason=agentClient.error?`Operator connection needs attention: ${agentClient.error}. Reconnect on the PC.`:
+      'Connect Operator on the PC before sending this creation request.';
+    showOperatorRequestError(text,new Error(reason));return;
+  }
   if(['agent','concept','panorama'].includes(route.destination)){
     try{agentClient.assertPermissionsApplied();}
-    catch(error){feedback(error.message,true);return;}
+    catch(error){
+      if(route.destination==='agent')showOperatorRequestError(text,error);
+      else feedback(error.message,true);
+      return;
+    }
   }
   if(route.destination==='panorama'){
     $('propose').disabled=true;
@@ -951,8 +989,7 @@ async function propose(){
     const context=captureAgentContext(world,view,bridge.clientId,'text');
     $('propose').disabled=true;
     try{await sendToAgentFromChat(text,context);}
-    catch(error){feedback(`CODEX route: ${error.message}`,true);
-      view.setOperatorStatus(`CODEX route: ${error.message}`,'error');}
+    catch(error){showOperatorRequestError(text,error,{unconfirmed:true});}
     finally{$('propose').disabled=false;}
     return;
   }
