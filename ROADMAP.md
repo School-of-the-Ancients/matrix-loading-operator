@@ -23,11 +23,11 @@ Reuse completed implementation, package checks and unaffected wearer observation
 
 ## Module backlogs
 
-The other 24 open issues are retained as future work. No next release or implementation sequence is selected by this table. Shared labels on #22, #31 and #156 expose real integration responsibilities; other issues have one module owner.
+The other 25 open issues are retained as future work. No next release or implementation sequence is selected by this table. Shared labels on #22, #31 and #156 expose real integration responsibilities; other issues have one module owner.
 
 | Module / area | Existing issues | Responsibility |
 | --- | --- | --- |
-| Matrix creation and UI | #9, #154, #172, #185, #203 | Content connectors, progressive refinement, spatial controls, image-guided worlds and workspace consolidation. |
+| Matrix creation and UI | #9, #154, #172, #185, #203, #211 | Content connectors, progressive refinement, spatial controls, image-guided worlds, workspace consolidation and reusable generated assets. #211 extends the existing catalog/registration paths (#9/#154; completed #28/#91/#122), with School curriculum/preload consumers in [Professor #2](https://github.com/School-of-the-Ancients/sota-professor/issues/2)/[#4](https://github.com/School-of-the-Ancients/sota-professor/issues/4). It adds no v1.2 or October 27 prerequisite. |
 | Matrix spatial and presentation | #22, #31, #32, #195 | Generic room access/physics, client-neutral capabilities and interactive exhibits. #22A is Matrix; #22B resident behavior is Civilization. #31 also carries School connection acceptance. |
 | Matrix optional clients | #181, #182, #183, #184 | ChatGPT adapter, pairing/hosting and client UI. |
 | Matrix access and tooling | #186, #188 | Rendered/input testing and wireless/deployment access. Reuse existing test-runner foundations for v1.2. |
