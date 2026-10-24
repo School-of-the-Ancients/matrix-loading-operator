@@ -211,5 +211,8 @@
       "source": "Locally authored VRoid preset-based model with custom portrait details. See NOTICE.md and embedded VRM terms."
     }
   ],
-  "retiredSha256": []
+  "retiredSha256": [
+    "11e325f43318bbaaf520d2475027d433ecfb502784a40971eaf591565c9dc32e",
+    "f9461457cb0cd8f1f27f4b1876af925bcc20984dea8624b59b35d26c75b56918"
+  ]
 }
