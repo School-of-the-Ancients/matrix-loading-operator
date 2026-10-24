@@ -1,4 +1,5 @@
 import {loadVrmAvatar} from './vrm_avatar.js';
+import {partPosition,partNode,partForHit,PartMarker} from './asset_parts.js';
 import {canDirectManipulate} from './manipulation.js';
 import * as THREE from 'three';
 import {adjustedARLayoutOffset,composeARLayoutPose,webFloorLayoutPivot} from './ar_layout.js';
@@ -71,23 +72,29 @@ export function animationSelectionState(object,root){
   if(typeof root?.userData?.selectAnimation==='function')return 'ready';
   return root?.userData?.assetLoading?'loading':'unavailable';
 }
-export function updateControllerRayForPanel(ray,controller,panel){
+export function updateControllerRayForPanel(ray,controller,panel,objects=[]){
   let hit=null;
-  if(panel.group.visible){
+  if(panel.group.visible||objects.length){
     const probe=ray.userData.panelProbe ||= {raycaster:new THREE.Raycaster(),
       origin:new THREE.Vector3(),direction:new THREE.Vector3(),rotation:new THREE.Quaternion()};
     controller.updateWorldMatrix(true,false);
-    panel.mesh.updateWorldMatrix(true,false);
+    if(panel.group.visible)panel.mesh.updateWorldMatrix(true,false);
     probe.origin.setFromMatrixPosition(controller.matrixWorld);
     probe.direction.set(0,0,-1).applyQuaternion(controller.getWorldQuaternion(probe.rotation));
     probe.raycaster.set(probe.origin,probe.direction);probe.raycaster.far=4;
-    hit=probe.raycaster.intersectObject(panel.mesh)[0]||null;
+    hit=panel.group.visible?probe.raycaster.intersectObject(panel.mesh)[0]||null:null;
+    if(!hit&&objects.length){
+      for(const object of objects)object.updateWorldMatrix(true,true);
+      hit=probe.raycaster.intersectObjects(objects,true)[0]||null;
+    }
   }
   // The panel renders without depth testing, so a ray drawn behind it would
   // vanish. End the ray at the panel and draw that segment above the panel.
   ray.scale.z=hit?Math.max(.001,Math.min(1,hit.distance/4)):1;
-  ray.renderOrder=hit?panel.mesh.renderOrder+1:0;
-  ray.material.depthTest=!hit;
+  const panelHit=hit?.object===panel.mesh;
+  ray.renderOrder=panelHit?panel.mesh.renderOrder+1:0;
+  ray.material.depthTest=!panelHit;
+  return hit;
 }
 function disposeGroup(root){root.traverse(node=>{if(node.geometry&&!node.userData.cachedGeometry)node.geometry.dispose();if(node.material){const materials=Array.isArray(node.material)?node.material:[node.material];for(const material of materials){if(node.userData.ownedTexture)material.map?.dispose();material.dispose();}}});}
 function planeLabel(label){
@@ -1484,7 +1491,12 @@ export class MatrixView {
           if(!['x','y','z'].every(k=>Number.isFinite(size[k])&&size[k]>=0&&size[k]<=20)||size.lengthSq()===0)throw Error('GLB needs finite rendered bounds of 0–20 metres on each axis');
           validateRenderedFootprint(asset,size);
           const center=bounds.getCenter(new THREE.Vector3());scene.position.sub(new THREE.Vector3(center.x,bounds.min.y,center.z));
-          scene.traverse(node=>{if(node.isMesh){node.castShadow=true;node.receiveShadow=true;}});
+          scene.traverse(node=>{
+            const mapping=gltf.parser.associations.get(node);
+            if(mapping?.nodes!==undefined)node.userData.matrixNodeIndex=mapping.nodes;
+            if(mapping?.primitives!==undefined)node.userData.matrixPrimitiveIndex=mapping.primitives;
+            if(node.isMesh){node.castShadow=true;node.receiveShadow=true;}
+          });
           return {scene,animations:gltf.animations,measuredSize:{x:size.x,y:size.y,z:size.z}};
         });
         this.modelCache.set(asset.assetId,pending);
@@ -1863,7 +1875,10 @@ export class MatrixView {
     if(this.isAR&&this.world.spatial?.originUnavailable)return null;
     const roots=[...this.objectRoots.values()];const hits=this.raycaster.intersectObjects(roots,true);
     if(hits.length){let node=hits[0].object;while(node&&!node.userData.objectId)node=node.parent;
-      const id=node?.userData.objectId;if(id){const object=this.world.requireObject(id);this.world.setSelection(id,object.transform.position,object.anchorId);this.highlight();this.onSelection();
+      const id=node?.userData.objectId;if(id){const object=this.world.requireObject(id);
+        const asset=this.world.asset?.(object.assetId),part=partForHit(hits[0],asset);
+        this.world.partSelection=part?{objectId:id,assetId:object.assetId,partId:part.partId,partsRevision:asset.partsRevision}:null;
+        this.world.setSelection(id,object.transform.position,object.anchorId);this.highlight();this.onSelection();
         if(object.animation?.selectClip&&!this.world.spatial?.stale&&!this.world.spatial?.originUnavailable)
           this.objectRoots.get(id)?.userData.selectAnimation?.();
         return id;}}
@@ -2172,10 +2187,22 @@ export class MatrixView {
     this.updateHeldGrab(frame,delta);
     this.onProfessorAudioFrame?.();
     this.refreshSelectedPointMarker();
-    if(this.renderer.xr.isPresenting)for(let index=0;index<this.controllers.length;index++)
-      updateControllerRayForPanel(this.controllerRays[index],this.controllers[index],this.operatorPanel);
+    this.hoveredPart=null;
+    const hoverPart=hit=>{
+      if(!hit)return;let node=hit.object;while(node&&!node.userData.objectId)node=node.parent;
+      const object=node&&this.world.scene.objects.find(o=>o.objectId===node.userData.objectId),asset=object&&this.world.asset(object.assetId);
+      const part=partForHit(hit,asset);
+      if(part)this.hoveredPart={objectId:object.objectId,assetId:object.assetId,partId:part.partId,partsRevision:asset.partsRevision};
+    };
+    if(this.renderer.xr.isPresenting)for(let index=0;index<this.controllers.length;index++){
+      if(this.controllers[index].visible!==false)hoverPart(updateControllerRayForPanel(this.controllerRays[index],this.controllers[index],this.operatorPanel,[...this.objectRoots.values()]));
+    }
+    else if(this.pointerKnown&&!this.pointerGrab&&!this.pointerLook){
+      this.raycaster.setFromCamera(this.pointer,this.camera);hoverPart(this.raycaster.intersectObjects([...this.objectRoots.values()],true)[0]);
+    }
+    if(this.partMarker)this.partMarker.group.visible=false;
+    for(const root of this.objectRoots.values())root.userData.mixer?.update(delta);
     for(const root of this.objectRoots.values()){
-      root.userData.mixer?.update(delta);
       if(root.userData.vrm){
         const attention=root.userData.professorAttention;
         const target=attention&&this.objectRoots.get(attention.objectId);
@@ -2183,10 +2210,18 @@ export class MatrixView {
         let attentionTarget=null;
         if(target&&!target.userData.assetLoading&&motion){
           const object=this.world.scene.objects.find(item=>item.objectId===attention.objectId);
-          const bounds=object&&this.world.asset(object.assetId)?.localBounds;
-          motion.gazeTarget.position.set(bounds?.center.x||0,bounds?.center.y||0,bounds?.center.z||0);
-          target.localToWorld(motion.gazeTarget.position);
-          attentionTarget=motion.gazeTarget.position;
+          const asset=object&&this.world.asset(object.assetId);
+          const part=attention.partId&&asset?.parts?.find(item=>item.partId===attention.partId);
+          if(part){attentionTarget=partPosition(target,part,motion.gazeTarget.position);
+            if(attentionTarget&&attention.guide){
+              if(!this.partMarker){this.partMarker=new PartMarker();this.scene.add(this.partMarker.group);}
+              this.partMarker.show(attentionTarget,part.label,partNode(target,part),part,this.partGuideMode||'both');
+            }
+          }else if(!attention.partId){
+            const bounds=asset?.localBounds;
+            motion.gazeTarget.position.set(bounds?.center.x||0,bounds?.center.y||0,bounds?.center.z||0);
+            target.localToWorld(motion.gazeTarget.position);attentionTarget=motion.gazeTarget.position;
+          }
         }
         root.userData.professorMotion?.update(delta,{speaking:!!root.userData.professorSpeaking,
           listening:!!root.userData.professorListening,level:root.userData.professorVoiceLevel||0,
@@ -2230,6 +2265,12 @@ export class MatrixView {
       }
     }
     this.refreshDisplays(false,time);
+    if(!this.partMarker?.group.visible&&this.hoveredPart&&this.partGuideMode!=='off'){
+      const selected=this.hoveredPart,asset=this.world.asset(selected.assetId),part=asset?.parts?.find(p=>p.partId===selected.partId);
+      const root=this.objectRoots.get(selected.objectId),point=part&&partPosition(root,part);
+      if(point){if(!this.partMarker){this.partMarker=new PartMarker();this.scene.add(this.partMarker.group);}
+        this.partMarker.show(point,part.label,partNode(root,part),part,'highlight');}
+    }
     this.renderer.render(this.scene,this.camera);
     this.onRendered?.();
   }

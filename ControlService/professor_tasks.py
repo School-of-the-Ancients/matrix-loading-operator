@@ -101,7 +101,11 @@ class ProfessorTasks:
                         'Do not claim an image is a loaded object. The professor continues a separate conversation. '
                         'For exhibit requests, search matrix_search_library and the existing scene/assets first. '
                         'Reuse a suitable existing asset or prefab. If none fits, create in Blender and register the result '
-                        'in the user library. Do not recreate an already suitable exhibit.\n'
+                        'in the user library. Do not recreate an already suitable exhibit. '
+                        'For Blender exhibits, preserve named meshes and annotate useful teaching parts with '
+                        'matrix_annotate_asset_parts after registration: partId, label, nodeIndex, optional primitiveIndex '
+                        'or node-local localPoint, and description of intended function and limitations. Inspect actual geometry; '
+                        'do not claim that an illustrative mechanism is a validated simulation.\n'
                         +task['instruction']}
                     accepted=self.start_turn(request)
                     turn_id=accepted.get('turnId') or accepted.get('activeTurnId')

@@ -46,6 +46,7 @@ import {ProfessorAppearanceClient} from './professor_appearance.js';
 import {ProfessorVoice} from './professor_voice.js';
 import {readVoiceChoices,saveVoiceChoice} from './professor_voice_profiles.js';
 import {ProfessorRecovery} from './professor_recovery.js';
+import {selectedPart} from './asset_parts.js';
 import {professorAttention} from './professor_attention.js';
 import {ProfessorTaskClient} from './professor_tasks.js';
 
@@ -793,6 +794,7 @@ professorVoice=new ProfessorVoice({load:async(text,capture)=>{
 }});
 professorConversation=new ProfessorConversation({request:(path,body)=>bridge.request(path,body),worldId:()=>world.scene.roomId,worldIdentity:()=>world.scene,
   voiceId:teacherId=>professorVoiceChoices[teacherId]||null,
+  pointedPart:()=>structuredClone(view.hoveredPart||selectedPart(world)),
   onChange:renderProfessorConversation,onStop:()=>professorVoice.stop(),
   isDelegatedTurn:turn=>{if(/^\[School avatar:[a-f0-9-]{36}\]/.test(turn.user||''))return true;const id=/^\[School task:([a-f0-9-]{36})\]/.exec(turn.user||'')?.[1];return !!id&&(!!professorTasks?.records.has(id)||!!professorConversation.session?.operatorTasks?.some(task=>task.id===id));},
   onTasks:(tasks,capture)=>{for(const task of tasks)void professorTasks.submit(task,capture);},
@@ -818,8 +820,8 @@ view.onProfessorAudioFrame=()=>{
     root.userData.professorListening=!!id&&voiceRecording&&voiceDestination?.target==='professor'&&voiceDestination.sessionId===id;
     const active=professorVoice.active;
     const target=root.userData.professorSpeaking&&professorConversation.current(active.capture)
-      ? professorAttention(active.event.avatarCue,{scene:world.scene,runtimeId:bridge.clientId,sessionId:id}) : null;
-    root.userData.professorAttention=target ? {objectId:target.objectId,
+      ? professorAttention(active.event.avatarCue,{scene:world.scene,runtimeId:bridge.clientId,sessionId:id,asset:key=>world.asset(key)}) : null;
+    root.userData.professorAttention=target ? {objectId:target.objectId,partId:active.event.avatarCue.partId||null,guide:active.event.avatarCue.kind==='point',
       point:active.event.avatarCue.kind==='point'&&performance.now()-active.attentionStartedAt<6000} : null;
   }
 };
@@ -840,6 +842,12 @@ $('conversation-send').addEventListener('click',async()=>{
   }catch(error){feedback(error.message,true);}
 });
 renderProfessorConversation();
+try{const mode=localStorage.getItem('matrix-part-guides');if(['both','highlight','arrow','off'].includes(mode))$('professor-part-guides').value=mode;}catch{}
+view.partGuideMode=$('professor-part-guides').value;
+$('professor-part-guides').addEventListener('change',()=>{
+  view.partGuideMode=$('professor-part-guides').value;
+  try{localStorage.setItem('matrix-part-guides',view.partGuideMode);}catch{}
+});
 $('professor-voice').addEventListener('change',()=>{
   const teacherId=professorConversation.session?.mentor?.id||'default';
   try{
@@ -1878,6 +1886,8 @@ async function beginVoice(){
 async function endVoice(){
   if(voiceStarting){voiceStopRequested=true;return;}
   if(!voiceRecording)return;
+  const pointedPart=view.hoveredPart||selectedPart(world);
+  voiceDestination=Object.freeze({...voiceDestination,partReference:structuredClone(pointedPart)});
   voiceRecording=false;voiceJob='finalizing';voiceButtons();voiceStatus('Finishing recording…');
   let voiceTranscriptStaged=false;
   const finishVoiceTrace=latencyTrace?.begin('voice.finalize-and-deliver');

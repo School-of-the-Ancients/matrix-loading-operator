@@ -17,6 +17,7 @@ import threading
 import unicodedata
 
 from vrm_assets import MAX_VRM_BYTES, inspect_vrm
+from asset_parts import inspect_parts, checked_parts, validate_targets, part_revision
 
 MAX_BYTES = 16 * 1024 * 1024
 MAX_ASSETS = 256
@@ -144,6 +145,11 @@ def inspect_glb(path):
               "images": len(document.get("images", [])), "animationClips": clips}
     if vrm:
         result["vrm"] = vrm
+    else:
+        try:
+            result['parts'] = inspect_parts(document)
+        except ValueError as error:
+            raise WebAssetError(str(error)) from None
     return result
 
 
@@ -179,9 +185,49 @@ class WebAssetCatalog:
                     raise WebAssetError("Legacy GLB catalog metadata does not match its file")
                 item["geometry"] = inspected
                 changed = True
+            for item in items:
+                geometry = item.get('geometry', {})
+                if geometry.get('vrm'):
+                    continue
+                if 'parts' not in geometry:
+                    path = self.root / f"{item['sha256']}.glb"
+                    if hashlib.sha256(path.read_bytes()).hexdigest() != item['sha256']:
+                        raise WebAssetError('Registered GLB is corrupt')
+                    item['geometry'] = geometry = inspect_glb(path)
+                    changed = True
+                annotations = item.get('partAnnotations', [])
+                overrides = {p['partId'] for p in annotations}
+                parts = checked_parts((annotations + [p for p in geometry['parts'] if p['partId'] not in overrides])[:64])
+                revision = part_revision(parts)
+                if item.get('partsRevision') != revision:
+                    item['parts'], item['partsRevision'] = parts, revision
+                    changed = True
             if changed:
                 self._write_manifest(items)
             return items
+
+    def annotate_parts(self, asset_id, expected_sha256, parts):
+        with self.lock:
+            items = self.list()
+            item = next((item for item in items if item['assetId'] == asset_id), None)
+            if not item or item['sha256'] != expected_sha256 or item.get('geometry', {}).get('vrm'):
+                raise WebAssetError('Choose the exact registered non-avatar GLB')
+            path = self.file(expected_sha256)
+            with path.open('rb') as handle:
+                handle.seek(12)
+                length = struct.unpack('<I', handle.read(4))[0]
+                handle.read(4)
+                document = json.loads(handle.read(length))
+            try:
+                annotations = validate_targets(parts, document)
+            except (ValueError, IndexError, TypeError) as error:
+                raise WebAssetError(str(error)) from None
+            item['partAnnotations'] = annotations
+            overrides = {p['partId'] for p in annotations}
+            item['parts'] = checked_parts((annotations + [p for p in item['geometry']['parts'] if p['partId'] not in overrides])[:64])
+            item['partsRevision'] = part_revision(item['parts'])
+            self._write_manifest(items)
+            return {'assetId': asset_id, 'sha256': expected_sha256, 'parts': item['parts'], 'partsRevision': item['partsRevision']}
 
     def file(self, digest):
         if not SHA.fullmatch(digest):
@@ -244,6 +290,9 @@ class WebAssetCatalog:
         entry = {"assetId": asset_id, "displayName": name.strip(), "description": description,
                  "spawnScale": spawn_scale if spawn_scale is not None else 1, "sha256": digest, "byteLength": info["bytes"],
                  "url": f"/api/web/assets/{digest}.glb", "geometry": info}
+        if 'parts' in info:
+            entry['parts'] = info['parts']
+            entry['partsRevision'] = part_revision(entry['parts'])
         if local_bounds is not None:
             entry["localBounds"] = local_bounds
         target = self.root / f"{digest}.glb"
