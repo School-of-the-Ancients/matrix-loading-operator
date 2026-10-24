@@ -2177,9 +2177,22 @@ export class MatrixView {
     for(const root of this.objectRoots.values()){
       root.userData.mixer?.update(delta);
       if(root.userData.vrm){
+        const attention=root.userData.professorAttention;
+        const target=attention&&this.objectRoots.get(attention.objectId);
+        const motion=root.userData.professorMotion;
+        let attentionTarget=null;
+        if(target&&!target.userData.assetLoading&&motion){
+          const object=this.world.scene.objects.find(item=>item.objectId===attention.objectId);
+          const bounds=object&&this.world.asset(object.assetId)?.localBounds;
+          motion.gazeTarget.position.set(bounds?.center.x||0,bounds?.center.y||0,bounds?.center.z||0);
+          target.localToWorld(motion.gazeTarget.position);
+          attentionTarget=motion.gazeTarget.position;
+        }
         root.userData.professorMotion?.update(delta,{speaking:!!root.userData.professorSpeaking,
-          listening:!!root.userData.professorListening,level:root.userData.professorVoiceLevel||0});
-        if(root.userData.vrm.lookAt)root.userData.vrm.lookAt.target=this.renderer.xr.isPresenting?this.renderer.xr.getCamera():this.camera;
+          listening:!!root.userData.professorListening,level:root.userData.professorVoiceLevel||0,
+          attentionTarget,point:!!attention?.point});
+        if(root.userData.vrm.lookAt)root.userData.vrm.lookAt.target=attentionTarget?motion.gazeTarget:
+          this.renderer.xr.isPresenting?this.renderer.xr.getCamera():this.camera;
         root.userData.vrm.update(delta);
       }
       const object=this.world.scene.objects.find(item=>item.objectId===root.userData.objectId);

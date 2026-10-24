@@ -50,3 +50,38 @@ test('optional missing bones, frame gaps and reduced motion remain finite and bo
   for(const node of Object.values(nodes))assert(node.quaternion.toArray().every(Number.isFinite));
   assert.doesNotThrow(()=>new ProfessorMotion({humanoid:{getNormalizedBoneNode:()=>null}}).update(1/60));
 });
+
+test('pointing aims at a real world target across rotation/scale, then releases without root drift',()=>{
+  for(const x of [-2,2]){
+    const {vrm,nodes,expressions}=rig(),motion=new ProfessorMotion(vrm);
+    const position=vrm.scene.position.clone(),rotation=vrm.scene.quaternion.clone(),scale=vrm.scene.scale.clone();
+    vrm.scene.updateMatrixWorld(true);
+    const target=vrm.scene.localToWorld(new THREE.Vector3(x,1.25,2));
+    for(let i=0;i<240;i++)motion.update(1/60,{speaking:true,attentionTarget:target,point:true});
+    vrm.scene.updateMatrixWorld(true);
+    const side=x>0?'left':'right';
+    const shoulder=nodes[side+'UpperArm'].getWorldPosition(new THREE.Vector3());
+    const hand=nodes[side+'Hand'].getWorldPosition(new THREE.Vector3());
+    assert(hand.sub(shoulder).normalize().dot(target.clone().sub(shoulder).normalize())>.98);
+    for(let i=0;i<240;i++)motion.update(1/60);
+    assert(motion.pointing<.001);assert.equal(motion.attentionTarget,null);
+    assert(vrm.scene.position.equals(position));assert(vrm.scene.quaternion.equals(rotation));assert(vrm.scene.scale.equals(scale));
+    assert.equal(expressions.get('aa'),.6);
+  }
+});
+
+test('targets behind the torso receive no backwards pointing gesture',()=>{
+  const {vrm}=rig(),motion=new ProfessorMotion(vrm);vrm.scene.updateMatrixWorld(true);
+  const target=vrm.scene.localToWorld(new THREE.Vector3(0,1,-2));
+  for(let i=0;i<120;i++)motion.update(1/60,{attentionTarget:target,point:true});
+  assert.equal(motion.pointing,0);
+});
+
+test('moving an exhibit across the torso changes the pointing hand without moving the avatar',()=>{
+  const {vrm}=rig(),motion=new ProfessorMotion(vrm);vrm.scene.updateMatrixWorld(true);
+  for(const x of [-2,2]){
+    const target=vrm.scene.localToWorld(new THREE.Vector3(x,1,2));
+    for(let i=0;i<120;i++)motion.update(1/60,{attentionTarget:target,point:true});
+    assert.equal(motion.pointSide,x>0?'left':'right');
+  }
+});

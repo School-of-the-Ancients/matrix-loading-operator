@@ -8,7 +8,17 @@ Update: Professor/Operator routing, a durable shared transcript, local speech re
 
 The #215 checkpoint replaces the fixed upper-arm pose with a normalized-bone motion controller. Hands rest beside the body with bent elbows from the first frame. Subtle breathing, upper-body sway, blinking and head motion run while idle; recording a Professor-directed question adds listening nods. Actual Professor audio playback drives restrained alternating arm/hand gestures, blended with the existing audio-driven mouth animation. Stop and clip completion blend the arms back to rest. The gaze target follows the active desktop or XR camera.
 
-Motion runs in the existing render loop and leaves the scene root, placement, scale and lesson binding untouched. Missing optional bones are tolerated; the browser's reduced-motion preference reduces movement. No model bytes or external animation clips are modified or added. Explicit exhibit pointing and model-specific choreography remain future work.
+Motion runs in the existing render loop and leaves the scene root, placement, scale and lesson binding untouched. Missing optional bones are tolerated; the browser's reduced-motion preference reduces movement. No model bytes or external animation clips are modified or added. Model-specific choreography remains future work.
+
+## Teaching with exhibit attention
+
+Each typed or spoken teaching turn can now receive a bounded, read-only list of the current Matrix objects when that world contains this lesson's professor. The teaching model may attach one structured `look` or `point` cue naming an exact object. This cue is saved alongside the reply, outside spoken text. No cue or an unavailable Matrix connection leaves ordinary teaching working.
+
+During actual audio playback, Matrix resolves the cue against the current runtime, room, object and asset identity. Gaze and a restrained torso turn track the exhibit's current bounds centre; pointing aims the nearest arm and extended index finger at it for up to six seconds, then lowers the arm while gaze continues until speech finishes. Moving the exhibit updates the aim, including changing hands if it crosses the torso. Targets behind the professor get gaze without a backwards reach. Stop, removed/replaced targets and lesson/world changes release attention. Replay revalidates the cue. No object, avatar root or saved transform is moved by a gesture.
+
+This uses scene labels and identities, not image recognition or knowledge of unobserved exhibit details. Primitive fallback avatars have no humanoid bones and do not perform these gestures. The Riko model was checked locally unchanged. New supported avatars still need individual visual checks.
+
+Attention validation: 844 WebRuntime tests; 67 School server tests, 26 UI tests, typecheck and all builds. Real-Riko skeleton checks aligned both arms to targets without root drift. A native Codex synthetic teaching turn chose the requested cube and returned a short question plus a matching cue. Desktop preview confirmed gaze/pointing and release using the real model with synthetic speech. Quest wearer appearance/performance remains pending in #215.
 
 Validation: all 840 WebRuntime tests and the production build pass. A separate check using the actual local Riko skeleton exercised idle, speaking and listening, preserving root transforms and mouth-expression values. An isolated desktop preview with the real model confirmed arms beside the body and speech/idle transitions; its speech drive was synthetic. This is not a Quest performance or wearer acceptance result. Save any current work, then reload the Quest page to receive the new browser bundle.
 

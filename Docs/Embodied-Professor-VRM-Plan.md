@@ -9,10 +9,10 @@ Conversation ownership is described in [Professor-Conversation-Routing.md](Profe
 The first user session exposed three concrete follow-ups:
 
 - [School #7](https://github.com/School-of-the-Ancients/sota-professor/issues/7): shorter, exhibit-led Socratic turns are implemented in the School draft checkpoint, pending user quality review. After a supported load result, invite one observation or action and wait for the student, then adapt the next hint/explanation to their answer. Example: “Look at the circle and square—what do you notice about the proportions?” Explicit detail requests allow more explanation.
-- [Matrix #215](https://github.com/School-of-the-Ancients/matrix-loading-operator/issues/215): relaxed arms, subtle idle/listening motion and playback-driven speaking gestures are implemented and checked with the actual local rig and an isolated desktop preview. Explicit exhibit-directed gestures and Quest wearer/performance checks remain pending. Mouth movement working does not establish natural body animation.
+- [Matrix #215](https://github.com/School-of-the-Ancients/matrix-loading-operator/issues/215): relaxed arms, subtle idle/listening motion, speaking gestures and grounded exhibit gaze/pointing are implemented and checked with the actual local rig and an isolated desktop preview. Quest wearer/performance checks remain pending. Mouth movement working does not establish natural body animation.
 - [Matrix #214](https://github.com/School-of-the-Ancients/matrix-loading-operator/issues/214): expand the curated, licensed VRM catalog and appropriate teacher matching. Leonardo using a cat-girl body with a tail is a placeholder mismatch. Keep an explicit representation label and user override. Dynamic model creation is a later feasibility item, not a dependency for better stock avatars.
 
-The short teaching exchange and basic body-motion slices are implemented in the draft checkpoint. Avatar catalog expansion, exhibit-directed gestures and native live voice remain future work. The body-motion change uses the existing model unchanged.
+The short teaching exchange, basic body motion and exhibit-directed gaze/pointing are implemented in the Professor checkpoint. Avatar catalog expansion and native live voice remain future work. Body motion uses the existing model unchanged.
 
 ## Outcome
 

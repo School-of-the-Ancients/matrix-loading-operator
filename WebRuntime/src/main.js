@@ -43,6 +43,7 @@ import {placeProfessor} from './professor_avatar.js';
 import {ProfessorOperator} from './professor_operator.js';
 import {ProfessorConversation} from './professor_conversation.js';
 import {ProfessorVoice} from './professor_voice.js';
+import {professorAttention} from './professor_attention.js';
 import {ProfessorTaskClient} from './professor_tasks.js';
 
 const $=id=>document.getElementById(id);
@@ -757,6 +758,7 @@ professorVoice=new ProfessorVoice({load:async text=>{
   if(!response.ok){const error=await response.json().catch(()=>({}));throw Error(error.error||`Professor voice HTTP ${response.status}`);}
   return response.arrayBuffer();
 },onState:(active,delivery,error)=>{
+  if(active&&delivery==='speaking')active.attentionStartedAt??=performance.now();
   $('professor-voice-level').value=0;
   professorConversation.status=error?error.message:delivery==='speaking'?'Professor is speaking…':delivery==='spoken'?'Professor reply spoken and saved.':delivery==='interrupted'?'Voice stopped. Reply text remains saved.':'Professor voice failed; reply text remains saved.';
   renderProfessorConversation();
@@ -800,6 +802,11 @@ view.onProfessorAudioFrame=()=>{
     const id=root.userData.professor?.schoolSessionId;
     root.userData.professorSpeaking=!!id&&!!professorVoice.source&&professorVoice.active?.capture.sessionId===id;
     root.userData.professorListening=!!id&&voiceRecording&&voiceDestination?.target==='professor'&&voiceDestination.sessionId===id;
+    const active=professorVoice.active;
+    const target=root.userData.professorSpeaking&&professorConversation.current(active.capture)
+      ? professorAttention(active.event.avatarCue,{scene:world.scene,runtimeId:bridge.clientId,sessionId:id}) : null;
+    root.userData.professorAttention=target ? {objectId:target.objectId,
+      point:active.event.avatarCue.kind==='point'&&performance.now()-active.attentionStartedAt<6000} : null;
   }
 };
 for(const target of ['professor','operator'])$('talk-'+target).addEventListener('click',()=>professorConversation.select(target));
