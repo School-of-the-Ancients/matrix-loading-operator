@@ -4330,6 +4330,8 @@ class State:
         self.lock = threading.RLock()
         self.client_id = None
         self.runtime_generation = 0
+        self.spawn_scope = None
+        self.spawn_revision_floor = 0
         self.last_seen = -float("inf")
         self.latest = None
         self.runtime = None
@@ -4383,8 +4385,8 @@ class State:
         """Compatibility spelling for the #143 bounded construction fixture."""
         return self.citizen_capability_budget
 
-    def concept_build_preflight(self):
-        """Reject the first concept world mutation if authoring outlived its scene."""
+    def concept_build_preflight(self, *, additive=False):
+        """Keep additive loads in their world; existing-object edits need their scene."""
         with self.lock:
             guard = self.concept_build_guard
             if guard is None:
@@ -4392,7 +4394,8 @@ class State:
             self.expire()
             require(self.online() and self.latest is not None and
                     self.latest["scene"]["roomId"] == guard["roomId"] and
-                    concept_scene_fingerprint(self.latest) == guard["sceneFingerprint"] and
+                    (guard["sceneRevision"] >= self.spawn_revision_floor if additive else
+                     concept_scene_fingerprint(self.latest) == guard["sceneFingerprint"]) and
                     self.host_world_id == guard["hostWorldId"] and
                     self.runtime_generation == guard["runtimeGeneration"],
                     "Matrix scene changed while the selected concept was being built; ask for a new placement", 409)
@@ -4763,6 +4766,9 @@ class State:
         with self.lock:
             self.expire()
             require(self.client_id in (None, client_id), "Another client holds the active lease", 409)
+            world_replaced = restoring_world or any(
+                result["ok"] and self.pending.get(result["requestId"], {}).get("op") in
+                {"load", "start_new_world", "restore_world_archive"} for result in checked)
             if hosted and self.host_world_id is not None:
                 require(self.host_world_id == host_world_id, "Hosted world changed under one lease", 409)
             if restoring_world:
@@ -4861,11 +4867,21 @@ class State:
                         job["cancelled"] = True
                         job["public"].update(phase="error", requiresApply=False,
                                              error="Room became unavailable. Reload the room, check alignment, and speak again.")
-            if scene_revision_data(self.latest) != scene_revision_data(current):
+            spawn_scope = (client_id, self.runtime_generation, host_world_id if hosted else None,
+                           (current or {}).get("scene", {}).get("roomId"),
+                           (current or {}).get("roomContext", {}).get("mode"),
+                           (current or {}).get("spatialObservation", {}).get("trackingEpoch"))
+            spawn_scope_changed = spawn_scope != self.spawn_scope
+            if world_replaced or spawn_scope_changed or scene_revision_data(self.latest) != scene_revision_data(current):
                 self.revision += 1
             self.latest = current
             self.runtime = runtime
             self.host_world_id = host_world_id if hosted else None
+            # Adding a new object commutes with movement of existing objects.
+            # Keep a revision boundary only for a replaced world/runtime/origin.
+            if world_replaced or spawn_scope_changed:
+                self.spawn_revision_floor = self.revision
+                self.spawn_scope = spawn_scope
             if hosted:
                 self.host_sequence += 1
             else:
@@ -5976,8 +5992,9 @@ class State:
             self.expire()
             require(self.online() and self.latest is not None, self.room_unavailable_message(), 409)
             current = self.latest
-            require(current["scene"]["roomId"] == room_id and self.revision == revision,
-                    "Matrix scene changed; inspect the current room and retry", 409)
+            require(current["scene"]["roomId"] == room_id and
+                    self.spawn_revision_floor <= revision <= self.revision,
+                    "Matrix world or origin changed; inspect the current room and retry", 409)
             require(web_virtual_floor_ready(current),
                     "This Matrix tool requires a ready WebXR virtual floor", 409)
             require(not current.get("readOnly") and not self.pending,
@@ -6019,8 +6036,9 @@ class State:
             require(self.online() and self.latest is not None,
                     self.room_unavailable_message(), 409)
             current = self.latest
-            require(current["scene"]["roomId"] == room_id and self.revision == revision,
-                    "Matrix scene changed; inspect the current room and retry", 409)
+            require(current["scene"]["roomId"] == room_id and
+                    self.spawn_revision_floor <= revision <= self.revision,
+                    "Matrix world or origin changed; inspect the current room and retry", 409)
             mode = current.get("creatorMode") or {}
             require(web_virtual_floor_ready(current) and
                     mode.get("mode") == "creator" and mode.get("simulation") == "paused",

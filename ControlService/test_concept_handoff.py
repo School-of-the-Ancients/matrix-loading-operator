@@ -479,20 +479,21 @@ class ConceptHandoffTests(unittest.TestCase):
         self.assertIn('"prompt":"' + "p" * 4096 + '"', message)
         self.assertIn('"designNotes":"' + "n" * 2048 + '"', message)
 
-    def test_scene_change_blocks_first_typed_mutation_even_with_fresh_revision(self):
+    def test_unrelated_scene_change_allows_additive_concept_load_with_original_revision(self):
         self.build()
+        revision = self.state.revision
         self.room["scene"]["objects"].append({"objectId": "unrelated", "assetId": "block",
                                               "anchorId": "web-floor", "transform": copy.deepcopy(POSE)})
         self.exchange()
         bridge = MatrixToolBridge(self.state)
         self.addCleanup(bridge.close)
-        with self.assertRaises(urllib.error.HTTPError) as raised:
-            spawn_builtin(bridge.url, bridge.token, {
-                "room_id": self.room["scene"]["roomId"], "scene_revision": self.state.revision,
+        with patch("matrix_tool_bridge.MOVE_WAIT", .01):
+            result = spawn_builtin(bridge.url, bridge.token, {
+                "room_id": self.room["scene"]["roomId"], "scene_revision": revision,
                 "asset_id": "block", "transform": copy.deepcopy(POSE)})
-        self.assertIn("scene changed while the selected concept",
-                      raised.exception.read().decode("utf-8"))
+        self.assertEqual(result["status"], "queued")
         self.assertEqual(len(self.room["scene"]["objects"]), 1)
+        self.assertIsNone(self.state.concept_build_guard)
 
     def assert_concurrent_turn_preserves_build_guard(self, contender_text):
         entered = threading.Event()
@@ -539,9 +540,9 @@ class ConceptHandoffTests(unittest.TestCase):
         bridge = MatrixToolBridge(self.state)
         self.addCleanup(bridge.close)
         with self.assertRaises(urllib.error.HTTPError) as raised:
-            spawn_builtin(bridge.url, bridge.token, {
+            scale_block(bridge.url, bridge.token, {
                 "room_id": self.room["scene"]["roomId"], "scene_revision": self.state.revision,
-                "asset_id": "block", "transform": copy.deepcopy(POSE)})
+                "object_id": "unrelated", "factors": [1, 1, 1]})
         self.assertEqual(raised.exception.code, 409)
         self.assertIn("scene changed while the selected concept",
                       raised.exception.read().decode("utf-8"))

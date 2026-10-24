@@ -664,7 +664,7 @@ class _Handler(BaseHTTPRequestHandler):
                 from server import APIError
                 raise APIError(409, "Matrix mutation is blocked during native concept image generation")
             if self.path in CONCEPT_SCENE_MUTATIONS:
-                self.server.state.concept_build_preflight()
+                self.server.state.concept_build_preflight(additive=self.path in {"/spawn", "/spawn-builtin"})
             if self.path == "/concept-build":
                 result = self.server.state.agent_record_concept_build(value)
             elif self.path == "/register-glb":

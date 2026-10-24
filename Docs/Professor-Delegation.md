@@ -16,6 +16,8 @@ Matrix submits the saved intent through the existing Agent Portal/Operator. A du
 
 Task IDs and arguments are immutable. A persisted submission state is written before starting Operator, so a crash cannot silently replay an uncertain world action. Restarted queued/running jobs become unconfirmed for explicit review. Completed means that the correlated Operator turn completed; it does not independently prove geometry, scientific validity or physical AR fit. Existing runtime receipts remain authoritative.
 
+Adding a registered model or built-in object does not require the entire scene to remain motionless. An observed revision stays valid for an additive load while the same runtime, world and tracking origin remain active; existing object movement and new unrelated objects do not cancel it. Scene replacement, reconnect, world switching and origin changes still require a fresh observation. Edits to existing objects and measured physical-surface placement keep their own target checks.
+
 The School result endpoint fetches the actual Matrix task record and checks its lesson ID, task ID, instruction and objective before saving status. It does not accept a client-authored success result. The next teaching context includes verified task status and the attributed Operator report. Delegation is recorded as Professor → Operator, not as an extra learner command.
 
 ## Validation

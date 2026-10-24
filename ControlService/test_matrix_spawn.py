@@ -90,6 +90,37 @@ class MatrixSpawnTests(unittest.TestCase):
         self.state.last_seen = -float("inf")
         self.assertEqual(self.state.agent_spawn_status(next_queued["requestId"])["status"], "unconfirmed")
 
+    def test_additive_load_survives_unrelated_movement_and_preserves_its_new_pose(self):
+        self.room["scene"]["objects"] = [{"objectId":"existing","assetId":self.asset["assetId"],
+            "anchorId":"web-floor","transform":deepcopy(POSE)}]
+        self.exchange()
+        request = self.request()
+        self.room["scene"]["objects"][0]["transform"]["position"]["x"] = 5
+        self.exchange()
+        self.assertGreater(self.state.revision, request["scene_revision"])
+        queued = self.state.agent_spawn(request)
+        self.assertEqual(queued["status"], "queued")
+        self.assertEqual(self.state.latest["scene"]["objects"][0]["transform"]["position"]["x"], 5)
+        self.assertEqual(self.state.pending[queued["requestId"]]["transform"], POSE)
+
+    def test_old_load_cannot_cross_a_world_switch_even_when_the_room_id_returns(self):
+        request = self.request()
+        self.room["scene"]["roomId"] = "another-room"
+        self.exchange()
+        self.room["scene"]["roomId"] = request["room_id"]
+        self.exchange()
+        with self.assertRaisesRegex(APIError, "world or origin changed"):
+            self.state.agent_spawn(request)
+        self.assertFalse(self.state.pending)
+
+    def test_old_load_cannot_cross_a_same_client_reconnect(self):
+        request = self.request()
+        self.state.last_seen = -float("inf")
+        self.exchange()
+        with self.assertRaisesRegex(APIError, "world or origin changed"):
+            self.state.agent_spawn(request)
+        self.assertFalse(self.state.pending)
+
     def test_private_bridge_and_xr_approval_are_bounded(self):
         bridge = MatrixToolBridge(self.state)
         self.addCleanup(bridge.close)

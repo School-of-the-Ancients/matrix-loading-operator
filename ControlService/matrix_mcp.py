@@ -206,8 +206,10 @@ def matrix_spawn_asset(room_id: str, scene_revision: int, asset_id: str,
                        transform: dict) -> dict:
     """Spawn a registered GLB in the connected virtual Matrix room after approval.
 
-    The browser must already list this validated asset. Use current room/revision
+    The browser must already list this validated asset. Use room/revision
     from matrix_scene_summary and a bounded position/rotation/scale transform.
+    Moving unrelated objects after that observation does not invalidate this
+    additive load. Switching worlds, runtimes or tracking origins still does.
     Check matrix_spawn_status; queued or unconfirmed does not mean spawned.
     Physical-surface placement is a separate capability.
     """
