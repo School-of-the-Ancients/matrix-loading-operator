@@ -170,6 +170,9 @@ export function operatorPanel({createImage=()=>new Image()}={}){
   let pinLabel='PIN TO WALL',voiceLabel='VOICE ON',originLabel='ROOM ORIGIN UNKNOWN',conversationCount=0,xrMode=null;
   let voiceInputLabel='HOLD FOR CODEX';
   let conversationTarget='professor';
+  let transcript={title:'Professor conversation',entries:[]},transcriptKey='',transcriptIndex=0,transcriptFollowLatest=true,transcriptReturnMode='chat';
+  let teachingPointStatus='A/X SELECT POINT · B/Y CLEAR · STICK RECALLS PANEL';
+  const latestTranscriptIndex=()=>{const index=transcript.entries.findLastIndex(e=>e.speaker==='professor');return index<0?Math.max(0,transcript.entries.length-1):index;};
   let gameStatus='No game running.',worldInfo={objects:0,canConfirm:false,alignment:'No room scan'},worldWarning='';
   let creatorMode={mode:'creator',simulation:'paused',revision:0};
   let worldNotice={text:'',tone:'idle'};
@@ -206,8 +209,13 @@ export function operatorPanel({createImage=()=>new Image()}={}){
       ctx.textAlign='left';ctx.textBaseline='alphabetic';
       if(enabled)buttons.push({id,x,y,w,h});
     };
+    if(mode==='transcript'){
+      ctx.fillStyle='#e8faf8';ctx.font='bold 31px sans-serif';ctx.fillText(transcript.title,55,80,510);
+      button('toggle-agent','OPERATOR',590,35,195,72);
+      button('hide-panel','HIDE',800,35,176,72);
+    }else{
     if(mode==='world'&&xrMode)button('exit-xr',xrMode==='ar'?'EXIT AR':'EXIT VR',35,35,240,72);
-    else {ctx.fillStyle='#75f4df';ctx.font='bold 30px sans-serif';ctx.fillText('◈  OPERATOR',55,83);}
+    else button('toggle-transcript',mode==='transcript'?'BACK':'TRANSCRIPT',35,35,240,72,mode==='transcript');
     button('toggle-agent',mode==='agent'?'ACTIVITY':'OPERATOR',290,35,103,72,
       mode==='agent'||mode==='concepts'||mode==='panoramas');
     button('toggle-world',mode==='world'?'CHAT':'WORLD',404,35,120,72,
@@ -215,12 +223,32 @@ export function operatorPanel({createImage=()=>new Image()}={}){
     button('toggle-mode',mode==='modes'?'CHAT':creatorMode.mode==='play'?'PLAY':'CREATE',535,35,124,72,mode==='modes');
     button(proposal&&mode!=='proposal'?'open-proposal':'review-view',proposal&&mode!=='proposal'?'PROPOSAL':'SEND VIEW',670,35,130,72);
     button('hide-panel','HIDE',812,35,164,72);
-    ctx.fillStyle='#8bb8c2';ctx.font='bold 21px sans-serif';ctx.fillText(originLabel,55,123);
+    ctx.fillStyle='#8bb8c2';ctx.font='bold 21px sans-serif';ctx.fillText(originLabel,55,123,660);
     ctx.font='19px sans-serif';ctx.fillText('STICK: RECALL',540,138);
-    button('open-professor','PROFESSOR',743,110,230,44);
-    button('conversation-professor','TALK: PROFESSOR',55,139,310,38,conversationTarget==='professor');
-    button('conversation-operator','TALK: OPERATOR',375,139,310,38,conversationTarget==='operator');
-    if(mode==='modes'){
+    button(mode==='world'?'toggle-transcript':'open-professor',mode==='world'?'TRANSCRIPT':'PROFESSOR',743,110,230,44);
+    if(mode==='chat'||mode==='transcript'){
+      button('conversation-professor','TALK: PROFESSOR',55,139,310,38,conversationTarget==='professor');
+      button('conversation-operator','TALK: OPERATOR',375,139,310,38,conversationTarget==='operator');
+    }
+    }
+    if(mode==='transcript'){
+      const entry=transcript.entries[transcriptIndex];
+      ctx.fillStyle='#8bdcca';ctx.font='22px sans-serif';ctx.fillText(transcriptFollowLatest?'LATEST PROFESSOR REPLY':'REVIEWING CONVERSATION',55,128);
+      ctx.fillStyle='#8bb8c2';ctx.font='24px sans-serif';
+      ctx.fillText(entry?`${entry.label}${entry.status?' · '+entry.status:''} · Message ${transcriptIndex+1}/${transcript.entries.length}`:'No conversation yet',55,171,914);
+      ctx.fillStyle='#eef9fa';ctx.font='32px sans-serif';const lines=[];
+      for(const paragraph of (entry?.text||'Ask your professor a question. The reply will appear here.').split('\n')){
+        let line='';for(const word of paragraph.split(/\s+/)){const next=line?line+' '+word:word;
+          if(ctx.measureText(next).width>900&&line){lines.push(line);line=word;}else line=next;}lines.push(line);
+      }
+      const pages=Math.max(1,Math.ceil(lines.length/8));page%=pages;
+      lines.slice(page*8,(page+1)*8).forEach((line,index)=>ctx.fillText(line,55,214+index*37));
+      ctx.fillStyle='#8bb8c2';ctx.font='21px sans-serif';ctx.fillText(`Text page ${page+1}/${pages} · NEXT PAGE continues this message`,55,492,914);
+      ctx.font='19px sans-serif';ctx.fillText(teachingPointStatus,55,523,914);
+      button('transcript-older','OLDER',55,542,285,65,false,transcriptIndex>0);
+      button('transcript-newer','NEWER',370,542,285,65,false,transcriptIndex<transcript.entries.length-1);
+      button('transcript-latest','LATEST REPLY',685,542,285,65,transcriptFollowLatest,!!entry);
+    }else if(mode==='modes'){
       ctx.fillStyle='#dff7f8';ctx.font='bold 38px sans-serif';
       ctx.fillText(creatorMode.mode==='creator'?'Creator Mode':'Play/Test Mode',55,205);
       ctx.font='27px sans-serif';ctx.fillStyle='#8bb8c2';
@@ -241,7 +269,7 @@ export function operatorPanel({createImage=()=>new Image()}={}){
       button('agent-stop','STOP OPERATOR',525,553,444,72);
     }else if(mode==='world'){
       ctx.fillStyle='#dff7f8';ctx.font='29px sans-serif';
-      ctx.fillText(`${worldInfo.objects} scene objects · ${worldInfo.alignment}`,55,180);
+      ctx.fillText(`${worldInfo.objects} scene objects · ${worldInfo.alignment}`,55,195);
       ctx.font='25px sans-serif';
       const label=gameStatus.length>70?gameStatus.slice(0,67)+'…':gameStatus;
       ctx.fillText(label,55,235);
@@ -436,17 +464,22 @@ export function operatorPanel({createImage=()=>new Image()}={}){
       }
       const previewRows=Number(concepts.length>0)+Number(panoramas.length>0);
       const perPage=mode==='agent'?previewRows===2?5:previewRows===1?7:content.length>500?10:9:
-        content.length>500?14:12;
+        content.length>500?12:10;
       const pages=Math.max(1,Math.ceil(lines.length/perPage));page%=pages;
       const step=mode==='agent'?content.length>500?28:34:content.length>500?30:37;
-      const contentTop=mode==='agent'?previewRows===2?425:previewRows===1?355:286:160;
+      const contentTop=mode==='agent'?previewRows===2?425:previewRows===1?355:286:215;
       lines.slice(page*perPage,(page+1)*perPage).forEach((line,index)=>
         ctx.fillText(line,55,contentTop+index*step));
       ctx.fillStyle='#8bb8c2';ctx.font='24px sans-serif';ctx.fillText(`Page ${page+1}/${pages}`,55,596);
     }
     if(worldWarning){ctx.fillStyle='#ffad8d';ctx.font='bold 19px sans-serif';ctx.fillText(worldWarning,55,625);}
     const speakLabel=voiceInputLabel==='HOLD FOR CODEX'&&agent.active?'HOLD TO ADD':voiceInputLabel;
-    if(mode==='agent'){
+    if(mode==='transcript'){
+      const label=voiceInputLabel.startsWith('HOLD')?'HOLD: PROFESSOR':voiceInputLabel;
+      button('professor-voice',label,35,636,472,90,true,voiceInputLabel!=='VOICE BUSY');
+      button('stop-professor-voice','STOP VOICE',519,636,210,90);
+      button('next','NEXT PAGE',741,636,248,90);
+    }else if(mode==='agent'){
       if(agent.pending){
         if(agent.approvalReviewable)button('agent-approve','APPROVE ONCE',35,636,275,90,true);
         else {ctx.fillStyle='#183744';ctx.fillRect(35,636,275,90);
@@ -501,6 +534,21 @@ export function operatorPanel({createImage=()=>new Image()}={}){
   const setVoiceLabel=next=>{voiceLabel=next;paint();};
   const setVoiceInputLabel=next=>{if(voiceInputLabel!==next){voiceInputLabel=next;paint();}};
   const setConversationTarget=next=>{if(conversationTarget!==next){conversationTarget=next;paint();}};
+  const setTranscript=next=>{
+    const key=JSON.stringify(next);if(key===transcriptKey)return;
+    const selectedId=transcript.entries[transcriptIndex]?.id;transcriptKey=key;transcript=next;
+    const index=transcript.entries.findIndex(e=>e.id===selectedId);
+    if(transcriptFollowLatest||index<0){transcriptIndex=latestTranscriptIndex();page=0;}
+    else transcriptIndex=index;
+    if(mode==='transcript')paint();
+  };
+  const toggleTranscript=()=>{if(mode==='transcript')mode=transcriptReturnMode;
+    else{transcriptReturnMode=mode;mode='transcript';transcriptFollowLatest=true;transcriptIndex=latestTranscriptIndex();}page=0;paint();};
+  const openTranscript=()=>{if(mode!=='transcript')toggleTranscript();};
+  const setTeachingPointStatus=next=>{if(teachingPointStatus!==next){teachingPointStatus=next;if(mode==='transcript')paint();}};
+  const olderTranscript=()=>{transcriptFollowLatest=false;transcriptIndex=Math.max(0,transcriptIndex-1);page=0;paint();};
+  const newerTranscript=()=>{transcriptFollowLatest=false;transcriptIndex=Math.max(0,Math.min(transcript.entries.length-1,transcriptIndex+1));page=0;paint();};
+  const latestTranscript=()=>{transcriptFollowLatest=true;transcriptIndex=latestTranscriptIndex();page=0;paint();};
   const setOriginLabel=next=>{if(originLabel!==next){originLabel=next;paint();}};
   const setConversationCount=next=>{conversationCount=next;paint();};
   const setProposal=next=>{
@@ -518,7 +566,7 @@ export function operatorPanel({createImage=()=>new Image()}={}){
   const setWarning=next=>{if(worldWarning!==next){worldWarning=next;paint();}};
   const setCameraStatus=(next,active)=>{if(cameraStatus!==next||cameraActive!==active){cameraStatus=next;cameraActive=active;paint();}};
   const setAgentStatus=next=>{if(JSON.stringify(agent)!==JSON.stringify(next)){
-    if(agent.pending!==next.pending||agent.voiceStatus!==next.voiceStatus||agent.latestTurnId!==next.latestTurnId)page=0;
+    if(mode!=='transcript'&&(agent.pending!==next.pending||agent.voiceStatus!==next.voiceStatus||agent.latestTurnId!==next.latestTurnId))page=0;
     const controlsChanged=agent.active!==next.active;
     agent=next;if(controlsChanged||mode==='agent'||mode==='concepts'||mode==='panoramas')paint();
   }};
@@ -577,11 +625,11 @@ export function operatorPanel({createImage=()=>new Image()}={}){
     if(!uv)return null;const x=uv.x*1024,y=(1-uv.y)*768;
     return buttons.find(item=>x>=item.x&&x<=item.x+item.w&&y>=item.y&&y<=item.y+item.h)?.id||null;
   };
-  const nextPage=()=>{page++;paint();};
+  const nextPage=()=>{if(mode==='transcript')transcriptFollowLatest=false;page++;paint();};
   paint();
   return {group,mesh,setMessage,setPinLabel,setXRMode,setVoiceLabel,setOriginLabel,setConversationCount,
     setProposal,setWorldInfo,setWorldNotice,setGameStatus,setCreatorMode,setWarning,setCameraStatus,
-    setAgentStatus,setConceptGallery,setPanoramaGallery,setCreationMode,setVoiceInputLabel,setConversationTarget,toggleWorld,openLayout,toggleArchives,
+    setAgentStatus,setConceptGallery,setPanoramaGallery,setCreationMode,setVoiceInputLabel,setConversationTarget,setTranscript,toggleTranscript,openTranscript,setTeachingPointStatus,olderTranscript,newerTranscript,latestTranscript,toggleWorld,openLayout,toggleArchives,
     toggleModePage,toggleAgent,toggleConcepts,togglePanoramas,previousConcept,nextConcept,
     previousPanorama,nextPanorama,isAgentMode,openAgent,openProposal,hit,nextPage};
 }
@@ -738,6 +786,7 @@ export class MatrixView {
     this.onXRSessionChange?.(session);
     this.operatorPanel.setXRMode(this.isAR?'ar':'vr');
     this.operatorPanel.group.visible=!this.readOnly;
+    if(this.world.scene?.objects?.some(object=>object.professor))this.operatorPanel.openTranscript?.();
     this.operatorMount={kind:'head'};this.operatorPanel.setPinLabel(this.isAR?'PIN TO WALL':'PIN HERE');
     this.operatorThumbstickHeld=false;
     this.sessionStartedAt=performance.now();this.roomCaptureRequested=false;this.virtualFloorCalibrated=false;this.roomAnchorCreationFailed=false;this.roomAnchorRestoreFailed=false;this.roomAnchorLocated=false;this.roomAnchorPose=null;this.roomPoseMissingSince=0;this.lastPlaneTime=0;
@@ -1802,6 +1851,11 @@ export class MatrixView {
       if(action==='review-view')this.onVisualReview();
       else if(action==='exit-xr')void this.exitXR();
       else if(action==='toggle-world')this.operatorPanel.toggleWorld();
+      else if(action==='toggle-transcript')this.operatorPanel.toggleTranscript();
+      else if(action==='transcript-older')this.operatorPanel.olderTranscript();
+      else if(action==='transcript-newer')this.operatorPanel.newerTranscript();
+      else if(action==='transcript-latest')this.operatorPanel.latestTranscript();
+      else if(action==='professor-voice'){this.onPanelAction('conversation-professor');this.operatorVoiceController=controller;this.onVoiceStart();}
       else if(action==='open-layout')this.operatorPanel.openLayout();
       else if(action==='toggle-archives')this.operatorPanel.toggleArchives();
       else if(action==='toggle-mode')this.operatorPanel.toggleModePage();

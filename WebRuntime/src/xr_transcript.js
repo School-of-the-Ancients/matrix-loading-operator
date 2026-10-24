@@ -1,13 +1,13 @@
 // Read-only view of the existing lesson journal; never submits or replays turns.
 export function transcriptContent(session){
   const events=(session?.conversation?.events||[]).filter(e=>typeof e.text==='string'&&
-    (e.speaker==='learner'||e.recipient==='learner')&&['learner','professor','operator'].includes(e.speaker));
+    (e.speaker==='learner'&&e.recipient==='professor'||e.speaker==='professor'&&e.recipient==='learner'));
   const latest=events.findLast(e=>e.speaker==='professor'&&e.recipient==='learner');
   const name=session?.mentor?.name||'Professor';
   const delivery={text:'Text only',speaking:'Speaking',spoken:'Spoken',interrupted:'Interrupted',failed:'Voice failed'};
   return {lessonId:session?.id||'',title:session?`${name} · conversation`:'Conversation',
     latest:latest?.text.slice(0,4000)||'Your professor’s latest reply will appear here.',
-    entries:events.slice(-40).map(e=>({id:e.id,label:e.speaker==='learner'?`You → ${e.recipient==='operator'?'Operator':name}`:
+    entries:events.slice(-40).map(e=>({id:e.id,speaker:e.speaker,label:e.speaker==='learner'?`You → ${e.recipient==='operator'?'Operator':name}`:
       e.speaker==='operator'?'Operator':name,status:e.speaker==='professor'?(delivery[e.delivery]||'Text only'):'',
       text:e.text.length>2000?e.text.slice(0,2000)+'…':e.text}))};
 }

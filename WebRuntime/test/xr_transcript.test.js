@@ -15,9 +15,10 @@ function fixture(){const elements=Object.fromEntries(['toggle','panel','close','
   const view=new XRTranscript({...elements,document:{createElement:()=>new Element()}});return {view,...elements};}
 test('shows the exact last professor question and attributed recent conversation, without replaying tasks',()=>{
   const result=transcriptContent(session);assert.equal(result.latest,'Look at the shaft. What drives it?');
-  assert.equal(result.entries.length,3);assert.equal(result.entries[1].status,'Interrupted');
+  assert.equal(result.entries.length,2);assert.equal(result.entries[1].status,'Interrupted');
   assert.equal(result.entries[0].label,'You → Leonardo');
   assert(!JSON.stringify(result).includes('Private task instruction'));
+  assert(!JSON.stringify(result).includes('The exhibit is ready.'));
 });
 test('transcript opens and closes independently; rendering never submits a message',()=>{
   const f=fixture();f.view.render(session);f.toggle.click();assert.equal(f.panel.hidden,false);

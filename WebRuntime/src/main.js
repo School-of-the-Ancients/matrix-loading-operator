@@ -48,7 +48,7 @@ import {readVoiceChoices,saveVoiceChoice} from './professor_voice_profiles.js';
 import {ProfessorRecovery} from './professor_recovery.js';
 import {selectedPart} from './asset_parts.js';
 import {selectedSurface} from './surface_selection.js';
-import {XRTranscript} from './xr_transcript.js';
+import {XRTranscript,transcriptContent} from './xr_transcript.js';
 import {professorAttention} from './professor_attention.js';
 import {ProfessorTaskClient} from './professor_tasks.js';
 
@@ -735,6 +735,7 @@ function renderProfessorConversation(){
   if(!professorConversation)return;
   const conversation=professorConversation,session=conversation.session;
   xrTranscript?.render(session);
+  view.operatorPanel.setTranscript(transcriptContent(session));
   if(!pendingWorld)professorRecovery?.remember();
   $('talk-professor').setAttribute('aria-pressed',String(conversation.target==='professor'));
   $('talk-operator').setAttribute('aria-pressed',String(conversation.target==='operator'));
@@ -863,6 +864,7 @@ function renderPartSelection(){
   const text=name?`Selected: ${name}. A/X: change point · B/Y: clear.${imageStatus}`:'No point selected. Point at an item and press A/X. Trigger grabs; grip speaks.';
   if($('student-part-selection').textContent!==text)$('student-part-selection').textContent=text;
   const xrText=name?`Selected: ${name} · A/X: change · B/Y: clear${imageStatus}`:'Point + A/X: select item point · B/Y: clear';
+  view.operatorPanel.setTeachingPointStatus(name?`Selected: ${name}${imageStatus}`:'A/X SELECT POINT · B/Y CLEAR · STICK RECALLS PANEL');
   if($('student-part-selection-xr').textContent!==xrText)$('student-part-selection-xr').textContent=xrText;
   if($('student-part-clear').disabled===!!surface)$('student-part-clear').disabled=!surface;
 }
@@ -1734,6 +1736,7 @@ function toggleSelectedManipulation(){
 }
 
 function panelAction(action){
+  if(action==='stop-professor-voice'){professorVoice.stop();return;}
   if(action==='conversation-professor'||action==='conversation-operator'){
     if(!voiceRecording&&!voiceStarting)professorConversation.select(action.endsWith('professor')?'professor':'operator');
     return;

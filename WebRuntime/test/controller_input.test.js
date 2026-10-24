@@ -112,7 +112,7 @@ test('WORLD panel labels the active XR mode and its exit control ends that sessi
   }};
   try{
     const panel=operatorPanel(),hit=(x,y)=>panel.hit({x:x/1024,y:1-y/768});
-    assert.equal(hit(155,71),null,'the exit control belongs only to an active WORLD page');
+    assert.equal(hit(155,71),'toggle-transcript','the normal header opens the in-world transcript');
     panel.setXRMode('vr');panel.toggleWorld();
     assert.equal(hit(155,71),'exit-xr');
     assert.ok(drawn.includes('EXIT VR'));
