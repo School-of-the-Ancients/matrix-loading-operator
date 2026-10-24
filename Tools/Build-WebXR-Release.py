@@ -236,7 +236,8 @@ def build_professor(repo: Path, ref: str, source: Path, bundle: Path) -> dict:
     run(npm, "run", "build:matrix", cwd=school, env=env)
     target = bundle / "Professor"
     target.mkdir()
-    for name in ("package.json", "package-lock.json", "vite.config.ts"):
+    for name in ("package.json", "package-lock.json", "vite.config.ts",
+                 "tsconfig.json", "constants.ts", "types.ts"):
         shutil.copyfile(school / name, target / name)
     for name in ("server", "src/school"):
         for item in (school / name).glob("*.mjs"):
@@ -247,6 +248,9 @@ def build_professor(repo: Path, ref: str, source: Path, bundle: Path) -> dict:
             shutil.copyfile(item, output)
     for name in ("dist", "dist-matrix", "node_modules"):
         shutil.copytree(school / name, target / name)
+    run(tool("node"), "--input-type=module", "--eval",
+        "import('vite').then(({resolveConfig}) => resolveConfig({}, 'serve'))",
+        cwd=target, env=env)
     for name in PROFESSOR_FILES:
         output = bundle / name
         output.parent.mkdir(parents=True, exist_ok=True)
