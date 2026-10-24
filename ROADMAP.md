@@ -23,7 +23,7 @@ Reuse completed implementation, package checks and unaffected wearer observation
 
 ## Module backlogs
 
-The other 25 open issues are retained as future work. No next release or implementation sequence is selected by this table. Shared labels on #22, #31 and #156 expose real integration responsibilities; other issues have one module owner.
+The other 26 open issues are outside the frozen v1.2 selection; most remain future work. #212 records a bounded Professor source checkpoint, not a new frozen-release requirement. No next release or implementation sequence is selected by this table. Shared labels on #22, #31 and #156 expose real integration responsibilities; other issues have one module owner.
 
 | Module / area | Existing issues | Responsibility |
 | --- | --- | --- |
@@ -32,7 +32,7 @@ The other 25 open issues are retained as future work. No next release or impleme
 | Matrix optional clients | #181, #182, #183, #184 | ChatGPT adapter, pairing/hosting and client UI. |
 | Matrix access and tooling | #186, #188 | Rendered/input testing and wireless/deployment access. Reuse existing test-runner foundations for v1.2. |
 | Matrix research | #177, #189 | Image reconstruction and remote/hybrid glasses compute. |
-| School | #187 | Independent historical-mind conversations using Matrix presentation tools; coordinate with [School #7](https://github.com/School-of-the-Ancients/school-of-the-ancients/issues/7). |
+| School | #187, #212 | Independent historical-mind conversations using Matrix presentation tools; coordinate with [School #7](https://github.com/School-of-the-Ancients/school-of-the-ancients/issues/7). #212 owns the bounded Professor/Operator asynchronous delegation, attributed transcript, voice-target and VRM binding checkpoint through #31/#32. Keep its source/desktop/live-model evidence separate from Quest acceptance and Professor #3's broader full-duplex voice research; no new October 27 prerequisite or v1.2 gate is introduced. |
 | Civilization | #20, #29, #148, #179, #180 | Resident state and hosting, agent society, hosted Operator access, Boulder and geographic AR. |
 | Shared routing | #156 | Routes longer-term requirements across Matrix, School and Civilization. |
 
