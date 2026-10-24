@@ -1770,7 +1770,16 @@ export class MatrixWorld {
           delete object.component;result.objectId=object.objectId;break;
         case 'bind_professor': {
           object=this.requireObject(command.objectId);
-          if(object.anchorId!==ANCHOR_ID||!validProfessorBinding(command.professor,object.assetId))throw Error('Invalid professor binding');
+          const assetId=command.assetId||object.assetId;
+          if(object.anchorId!==ANCHOR_ID||!validProfessorBinding(command.professor,assetId))throw Error('Invalid professor binding');
+          if(assetId!==object.assetId){
+            const asset=this.asset(assetId);
+            if(!object.professor||object.professor.schoolSessionId!==command.professor.schoolSessionId||
+              !asset||assetId!=='professor-placeholder'&&!asset.geometry?.vrm||
+              object.component||object.control||object.physics||object.rigidBody||object.animation||object.interaction)
+              throw Error('Appearance replacement requires a plain avatar for the same lesson');
+            object.assetId=assetId;
+          }
           object.professor=clone(command.professor);result.objectId=object.objectId;break;
         }
         case 'bind_animation':

@@ -1,0 +1,142 @@
+{
+  "schemaVersion": 1,
+  "avatars": [
+    {
+      "id": "renaissance-scholar",
+      "file": "renaissance-scholar.vrm",
+      "displayName": "Renaissance scholar",
+      "sha256": "11e325f43318bbaaf520d2475027d433ecfb502784a40971eaf591565c9dc32e",
+      "visualTags": [
+        "human",
+        "masculine",
+        "older-adult",
+        "long-gray-beard",
+        "renaissance",
+        "robe",
+        "cap"
+      ],
+      "teacherMatches": [
+        "leonardo-da-vinci",
+        "galileo-galilei"
+      ],
+      "automaticSelection": true,
+      "representation": "approximate",
+      "source": "Original procedural geometry; MIT project license."
+    },
+    {
+      "id": "classical-philosopher",
+      "file": "classical-philosopher.vrm",
+      "displayName": "Classical philosopher",
+      "sha256": "e7a64d31ba3e6ed11b0bfb47ca799b5adc3f7a7574252ba2327b7c3af8089f92",
+      "visualTags": [
+        "human",
+        "masculine",
+        "older-adult",
+        "beard",
+        "classical",
+        "greek",
+        "robe"
+      ],
+      "teacherMatches": [
+        "socrates",
+        "plato",
+        "aristotle",
+        "euclid",
+        "archimedes"
+      ],
+      "automaticSelection": true,
+      "representation": "approximate",
+      "source": "Original procedural geometry; MIT project license."
+    },
+    {
+      "id": "classical-scholar",
+      "file": "classical-scholar.vrm",
+      "displayName": "Classical woman scholar",
+      "sha256": "cea31c625a6c368fb79e73d8253bdd487c64d1df4223e16839699fce62c34543",
+      "visualTags": [
+        "human",
+        "feminine",
+        "adult",
+        "dark-hair",
+        "classical",
+        "greek",
+        "robe"
+      ],
+      "teacherMatches": [
+        "hypatia"
+      ],
+      "automaticSelection": true,
+      "representation": "approximate",
+      "source": "Original procedural geometry; MIT project license."
+    },
+    {
+      "id": "victorian-scholar",
+      "file": "victorian-scholar.vrm",
+      "displayName": "Victorian woman scholar",
+      "sha256": "c1a591a4dfe3b7fccf07a8ba7c06434bb9a0e09102cdb49a35dbd41a5c86cf15",
+      "visualTags": [
+        "human",
+        "feminine",
+        "adult",
+        "dark-hair",
+        "victorian",
+        "nineteenth-century",
+        "gown"
+      ],
+      "teacherMatches": [
+        "ada-lovelace",
+        "mary-somerville",
+        "florence-nightingale"
+      ],
+      "automaticSelection": true,
+      "representation": "approximate",
+      "source": "Original procedural geometry; MIT project license."
+    },
+    {
+      "id": "natural-philosopher",
+      "file": "natural-philosopher.vrm",
+      "displayName": "Natural philosopher",
+      "sha256": "07113b1e06b506b266bff2edf108ed83353004b894ee56c49e6dbb3b1ad81342",
+      "visualTags": [
+        "human",
+        "masculine",
+        "adult",
+        "long-hair",
+        "european",
+        "seventeenth-century",
+        "eighteenth-century",
+        "coat"
+      ],
+      "teacherMatches": [
+        "isaac-newton",
+        "gottfried-leibniz",
+        "rene-descartes"
+      ],
+      "automaticSelection": true,
+      "representation": "approximate",
+      "source": "Original procedural geometry; MIT project license."
+    },
+    {
+      "id": "modern-scientist",
+      "file": "modern-scientist.vrm",
+      "displayName": "Modern scientist",
+      "sha256": "1eba316dc45e25af226bf51010c5af96e5c2c7727e60cac62651a7d1bf44dba2",
+      "visualTags": [
+        "human",
+        "masculine",
+        "older-adult",
+        "white-hair",
+        "moustache",
+        "twentieth-century",
+        "suit"
+      ],
+      "teacherMatches": [
+        "albert-einstein",
+        "max-planck"
+      ],
+      "automaticSelection": true,
+      "representation": "approximate",
+      "source": "Original procedural geometry; MIT project license."
+    }
+  ]
+}

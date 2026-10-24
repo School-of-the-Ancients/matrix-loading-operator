@@ -30,6 +30,8 @@ environment.SANDBOX_CODEX_AGENT_SANDBOX='danger-full-access';
 environment.SANDBOX_CODEX_AGENT_APPROVAL_POLICY='never';
 environment.SANDBOX_CODEX_MODEL ||= 'gpt-6.1-sol';
 const data=join(root,'.utmp','professor-local');mkdirSync(data,{recursive:true});
+const avatars=spawnSync('python',[join(root,'Tools','install_professor_avatars.py'),'--catalog',join(data,'assets')],{cwd:root,encoding:'utf8',windowsHide:true});
+if(avatars.status!==0)throw Error('Bundled professor models could not be registered. No services were started.');
 const children=[];
 function start(command,args,cwd,name){
   const child=spawn(command,args,{cwd,env:environment,windowsHide:true,detached:true,

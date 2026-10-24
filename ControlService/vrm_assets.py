@@ -67,5 +67,5 @@ def inspect_vrm(document):
     if not isinstance(preset, dict) or len(preset) > 32:
         raise ValueError("Invalid VRM expressions")
     return {"specVersion": "1.0", "expressions": sorted(preset), "humanBones": sorted(bones),
-            "license": {key: meta[key] for key in ("name", "licenseUrl", "avatarPermission", "commercialUsage",
+            "license": {key: meta[key] for key in ("name", "licenseUrl", "otherLicenseUrl", "authors", "copyrightInformation", "avatarPermission", "commercialUsage",
                 "allowRedistribution", "modification") if key in meta}}

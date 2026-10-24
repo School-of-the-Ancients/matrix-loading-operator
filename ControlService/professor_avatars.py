@@ -1,6 +1,8 @@
 """Bounded public avatar metadata and persisted teacher binding validation."""
 import copy
 import re
+import json
+from pathlib import Path
 
 ID = re.compile(r"[A-Za-z0-9][A-Za-z0-9._:-]{0,127}\Z")
 UUID = re.compile(r"[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}\Z")
@@ -30,14 +32,18 @@ def validate_binding(value, asset_id):
 
 
 def public_catalog(assets):
+    curated_path = Path(__file__).resolve().parents[1] / 'WebRuntime' / 'art' / 'professors' / 'catalog.json'
+    curated = {item['sha256']: item for item in json.loads(curated_path.read_text(encoding='utf-8'))['avatars']} if curated_path.is_file() else {}
     entries = [{"catalogId": "generic-professor", "assetId": "professor-placeholder",
                 "assetSha256": "", "displayName": "Stylized professor", "representation": "generic",
                 "visualTags": ["stylized", "robe"], "availability": "ready", "automaticSelection": True}]
     for asset in assets:
         if not asset.get("geometry", {}).get("vrm"):
             continue
+        metadata = curated.get(asset['sha256'], {})
         entries.append({"catalogId": asset["assetId"], "assetId": asset["assetId"],
                         "assetSha256": asset["sha256"], "displayName": asset["displayName"],
-                        "representation": "approximate", "visualTags": [],
-                        "availability": "ready", "automaticSelection": False})
+                        "representation": "approximate", "visualTags": metadata.get('visualTags', ['fantasy', 'cat-girl', 'ears', 'tail'] if 'riko' in asset['displayName'].lower() else []),
+                        "teacherMatches": metadata.get('teacherMatches', []), "description": metadata.get('source', 'Owner-supplied avatar.'),
+                        "availability": "ready", "automaticSelection": bool(metadata.get('automaticSelection'))})
     return {"schemaVersion": 1, "avatars": entries}

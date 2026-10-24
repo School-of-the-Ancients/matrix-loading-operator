@@ -1,6 +1,7 @@
 import copy
 import json
 import struct
+import hashlib
 import tempfile
 from pathlib import Path
 import unittest
@@ -24,6 +25,24 @@ def vrm_bytes(edit=None):
 
 
 class ProfessorAvatarTests(unittest.TestCase):
+    def test_curated_models_are_valid_small_humans_and_unknown_assets_stay_manual(self):
+        root=Path(__file__).resolve().parents[1]/'WebRuntime'/'art'/'professors'
+        entries=json.loads((root/'catalog.json').read_text())['avatars']
+        assets=[]
+        for entry in entries:
+            path=root/entry['file']
+            self.assertEqual(hashlib.sha256(path.read_bytes()).hexdigest(),entry['sha256'])
+            info=inspect_glb(path)
+            self.assertIn('aa',info['vrm']['expressions'])
+            self.assertIn('blink',info['vrm']['expressions'])
+            self.assertLess(info['bytes'],600000)
+            assets.append(dict(assetId=entry['id'],sha256=entry['sha256'],displayName=entry['displayName'],geometry=info))
+        assets.append(dict(assetId='riko',sha256='a'*64,displayName='Riko',geometry=assets[0]['geometry']))
+        catalog=public_catalog(assets)['avatars']
+        self.assertEqual(sum(item['automaticSelection'] for item in catalog),7)
+        self.assertFalse(catalog[-1]['automaticSelection'])
+        self.assertIn('fantasy',catalog[-1]['visualTags'])
+
     def test_vrm_profile_requires_valid_humanoid_and_retains_license(self):
         with tempfile.TemporaryDirectory() as directory:
             path=Path(directory)/'avatar.vrm';path.write_bytes(vrm_bytes())

@@ -10,9 +10,9 @@ The first user session exposed three concrete follow-ups:
 
 - [School #7](https://github.com/School-of-the-Ancients/sota-professor/issues/7): shorter, exhibit-led Socratic turns are implemented in the School draft checkpoint, pending user quality review. After a supported load result, invite one observation or action and wait for the student, then adapt the next hint/explanation to their answer. Example: “Look at the circle and square—what do you notice about the proportions?” Explicit detail requests allow more explanation.
 - [Matrix #215](https://github.com/School-of-the-Ancients/matrix-loading-operator/issues/215): relaxed arms, subtle idle/listening motion, speaking gestures and grounded exhibit gaze/pointing are implemented and checked with the actual local rig and an isolated desktop preview. Quest wearer/performance checks remain pending. Mouth movement working does not establish natural body animation.
-- [Matrix #214](https://github.com/School-of-the-Ancients/matrix-loading-operator/issues/214): expand the curated, licensed VRM catalog and appropriate teacher matching. Leonardo using a cat-girl body with a tail is a placeholder mismatch. Keep an explicit representation label and user override. Dynamic model creation is a later feasibility item, not a dependency for better stock avatars.
+- [Matrix #214](https://github.com/School-of-the-Ancients/matrix-loading-operator/issues/214): six original human VRM models, curated/model-assisted matching, saved manual pins and in-place appearance updates are implemented. Riko stays a manual fantasy choice. Broader catalog quality and Quest checks remain open; dynamic per-person model generation is later feasibility work.
 
-The short teaching exchange, basic body motion and exhibit-directed gaze/pointing are implemented in the Professor checkpoint. Avatar catalog expansion and native live voice remain future work. Body motion uses the existing model unchanged.
+The short teaching exchange, basic body motion, exhibit-directed gaze/pointing and initial human avatar catalog are implemented. Native live voice and broader catalog quality remain future work. Body motion uses each model unchanged.
 
 ## Outcome
 
