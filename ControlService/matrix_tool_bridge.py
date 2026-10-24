@@ -309,6 +309,12 @@ def register_glb(url: str, token: str, value: dict) -> dict:
     return _request_json(url[:-6] + "/register-glb", token, value)
 
 
+def library_action(url: str, token: str, value: dict, register=False) -> dict:
+    if not url.endswith("/scene"):
+        raise ValueError("Invalid Matrix tool bridge URL")
+    return _request_json(url[:-6] + ("/register-library-asset" if register else "/search-library"), token, value)
+
+
 def publish_component(url: str, token: str, package: dict) -> dict:
     if not url.endswith("/scene"):
         raise ValueError("Invalid Matrix tool bridge URL")
@@ -425,8 +431,8 @@ BRIDGE_POST_PATHS = frozenset({
     "/display", "/control", "/rigid", "/inspect-entity", "/entity-action",
     "/world-archive", "/bind-animation", "/register-glb", "/publish-component",
     "/component-action", "/scale", "/physics", "/interaction", "/concept-build",
-    "/register-panorama", "/environment"})
-NATIVE_IMAGE_BLOCKED_POSTS = BRIDGE_POST_PATHS - {"/inspect-entity"}
+    "/register-panorama", "/environment", "/search-library", "/register-library-asset"})
+NATIVE_IMAGE_BLOCKED_POSTS = BRIDGE_POST_PATHS - {"/inspect-entity", "/search-library"}
 
 
 def entity_page(state, offset: int, limit: int) -> dict:
@@ -669,6 +675,12 @@ class _Handler(BaseHTTPRequestHandler):
                 result = self.server.state.agent_record_concept_build(value)
             elif self.path == "/register-glb":
                 result = self.server.state.agent_register_glb(value)
+            elif self.path == "/search-library":
+                if set(value) != {'query', 'kind'}:
+                    raise ValueError('Invalid library search')
+                result = self.server.state.professor_library.list(value['query'], value['kind'])
+            elif self.path == "/register-library-asset":
+                result = self.server.state.professor_library.register(value)
             elif self.path == "/register-panorama":
                 result = self.server.state.agent_register_panorama(value)
             elif self.path == "/environment":

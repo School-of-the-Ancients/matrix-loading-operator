@@ -1,16 +1,16 @@
 // One recipient is captured for each utterance. Journal writes are never world actions.
 export class ProfessorConversation {
-  constructor({request,onChange=()=>{},onReply=()=>{},onStop=()=>{},onTasks=()=>{},isDelegatedTurn=()=>false,worldId=()=>'',worldIdentity=null}) {
-    Object.assign(this,{request,onChange,onReply,onStop,onTasks,isDelegatedTurn,worldId});
+  constructor({request,onChange=()=>{},onReply=()=>{},onCreated=()=>{},onStop=()=>{},onTasks=()=>{},isDelegatedTurn=()=>false,worldId=()=>'',worldIdentity=null}) {
+    Object.assign(this,{request,onChange,onReply,onCreated,onStop,onTasks,isDelegatedTurn,worldId});
     this.worldIdentity=worldIdentity||worldId;
     this.target='professor';this.session=null;this.generation=0;this.pending=false;
-    this.status='Open Professor and choose a lesson.';this.draft='';this.operatorTurns=new Map();this.operatorInputs=[];
+    this.status='Ask a question to start a lesson.';this.draft='';this.operatorTurns=new Map();this.operatorInputs=[];
     this.queued=Promise.resolve();this.operatorSessions=new Set();
   }
   async activate(id) {
     if(id===this.session?.id){await this.refresh();return;}
     const generation=++this.generation;this.onStop();this.session=null;this.target='professor';this.onChange();
-    if(!id){this.status='Open Professor and choose a lesson.';this.onChange();return;}
+    if(!id){this.status='Ask a question to start a lesson.';this.onChange();return;}
     try{const session=await this.request(`/api/school/sessions/${id}`);
       if(this.generation!==generation)return;
       this.session=session;this.status=`Talking to ${session.mentor.name}`;this.onChange();
@@ -18,8 +18,7 @@ export class ProfessorConversation {
   }
   select(target){if(!['professor','operator'].includes(target))throw Error('Unknown conversation target.');
     this.target=target;this.onStop();this.status=target==='operator'?'Talking directly to Matrix Operator':this.session?`Talking to ${this.session.mentor.name}`:'Open Professor and choose a lesson.';this.onChange();}
-  capture(){if(this.target==='professor'&&!this.session)throw Error('Open Professor and choose a lesson first.');
-    return Object.freeze({target:this.target,sessionId:this.session?.id||null,generation:this.generation,worldId:this.worldId(),worldIdentity:this.worldIdentity()});}
+  capture(){return Object.freeze({target:this.target,sessionId:this.session?.id||null,generation:this.generation,worldId:this.worldId(),worldIdentity:this.worldIdentity()});}
   current(capture){return capture.generation===this.generation&&capture.sessionId===(this.session?.id||null)&&capture.worldId===this.worldId()&&capture.worldIdentity===this.worldIdentity();}
   context(){const session=this.session;if(!session)return null;return {sessionId:session.id,teacherName:session.mentor.name.slice(0,100),goal:(session.goal||'').slice(0,500),
     events:(session.conversation?.events||[]).slice(-10).map(({speaker,recipient,text})=>({speaker,recipient,text:text.slice(0,600)}))};}
@@ -50,6 +49,17 @@ export class ProfessorConversation {
     if(capture.target!=='professor')throw Error('This reply belongs to Operator.');
     this.pending=true;this.draft=text;this.draftSessionId=capture.sessionId;this.status='Saving your turn…';this.onChange();
     try{
+      if(!capture.sessionId){
+        this.status='Creating your lesson and finding a professor…';this.onChange();
+        const session=await this.request('/api/school/sessions',{goal:text,mentor:'',inputKind,
+          preferences:{difficulty:'beginner',style:'dialogue',timeBudget:''}});
+        if(!this.current(capture))return;
+        this.session=session;this.draft='';this.pending=false;this.status=`Talking to ${session.mentor.name}`;this.onChange();
+        await this.onCreated(session);
+        const reply=session.conversation?.events.filter(item=>item.speaker==='professor').at(-1);
+        if(reply)await this.onReply(reply,this.capture());
+        return;
+      }
       const event=await this.recordInput(text,capture,inputKind);
       if(!this.current(capture))throw Error('The lesson or world changed. Your transcript remains in its original lesson.');
       this.status='Professor is thinking…';this.onChange();

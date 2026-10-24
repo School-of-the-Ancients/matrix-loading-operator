@@ -3,6 +3,25 @@ import assert from 'node:assert/strict';
 import {ProfessorConversation} from '../src/professor_conversation.js';
 import {speechChunks,ProfessorVoice} from '../src/professor_voice.js';
 
+test('a first spoken question creates a School lesson and speaks its introduction',async()=>{
+  let input,spoken;
+  const created={id:'new-lesson',revision:1,mentor:{name:'Leonardo'},conversation:{events:[{id:'intro',speaker:'professor',text:'Look closely.'}]}};
+  const controller=new ProfessorConversation({request:async(path,body)=>{
+    assert.equal(path,'/api/school/sessions');input=body;return created;
+  },onReply:async(event,capture)=>{spoken={event,capture};}});
+  await controller.ask('How did Leonardo think flight worked?',controller.capture(),'voice');
+  assert.equal(input.inputKind,'voice');assert.equal(input.goal,'How did Leonardo think flight worked?');
+  assert.equal(controller.session.id,'new-lesson');assert.equal(spoken.capture.sessionId,'new-lesson');
+});
+
+test('a first question finishing after the world changed cannot speak in the new world',async()=>{
+  let world={},spoken=false;
+  const controller=new ProfessorConversation({worldIdentity:()=>world,
+    request:async()=>{world={};return {id:'late',mentor:{name:'Leonardo'}};},onReply:async()=>{spoken=true;}});
+  await controller.ask('Teach me flight',controller.capture(),'voice');
+  assert.equal(controller.session,null);assert.equal(spoken,false);
+});
+
 test('captured target never changes mid-transcription and stale lessons cannot receive replies',async()=>{
   const session={id:'a',mentor:{name:'Ada'},revision:1,conversation:{events:[]}};
   const controller=new ProfessorConversation({request:async(path,body)=>structuredClone({...session,id:path.split('/').at(-1)})});
