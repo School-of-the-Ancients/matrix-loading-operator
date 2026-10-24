@@ -83,6 +83,18 @@ class MatrixARVirtualFloorTests(unittest.TestCase):
         self.exchange(request_id=attach["requestId"], object_id="dragon-1")
         self.assertEqual(self.state.agent_component_status(attach["requestId"])["status"], "succeeded")
 
+    def test_tracking_epoch_change_rejects_a_previously_observed_load(self):
+        self.room["spatialObservation"] = {"schemaVersion": 1, "planeAgeMs": 50,
+                                         "trackingEpoch": 1, "webFloorPose": None}
+        self.exchange()
+        request = self.request(asset_id=self.asset_id, transform=deepcopy(POSE))
+        self.room["spatialObservation"]["trackingEpoch"] = 2
+        self.exchange()
+        self.assertGreater(self.state.revision, request["scene_revision"])
+        with self.assertRaisesRegex(APIError, "world or origin changed"):
+            self.state.agent_spawn(request)
+        self.assertFalse(self.state.pending)
+
     def test_unaligned_ar_still_rejects_physical_edits_and_unavailable_origin(self):
         with self.assertRaisesRegex(APIError, "confirm room alignment"):
             self.state.queue([{"op": "spawn", "assetId": self.asset_id,

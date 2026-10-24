@@ -17,7 +17,7 @@ test('web runtime emits the existing Matrix schema and catalog',()=>{
   assert.equal(snapshot.anchors[0].anchorId,ANCHOR_ID);
   assert.deepEqual(snapshot.behaviorKinds,['rotate','bob']);
   assert.equal(snapshot.roomContext.mode,'white-room');
-  assert.deepEqual(ASSETS.map(a=>a.assetId),['chair','table','wall','pedestal','block','orb','column']);
+  assert.deepEqual(ASSETS.map(a=>a.assetId),['professor-placeholder','chair','table','wall','pedestal','block','orb','column']);
 });
 
 test('eligible Citizens AR visit retains canonical scene and rejects ordinary edits',()=>{

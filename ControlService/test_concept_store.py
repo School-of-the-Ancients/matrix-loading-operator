@@ -379,6 +379,25 @@ class ConceptStoreTests(unittest.TestCase):
         with self.assertRaises(ContentError):
             store.select(self.session, invalid["conceptId"], purpose="panorama")
 
+    def test_native_failure_preserves_known_reason_without_private_backend_text(self):
+        native = FakeNativePortal(self.catalog.image)
+        store = ConceptStore(self.directory / "native-errors", lambda: self.catalog, lambda: native)
+        for error, expected in (
+            ("Multiple native image results in one turn", "multiple images"),
+            ("Image request was rejected by the safety system", "safety system"),
+            ("Codex image event stream ended", "connection ended"),
+            ("private path C:/secret token=private", "Codex reported an image generation failure."),
+            ({"private": "details"}, "Codex reported an image generation failure."),
+        ):
+            job = store.create(self.session, "One image", provider_id="codex-native")["job"]
+            turn = store.data["sessions"][self.session]["jobs"][-1]["nativeTurnId"]
+            native.results[turn] = {"status": "failed", "error": error}
+            store.refresh(self.session, job["conceptId"])
+            failed = store.status(self.session, refresh=False)["jobs"][-1]
+            self.assertEqual(failed["status"], "failed")
+            self.assertIn(expected, failed["message"])
+            self.assertNotIn("private", failed["message"])
+
     def test_native_uncertain_restart_and_mismatched_result_never_ready(self):
         native = FakeNativePortal(self.catalog.image)
         store = ConceptStore(self.directory / "native-concepts", lambda: self.catalog,

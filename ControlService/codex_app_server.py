@@ -397,11 +397,15 @@ class AppServerTransport:
         if not all(isinstance(value, str) and 1 <= len(value) <= 128 for value in (thread_id, turn_id)):
             return
         key = (thread_id, turn_id)
-        if key in self._image_results:
-            self._discard_staged_image(self._image_results[key])
-            self._image_results[key] = {"status": "failed", "error": "Multiple native image results in one turn"}
+        previous = self._image_results.get(key)
+        # A rejected attempt is not an image. Allow one successful retry, but
+        # keep ambiguity terminal if more than one valid image was produced.
+        if previous and previous.get("error") == "Multiple native image results in one turn":
             return
         result = {"status": "failed", "error": "Native image generation did not return a valid image"}
+        failure = item.get("failure") if isinstance(item, dict) else None
+        if failure and any(term in str(failure).lower() for term in ("safety", "content_policy")):
+            result["error"] = "Image request was rejected by the safety system"
         if isinstance(item, dict) and item.get("status") == "completed":
             saved = self._validated_saved_image(item.get("savedPath"))
             encoded = item.get("result")
@@ -418,6 +422,12 @@ class AppServerTransport:
                 revised = item.get("revisedPrompt")
                 result = {"status": "ready", **artifact,
                           **({"revisedPrompt": revised[:4096]} if isinstance(revised, str) else {})}
+        if previous and previous.get("status") == "ready":
+            if result["status"] != "ready":
+                return
+            self._discard_staged_image(previous)
+            self._discard_staged_image(result)
+            result = {"status": "failed", "error": "Multiple native image results in one turn"}
         self._image_results[key] = result
         self._image_results.move_to_end(key)
         while len(self._image_results) > MAX_IMAGE_RESULTS:

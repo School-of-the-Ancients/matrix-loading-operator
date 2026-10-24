@@ -241,6 +241,9 @@ test('WORLD page keeps checkpoint feedback visible through ordinary redraws',()=
   }};
   try{
     const panel=operatorPanel();panel.toggleWorld();
+    assert.ok(drawn.some(item=>item.y===531&&
+      item.text==='Save: full browser world + PC scene backup. Restore: browser checkpoint.'),
+      'XR describes its browser checkpoint and scene-only PC backup before Save');
     const notice=()=>drawn.find(item=>item.y===317);
     panel.setWorldNotice('Saved in browser · saving PC scene backup…','pending');
     assert.deepEqual(notice(),{text:'Saved in browser · saving PC scene backup…',y:317,color:'#dff7f8'});

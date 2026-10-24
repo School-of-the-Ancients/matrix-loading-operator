@@ -1,3 +1,4 @@
+import {loadVrmAvatar} from './vrm_avatar.js';
 import {canDirectManipulate} from './manipulation.js';
 import * as THREE from 'three';
 import {adjustedARLayoutOffset,composeARLayoutPose,webFloorLayoutPivot} from './ar_layout.js';
@@ -23,7 +24,14 @@ function box(group,w,h,d,x,y,z,material){const mesh=new THREE.Mesh(new THREE.Box
 function cylinder(group,r,h,x,y,z,material){const mesh=new THREE.Mesh(new THREE.CylinderGeometry(r,r,h,24),material);mesh.position.set(x,y,z);mesh.castShadow=true;mesh.receiveShadow=true;group.add(mesh);}
 function makeAsset(id){
   const group=new THREE.Group(); const w=wood(),m=metal(),s=stone();
-  if(id==='chair'){
+  if(id==='professor-placeholder'){
+    const robe=new THREE.MeshStandardMaterial({color:0x344b63,roughness:.9});
+    const skin=new THREE.MeshStandardMaterial({color:0xd0ae8a,roughness:.9});
+    cylinder(group,.23,1.1,0,.65,0,robe);
+    const head=new THREE.Mesh(new THREE.SphereGeometry(.16,16,12),skin);head.position.y=1.4;group.add(head);
+    for(const x of [-.3,.3])box(group,.1,.65,.14,x,.95,0,robe);
+    for(const x of [-.12,.12])box(group,.15,.12,.3,x,.06,.05,m);
+  } else if(id==='chair'){
     box(group,.58,.08,.58,0,.45,0,w);box(group,.58,.48,.07,0,.69,.26,w);
     for(const x of [-.23,.23])for(const z of [-.23,.23])box(group,.075,.43,.075,x,.215,z,w);
   } else if(id==='table'){
@@ -153,6 +161,7 @@ export function operatorPanel({createImage=()=>new Image()}={}){
   let creationMode='auto';
   let pinLabel='PIN TO WALL',voiceLabel='VOICE ON',originLabel='ROOM ORIGIN UNKNOWN',conversationCount=0,xrMode=null;
   let voiceInputLabel='HOLD FOR CODEX';
+  let conversationTarget='professor';
   let gameStatus='No game running.',worldInfo={objects:0,canConfirm:false,alignment:'No room scan'},worldWarning='';
   let creatorMode={mode:'creator',simulation:'paused',revision:0};
   let worldNotice={text:'',tone:'idle'};
@@ -199,7 +208,10 @@ export function operatorPanel({createImage=()=>new Image()}={}){
     button(proposal&&mode!=='proposal'?'open-proposal':'review-view',proposal&&mode!=='proposal'?'PROPOSAL':'SEND VIEW',670,35,130,72);
     button('hide-panel','HIDE',812,35,164,72);
     ctx.fillStyle='#8bb8c2';ctx.font='bold 21px sans-serif';ctx.fillText(originLabel,55,123);
-    ctx.font='19px sans-serif';ctx.fillText('STICK CLICK: RECALL · HIDE · SHOW',540,123);
+    ctx.font='19px sans-serif';ctx.fillText('STICK: RECALL',540,138);
+    button('open-professor','PROFESSOR',743,110,230,44);
+    button('conversation-professor','TALK: PROFESSOR',55,139,310,38,conversationTarget==='professor');
+    button('conversation-operator','TALK: OPERATOR',375,139,310,38,conversationTarget==='operator');
     if(mode==='modes'){
       ctx.fillStyle='#dff7f8';ctx.font='bold 38px sans-serif';
       ctx.fillText(creatorMode.mode==='creator'?'Creator Mode':'Play/Test Mode',55,205);
@@ -261,6 +273,8 @@ export function operatorPanel({createImage=()=>new Image()}={}){
         button('restore-world',worldInfo.restoreArmed?'CONFIRM RESTORE':'RESTORE SAVED',287,440,218,76);
         button('undo','UNDO',519,440,218,76);
         button('redo','REDO',751,440,218,76);
+        ctx.fillStyle='#8bb8c2';ctx.font='18px sans-serif';
+        ctx.fillText('Save: full browser world + PC scene backup. Restore: browser checkpoint.',55,531,914);
       }
       if(worldInfo.resetAvailable){
         button('rebase-room-origin',worldInfo.recoveryArmed==='rebase'?'CONFIRM PLACE HERE':'ARCHIVE + PLACE HERE',55,535,440,76);
@@ -478,6 +492,7 @@ export function operatorPanel({createImage=()=>new Image()}={}){
     if(mode==='world'||mode==='layout')paint();};
   const setVoiceLabel=next=>{voiceLabel=next;paint();};
   const setVoiceInputLabel=next=>{if(voiceInputLabel!==next){voiceInputLabel=next;paint();}};
+  const setConversationTarget=next=>{if(conversationTarget!==next){conversationTarget=next;paint();}};
   const setOriginLabel=next=>{if(originLabel!==next){originLabel=next;paint();}};
   const setConversationCount=next=>{conversationCount=next;paint();};
   const setProposal=next=>{
@@ -558,7 +573,7 @@ export function operatorPanel({createImage=()=>new Image()}={}){
   paint();
   return {group,mesh,setMessage,setPinLabel,setXRMode,setVoiceLabel,setOriginLabel,setConversationCount,
     setProposal,setWorldInfo,setWorldNotice,setGameStatus,setCreatorMode,setWarning,setCameraStatus,
-    setAgentStatus,setConceptGallery,setPanoramaGallery,setCreationMode,setVoiceInputLabel,toggleWorld,openLayout,toggleArchives,
+    setAgentStatus,setConceptGallery,setPanoramaGallery,setCreationMode,setVoiceInputLabel,setConversationTarget,toggleWorld,openLayout,toggleArchives,
     toggleModePage,toggleAgent,toggleConcepts,togglePanoramas,previousConcept,nextConcept,
     previousPanorama,nextPanorama,isAgentMode,openAgent,openProposal,hit,nextPage};
 }
@@ -600,6 +615,7 @@ export class MatrixView {
   constructor(container,world,onSelection,getToken=()=>'',onAssetError=()=>{},onSceneEdit=()=>{},onRuntimeChange=()=>{},onVoiceStart=()=>{},onVoiceEnd=()=>{},onVoiceOutputToggle=()=>{},onVisualReview=()=>{},onNewChat=()=>{},options={}){
     this.world=world;this.onSelection=onSelection;this.getToken=getToken;this.onAssetError=onAssetError;this.onSceneEdit=onSceneEdit;this.onRuntimeChange=onRuntimeChange;this.onVoiceStart=onVoiceStart;this.onVoiceEnd=onVoiceEnd;this.onVoiceOutputToggle=onVoiceOutputToggle;this.onVisualReview=onVisualReview;this.onNewChat=onNewChat;this.onPanelAction=()=>{};this.onFrame=()=>{};this.onAssetReadinessChange=()=>{};this.onPhysicsContacts=()=>{};this.onPlayInteraction=()=>{};
     this.readOnly=options.readOnly===true;
+    this.developmentReview=options.developmentReview===true;
     this.observationStale=false;
     this.appliedARLayoutKey=JSON.stringify(world.arLayoutOffset);
     this.appliedARWorldEpoch=world.placementWorldEpoch;
@@ -644,8 +660,8 @@ export class MatrixView {
       controller.addEventListener('selectend',()=>{this.releaseOperatorVoice(controller);this.releaseGrab(controller);});
       controller.addEventListener('disconnected',event=>{if(controller.userData.inputSource===event.data)
         delete controller.userData.inputSource;this.cancelGrab(controller,event.data);});
-      controller.addEventListener('squeezestart',()=>{if(this.readOnly)return;this.lastPointingController=controller;this.onVoiceStart();});
-      controller.addEventListener('squeezeend',()=>{if(!this.readOnly)this.onVoiceEnd();});
+      controller.addEventListener('squeezestart',()=>{if(this.readOnly||this.professorOpen)return;this.lastPointingController=controller;this.onVoiceStart();});
+      controller.addEventListener('squeezeend',()=>{if(!this.readOnly&&!this.professorOpen)this.onVoiceEnd();});
     }
     this.grab=null;this.pointerGrab=null;this.pointerLook=null;this.heldOutline=null;
     this.renderer.xr.addEventListener('sessionstart',()=>this.onSessionStart());
@@ -655,7 +671,7 @@ export class MatrixView {
     this.renderer.domElement.addEventListener('pointerup',e=>this.pointerUp(e));
     this.renderer.domElement.addEventListener('pointercancel',()=>this.cancelPointer());
     this.renderer.domElement.addEventListener('contextmenu',e=>e.preventDefault());
-    addEventListener('keydown',e=>{if(!this.renderer.xr.isPresenting&&!e.ctrlKey&&!e.altKey&&!e.metaKey&&
+    addEventListener('keydown',e=>{if(!this.professorOpen&&!this.renderer.xr.isPresenting&&!e.ctrlKey&&!e.altKey&&!e.metaKey&&
       !['INPUT','TEXTAREA','SELECT'].includes(e.target?.tagName)&&!e.target?.isContentEditable&&
       ['ArrowUp','ArrowDown','ArrowLeft','ArrowRight','KeyW','KeyA','KeyS','KeyD'].includes(e.code)){
       e.preventDefault();this.keys.add(e.code);
@@ -711,6 +727,7 @@ export class MatrixView {
     this.world.runtimePresentation=this.isAR?'ar':'vr';
     document.getElementById('xr-exit').textContent=this.isAR?'Exit AR':'Exit VR';
     if(session.domOverlayState)document.getElementById('xr-overlay').style.display='';
+    this.onXRSessionChange?.(session);
     this.operatorPanel.setXRMode(this.isAR?'ar':'vr');
     this.operatorPanel.group.visible=!this.readOnly;
     this.operatorMount={kind:'head'};this.operatorPanel.setPinLabel(this.isAR?'PIN TO WALL':'PIN HERE');
@@ -991,6 +1008,7 @@ export class MatrixView {
     setRoomContentVisible(this,true);this.virtualFloorRoot.position.set(0,0,0);this.virtualFloorRoot.quaternion.identity();this.virtualFloorCalibrated=false;
     this.world.leaveAR();this.world.runtimePresentation='desktop';this.sync();this.onRuntimeChange();
     document.getElementById('xr-overlay').style.display='none';document.getElementById('xr-exit').textContent='Exit AR';this.floor.visible=true;this.grid.visible=true;
+    this.onXRSessionChange?.(null);
     this.syncEnvironment();document.getElementById('view-label').textContent='DESKTOP · VIRTUAL ROOM';
   }
   setOperatorStatus(message,tone='idle'){this.operatorPanel.setMessage(message,tone);}
@@ -1075,7 +1093,7 @@ export class MatrixView {
     const sources=this.renderer.xr.getSession()?.inputSources||[];
     // The xr-standard mapping reserves button 3 for the thumbstick click.
     const pressed=Array.from(sources).some(source=>source.gamepad?.mapping==='xr-standard'&&source.gamepad.buttons?.[3]?.pressed);
-    if(pressed&&!this.operatorThumbstickHeld&&!this.grab)this.toggleOperatorPanel();
+    if(pressed&&!this.operatorThumbstickHeld&&!this.grab&&!this.professorOpen)this.toggleOperatorPanel();
     this.operatorThumbstickHeld=pressed;
   }
   clearPlanes(){for(const group of this.planeOutlines.values()){this.scene.remove(group);disposeGroup(group);}this.planeOutlines.clear();}
@@ -1152,6 +1170,13 @@ export class MatrixView {
     const retainedProcedural=new Map();
     for(const root of this.objectRoots.values()){
       const object=currentObjects.get(root.userData.objectId);
+      if(object?.professor&&root.userData.vrm&&
+         root.userData.professorSignature===JSON.stringify([object.assetId,object.professor])){
+        root.position.copy(v3(object.transform.position));
+        root.rotation.set(...['x','y','z'].map(k=>THREE.MathUtils.degToRad(object.transform.rotation[k])),'XYZ');
+        root.scale.copy(v3(object.transform.scale));
+        retainedProcedural.set(object.objectId,root);continue;
+      }
       // An unchanged static construction owns its own buffers and materials.
       // Keep them through another object's edit; moving bodies and legacy floor
       // physics still need the regular pose/verification rebuild below.
@@ -1166,6 +1191,7 @@ export class MatrixView {
       // A routine redraw rebuilds the same content-addressed model. Keep its
       // measured navigation footprint; only physics needs a fresh instance.
       this.world.invalidatePhysicsAsset?.(root.userData.objectId);
+      root.userData.disposeVrm?.();
       stopAnimatedAsset(root.userData.mixer,root.userData.model);
       root.parent?.remove(root);disposeGroup(root);
     }
@@ -1215,6 +1241,11 @@ export class MatrixView {
             {...asset,localBounds:visual.userData.localBounds}:asset);
           root.add(board.mesh);root.userData.displayBoard=board;
         }else this.onAssetError(`Display on ${object.objectId} has an invalid definition.`);
+      }
+      if(object.professor){
+        const label=planeLabel(object.professor.teacherName);label.position.y=1.85;
+        label.scale.set(1.2,.2,1);root.add(label);
+        root.userData.professor=object.professor;
       }
       if(object.control){
         const bounds=asset?.localBounds;
@@ -1426,6 +1457,21 @@ export class MatrixView {
   }
   async loadExternal(asset,root,visual,objectId){
     try{
+      if(asset.geometry?.vrm){
+        const loaded=await loadVrmAvatar(asset,this.getToken(),this.camera);
+        if(this.objectRoots.get(objectId)!==root){loaded.dispose();return;}
+        try{validateRenderedFootprint(asset,loaded.measuredSize);}
+        catch(error){loaded.dispose();throw error;}
+        for(const child of [...visual.children]){visual.remove(child);disposeGroup(child);}
+        visual.add(loaded.model);root.userData.vrm=loaded.vrm;root.userData.professorMotion=loaded.motion;root.userData.disposeVrm=loaded.dispose;
+        loaded.vrm.humanoid.update();
+        root.updateWorldMatrix(true,true);
+        loaded.vrm.springBoneManager?.setInitState();
+        root.userData.professorSignature=JSON.stringify([asset.assetId,this.world.requireObject(objectId).professor]);
+        root.userData.assetLoading=false;
+        this.world.verifyPhysicsAsset?.(asset.assetId,loaded.measuredSize,objectId);
+        return;
+      }
       let pending=this.modelCache.get(asset.assetId);
       if(!pending){
         // This is a reuse cache, not a catalog limit. Older entries may be
@@ -1546,7 +1592,7 @@ export class MatrixView {
     this.raycaster.setFromCamera(this.pointer,this.camera);
   }
   pointerDown(event){
-    if(this.renderer.xr.isPresenting||![0,2].includes(event.button))return;
+    if(this.professorOpen||this.renderer.xr.isPresenting||![0,2].includes(event.button))return;
     if(this.readOnly&&event.button!==2)return;
     this.renderer.domElement.focus?.({preventScroll:true});
     this.renderer.domElement.setPointerCapture(event.pointerId);
@@ -1697,7 +1743,7 @@ export class MatrixView {
     if(moveGrab(this.grab))this.moveHeldRigid(this.grab);
   }
   selectFromController(controller,inputSource=null){
-    if(this.readOnly)return;
+    if(this.readOnly||this.professorOpen)return;
     if(this.grab)return;
     controller.updateMatrixWorld(true);const origin=new THREE.Vector3().setFromMatrixPosition(controller.matrixWorld);
     const direction=new THREE.Vector3(0,0,-1).applyQuaternion(controller.getWorldQuaternion(new THREE.Quaternion()));
@@ -1978,7 +2024,11 @@ export class MatrixView {
     const horizontal=direction.clone().setY(0);if(horizontal.length()<.01)horizontal.set(0,0,-1);horizontal.normalize();
     return {frames:[{anchorId:'web-floor',position:plain(position),forward:plain(horizontal),lookDirection:plain(direction.normalize())}]};
   }
-  renderVirtualFrame(request,clientId,width,height){
+  renderVirtualFrame(request,clientId,width,height,review=null){
+    if(review&&(!this.developmentReview||review.profile!=='developer-review'||
+       !['first-person','left','right'].includes(review.viewpoint)||
+       typeof review.includeOperator!=='boolean'||!Number.isSafeInteger(request.revision)||
+       request.revision<0))throw Error('Invalid or unavailable development review profile');
     const started=performance.now();
     const camera=new THREE.PerspectiveCamera(70,width/height,.02,100);
     if(this.renderer.xr.isPresenting){
@@ -1988,14 +2038,22 @@ export class MatrixView {
       camera.position.copy(this.camera.position);camera.quaternion.copy(this.camera.quaternion);
       camera.fov=this.camera.fov;camera.updateProjectionMatrix();
     }
+    if(review&&review.viewpoint!=='first-person'){
+      const focus=camera.position.clone().add(new THREE.Vector3(0,0,-3).applyQuaternion(camera.quaternion));
+      camera.position.add(new THREE.Vector3(review.viewpoint==='left'?-.9:.9,.3,0).applyQuaternion(camera.quaternion));
+      camera.lookAt(focus);
+    }
     const target=new THREE.WebGLRenderTarget(width,height,{depthBuffer:true});
+    // The canvas encoder consumes display-space bytes. Keep the review target
+    // in the renderer's output color space rather than encoding linear pixels.
+    if(review)target.texture.colorSpace=this.renderer.outputColorSpace;
     const previousTarget=this.renderer.getRenderTarget(),previousBackground=this.scene.background;
     const previousXr=this.renderer.xr.enabled,panelVisible=this.operatorPanel.group.visible;
     const pixels=new Uint8Array(width*height*4);
     try{
       this.renderer.xr.enabled=false;
-      this.scene.background=new THREE.Color(0x101820);
-      this.operatorPanel.group.visible=false;
+      if(!review)this.scene.background=new THREE.Color(0x101820);
+      this.operatorPanel.group.visible=!!review&&review.includeOperator&&panelVisible;
       this.renderer.setRenderTarget(target);
       this.renderer.render(this.scene,camera);
       this.renderer.readRenderTargetPixels(target,0,0,width,height,pixels);
@@ -2005,6 +2063,13 @@ export class MatrixView {
       this.scene.background=previousBackground;
       this.operatorPanel.group.visible=panelVisible;
       target.dispose();
+    }
+    if(review){
+      let variation=0;
+      for(let i=0;i<pixels.length;i+=4)for(let channel=0;channel<3;channel++){
+        variation=Math.max(variation,Math.abs(pixels[i+channel]-pixels[channel]));
+      }
+      if(variation<8)throw Error('Review capture unavailable: blank or uniform render');
     }
     const rendered=performance.now();
     const canvas=document.createElement('canvas');canvas.width=width;canvas.height=height;
@@ -2023,6 +2088,17 @@ export class MatrixView {
       spatialProvenance:{source:'virtual',roomId:snapshot.scene.roomId,anchorCount:snapshot.anchors.length,
         alignmentVerified:false,depthOcclusion:false,physicalDepthIncluded:false},
       renderMs:rendered-started,frameTimeMs:0};
+    if(review)virtual.source='matrix_developer_virtual_review';
+    if(review)virtual.review={profile:review.profile,viewpoint:review.viewpoint,
+      capturedAtUtc:new Date().toISOString(),sceneRevision:request.revision,
+      objectIds:snapshot.scene.objects.map(object=>object.objectId).sort(),
+      referenceSpace:this.renderer.xr.isPresenting?(this.isAR?'local':'local-floor'):'desktop-world',
+      projection:'independent-monocular-perspective',liveViewUnchanged:true,
+      outputColorSpace:target.texture.colorSpace,
+      includesVirtualBackground:true,virtualBackground:this.scene.background===null?'transparent':
+        this.scene.background.isTexture?'texture':'color',
+      includesOperator:review.includeOperator&&panelVisible,operatorWasVisible:panelVisible,
+      includesPhysicalCamera:false,includesStereo:false};
     return {canvas,virtual,renderedAtMs:rendered};
   }
   captureVirtual(request,clientId){
@@ -2094,11 +2170,31 @@ export class MatrixView {
           const local=root.worldToLocal(this.reticle.position.clone());if(Math.abs(local.y)<.12&&insideBoundary(local,anchor.surface.boundary)){this.reticleAnchorId=anchor.anchorId;break;}}
       }}
     this.updateHeldGrab(frame,delta);
+    this.onProfessorAudioFrame?.();
     this.refreshSelectedPointMarker();
     if(this.renderer.xr.isPresenting)for(let index=0;index<this.controllers.length;index++)
       updateControllerRayForPanel(this.controllerRays[index],this.controllers[index],this.operatorPanel);
     for(const root of this.objectRoots.values()){
       root.userData.mixer?.update(delta);
+      if(root.userData.vrm){
+        const attention=root.userData.professorAttention;
+        const target=attention&&this.objectRoots.get(attention.objectId);
+        const motion=root.userData.professorMotion;
+        let attentionTarget=null;
+        if(target&&!target.userData.assetLoading&&motion){
+          const object=this.world.scene.objects.find(item=>item.objectId===attention.objectId);
+          const bounds=object&&this.world.asset(object.assetId)?.localBounds;
+          motion.gazeTarget.position.set(bounds?.center.x||0,bounds?.center.y||0,bounds?.center.z||0);
+          target.localToWorld(motion.gazeTarget.position);
+          attentionTarget=motion.gazeTarget.position;
+        }
+        root.userData.professorMotion?.update(delta,{speaking:!!root.userData.professorSpeaking,
+          listening:!!root.userData.professorListening,level:root.userData.professorVoiceLevel||0,
+          attentionTarget,point:!!attention?.point});
+        if(root.userData.vrm.lookAt)root.userData.vrm.lookAt.target=attentionTarget?motion.gazeTarget:
+          this.renderer.xr.isPresenting?this.renderer.xr.getCamera():this.camera;
+        root.userData.vrm.update(delta);
+      }
       const object=this.world.scene.objects.find(item=>item.objectId===root.userData.objectId);
       if(!object)continue;
       const component=object.component;

@@ -3,6 +3,45 @@ import assert from 'node:assert/strict';
 import * as THREE from 'three';
 import {MatrixView} from '../src/view.js';
 
+test('developer review preserves background, panel and live camera, with bounded provenance',()=>{
+  const priorDocument=globalThis.document;
+  globalThis.document={createElement:()=>({getContext:()=>({
+    createImageData:(w,h)=>({data:new Uint8ClampedArray(w*h*4)}),putImageData(){}})})};
+  try{
+    const background=new THREE.Color(0x0a1b29),previousTarget={},seen=[];
+    const view={developmentReview:true,scene:{background},operatorPanel:{group:{visible:true}},
+      camera:new THREE.PerspectiveCamera(65,1,.02,300),viewer:()=>null,
+      world:{snapshot:()=>({scene:{roomId:'fixture',objects:[{objectId:'stable-id'}]},anchors:[]})}};
+    let blank=false,fail=false;
+    view.renderer={xr:{enabled:true,isPresenting:false},getRenderTarget:()=>previousTarget,
+      setRenderTarget(){},render:(_scene,camera)=>{
+        seen.push({background:view.scene.background,panel:view.operatorPanel.group.visible,camera});
+        if(fail)throw Error('GPU failed');
+      },readRenderTargetPixels:(_t,_x,_y,_w,_h,pixels)=>{if(!blank)pixels[4]=100;}};
+    const capture=options=>MatrixView.prototype.renderVirtualFrame.call(view,
+      {captureId:'review-test',revision:7},'fixture',32,24,options);
+    const options={profile:'developer-review',viewpoint:'left',includeOperator:true};
+    const pose=view.camera.position.clone(),quaternion=view.camera.quaternion.clone();
+    const result=capture(options);
+    assert.equal(seen.at(-1).background,background);assert.equal(seen.at(-1).panel,true);
+    assert.notEqual(seen.at(-1).camera,view.camera);
+    assert.deepEqual(view.camera.position.toArray(),pose.toArray());assert.deepEqual(view.camera.quaternion.toArray(),quaternion.toArray());
+    assert.deepEqual(result.virtual.review.objectIds,['stable-id']);
+    assert.equal(result.virtual.review.sceneRevision,7);
+    assert.equal(result.virtual.review.referenceSpace,'desktop-world');
+    assert.equal(result.virtual.review.includesPhysicalCamera,false);
+    capture({...options,includeOperator:false});assert.equal(seen.at(-1).panel,false);
+    assert.equal(view.operatorPanel.group.visible,true);
+    capture(null);assert.notEqual(seen.at(-1).background,background);assert.equal(seen.at(-1).panel,false);
+    assert.throws(()=>capture({...options,viewpoint:'arbitrary'}),/Invalid/);
+    view.developmentReview=false;assert.throws(()=>capture(options),/unavailable/);view.developmentReview=true;
+    blank=true;assert.throws(()=>capture(options),/blank or uniform/);blank=false;
+    fail=true;assert.throws(()=>capture({...options,includeOperator:false}),/GPU failed/);
+    assert.equal(view.scene.background,background);assert.equal(view.operatorPanel.group.visible,true);
+    assert.equal(view.renderer.xr.enabled,true);
+  }finally{if(priorDocument===undefined)delete globalThis.document;else globalThis.document=priorDocument;}
+});
+
 test('virtual frame returns unencoded pixels at the requested panel size',()=>{
   const priorDocument=globalThis.document;
   const previousTarget={previous:true},targetHistory=[],readSizes=[];

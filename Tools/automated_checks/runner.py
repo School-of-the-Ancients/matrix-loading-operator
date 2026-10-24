@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import argparse
+import base64
 from functools import partial
 from datetime import datetime, timezone
 import hashlib
@@ -43,9 +44,11 @@ def source_evidence():
     return {"commit": command(['git', 'rev-parse', 'HEAD']),
             "dirty": bool(command(['git', 'status', '--porcelain', '--untracked-files=normal'])),
             "runtimeVersion": json.loads((ROOT / 'WebRuntime/package.json').read_text())['version'],
+            "runtimePackageSha256": hashlib.sha256((ROOT / 'WebRuntime/package.json').read_bytes()).hexdigest(),
             "runtimeSourceSha256": hashes(ROOT / 'WebRuntime/src'),
-            "fixtureSourceSha256": {name: hashlib.sha256((Path(__file__).parent / name).read_bytes()).hexdigest()
-                                    for name in ('runner.py', 'build.mjs', 'fixture.js', 'index.html')},
+            "fixtureSourceSha256": {p.name: hashlib.sha256(p.read_bytes()).hexdigest()
+                                    for p in sorted(Path(__file__).parent.iterdir())
+                                    if p.suffix in ('.py', '.js', '.mjs', '.html')},
             "pythonVersion": sys.version,
             "nodeVersion": command(['node', '--version']),
             "lockSha256": hashlib.sha256((ROOT / 'WebRuntime/package-lock.json').read_bytes()).hexdigest()}
@@ -179,7 +182,7 @@ def evaluate(context, page, expression):
         session.detach()
 
 
-def desktop(report, browser_executable=None):
+def desktop(report, browser_executable=None, rendered=False, artifact_dir=None):
     try:
         from playwright.sync_api import sync_playwright
     except ImportError:
@@ -189,7 +192,7 @@ def desktop(report, browser_executable=None):
     with tempfile.TemporaryDirectory(prefix='matrix-check-') as tmp:
         output = Path(tmp) / 'fixture'
         command(['node', str(Path(__file__).with_name('build.mjs')), str(output)], timeout=90)
-        report.value['build'] = {"kind": "isolated-browser-contract-fixture", "sha256": hashes(output)}
+        report.value['build'] = {"kind": "isolated-rendered-input-fixture" if rendered else "isolated-browser-contract-fixture", "sha256": hashes(output)}
         server = ThreadingHTTPServer(('127.0.0.1', 0), partial(QuietHandler, directory=str(output)))
         thread = threading.Thread(target=server.serve_forever, daemon=True)
         thread.start()
@@ -211,6 +214,9 @@ def desktop(report, browser_executable=None):
                     page = context.new_page()
                     observe(page)
                     url = f'http://127.0.0.1:{server.server_port}/'
+                    if rendered:
+                        return rendered_fixture(report, context, page, browser, executable,
+                                                url + 'rendered.html', observe, errors, artifact_dir)
                     page.goto(url)
                     page.wait_for_function('Boolean(window.matrixCheck)')
                     report.value['runtime'] = evaluate(context, page, 'matrixCheck.ready()')
@@ -251,6 +257,111 @@ def desktop(report, browser_executable=None):
             thread.join(timeout=3)
 
 
+def assert_rendered_execution(before):
+    """Match the production movement command to its exact successful receipt."""
+    receipts, commands = before['receipts'], before['commands']
+    require(len(receipts) == len(commands) == 2, 'Incomplete production movement receipts')
+    require([entry['command']['op'] for entry in commands] == ['spawn', 'set_transform'],
+            'Unexpected rendered command sequence')
+    for receipt, entry in zip(receipts, commands):
+        command_value = entry['command']
+        require(receipt == entry['receipt'] and receipt['ok'] is True and
+                bool(command_value['requestId']) and receipt['requestId'] == command_value['requestId'] and
+                receipt['objectId'] == 'automated-check-block', 'Rendered command/receipt mismatch')
+    require(commands[0]['command']['requestId'] == 'rendered-spawn' and
+            commands[0]['command']['assetId'] == 'block', 'Rendered spawn receipt mismatch')
+    movement = commands[1]['command']
+    require(movement['requestId'] != commands[0]['command']['requestId'] and
+            movement['objectId'] == 'automated-check-block' and
+            movement['transform'] == before['scene']['objects'][0]['transform'],
+            'Rendered movement command mismatch')
+
+
+def rendered_fixture(report, context, page, browser, executable, url, observe, errors, artifact_dir):
+    report.value['limits'] = [
+        'Desktop IWER emulated VR with synthetic controller input; no physical Quest or wearer result.',
+        'Production MatrixView/panel/handlers in a disposable fixture; no live service, approval transport, or AI visual judgment.',
+        'Independent monocular virtual renders; no passthrough, stereo, tracking fidelity, comfort or hardware performance.',
+        'Creation uses a typed fixture spawn; resizing, animation, native override and on-device association remain unrun.']
+    report.value['limits'].append(
+        'Save/restore and panel re-show are direct fixture calls. Default background/panel text only; no panorama loading or main.js status/conversation updates.')
+    report.value['excludedChecks'] = [{'name': name, 'status': 'unrun'} for name in
+        ('native-xr-entry', 'hardware-capture', 'hardware-performance', 'wearer-acceptance')]
+    def enter(page):
+        page.goto(url)
+        page.wait_for_function('Boolean(window.matrixReview)')
+        page.get_by_role('button', name='Enter VR', exact=True).click()
+        page.wait_for_function('matrixReview.ready().sessionActive && matrixReview.ready().frames > 4')
+    def images(value, phase):
+        captures = value.pop('images')
+        require(len(captures) == 3, 'Missing inspection viewpoints')
+        for index, capture in enumerate(captures):
+            metadata = capture['metadata']
+            review = metadata['review']
+            require(metadata['mimeType'] == 'image/png' and metadata['source'] == 'matrix_developer_virtual_review',
+                    'Incorrect review image provenance')
+            require(review['includesOperator'] and review['includesVirtualBackground'], 'Incomplete rendered review')
+            require(review['includesPhysicalCamera'] is False and review['includesStereo'] is False, 'Invalid capture classification')
+            require(review['objectIds'] == ['automated-check-block'], 'Capture object identity mismatch')
+            raw = base64.b64decode(capture['pngBase64'], validate=True)
+            require(raw.startswith(b'\x89PNG\r\n\x1a\n') and len(raw) > 2000, 'Unavailable rendered image')
+            artifact = {'name': f'{phase}-{index}-{review["viewpoint"]}.png',
+                        'sha256': hashlib.sha256(raw).hexdigest(), 'bytes': len(raw), 'metadata': metadata,
+                        'sceneSha256': hashlib.sha256(json.dumps(metadata['snapshot']['scene'], sort_keys=True).encode()).hexdigest()}
+            if artifact_dir:
+                artifact_dir.mkdir(parents=True, exist_ok=True)
+                path = artifact_dir / artifact['name']
+                path.write_bytes(raw)
+                artifact['path'] = str(path.resolve())
+            report.value['artifacts'].append(artifact)
+    def scene(value):
+        require(len(value['objects']) == 1, 'Unexpected rendered object count')
+        obj = value['objects'][0]
+        require(obj['objectId'] == 'automated-check-block' and obj['assetId'] == 'block', 'Rendered stable identity changed')
+        expected = {'position': {'x': .6, 'y': .75, 'z': -2.2},
+                    'rotation': {'x': 0, 'y': 0, 'z': 0}, 'scale': {'x': 1, 'y': 1, 'z': 1}}
+        require(all(abs(obj['transform'][part][axis]-number) < .002
+                    for part, vector in expected.items() for axis, number in vector.items()), 'Rendered transform differs from expected')
+    enter(page)
+    report.value['runtime'] = evaluate(context, page, 'matrixReview.ready()')
+    report.value['runtime'].update(browserVersion=browser.version, browserExecutable=str(executable), url=url)
+    require(report.value['runtime']['descriptor']['presentation'] == 'vr', 'Emulated runtime is not VR')
+    before = evaluate(context, page, 'matrixReview.exercise()')
+    scene(before['scene'])
+    assert_rendered_execution(before)
+    require(any(a['action'] == 'trigger-down' and a['held'] == 'automated-check-block' for a in before['actions']), 'Missing grab execution evidence')
+    require(any(a['action'] == 'operator-hide-hit' and a['visible'] is False for a in before['actions']), 'Missing panel hit evidence')
+    images(before, 'before-reopen')
+    page.close()
+    page = context.new_page()
+    observe(page)
+    enter(page)
+    after = evaluate(context, page, 'matrixReview.reopen()')
+    scene(after['scene'])
+    require(before['saved'] == after['world'], 'Rendered saved world differs after new-page reopen')
+    images(after, 'after-reopen')
+    negative_results = []
+    for kind, expected in [('missing-geometry', 'Missing rendered geometry'),
+                           ('wrong-render-transform', 'Rendered transform mismatch'),
+                           ('hidden-panel', 'Operator absent from review capture')]:
+        enter(page)
+        evaluate(context, page, 'matrixReview.reopen()')
+        try:
+            evaluate(context, page, f'matrixReview.negative({json.dumps(kind)})')
+        except AssertionError as error:
+            require(expected in str(error), f'Unexpected negative-control failure: {error}')
+            negative_results.append({'fault': kind, 'detected': True, 'reason': expected})
+        else:
+            raise AssertionError(f'Negative control escaped detection: {kind}')
+    require(not errors, f'Browser exceptions: {errors}')
+    require(not any(log['level'] == 'error' for log in report.value['logs']), 'Browser console errors')
+    report.value['observations'] = {'beforeReopen': before, 'afterReopen': after, 'negativeControls': negative_results}
+    return {'input': 'IWER synthetic trigger -> WebXR events -> Three.js controllers -> production MatrixView handlers',
+            'storage': 'disposable context; durable reopen in new page',
+            'actual': {'savedWorldEqualsReopened': True, 'negativeControls': negative_results},
+            'evidenceClass': 'desktop-emulated-xr'}
+
+
 TARGET = {"position": {"x": 2, "y": .5, "z": -3}, "rotation": {"x": 15, "y": 45, "z": 30},
           "scale": {"x": 2, "y": 3, "z": 4}}
 
@@ -278,7 +389,7 @@ def verify_source(before):
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument('--mode', choices=['desktop', 'quest-readiness'], default='desktop')
+    parser.add_argument('--mode', choices=['desktop', 'rendered', 'quest-readiness'], default='desktop')
     parser.add_argument('--cdp', help='Already configured Quest Browser loopback CDP base URL; read-only discovery')
     parser.add_argument('--browser-executable', type=Path, help='Existing absolute Chromium executable (desktop only)')
     parser.add_argument('--output', type=Path, required=True)
@@ -288,8 +399,10 @@ def main():
         report.value['source'] = source_evidence()
         return {"commit": report.value['source']['commit'], "dirty": report.value['source']['dirty']}
     if report.check('source', provenance):
-        if args.mode == 'desktop':
-            report.check('load-transform-save-reopen', lambda: desktop(report, args.browser_executable))
+        if args.mode in ('desktop', 'rendered'):
+            report.check('rendered-input-save-reopen' if args.mode == 'rendered' else 'load-transform-save-reopen',
+                         lambda: desktop(report, args.browser_executable, args.mode == 'rendered',
+                                         args.output.with_suffix('.artifacts')))
         else:
             def device():
                 report.value['device'] = quest_device()

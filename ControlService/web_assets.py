@@ -16,6 +16,8 @@ import tempfile
 import threading
 import unicodedata
 
+from vrm_assets import MAX_VRM_BYTES, inspect_vrm
+
 MAX_BYTES = 16 * 1024 * 1024
 MAX_ASSETS = 256
 SLUG = re.compile(r"[a-z0-9]+(?:-[a-z0-9]+)*\Z")
@@ -29,8 +31,8 @@ class WebAssetError(Exception):
 def inspect_glb(path):
     path = Path(path)
     size = path.stat().st_size
-    if size < 20 or size > MAX_BYTES:
-        raise WebAssetError("GLB must be 20 bytes to 16 MiB")
+    if size < 20 or size > MAX_VRM_BYTES:
+        raise WebAssetError("Asset must be at least 20 bytes; GLB limit is 16 MiB and VRM 1.0 limit is 32 MiB")
     with path.open("rb") as handle:
         header = handle.read(12)
         magic, version, declared = struct.unpack("<4sII", header)
@@ -45,6 +47,12 @@ def inspect_glb(path):
             raise WebAssetError("Invalid GLB JSON") from None
     if not isinstance(document, dict) or not isinstance(document.get("asset"), dict) or document["asset"].get("version") != "2.0":
         raise WebAssetError("Expected glTF 2.0 asset metadata")
+    try:
+        vrm = inspect_vrm(document)
+    except ValueError as error:
+        raise WebAssetError(str(error)) from None
+    if not vrm and size > MAX_BYTES:
+        raise WebAssetError("GLB must be 20 bytes to 16 MiB")
     def has_uri(value):
         if isinstance(value, dict):
             return "uri" in value or any(has_uri(child) for child in value.values())
@@ -57,7 +65,7 @@ def inspect_glb(path):
     if any(ext in document.get("extensionsRequired", []) for ext in
            ("KHR_draco_mesh_compression", "KHR_texture_basisu", "EXT_meshopt_compression")):
         raise WebAssetError("Compressed GLB extension needs a decoder that this runtime does not ship")
-    limits = {"nodes": 256, "meshes": 128, "materials": 64, "images": 32, "textures": 32}
+    limits = {"nodes": 512 if vrm else 256, "meshes": 128, "materials": 64, "images": 64 if vrm else 32, "textures": 64 if vrm else 32}
     if any(not isinstance(document.get(key, []), list) or len(document.get(key, [])) > limit
            for key, limit in limits.items()):
         raise WebAssetError("GLB complexity limit exceeded")
@@ -72,8 +80,8 @@ def inspect_glb(path):
         vertices = sum(accessors[part["attributes"]["POSITION"]]["count"] for part in primitives)
     except (KeyError, IndexError, TypeError):
         raise WebAssetError("Mesh primitive needs a position accessor") from None
-    if not isinstance(vertices, int) or not primitives or vertices < 3 or vertices > 300000:
-        raise WebAssetError("GLB needs 3 to 300,000 referenced vertices")
+    if not isinstance(vertices, int) or not primitives or vertices < 3 or vertices > (500000 if vrm else 300000):
+        raise WebAssetError(f"Asset needs 3 to {500000 if vrm else 300000:,} referenced vertices")
     animations = document.get("animations", [])
     if not isinstance(animations, list) or len(animations) > 8:
         raise WebAssetError("GLB has too many animation clips")
@@ -132,8 +140,11 @@ def inspect_glb(path):
         clips.append({"name": name, "durationSeconds": duration})
     if channels_total > 128 or samples_total > 50000:
         raise WebAssetError("GLB animation complexity limit exceeded")
-    return {"bytes": size, "vertices": vertices, "meshes": len(document.get("meshes", [])),
-            "images": len(document.get("images", [])), "animationClips": clips}
+    result = {"bytes": size, "vertices": vertices, "meshes": len(document.get("meshes", [])),
+              "images": len(document.get("images", [])), "animationClips": clips}
+    if vrm:
+        result["vrm"] = vrm
+    return result
 
 
 class WebAssetCatalog:

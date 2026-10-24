@@ -1,3 +1,4 @@
+import {validProfessorBinding} from './professor_avatar.js';
 import {validManipulation,manipulationPolicy,canDirectManipulate} from './manipulation.js';
 // This is the browser adapter for Matrix scene schema 1 and the existing
 // /api/exchange command set. Keep changes to this contract coordinated with
@@ -28,6 +29,7 @@ export {RIGID_FLOOR_ID};
 export const MAX_SCENE_RIGID_BODIES = 32;
 export const INTERACTION_USE_MARGIN_METRES = .1;
 export const ASSETS = [
+  {assetId:'professor-placeholder',displayName:'Stylized professor',description:'Generic teaching avatar; not a historical likeness.',spawnScale:1,localBounds:{center:{x:0,y:.85,z:0},size:{x:.65,y:1.7,z:.4}}},
   {assetId:'chair', displayName:'Chair', description:'A wooden chair with a seat and back, about 0.6 by 0.9 metres.', spawnScale:1, localBounds:{center:{x:0,y:.45,z:0},size:{x:.6,y:.9,z:.6}},interactions:[{kind:'rest',rangeMeters:.8}]},
   {assetId:'table', displayName:'Table', description:'A wooden table about 1.5 metres wide and 0.75 metres high.', spawnScale:1, localBounds:{center:{x:0,y:.375,z:0},size:{x:1.5,y:.75,z:.9}},interactions:[{kind:'eat',rangeMeters:.9}]},
   {assetId:'wall', displayName:'Wall', description:'A straight wall panel 2 metres wide and 2 metres high.', spawnScale:1, localBounds:{center:{x:0,y:1,z:0},size:{x:2,y:2,z:.12}}},
@@ -154,7 +156,7 @@ const validExpectedTransform=transform=>
   ['position','rotation','scale'].every(key=>exactKeys(transform[key],['x','y','z']))&&
   validTransform(transform);
 const expectedTransformOps=new Set(['set_manipulation','set_transform','set_behavior','remove_behavior',
-  'attach_component','stop_component','remove_component','bind_animation',
+  'attach_component','stop_component','remove_component','bind_animation','bind_professor',
   'set_physics','remove_physics','set_interaction','remove_interaction',
   'delete','duplicate','select','update_procedural','set_rigid_body','remove_rigid_body',
   'set_display','remove_display','begin_grab','move_grab','release_grab',
@@ -421,7 +423,7 @@ export class MatrixWorld {
          (entry.localBounds!==undefined&&(!entry.localBounds||!vec(entry.localBounds.center,-20,20)||
            !vec(entry.localBounds.size,.001,20)))||
          !/^[0-9a-f]{64}$/.test(entry.sha256)||entry.url!==`/api/web/assets/${entry.sha256}.glb`||
-         !Number.isInteger(entry.byteLength)||entry.byteLength<20||entry.byteLength>16*1024*1024)throw Error('Invalid web asset entry');
+         !Number.isInteger(entry.byteLength)||entry.byteLength<20||entry.byteLength>(entry.geometry?.vrm?.specVersion==='1.0'?32:16)*1024*1024)throw Error('Invalid web asset entry');
       const clips=entry.geometry?.animationClips;
       if(clips!==undefined&&(!Array.isArray(clips)||clips.length>8||
         new Set(clips.map(clip=>clip?.name)).size!==clips.length||
@@ -1084,7 +1086,7 @@ export class MatrixWorld {
       if(this.creatorMode.mode==='play'&&recordHistory&&
          ['set_manipulation','spawn','create_procedural','update_procedural','duplicate','set_transform',
           'set_behavior','remove_behavior','attach_component','stop_component',
-          'remove_component','bind_animation','set_physics','remove_physics',
+          'remove_component','bind_animation','bind_professor','set_physics','remove_physics',
           'set_rigid_body','remove_rigid_body','set_gravity','set_interaction',
           'remove_interaction','set_display','remove_display','set_control',
           'remove_control','bind_game','update_game',
@@ -1093,7 +1095,7 @@ export class MatrixWorld {
       if(this.spatial?.originUnavailable&&!citizenVisitAction&&
          !['get_scene','get_environment','list_assets','list_targets','inspect_entity'].includes(op))
         throw Error('Saved room origin is unavailable; restore it or archive the old world before editing');
-      if(this.spatial?.stale&&!citizenVisitAction&&['set_manipulation','spawn','duplicate','set_transform','set_behavior','remove_behavior','attach_component','stop_component','remove_component','bind_animation','set_physics','remove_physics','set_interaction','remove_interaction','set_display','remove_display','set_control','remove_control','activate_control','delete','load','undo','redo','select','create_procedural','update_procedural','set_rigid_body','remove_rigid_body','set_gravity','bind_game','update_game','begin_grab','move_grab','release_grab','set_environment','remove_environment'].includes(op))
+      if(this.spatial?.stale&&!citizenVisitAction&&['set_manipulation','spawn','duplicate','set_transform','set_behavior','remove_behavior','attach_component','stop_component','remove_component','bind_animation','bind_professor','set_physics','remove_physics','set_interaction','remove_interaction','set_display','remove_display','set_control','remove_control','activate_control','delete','load','undo','redo','select','create_procedural','update_procedural','set_rigid_body','remove_rigid_body','set_gravity','bind_game','update_game','begin_grab','move_grab','release_grab','set_environment','remove_environment'].includes(op))
         throw Error('Room tracking is stale; editing is paused until the room is recovered');
       if(this.spatial&&['set_environment','remove_environment'].includes(op))
         throw Error('Leave AR to edit the panorama; passthrough remains visible in AR');
@@ -1142,7 +1144,7 @@ export class MatrixWorld {
            command.expectedTargetTransform))
           throw Error('Component target transform changed since command was queued');
       }
-      const mutation=['set_manipulation','spawn','duplicate','set_transform','set_behavior','remove_behavior','attach_component','stop_component','remove_component','bind_animation','set_physics','remove_physics','set_interaction','remove_interaction','set_display','remove_display','set_control','remove_control','delete','clear','load','create_procedural','update_procedural','set_rigid_body','remove_rigid_body','set_environment','remove_environment'].includes(op);
+      const mutation=['set_manipulation','spawn','duplicate','set_transform','set_behavior','remove_behavior','attach_component','stop_component','remove_component','bind_animation','bind_professor','set_physics','remove_physics','set_interaction','remove_interaction','set_display','remove_display','set_control','remove_control','delete','clear','load','create_procedural','update_procedural','set_rigid_body','remove_rigid_body','set_environment','remove_environment'].includes(op);
       // Local finite simulation steps use the same validation and receipt path
       // without filling the user's scene Undo history with each movement tick.
       const before=mutation&&recordHistory?clone(this.scene):null;
@@ -1279,6 +1281,10 @@ export class MatrixWorld {
             anchorId:durable?ANCHOR_ID:command.anchorId,transform:durable||resolved};
           if (!validId(object.objectId)||object.objectId===RIGID_FLOOR_ID||
               this.scene.objects.some(o=>o.objectId===object.objectId)) throw Error('Invalid generated objectId');
+          if(Object.hasOwn(command,'professor')){
+            if(object.anchorId!==ANCHOR_ID||!validProfessorBinding(command.professor,object.assetId))throw Error('Invalid professor binding');
+            object.professor=clone(command.professor);
+          }
           this.scene.objects.push(object); result.objectId=object.objectId;
           if(durable)result.outcome={kind:'room-surface-spawn',
             supportAnchorId:command.anchorId,anchorId:ANCHOR_ID,
@@ -1762,6 +1768,11 @@ export class MatrixWorld {
           object=this.requireObject(command.objectId);
           if(!object.component)throw Error('Object has no component');
           delete object.component;result.objectId=object.objectId;break;
+        case 'bind_professor': {
+          object=this.requireObject(command.objectId);
+          if(object.anchorId!==ANCHOR_ID||!validProfessorBinding(command.professor,object.assetId))throw Error('Invalid professor binding');
+          object.professor=clone(command.professor);result.objectId=object.objectId;break;
+        }
         case 'bind_animation':
           object=this.requireObject(command.objectId);
           if(object.anchorId!==ANCHOR_ID||!this.asset(object.assetId)?.url)
@@ -1910,6 +1921,7 @@ export class MatrixWorld {
     // catalog asset. A missing Web asset must not mask a corrupt later object.
     for(const o of scene.objects) {
       if(!o||!validId(o.objectId)||o.objectId===RIGID_FLOOR_ID||ids.has(o.objectId)||!anchors.some(anchor=>anchor.anchorId===o.anchorId)||!validTransform(o.transform)) throw Error('Invalid scene object');
+      if(Object.hasOwn(o,'professor')&&(o.anchorId!==ANCHOR_ID||!validProfessorBinding(o.professor,o.assetId)))throw Error('Invalid professor binding');
       if(Object.hasOwn(o,'manipulation')&&!validManipulation(o.manipulation))throw Error('Invalid manipulation policy');
       ids.add(o.objectId);
       if(o.behaviors && (!Array.isArray(o.behaviors)||o.behaviors.length>2||new Set(o.behaviors.map(b=>b.kind)).size!==o.behaviors.length||!o.behaviors.every(validBehavior))) throw Error('Invalid scene behavior');

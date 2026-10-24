@@ -22,6 +22,21 @@ export function revealPanelSection(section){
   }
 }
 
+export function initializePanelNavigation(root){
+  const sections=new Map([...root.querySelectorAll('details.panel-section[id]')]
+    .map(section=>[section.id,section]));
+  for(const button of root.querySelectorAll('button[data-panel-target]')){
+    button.addEventListener('click',()=>{
+      const section=sections.get(button.dataset.panelTarget);
+      if(!section)return;
+      revealPanelSection(section);
+      const summary=section.querySelector('summary');
+      summary?.focus({preventScroll:true});
+      summary?.scrollIntoView({block:'start'});
+    });
+  }
+}
+
 export function revealAgentAttention(section,previousKey,activeTurnId,pending){
   const key=pending?`approval:${pending.turnId??''}:${pending.approvalId??''}`:
     activeTurnId?`turn:${activeTurnId}`:'';

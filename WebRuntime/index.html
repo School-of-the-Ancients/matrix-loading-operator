@@ -16,7 +16,15 @@
     <button id="toggle-sidebar" class="sidebar-toggle" type="button" aria-controls="world-operator-panel" aria-expanded="true">Hide controls</button>
     <aside id="world-operator-panel" class="panel">
       <div class="panel-title"><span>WORLD OPERATOR</span><span id="object-count">0 objects</span></div>
-      <p class="hint panel-intro">Choose a section to work on this world.</p>
+      <nav class="workspace-nav" aria-label="World workspace">
+        <button type="button" id="professor-open" aria-controls="professor-browser" aria-expanded="false">Professor</button>
+        <button type="button" data-panel-target="section-agent" aria-controls="section-agent">Operator</button>
+        <button type="button" data-panel-target="section-mode" aria-controls="section-mode">Create / Play</button>
+        <button type="button" data-panel-target="section-world" aria-controls="section-world">World / Saves</button>
+        <button type="button" data-panel-target="section-help" aria-controls="section-help">Settings / Help</button>
+      </nav>
+      <p id="professor-status" class="hint" role="status"></p>
+      <p class="hint panel-intro">Ask Operator to create or revise. Use World / Saves to save and return.</p>
       <p id="feedback" role="status">Starting runtime…</p>
       <details id="section-mode" class="panel-section creator-controls">
         <summary class="panel-title"><span>CREATOR / PLAY</span><strong id="creator-mode-status" role="status">Creator Mode · simulation paused</strong></summary>
@@ -26,7 +34,18 @@
         <p id="game-status" class="hint" role="status">No game running.</p>
         </div>
       </details>
-      <details id="section-agent" class="panel-section agent-panel">
+      <section class="panel-section" aria-label="Conversation target and shared transcript">
+        <div class="row"><button id="talk-professor" aria-pressed="true">Professor</button><button id="talk-operator" aria-pressed="false">Matrix Operator</button></div>
+        <strong id="conversation-target">Professor: choose a lesson</strong>
+        <button id="conversation-microphone">Speak to Professor</button>
+        <p class="hint" id="professor-conversation-status" role="status">Open Professor to choose a lesson.</p>
+        <textarea id="conversation-input" rows="2" aria-label="Message to selected conversation target" placeholder="Talk to the selected professor or Operator"></textarea>
+        <div class="row" style="flex-wrap:wrap"><button id="conversation-send">Send message</button><button id="professor-replay">Replay voice</button><button id="professor-stop-voice">Stop voice</button></div>
+        <meter id="professor-voice-level" min="0" max="1" value="0" aria-label="Professor voice level"></meter>
+        <details open><summary>Operator tasks · conversation stays available</summary><div id="professor-tasks"></div></details>
+        <details><summary>Shared conversation transcript</summary><pre id="shared-transcript" style="white-space:pre-wrap;max-height:300px;overflow:auto"></pre></details>
+      </section>
+      <details id="section-agent" class="panel-section agent-panel" open>
         <summary class="panel-title"><span id="agent-heading">OPERATOR</span><span id="agent-activity">Not connected</span></summary>
         <div class="section-content">
         <p class="hint">Ask Operator to build or revise this world. Powered by Codex on your PC.</p>
@@ -54,8 +73,19 @@
         <div class="row"><button id="agent-send" class="primary" aria-describedby="agent-send-hint">Send to Codex</button><button id="agent-stop" disabled>Stop turn</button></div>
         <p id="agent-send-hint" class="hint">Send starts a turn in this Codex conversation.</p>
         <div class="row voice-row"><button id="voice-button" aria-describedby="voice-route-help">Speak to Codex</button><span id="voice-status" role="status">Local speech on PC</span></div>
-        <p id="voice-route-help" class="hint">Speech goes to this Codex conversation from every page. While Codex is working, speech adds an instruction to that turn.</p>
+        <p id="voice-route-help" class="hint">Choose Professor or Matrix Operator above. The target is captured when recording starts. Operator speech can add an instruction to its active turn.</p>
         <label class="check-label"><input id="speak-replies" type="checkbox" checked> Speak replies aloud</label>
+        <div id="agent-approval" class="proposal hidden" role="alert">
+          <div class="proposal-label">APPROVAL REQUIRED</div>
+          <p id="agent-approval-summary"></p>
+          <div class="row"><button id="agent-approve" class="primary">Approve once</button><button id="agent-deny">Deny</button></div>
+        </div>
+        <div id="agent-transcript" class="agent-transcript" aria-live="polite">Connect to start a Codex conversation.</div>
+        <nav class="operator-tools" aria-label="Operator tools">
+          <button type="button" data-panel-target="concept-panel" aria-controls="concept-panel">Images</button>
+          <button type="button" data-panel-target="panorama-panel" aria-controls="panorama-panel">Backgrounds</button>
+          <button type="button" data-panel-target="section-planner" aria-controls="section-planner">Advanced proposals / offline</button>
+        </nav>
         <details id="concept-panel" class="concept-panel panel-section section-nested">
           <summary class="panel-title"><span id="concept-heading">VISUAL CONCEPTS</span><span id="concept-summary">No concept selected</span></summary>
           <div class="section-content">
@@ -108,18 +138,10 @@
           <p id="panorama-apply-status" class="hint" role="status" aria-live="polite">Apply in paused Creator Mode on desktop or VR.</p>
           </div>
         </details>
-        <div id="agent-approval" class="proposal hidden" role="alert">
-          <div class="proposal-label">APPROVAL REQUIRED</div>
-          <p id="agent-approval-summary"></p>
-          <div class="row"><button id="agent-approve" class="primary">Approve once</button><button id="agent-deny">Deny</button></div>
-        </div>
-        <div id="agent-transcript" class="agent-transcript" aria-live="polite">Connect to start a Codex conversation.</div>
-        </div>
-      </details>
-      <details id="section-planner" class="panel-section">
+      <details id="section-planner" class="panel-section section-nested">
         <summary class="panel-title"><span>ADVANCED PROPOSALS / OFFLINE</span><span>Separate Planner</span></summary>
         <div class="section-content">
-      <p class="hint">Simple catalog commands and reviewed proposals use this separate Planner. Creative builds and registered assets use Operator above; its conversation and approvals stay separate.</p>
+      <p class="hint">Simple catalog commands and reviewed proposals use this separate Planner. Creative builds and registered assets use Operator; its conversation and approvals stay separate.</p>
       <label for="mode">Planner</label>
       <select id="mode"><option value="offline-rules">Offline commands</option><option value="codex-cli">Codex AI on PC</option></select>
       <label for="prompt">Request</label>
@@ -134,6 +156,8 @@
         <pre id="proposal-commands"></pre>
         <div class="row"><button id="apply" class="primary">Apply proposal</button><button id="discard">Discard</button></div>
       </div>
+        </div>
+      </details>
         </div>
       </details>
       <details id="section-room" class="panel-section">
@@ -273,7 +297,7 @@
         </div>
       </details>
       <details id="section-help" class="panel-section">
-        <summary class="panel-title"><span>HELP &amp; CONNECTION</span><span>Controls and demos</span></summary>
+        <summary class="panel-title"><span>SETTINGS &amp; HELP</span><span>Controls and demos</span></summary>
         <div class="section-content">
           <p class="hint">Describe the experience to Operator, inspect its objects and rules, then enter Play/Test. Desktop: WASD moves, right-drag looks, left-drag grabs a dynamic body, and click activates a labeled world control. In VR or AR, open the in-world Operator panel with either thumbstick; use the controller trigger to grab a dynamic body or activate a labeled control. Return to Creator Mode to revise the same world.</p>
           <label for="token">Service token <small>(only if configured)</small></label>
@@ -286,7 +310,15 @@
     <div class="xr-buttons" id="xr-buttons"></div>
     <div class="view-label" id="view-label">DESKTOP · VIRTUAL ROOM</div>
     <div id="scale-viewport-hint" class="scale-viewport-hint hidden"></div>
-    <div class="xr-overlay" id="xr-overlay" style="display:none"><button id="xr-voice">Tap to speak</button><span id="xr-voice-status">Operator ready</span><button id="xr-exit">Exit AR</button></div>
+    <div class="xr-overlay" id="xr-overlay" style="display:none">
+      <div class="xr-actions"><button id="xr-voice">Tap to speak</button><span id="xr-voice-status">Operator ready</span><button id="professor-open-xr" aria-controls="professor-browser" aria-expanded="false">Professor</button><button id="xr-exit">Exit AR</button></div>
+      <section id="professor-browser" class="professor-browser" aria-label="Full Professor browser" hidden>
+        <header><strong>School of the Ancients — Professor</strong><button id="professor-close" type="button">Close / Back to Matrix</button></header>
+        <p id="professor-notice"></p>
+        <iframe id="professor-frame" title="Complete School of the Ancients Professor app" sandbox="allow-scripts allow-same-origin allow-forms allow-downloads" allow="camera 'none'; microphone 'none'; geolocation 'none'; display-capture 'none'" referrerpolicy="no-referrer"></iframe>
+        <a id="professor-standalone" target="_blank" rel="noopener noreferrer">Open standalone Professor on this PC</a>
+      </section>
+    </div>
   </div>
   <script type="module" src="/src/main.js"></script>
 </body>
