@@ -44,6 +44,11 @@ DOC_FILES = (
 )
 COMPAT_FILES = ("Examples/block_scale_client.py",
                 "Validation/client-api-v1-fixtures.json")
+PROFESSOR_FILES = ("Tools/start_professor_local.mjs",
+                   "Tools/install_professor_avatars.py",
+                   "Tools/connect_professor_quest.py",
+                   "Tools/Setup-ProfessorVoices.ps1",
+                   "Tools/requirements-professor-voices.txt")
 FORBIDDEN_NAMES = re.compile(
     r"(^|[._-])(secret|password|credential|private|room-scan|transcript)"
     r"([._-]|$)|(^|/)control\.json$|\.(key|pem|p12|pfx|crt|env)$",
@@ -106,7 +111,7 @@ def committed_source(repo: Path, ref: str, destination: Path) -> str:
     commit = run("git", "rev-parse", "--verify", f"{ref}^{{commit}}", cwd=repo)
     archive = subprocess.run(
         ["git", "archive", "--format=tar", commit, "--", "ControlService",
-         "WebRuntime", "Docs", *ROOT_FILES, *COMPAT_FILES], cwd=repo,
+         "WebRuntime", "Docs", "Tools", *ROOT_FILES, *COMPAT_FILES], cwd=repo,
         stdout=subprocess.PIPE, stderr=subprocess.PIPE, check=False)
     if archive.returncode:
         raise RuntimeError(f"git archive failed: {archive.stderr.decode(errors='replace')}")
@@ -137,7 +142,7 @@ def eligible_source(relative: PurePosixPath) -> bool:
     if path.startswith("ControlService/"):
         return (len(relative.parts) == 2 and
                 (relative.suffix != ".json" or
-                 relative.name == "content-config.example.json") and
+                 relative.name in {"content-config.example.json", "professor_voice.json"}) and
                 not relative.name.startswith("test_") and
                 not FORBIDDEN_NAMES.search(relative.name))
     if path.startswith("WebRuntime/"):
@@ -148,7 +153,8 @@ def eligible_source(relative: PurePosixPath) -> bool:
                 "QUEST3_ACCEPTANCE.md", "BLENDER_AUTHORING_TIERS.md",
             }
         return (relative.parts[1] == "src" and
-                not FORBIDDEN_NAMES.search(relative.name))
+                (relative.name == "xr_transcript.js" or
+                 not FORBIDDEN_NAMES.search(relative.name)))
     return False
 
 
@@ -161,6 +167,12 @@ def copy_release_source(source: Path, bundle: Path) -> None:
             target = bundle.joinpath(*relative.parts)
             target.parent.mkdir(parents=True, exist_ok=True)
             shutil.copyfile(item, target)
+    # Optional local voice reference is workstation configuration, never portable.
+    voice = bundle / "ControlService/professor_voice.json"
+    if voice.is_file():
+        config = json.loads(voice.read_text(encoding="utf-8"))
+        config["ref_audio_path"] = ""
+        voice.write_text(json.dumps(config, indent=2) + "\n", encoding="utf-8")
     required = [*ROOT_FILES, *DOC_FILES, *COMPAT_FILES, "ControlService/server.py",
                 "WebRuntime/src/host_world.js", "WebRuntime/hosted.html",
                 "WebRuntime/package-lock.json"]
@@ -192,6 +204,73 @@ def build_web(source: Path, bundle: Path) -> dict:
     run(npm, "ci", "--omit=dev", "--no-audit", "--no-fund", cwd=bundle / "WebRuntime")
     return {"node": run(node, "--version"), "npm": run(npm, "--version"),
             "python": sys.version.split()[0]}
+
+
+def build_professor(repo: Path, ref: str, source: Path, bundle: Path) -> dict:
+    """Export one committed School revision; never copy its local .env/archive."""
+    school = source.parent / "school-source"
+    school.mkdir()
+    commit = run("git", "-c", f"safe.directory={repo.as_posix()}",
+                 "rev-parse", "--verify", f"{ref}^{{commit}}", cwd=repo)
+    archive = subprocess.run(["git", "-c", f"safe.directory={repo.as_posix()}",
+                              "archive", "--format=tar", commit], cwd=repo,
+                             capture_output=True, check=True)
+    with tarfile.open(fileobj=io.BytesIO(archive.stdout), mode="r:") as tar:
+        for member in tar:
+            path = canonical_release_path(member.name)
+            if member.issym() or member.islnk():
+                raise ValueError("School source contains a link")
+            if member.isfile():
+                target = school.joinpath(*path.parts)
+                target.parent.mkdir(parents=True, exist_ok=True)
+                with tar.extractfile(member) as stream, target.open("wb") as output:
+                    shutil.copyfileobj(stream, output)
+    # Committed .env files are not accepted even if a future revision adds one.
+    if any(school.glob(".env*")):
+        raise ValueError("School commit contains environment files; review before packaging")
+    env = {key: value for key, value in os.environ.items()
+           if not key.startswith(("VITE_", "GEMINI_", "OPENAI_", "SCHOOL_"))}
+    npm = tool("npm")
+    run(npm, "ci", "--no-audit", "--no-fund", cwd=school, env=env)
+    run(npm, "run", "build", cwd=school, env=env)
+    run(npm, "run", "build:matrix", cwd=school, env=env)
+    target = bundle / "Professor"
+    target.mkdir()
+    for name in ("package.json", "package-lock.json", "vite.config.ts"):
+        shutil.copyfile(school / name, target / name)
+    for name in ("server", "src/school"):
+        for item in (school / name).glob("*.mjs"):
+            if item.name.endswith(".test.mjs") or "fixture" in item.name:
+                continue
+            output = target / name / item.name
+            output.parent.mkdir(parents=True, exist_ok=True)
+            shutil.copyfile(item, output)
+    for name in ("dist", "dist-matrix", "node_modules"):
+        shutil.copytree(school / name, target / name)
+    for name in PROFESSOR_FILES:
+        output = bundle / name
+        output.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copyfile(source / name, output)
+    # Only original, hash-checked scholar assets; never local imported avatars.
+    originals = source / "WebRuntime/art/professors"
+    catalog = json.loads((originals / "catalog.json").read_text(encoding="utf-8"))
+    avatars = bundle / "BundledAssets/professors"
+    avatars.mkdir(parents=True)
+    for item in catalog["avatars"]:
+        name = item["file"]
+        if Path(name).name != name or not name.endswith(".vrm"):
+            raise ValueError("Invalid bundled avatar filename")
+        if file_digest(originals / name) != item["sha256"]:
+            raise ValueError("Bundled avatar hash mismatch")
+        shutil.copyfile(originals / name, avatars / name)
+    shutil.copyfile(originals / "catalog.json", avatars / "catalog.json")
+    (bundle / "Start-Professor.ps1").write_text(
+        "$ErrorActionPreference='Stop'\n"
+        "& node (Join-Path $PSScriptRoot 'Tools/start_professor_local.mjs') (Join-Path $PSScriptRoot 'Professor')\n"
+        "if($LASTEXITCODE -ne 0){exit $LASTEXITCODE}\n", encoding="utf-8")
+    return {"repository": "https://github.com/School-of-the-Ancients/sota-professor",
+            "source_commit": commit, "runtime": "Vite preview with locked dependencies",
+            "bundled_original_avatars": len(catalog["avatars"])}
 
 
 def reject_sensitive_keys(value: object) -> None:
@@ -493,27 +572,59 @@ def verify_extracted(archive_path: Path, hashes: dict[str, str],
             scenes.mkdir(parents=True)
             assets.mkdir(parents=True)
         flags = subprocess.CREATE_NO_WINDOW if os.name == "nt" else 0
-        service = host = None
+        service = host = professor = None
         try:
+            professor_ui = root / "Professor/dist-matrix"
+            professor_args = []
+            if professor_ui.is_dir():
+                professor_port = free_port()
+                professor = subprocess.Popen(
+                    [tool("node"), "node_modules/vite/bin/vite.js", "preview",
+                     "--host", "127.0.0.1", "--port", str(professor_port), "--strictPort"],
+                    cwd=root / "Professor", env=env, stdout=subprocess.DEVNULL,
+                    stderr=subprocess.DEVNULL, creationflags=flags)
+                professor_base = f"http://127.0.0.1:{professor_port}"
+                wait_for_service(professor_base, professor, owner, timeout)
+                for route in ("/", "/api/school/sessions"):
+                    code, body = fetch(professor_base, route)
+                    if code != 200:
+                        raise RuntimeError(f"Extracted Professor {route} returned {code}")
+                    if route.endswith("sessions") and json.loads(body) != []:
+                        raise RuntimeError("Extracted Professor archive is not empty")
+                installed = run(sys.executable, "Tools/install_professor_avatars.py",
+                                "--catalog", str(assets), cwd=root)
+                if len(json.loads(installed)) != 6:
+                    raise RuntimeError("Bundled original avatars failed registration")
+                professor_args = ["--professor-ui", str(professor_ui)]
             service = subprocess.Popen(
                 [sys.executable, "ControlService/server.py", "--host", "127.0.0.1",
-                 "--port", str(port), "--scenes", str(scenes), "--web-assets", str(assets)],
+                 "--port", str(port), "--scenes", str(scenes), "--web-assets", str(assets),
+                 *professor_args],
                 cwd=root, env=env, stdout=subprocess.DEVNULL,
                 stderr=subprocess.DEVNULL, creationflags=flags)
             wait_for_service(base, service, owner, timeout)
             pages = {"health": "/api/health", "web": "/web/",
                      "citizens": "/web/citizens.html",
                      "hosted": "/web/hosted.html"}
+            if professor_ui.is_dir():
+                pages["professor"] = "/professor/"
             status = {}
             referenced_assets: set[str] = set()
             for name, route in pages.items():
-                code, body = fetch(base, route, owner if name == "health" else None)
+                code, body = fetch(base, route, owner if name in {"health", "professor"} else None)
                 if code != 200 or (name != "health" and b"<html" not in body.lower()):
                     raise RuntimeError(f"Extracted {route} returned HTTP {code}")
                 status[name] = code
                 if name != "health":
                     referenced_assets.update(match.decode("ascii") for match in
                         re.findall(rb'(?:src|href)="(/web/assets/[A-Za-z0-9._-]+)"', body))
+            if professor_ui.is_dir():
+                for asset in (professor_ui / "assets").iterdir():
+                    code, body = fetch(base, f"/professor/assets/{asset.name}", owner)
+                    if code != 200 or not body:
+                        raise RuntimeError("Extracted Professor asset is unavailable")
+                status["professorApi"] = 200
+                status["professorAvatars"] = 6
             if not referenced_assets:
                 raise RuntimeError("Extracted Web pages reference no built assets")
             for route in sorted(referenced_assets):
@@ -554,6 +665,7 @@ def verify_extracted(archive_path: Path, hashes: dict[str, str],
         finally:
             stop(host)
             stop(service)
+            stop(professor)
 
 
 def build(args: argparse.Namespace) -> dict:
@@ -576,10 +688,30 @@ def build(args: argparse.Namespace) -> dict:
         commit = committed_source(args.repo.resolve(), args.commit, source)
         copy_release_source(source, bundle)
         versions = build_web(source, bundle)
+        professor = None
+        if bool(getattr(args, "professor_repo", None)) != bool(getattr(args, "professor_commit", None)):
+            raise ValueError("Supply both --professor-repo and --professor-commit")
+        if getattr(args, "professor_repo", None):
+            professor = build_professor(args.professor_repo.resolve(), args.professor_commit, source, bundle)
         demo_name = load_demo(args.demo_checkpoint, args.demo_assets, bundle)
         (bundle / "RELEASE-README.md").write_text(
             release_readme(args.version, commit, versions, demo_name),
             encoding="utf-8", newline="\n")
+        if professor:
+            with (bundle / "RELEASE-README.md").open("a", encoding="utf-8") as readme:
+                readme.write("\n## Professor release candidate\n\n"
+                    f"School source: `{professor['source_commit']}`. Start with `./Start-Professor.ps1`; "
+                    "it uses ports 8765/3110 and refuses to replace running services. "
+                    "Requires the existing ChatGPT Codex sign-in and codex-cli 0.159.0. "
+                    "This local launcher uses Full access, as explicitly selected by the owner. "
+                    "Run `Tools/Setup-ProfessorVoices.ps1` for optional local Kokoro voices and "
+                    "`Setup-LocalSpeech.ps1` for transcription. Model downloads are not included. "
+                    "Six original scholar models are bundled; personal imported models, "
+                    "Riko voice samples, saved worlds and lessons are not. "
+                    "For USB Quest use `adb reverse tcp:8765 tcp:8765` and open "
+                    "http://127.0.0.1:8765/web/ in Quest Browser. "
+                    "Held-button speech is supported; native full-duplex speech is not. "
+                    "This candidate is not a full H01-H10 headset acceptance pass.\n")
         staged_zip = stage / artifact.name
         hashes = add_zip(bundle, staged_zip)
         smoke = verify_extracted(staged_zip, hashes, demo_name,
@@ -589,6 +721,7 @@ def build(args: argparse.Namespace) -> dict:
         "schema_version": 1, "release": args.version,
         "release_type": release_type(args.version),
         "repository": REPOSITORY, "source_commit": commit,
+        "professor": professor,
         "builder_sha256": file_digest(Path(__file__)),
         "artifact": {"file": artifact.name, "bytes": artifact.stat().st_size,
                      "sha256": file_digest(artifact), "files": len(hashes)},
@@ -624,6 +757,10 @@ def main() -> int:
                         help="Explicit, sanitized hosted checkpoint JSON")
     parser.add_argument("--demo-assets", type=Path,
                         help="Matching sanitized WebAssetCatalog directory")
+    parser.add_argument("--professor-repo", type=Path,
+                        help="Optional local School repository, exported only from a commit")
+    parser.add_argument("--professor-commit",
+                        help="Exact School commit/ref paired with this Matrix release")
     parser.add_argument("--smoke-timeout", type=float, default=35)
     parser.add_argument("--force", action="store_true")
     args = parser.parse_args()

@@ -33,6 +33,8 @@ def validate_binding(value, asset_id):
 
 def public_catalog(assets, local_metadata=None):
     curated_path = Path(__file__).resolve().parents[1] / 'WebRuntime' / 'art' / 'professors' / 'catalog.json'
+    if not curated_path.is_file():
+        curated_path = Path(__file__).resolve().parents[1] / 'BundledAssets' / 'professors' / 'catalog.json'
     curated = {item['sha256']: item for item in json.loads(curated_path.read_text(encoding='utf-8'))['avatars']} if curated_path.is_file() else {}
     curated.update(local_metadata or {})
     entries = [{"catalogId": "generic-professor", "assetId": "professor-placeholder",
