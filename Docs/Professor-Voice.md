@@ -40,3 +40,17 @@ The journal retains full accepted events up to its explicit archive limit; model
 - Existing rooms, assets and original School archives were not used for mutation testing. Temporary test services were stopped after validation; existing Riko/SoVITS processes were preserved.
 
 Remaining acceptance: actual microphone capture/device selection and playback quality on the user's hardware, Quest input/room alignment/performance, and live direct-Operator task completion with this journal attached. Automated routing/context tests do not substitute for those hardware checks.
+
+## Quest over USB
+
+The same local Professor app can now run in Quest Browser using the existing PC service. Connect one authorized USB Quest and run `python Tools/connect_professor_quest.py` after starting the Professor service. This maps only Quest port 8765 to PC port 8765; it leaves other mappings and network bindings alone. Open **http://127.0.0.1:8765/web/** in Quest Browser and keep USB connected. Do not use the PC's LAN HTTP address for this setup.
+
+The Professor launcher now starts Operator with Full access and automatic approvals, as explicitly requested by the owner. This changes only this launcher's service environment; native Codex account settings and the general Matrix launcher are unchanged. Existing Matrix validation, task identity, world checks and receipts still apply.
+
+To continue a saved PC lesson, open **Professor → Continue on Quest / another device → Create device code** on the PC. On Quest, open Professor, expand the same section, enter that code and select **Link this browser**. The receiving browser must have no existing lesson records. Codes expire after five minutes, work once and convey access to the same local learner archive; they do not contain Codex credentials. Reusing the same archive keeps both sides on the same conversation. Close the PC Matrix world tab before entering Quest AR so it does not hold the single active-world lease.
+
+In Quest, choose the saved lesson, select **Riko** as the appearance and press **Place professor in Matrix**. The generic stylized placeholder has no VRM facial rig. Close Professor and enter **AR**. Select **TALK: PROFESSOR** on the floating panel. Hold the left-controller trigger to record, then release to send; the browser's microphone permission uses the Quest microphone. The current mode remains push-to-talk, with local Whisper followed by the teacher and SoVITS. Reply audio is played on Quest and drives the active lesson's VRM mouth. Stop voice does not cancel a background Operator task.
+
+Ask, for example, “Ask Operator to build a small demonstration while you explain the idea to me.” The task panel tracks the separate Operator turn; continue asking the professor questions while it runs. The existing [delegation guide](Professor-Delegation.md) explains queued, completed and unconfirmed states.
+
+USB discovery/forwarding, saved-lesson pairing and Full-access startup are verified independently of wearer evidence. Actual Quest AR placement, microphone, audio/lip-sync and a concurrent build require the identified headset session; no desktop result counts as that pass.

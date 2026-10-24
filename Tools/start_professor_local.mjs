@@ -1,4 +1,5 @@
-// Explicit PC-only candidate launcher. Preserves the existing 3107/3108 demos.
+// Loopback Professor launcher, also reachable by an explicitly connected USB Quest.
+// Preserves the existing 3107/3108 demos.
 import {spawn,spawnSync,execFileSync} from 'node:child_process';
 import {createConnection} from 'node:net';
 import {openSync,mkdirSync,writeFileSync,existsSync} from 'node:fs';
@@ -24,6 +25,9 @@ if(login.status!==0||!/logged in using ChatGPT/i.test(`${login.stdout}\n${login.
 const evidence=execFileSync(native,['--version'],{env:environment,encoding:'utf8',windowsHide:true,timeout:10000}).trim();
 if(evidence!=='codex-cli 0.159.0')throw Error('Native version needs review before using this verified candidate.');
 environment.SANDBOX_AI_MODE='codex-cli';environment.SANDBOX_CODEX_EXE=native;
+// Explicit owner preference for this local Professor launcher, not a global Codex setting.
+environment.SANDBOX_CODEX_AGENT_SANDBOX='danger-full-access';
+environment.SANDBOX_CODEX_AGENT_APPROVAL_POLICY='never';
 environment.SANDBOX_CODEX_MODEL ||= 'gpt-6.1-sol';
 const data=join(root,'.utmp','professor-local');mkdirSync(data,{recursive:true});
 const children=[];
@@ -44,6 +48,6 @@ try{
   if(!await connected(8765)||!await connected(3110))throw Error('Candidate startup failed; inspect the private local logs.');
   const receipt={matrixUrl:'http://127.0.0.1:8765/web/',professorUrl:'http://127.0.0.1:3110/',
     dataDirectory:data,professorSource:professor,pids:children.map(child=>child.pid),nativeVersion:evidence,
-    existingServiceAuthConfigured:!!environment.SANDBOX_TOKEN,existing3108Unchanged:true};
+    existingServiceAuthConfigured:!!environment.SANDBOX_TOKEN,operatorPermissions:'full-access',existing3108Unchanged:true};
   writeFileSync(join(data,'startup.json'),JSON.stringify(receipt,null,2));console.log(JSON.stringify(receipt));
 }catch(error){for(const child of children)try{child.kill();}catch{}throw error;}
