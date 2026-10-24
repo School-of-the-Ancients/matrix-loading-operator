@@ -18,7 +18,7 @@ from matrix_tool_bridge import (animation_status, bind_animation, bind_game,
                                 manipulation_action, manipulation_status,
                                 publish_component, read_scene, room_spatial_context,
                                 record_concept_build,
-                                register_glb, register_panorama,
+                                register_glb, register_panorama, library_action,
                                 environment_action, environment_status,
                                 physics_action, physics_status, scale_block, scale_status,
                                 rigid_action, rigid_status,
@@ -27,6 +27,32 @@ from matrix_tool_bridge import (animation_status, bind_animation, bind_game,
 
 
 server = FastMCP("matrix-webxr")
+
+
+@server.tool(annotations=ToolAnnotations(readOnlyHint=True))
+def matrix_search_library(query: str = "", kind: str = "any") -> dict:
+    """Search reusable validated user assets before creating something new. Kind: avatar, exhibit, any.
+
+    A result is a candidate, not proof of suitability or presence in the current world.
+    Use existing scene and asset tools to inspect and place the selected asset.
+    """
+    return library_action(os.environ["MATRIX_CONTROL_URL"], os.environ["MATRIX_CONTROL_TOKEN"],
+                          {"query": query, "kind": kind})
+
+
+@server.tool(annotations=ToolAnnotations(readOnlyHint=False, destructiveHint=False, idempotentHint=True))
+def matrix_register_library_asset(source_path: str, expected_sha256: str, name: str,
+                                  kind: str, description: str = "", teacher_ids: list[str] | None = None,
+                                  tags: list[str] | None = None, job_id: str = "") -> dict:
+    """Validate and retain a generated VRM 1.0 avatar or GLB exhibit in the user's library.
+
+    Compute the file SHA-256 first. For an assigned avatar job, include its exact job_id and teacher id.
+    Registration does not change a scene or prove that a professor appearance was attached.
+    """
+    return library_action(os.environ["MATRIX_CONTROL_URL"], os.environ["MATRIX_CONTROL_TOKEN"],
+                          {"source_path": source_path, "expected_sha256": expected_sha256, "name": name,
+                           "kind": kind, "description": description, "teacher_ids": teacher_ids or [],
+                           "tags": tags or [], "job_id": job_id}, register=True)
 
 
 @server.tool(annotations=ToolAnnotations(readOnlyHint=True))

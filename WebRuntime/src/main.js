@@ -42,6 +42,7 @@ import {ProfessorOverlay} from './professor_overlay.js';
 import {placeProfessor} from './professor_avatar.js';
 import {ProfessorOperator} from './professor_operator.js';
 import {ProfessorConversation} from './professor_conversation.js';
+import {ProfessorAppearanceClient} from './professor_appearance.js';
 import {ProfessorVoice} from './professor_voice.js';
 import {professorAttention} from './professor_attention.js';
 import {ProfessorTaskClient} from './professor_tasks.js';
@@ -727,11 +728,11 @@ function renderProfessorConversation(){
   const conversation=professorConversation,session=conversation.session;
   $('talk-professor').setAttribute('aria-pressed',String(conversation.target==='professor'));
   $('talk-operator').setAttribute('aria-pressed',String(conversation.target==='operator'));
-  $('conversation-target').textContent=conversation.target==='professor'?`Professor: ${session?.mentor.name||'choose a lesson'}`:'Matrix Loading Operator';
+  $('conversation-target').textContent=conversation.target==='professor'?`Professor: ${session?.mentor.name||'ask a question to start'}`:'Matrix Loading Operator';
   $('professor-conversation-status').textContent=conversation.status;
   $('conversation-send').disabled=conversation.pending;
   $('professor-replay').disabled=conversation.target!=='professor'||!session?.conversation?.events.some(event=>event.speaker==='professor'&&event.recipient==='learner');
-  $('shared-transcript').textContent=(session?.conversation?.events||[]).slice(-100).map(event=>`${event.speaker} → ${event.recipient}${event.speaker==='professor'?` [${event.delivery}]`:''}: ${event.text}`).join('\n\n')||'Choose a lesson to start its shared conversation.';
+  $('shared-transcript').textContent=(session?.conversation?.events||[]).slice(-100).map(event=>`${event.speaker} → ${event.recipient}${event.speaker==='professor'?` [${event.delivery}]`:''}: ${event.text}`).join('\n\n')||'Ask a question to start your shared conversation.';
   professorTasks?.watch(session);
   const taskList=$('professor-tasks');
   const taskSignature=JSON.stringify((session?.operatorTasks||[]).map(task=>[task,professorTasks?.records.get(task.id)?.status,professorTasks?.records.get(task.id)?.error,professorTasks?.submitting.has(task.id)]));
@@ -781,8 +782,9 @@ professorVoice=new ProfessorVoice({load:async text=>{
 }});
 professorConversation=new ProfessorConversation({request:(path,body)=>bridge.request(path,body),worldId:()=>world.scene.roomId,worldIdentity:()=>world.scene,
   onChange:renderProfessorConversation,onStop:()=>professorVoice.stop(),
-  isDelegatedTurn:turn=>{const id=/^\[School task:([a-f0-9-]{36})\]/.exec(turn.user||'')?.[1];return !!id&&(!!professorTasks?.records.has(id)||!!professorConversation.session?.operatorTasks?.some(task=>task.id===id));},
+  isDelegatedTurn:turn=>{if(/^\[School avatar:[a-f0-9-]{36}\]/.test(turn.user||''))return true;const id=/^\[School task:([a-f0-9-]{36})\]/.exec(turn.user||'')?.[1];return !!id&&(!!professorTasks?.records.has(id)||!!professorConversation.session?.operatorTasks?.some(task=>task.id===id));},
   onTasks:(tasks,capture)=>{for(const task of tasks)void professorTasks.submit(task,capture);},
+  onCreated:async session=>{professorLink?.send({type:'matrix-school-open',sessionId:session.id});await appearanceClient.sync();},
   onReply:async(event,capture)=>{
     professorLink?.send({type:'matrix-school-refresh',sessionId:capture.sessionId});
     if(!$('speak-replies').checked||professorConversation.target!=='professor')return;
@@ -852,6 +854,26 @@ if(professorOverlay.route.available)professorLink=new ProfessorOperator({frame:$
       if(kind==='artifact')view.operatorPanel.toggleConcepts();else view.operatorPanel.togglePanoramas();}
   }});
 renderAgent();
+const appearanceClient=new ProfessorAppearanceClient({
+  request:(path,body)=>bridge.request(path,body),current:()=>professorConversation.session,
+  worldIdentity:()=>world.scene,
+  isBusy:()=>professorConversation.pending||!!professorVoice.source&&world.scene.objects.some(item=>item.professor?.schoolSessionId===professorConversation.session?.id)||voiceRecording||voiceStarting||
+    pendingWorld||pcWorldBusy||worldSwitchBusy||reviewBusy||!!view.grab||!!view.pointerGrab,
+  onSession:session=>{professorConversation.session=session;renderProfessorConversation();},
+  apply:async(avatar,session,catalog)=>{
+    const existing=world.scene.objects.find(item=>item.professor?.schoolSessionId===session.id);
+    if(existing?.professor?.catalogId===avatar.catalogId&&existing.assetId===avatar.assetId)return;
+    if(!world.asset(avatar.assetId))return; // Bridge imports the new immutable asset before placement.
+    const viewer=view.viewer();const frame=viewer?.frames?.find(item=>item.anchorId==='web-floor')||viewer;
+    const p=frame?.position||{x:0,y:0,z:2},f=frame?.forward||{x:0,y:0,z:-1};
+    placeProfessor(world,avatar,{schoolSessionId:session.id,teacherId:session.mentor.id||'custom-teacher',
+      teacherName:session.mentor.name,catalogId:avatar.catalogId},{x:p.x+f.x*1.5,y:0,z:p.z+f.z*1.5});
+    renderScene();await bridge.tick(true);
+    professorLink?.send({type:'matrix-professor-catalog',catalog,placements:world.scene.objects.filter(item=>item.professor)
+      .map(item=>({schoolSessionId:item.professor.schoolSessionId,catalogId:item.professor.catalogId}))});
+  },onError:error=>{console.warn('Professor appearance:',error.message);}
+});
+setInterval(()=>void appearanceClient.sync(),2400);
 if(agentClient.sessionId)agentClient.restore().then(()=>conceptUI.refresh()).catch(()=>{});
 setInterval(()=>{if(agentClient.sessionId&&!agentClient.error&&!agentActionBusy)agentClient.poll().catch(()=>{});},800);
 setInterval(()=>{if(agentClient.sessionId&&!conceptUI.busy)

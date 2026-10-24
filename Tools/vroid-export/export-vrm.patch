@@ -1,0 +1,146 @@
+diff --git a/plugin/VroidStudioMcp/Commands/CommandDispatcher.cs b/plugin/VroidStudioMcp/Commands/CommandDispatcher.cs
+index c86e3ad..2cdc0d0 100644
+--- a/plugin/VroidStudioMcp/Commands/CommandDispatcher.cs
++++ b/plugin/VroidStudioMcp/Commands/CommandDispatcher.cs
+@@ -54,7 +54,7 @@ public static class CommandDispatcher
+     // pathless `save` at the model select used to invoke the engine's Save on a stale VM.
+     private static readonly HashSet<string> EditRequired = new()
+     {
+-        "save", "categories", "enter", "presets", "presets_full", "select_preset",
++        "save", "export_vrm", "categories", "enter", "presets", "presets_full", "select_preset",
+         "set_param", "label_set", "preset_preview_list", "preset_preview_range",
+         "camera", "screenshot",
+     };
+@@ -112,6 +112,7 @@ public static class CommandDispatcher
+         ["camera"] = CameraHandlers.Camera,
+         ["screenshot"] = ScreenshotHandlers.Screenshot,
+         ["save"] = SessionHandlers.Save,
++        ["export_vrm"] = ExportHandlers.ExportVrm,
+         ["exit"] = SessionHandlers.Exit,
+         ["main_menu"] = SessionHandlers.MainMenu,
+         ["categories"] = CategoryHandlers.List,
+diff --git a/plugin/VroidStudioMcp/Commands/Handlers/ExportHandlers.cs b/plugin/VroidStudioMcp/Commands/Handlers/ExportHandlers.cs
+new file mode 100644
+index 0000000..c1654ac
+--- /dev/null
++++ b/plugin/VroidStudioMcp/Commands/Handlers/ExportHandlers.cs
+@@ -0,0 +1,93 @@
++using System;
++using System.Collections;
++using System.Collections.Generic;
++using System.IO;
++using System.Reflection;
++using static VroidStudioMcp.Interop;
++using static VroidStudioMcp.VroidState;
++
++namespace VroidStudioMcp;
++
++public static class ExportHandlers
++{
++    public static IEnumerator ExportVrm(CommandDispatcher.Context ctx)
++    {
++        var path = CommandUtil.Arg(ctx, 0);
++        var title = CommandUtil.Arg(ctx, 1);
++        if (string.IsNullOrWhiteSpace(path) || !Path.IsPathFullyQualified(path) ||
++            !path.EndsWith(".vrm", StringComparison.OrdinalIgnoreCase) ||
++            string.IsNullOrWhiteSpace(title) || title.Length > 80)
++        { ctx.Error = "export_vrm requires an absolute .vrm path and a title (1-80 characters)"; yield break; }
++        path = Path.GetFullPath(path);
++        if (File.Exists(path)) { ctx.Error = "Export destination exists; choose a new path"; yield break; }
++        if (!Directory.Exists(Path.GetDirectoryName(path)))
++        { ctx.Error = "Create the export directory first"; yield break; }
++        if (_editRootVm == null || _modelUpdating)
++        { ctx.Error = "Wait for an open model to finish rebuilding"; yield break; }
++
++        var vmType = FindType("VRoidStudio.GUI.AvatarEditor.PhotoBooth.PhotoBoothViewModel");
++        var vm = RewrapTo(Get(_editRootVm, "obsoleteLegacyPhotoBoothViewModel"), vmType);
++        if (vm == null) { ctx.Error = "The installed editor has no compatible export view model"; yield break; }
++        Invoke(_editRootVm, "EnterToVRMExport");
++        yield return CommandUtil.WaitUntil(() => Get(vm, "ExportSettings") != null, 30);
++        var settings = Get(vm, "ExportSettings");
++        if (settings == null) { ctx.Error = "Export settings did not become ready"; yield break; }
++
++        var meta = Get(settings, "VRM10MetaData") ?? Activator.CreateInstance(FindType("UniVRM10.VRM10ObjectMeta"));
++        if (meta == null || !Set(meta, "Name", title))
++        { ctx.Error = "Could not set VRM 1.0 metadata"; yield break; }
++        Set(meta, "Version", "1.0");
++        var authors = Get(meta, "Authors");
++        if (authors != null && Enumerate(authors).GetEnumerator().MoveNext() == false)
++            Invoke(authors, "Add", "Local creator");
++
++        var partial = path + ".partial.vrm";
++        if (File.Exists(partial)) { ctx.Error = "A partial export already exists; inspect it before retrying"; yield break; }
++        bool succeeded = false, failed = false;
++        Il2CppSystem.Action success = (Action)(() => succeeded = true);
++        Il2CppSystem.Action failure = (Action)(() => failed = true);
++        Il2CppSystem.Action<double> progress = (Action<double>)(_ => { });
++        var method = vmType.GetMethod("ExportVRM1", BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance);
++        if (method == null) { ctx.Error = "VRM 1.0 export method is unavailable"; yield break; }
++        var reduction = Get(settings, "CurrentMaterialReductionMode");
++        object native;
++        try
++        {
++            native = method.Invoke(vm, new object[] {partial, meta,
++                Get(settings, "IsEnableHairCombination") is bool combine && combine,
++                true, reduction, true, success, failure, progress});
++        }
++        catch (Exception error) { ctx.Error = "Export could not start: " + error.GetBaseException().Message; yield break; }
++        var routine = native as Il2CppSystem.Collections.IEnumerator;
++        if (routine == null) { ctx.Error = "Exporter did not return a coroutine"; yield break; }
++        var stack = new Stack<Il2CppSystem.Collections.IEnumerator>();
++        stack.Push(routine);
++        var deadline = UnityEngine.Time.realtimeSinceStartup + 120;
++        while (stack.Count > 0 && UnityEngine.Time.realtimeSinceStartup < deadline)
++        {
++            bool moved;
++            Il2CppSystem.Object current = null;
++            try { moved = stack.Peek().MoveNext(); if (moved) current = stack.Peek().Current; }
++            catch (Exception error) { ctx.Error = "Export failed: " + error.GetBaseException().Message; yield break; }
++            if (!moved) stack.Pop();
++            else if (current != null)
++            {
++                var child = current.TryCast<Il2CppSystem.Collections.IEnumerator>();
++                if (child != null) stack.Push(child);
++            }
++            yield return null;
++        }
++        if (stack.Count > 0) { ctx.Error = "Export timed out; inspect the partial file before retrying"; yield break; }
++        if (failed || !succeeded || !File.Exists(partial))
++        { ctx.Error = "Export did not report a successful file"; yield break; }
++        using (var stream = File.OpenRead(partial))
++        using (var reader = new BinaryReader(stream))
++        {
++            if (stream.Length < 20 || reader.ReadUInt32() != 0x46546c67 || reader.ReadUInt32() != 2)
++            { ctx.Error = "Exported file is not a GLB 2 container"; yield break; }
++        }
++        File.Move(partial, path);
++        Invoke(_editRootVm, "EnterToEdit");
++        ctx.Result = new {path, format = "VRM1.0", bytes = new FileInfo(path).Length};
++    }
++}
+diff --git a/plugin/VroidStudioMcp/MCP/McpHost.cs b/plugin/VroidStudioMcp/MCP/McpHost.cs
+index 3e821d3..13c1a35 100644
+--- a/plugin/VroidStudioMcp/MCP/McpHost.cs
++++ b/plugin/VroidStudioMcp/MCP/McpHost.cs
+@@ -68,7 +68,7 @@ public static class McpHost
+         "item-specific Outfit sliders, clear presets, colours, camera, values, sessions - call help(topic) before guessing; " +
+         "it is the detailed, authoritative reference. help() with no topic lists the topics.\n\n" +
+         "TOOLS: state, status, sections, open, create, categories, enter, presets, preset_preview_list, preset_preview_range, select_preset, " +
+-        "set_param, camera, screenshot, save, main_menu, exit, batch, help. " +
++        "set_param, camera, screenshot, save, export_vrm, main_menu, exit, batch, help. " +
+         "Use batch for several ordered operations + captures in one call (it returns captured frames inline and accepts any " +
+         "tool name, including help). status is answered without the main-thread queue, so it works while a command or batch runs. " +
+         "(ui_screenshot is a dev-only tool, disabled when dev_tools=false in the servers config.)\n";
+@@ -1019,6 +1019,12 @@ public static class McpHost
+                   },
+               }),
+ 
++            T("export_vrm",
++              "Export the open character as VRM 1.0 using the editor's native exporter. Blocks until export completes. Does not overwrite existing files. Preserve the editable source with save first. The returned file must still be validated by the destination asset library.",
++              new[] { "path", "title" }, new[] { "path", "title" },
++              new() { ["path"] = P("string", "Absolute path ending in .vrm; parent directory must exist."),
++                      ["title"] = P("string", "Local avatar title, 1-80 characters.") }),
++
+             T("save",
+               "Save the model (blocking, ~few seconds). With 'path' it does a save-as to that file (no dialog) and " +
+               "returns the resolved host path. Without 'path' it saves in place and returns 'saved' - but only if " +

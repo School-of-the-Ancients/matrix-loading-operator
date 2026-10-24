@@ -39,6 +39,8 @@ import professor_actions
 import professor_mount
 import professor_speech
 from professor_tasks import ProfessorTasks
+from professor_library import ProfessorLibrary
+from professor_avatar_jobs import ProfessorAvatarJobs
 from professor_context import checked_lesson_context
 from matrix_tool_bridge import MatrixToolBridge
 import speech
@@ -4313,6 +4315,7 @@ class State:
         self.directory = Path(directory)
         self.directory.mkdir(parents=True, exist_ok=True)
         self.web_assets = WebAssetCatalog(web_assets_directory or Path(__file__).with_name("web_assets"))
+        self.professor_library = ProfessorLibrary(self.web_assets.root, self.web_assets)
         self.web_environments = WebEnvironmentCatalog(
             web_environments_directory or Path(__file__).with_name("web_environments"))
         self.web_components = WebComponentCatalog(self.directory / "web_components")
@@ -4379,6 +4382,7 @@ class State:
         self.clients = ClientAPI(self, plan, lambda: client_planner_modes(self))
         self.professor_tasks = ProfessorTasks(self.directory / '.agent_portal' / 'professor_tasks.json', self,
                                               lambda body: agent_portal_turn(self, body))
+        self.professor_avatar_jobs = ProfessorAvatarJobs(self.directory / '.agent_portal' / 'avatar_jobs', self)
 
     @property
     def citizen_construction_budget(self):
@@ -9016,7 +9020,12 @@ class Handler(BaseHTTPRequestHandler):
                 return
             self.authenticate()
             if path == "/api/professor/avatars":
-                data = professor_avatar_catalog(self.server.state.web_assets.list())
+                data = professor_avatar_catalog(self.server.state.web_assets.list(), self.server.state.professor_library.avatar_metadata())
+            elif path == "/api/professor/library":
+                query = urllib.parse.parse_qs(url.query)
+                data = self.server.state.professor_library.list(query.get('query', [''])[0], query.get('kind', ['any'])[0])
+            elif re.fullmatch(r"/api/professor/avatar-jobs/[a-f0-9-]{36}", path):
+                data = self.server.state.professor_avatar_jobs.get(path.rsplit('/', 1)[1])
             elif path == "/api/professor/task":
                 require(self.server.is_loopback and loopback(self.client_address[0]), 'Professor tasks are PC-loopback only', 403)
                 query=urllib.parse.parse_qs(url.query,keep_blank_values=True)
@@ -9174,6 +9183,12 @@ class Handler(BaseHTTPRequestHandler):
                     state.voice_worker.release()
                 if isinstance(data, str):
                     data = {"transcript": data}
+            elif path == "/api/professor/library":
+                require(self.server.is_loopback and loopback(self.client_address[0]), 'Library writes are PC-loopback only', 403)
+                data = state.professor_library.register(body)
+            elif path == "/api/professor/avatar-jobs":
+                require(self.server.is_loopback and loopback(self.client_address[0]), 'Avatar jobs are PC-loopback only', 403)
+                data = state.professor_avatar_jobs.ensure(body)
             elif path == "/api/professor/speak":
                 require(set(body) == {"text"}, "Invalid Professor speech request")
                 self.send_data(200, professor_speech.synthesize(body["text"]), "audio/wav")
