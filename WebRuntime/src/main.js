@@ -44,6 +44,7 @@ import {ProfessorOperator} from './professor_operator.js';
 import {ProfessorConversation} from './professor_conversation.js';
 import {ProfessorAppearanceClient} from './professor_appearance.js';
 import {ProfessorVoice} from './professor_voice.js';
+import {readVoiceChoices,saveVoiceChoice} from './professor_voice_profiles.js';
 import {professorAttention} from './professor_attention.js';
 import {ProfessorTaskClient} from './professor_tasks.js';
 
@@ -83,6 +84,7 @@ let cameraBusy=false;
 const recorder=new VoiceRecorder();let voiceStarting=false,voiceRecording=false,voiceStopRequested=false,voiceJob=null,voiceAgentContext=null;
 let replyContext=null,replySource=null;
 let professorConversation=null,professorVoice=null,professorLink=null,voiceDestination=null,professorTasks=null;
+let professorVoiceCatalog=null,professorVoiceChoices=readVoiceChoices(localStorage);
 let agentClient=null,conceptUI=null,panoramaUI=null,agentActionBusy=false,agentVoiceStatus='',voiceSteerTurnId=null,agentAttentionKey='',reviewBusy=false;
 let operatorDraftNotice='',operatorDraftUnconfirmed=false;
 let creationMode=loadCreationMode(sessionStorage);
@@ -730,6 +732,11 @@ function renderProfessorConversation(){
   $('talk-operator').setAttribute('aria-pressed',String(conversation.target==='operator'));
   $('conversation-target').textContent=conversation.target==='professor'?`Professor: ${session?.mentor.name||'ask a question to start'}`:'Matrix Loading Operator';
   $('professor-conversation-status').textContent=conversation.status;
+  const teacherId=session?.mentor?.id||'default';
+  $('professor-voice').value=professorVoiceChoices[teacherId]||'';
+  const voiceId=professorVoiceChoices[teacherId]||professorVoiceCatalog?.teachers?.[teacherId]||professorVoiceCatalog?.defaultVoice;
+  const profile=professorVoiceCatalog?.voices.find(item=>item.id===voiceId);
+  if(profile)$('professor-voice-status').textContent=`${profile.label}${profile.available?' · local speech':' · not installed'}. Voice is a portrayal, not a historical recording.`;
   $('conversation-send').disabled=conversation.pending;
   $('professor-replay').disabled=conversation.target!=='professor'||!session?.conversation?.events.some(event=>event.speaker==='professor'&&event.recipient==='learner');
   $('shared-transcript').textContent=(session?.conversation?.events||[]).slice(-100).map(event=>`${event.speaker} → ${event.recipient}${event.speaker==='professor'?` [${event.delivery}]`:''}: ${event.text}`).join('\n\n')||'Ask a question to start your shared conversation.';
@@ -753,9 +760,9 @@ function renderProfessorConversation(){
   if(conversation.draft&&conversation.draftSessionId===session?.id&&!$('conversation-input').value)$('conversation-input').value=conversation.draft;
   voiceButtons();
 }
-professorVoice=new ProfessorVoice({load:async text=>{
+professorVoice=new ProfessorVoice({load:async(text,capture)=>{
   const headers={'Content-Type':'application/json'},token=$('token').value.trim();if(token)headers.Authorization=`Bearer ${token}`;
-  const response=await fetch('/api/professor/speak',{method:'POST',headers,body:JSON.stringify({text}),cache:'no-store'});
+  const response=await fetch('/api/professor/speak',{method:'POST',headers,body:JSON.stringify({text,teacherId:capture.teacherId,voiceId:capture.voiceId}),cache:'no-store'});
   if(!response.ok){const error=await response.json().catch(()=>({}));throw Error(error.error||`Professor voice HTTP ${response.status}`);}
   return response.arrayBuffer();
 },onState:(active,delivery,error)=>{
@@ -781,6 +788,7 @@ professorVoice=new ProfessorVoice({load:async text=>{
   }
 }});
 professorConversation=new ProfessorConversation({request:(path,body)=>bridge.request(path,body),worldId:()=>world.scene.roomId,worldIdentity:()=>world.scene,
+  voiceId:teacherId=>professorVoiceChoices[teacherId]||null,
   onChange:renderProfessorConversation,onStop:()=>professorVoice.stop(),
   isDelegatedTurn:turn=>{if(/^\[School avatar:[a-f0-9-]{36}\]/.test(turn.user||''))return true;const id=/^\[School task:([a-f0-9-]{36})\]/.exec(turn.user||'')?.[1];return !!id&&(!!professorTasks?.records.has(id)||!!professorConversation.session?.operatorTasks?.some(task=>task.id===id));},
   onTasks:(tasks,capture)=>{for(const task of tasks)void professorTasks.submit(task,capture);},
@@ -827,6 +835,22 @@ $('conversation-send').addEventListener('click',async()=>{
   }catch(error){feedback(error.message,true);}
 });
 renderProfessorConversation();
+$('professor-voice').addEventListener('change',()=>{
+  const teacherId=professorConversation.session?.mentor?.id||'default';
+  try{
+    professorVoiceChoices=saveVoiceChoice(localStorage,professorVoiceChoices,teacherId,$('professor-voice').value);
+    professorVoice.stop();renderProfessorConversation();
+    feedback('Professor voice saved for this teacher. Press Replay voice to listen.');
+  }catch{feedback('Could not save this voice choice in the browser.',true);}
+});
+void bridge.request('/api/professor/voices').then(catalog=>{
+  professorVoiceCatalog=catalog;
+  for(const voice of catalog.voices){
+    const option=document.createElement('option');option.value=voice.id;option.textContent=voice.label;
+    option.disabled=!voice.available;$('professor-voice').append(option);
+  }
+  renderProfessorConversation();
+}).catch(()=>{$('professor-voice-status').textContent='Voice settings unavailable; retry after connecting to the PC.';});
 if(professorOverlay.route.available)professorLink=new ProfessorOperator({frame:$('professor-frame'),
   onSession:id=>id===professorConversation.session?.id?professorConversation.refresh(true):professorConversation.activate(id),
   placements:()=>world.scene.objects.filter(object=>object.professor).map(object=>({schoolSessionId:object.professor.schoolSessionId,catalogId:object.professor.catalogId})),

@@ -42,6 +42,9 @@
         <textarea id="conversation-input" rows="2" aria-label="Message to selected conversation target" placeholder="Talk to the selected professor or Operator"></textarea>
         <div class="row" style="flex-wrap:wrap"><button id="conversation-send">Send message</button><button id="professor-replay">Replay voice</button><button id="professor-stop-voice">Stop voice</button></div>
         <meter id="professor-voice-level" min="0" max="1" value="0" aria-label="Professor voice level"></meter>
+        <label for="professor-voice">Professor voice</label>
+        <select id="professor-voice"><option value="">Automatic for this professor</option></select>
+        <p id="professor-voice-status" class="hint" role="status">Loading local voices…</p>
         <details open><summary>Operator tasks · conversation stays available</summary><div id="professor-tasks"></div></details>
         <details><summary>Shared conversation transcript</summary><pre id="shared-transcript" style="white-space:pre-wrap;max-height:300px;overflow:auto"></pre></details>
       </section>

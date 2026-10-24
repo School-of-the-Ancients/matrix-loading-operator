@@ -2,5 +2,28 @@
   "ref_audio_path": "C:/Riko/client/characters/riko/voice/main_sample.wav",
   "prompt_text": "This is a sample voice for you to just get started with because it sounds kind of cute but just make sure this doesn't have long silences.",
   "prompt_lang": "en",
-  "text_lang": "en"
+  "text_lang": "en",
+  "defaultVoice": "michael",
+  "teachers": {
+    "davinci": "george",
+    "socrates": "fable",
+    "ada_lovelace": "emma",
+    "newton": "george",
+    "confucius": "michael",
+    "galileo": "fenrir",
+    "plato": "fable",
+    "einstein": "michael",
+    "cleopatra": "bella",
+    "aristotle": "george",
+    "marcus_aurelius": "fenrir"
+  },
+  "profiles": {
+    "george": {"label": "George · British male", "provider": "kokoro", "voice": "bm_george", "language": "en-gb", "speed": 1.0},
+    "fable": {"label": "Fable · British male", "provider": "kokoro", "voice": "bm_fable", "language": "en-gb", "speed": 1.0},
+    "michael": {"label": "Michael · American male", "provider": "kokoro", "voice": "am_michael", "language": "en-us", "speed": 1.0},
+    "fenrir": {"label": "Fenrir · American male", "provider": "kokoro", "voice": "am_fenrir", "language": "en-us", "speed": 1.0},
+    "emma": {"label": "Emma · British female", "provider": "kokoro", "voice": "bf_emma", "language": "en-gb", "speed": 1.0},
+    "bella": {"label": "Bella · American female", "provider": "kokoro", "voice": "af_bella", "language": "en-us", "speed": 1.0},
+    "riko": {"label": "Riko · original SoVITS voice", "provider": "sovits"}
+  }
 }
