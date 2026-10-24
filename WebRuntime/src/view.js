@@ -1,5 +1,6 @@
 import {loadVrmAvatar} from './vrm_avatar.js';
 import {partPosition,partNode,partForHit,PartMarker} from './asset_parts.js';
+import {avatarPointerCollider,pointerObjectHits} from './pointer_picking.js';
 import {canDirectManipulate} from './manipulation.js';
 import * as THREE from 'three';
 import {adjustedARLayoutOffset,composeARLayoutPose,webFloorLayoutPivot} from './ar_layout.js';
@@ -84,8 +85,7 @@ export function updateControllerRayForPanel(ray,controller,panel,objects=[]){
     probe.raycaster.set(probe.origin,probe.direction);probe.raycaster.far=4;
     hit=panel.group.visible?probe.raycaster.intersectObject(panel.mesh)[0]||null:null;
     if(!hit&&objects.length){
-      for(const object of objects)object.updateWorldMatrix(true,true);
-      hit=probe.raycaster.intersectObjects(objects,true)[0]||null;
+      hit=pointerObjectHits(probe.raycaster,objects)[0]||null;
     }
   }
   // The panel renders without depth testing, so a ray drawn behind it would
@@ -1471,6 +1471,7 @@ export class MatrixView {
         catch(error){loaded.dispose();throw error;}
         for(const child of [...visual.children]){visual.remove(child);disposeGroup(child);}
         visual.add(loaded.model);root.userData.vrm=loaded.vrm;root.userData.professorMotion=loaded.motion;root.userData.disposeVrm=loaded.dispose;
+        root.userData.pointerCollider=avatarPointerCollider(visual,loaded.measuredSize);
         loaded.vrm.humanoid.update();
         root.updateWorldMatrix(true,true);
         loaded.vrm.springBoneManager?.setInitState();
@@ -1873,7 +1874,7 @@ export class MatrixView {
   }
   selectFromRay(){
     if(this.isAR&&this.world.spatial?.originUnavailable)return null;
-    const roots=[...this.objectRoots.values()];const hits=this.raycaster.intersectObjects(roots,true);
+    const roots=[...this.objectRoots.values()];const hits=pointerObjectHits(this.raycaster,roots);
     if(hits.length){let node=hits[0].object;while(node&&!node.userData.objectId)node=node.parent;
       const id=node?.userData.objectId;if(id){const object=this.world.requireObject(id);
         const asset=this.world.asset?.(object.assetId),part=partForHit(hits[0],asset);
@@ -1966,7 +1967,7 @@ export class MatrixView {
     // The Operator consumes this ray. A world hit behind its panel is not the
     // wearer's spatial target, including when speech starts on the Voice button.
     if(this.operatorPanel.group.visible&&this.raycaster.intersectObject(this.operatorPanel.mesh)[0])return null;
-    const objectHit=this.raycaster.intersectObjects([...this.objectRoots.values()],true)[0];
+    const objectHit=pointerObjectHits(this.raycaster,[...this.objectRoots.values()])[0];
     if(objectHit){
       let node=objectHit.object;while(node&&!node.userData.objectId)node=node.parent;
       const objectId=node?.userData.objectId;
@@ -2198,7 +2199,7 @@ export class MatrixView {
       if(this.controllers[index].visible!==false)hoverPart(updateControllerRayForPanel(this.controllerRays[index],this.controllers[index],this.operatorPanel,[...this.objectRoots.values()]));
     }
     else if(this.pointerKnown&&!this.pointerGrab&&!this.pointerLook){
-      this.raycaster.setFromCamera(this.pointer,this.camera);hoverPart(this.raycaster.intersectObjects([...this.objectRoots.values()],true)[0]);
+      this.raycaster.setFromCamera(this.pointer,this.camera);hoverPart(pointerObjectHits(this.raycaster,[...this.objectRoots.values()])[0]);
     }
     if(this.partMarker)this.partMarker.group.visible=false;
     for(const root of this.objectRoots.values())root.userData.mixer?.update(delta);

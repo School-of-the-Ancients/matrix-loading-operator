@@ -32,6 +32,10 @@ spoken reply. Teaching guides can be set to both, highlight, arrow or hand only.
 
 Controller rays stop on virtual model surfaces as well as panels. Hovering shows
 the nearest eligible part; clicking/trigger selection retains its identity.
+Floating name labels and other presentation sprites are excluded from world
+picking. VRM avatars use a transformed body envelope for pointer hits, avoiding
+per-frame skin-triangle intersection on standalone headsets; exhibit parts still
+use their actual mesh surfaces.
 The part under the pointer (or retained selection) when a recording ends is saved
 as `partReference` with the learner's exact words. A later pointer move cannot
 rewrite that reference while transcription or teaching runs. The teacher checks
