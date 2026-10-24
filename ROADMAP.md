@@ -23,7 +23,9 @@ Reuse completed implementation, package checks and unaffected wearer observation
 
 ## Module backlogs
 
-The other 25 open issues are retained as future work. No next release or implementation sequence is selected by this table. Shared labels on #22, #31 and #156 expose real integration responsibilities; other issues have one module owner.
+The other open issues are retained as future work. No next release or implementation sequence is selected by this table. Shared labels on #22, #31 and #156 expose real integration responsibilities; other issues have one module owner.
+
+The separate local Professor prototype is checkpointed in [Matrix PR #213](https://github.com/School-of-the-Ancients/matrix-loading-operator/pull/213) and [School PR #6](https://github.com/School-of-the-Ancients/sota-professor/pull/6). Its working voice/Operator loop now has user feedback on Quest. Future UX follow-ups are [appropriate avatars #214](https://github.com/School-of-the-Ancients/matrix-loading-operator/issues/214), [rest pose and animation #215](https://github.com/School-of-the-Ancients/matrix-loading-operator/issues/215), and [short exhibit-led teaching, School #7](https://github.com/School-of-the-Ancients/sota-professor/issues/7). Dynamic avatar generation remains later feasibility work. These do not change the frozen v1.2 release or pass its remaining acceptance.
 
 | Module / area | Existing issues | Responsibility |
 | --- | --- | --- |

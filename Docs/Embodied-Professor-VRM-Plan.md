@@ -1,8 +1,18 @@
 # Embodied Professor and VRM catalog implementation plan
 
-Date: October 23, 2026 (America/Denver). Status: first avatar/lesson-binding slice implemented and desktop-validated. Live voice, automatic matching and Quest acceptance remain pending. See [Professor-Avatar.md](Professor-Avatar.md) for shipped behavior and evidence.
+Date: October 23, 2026 (America/Denver). Status: working embodied Professor prototype with lesson binding, shared conversation, local voice/lip-sync, asynchronous Operator delegation and USB Quest access. The user reports mouth movement while chatting; complete Quest acceptance remains open. See [Professor-Avatar.md](Professor-Avatar.md), [Professor-Voice.md](Professor-Voice.md) and [Professor-Delegation.md](Professor-Delegation.md) for implementation and evidence.
 
-Conversation ownership and the next implementation sequence are refined in [Professor-Conversation-Routing.md](Professor-Conversation-Routing.md): speech targets the active School professor; Matrix Loading Operator is its delegated world worker. The avatar renders that professor's output. This is a plan, not an enabled speech/tool bridge.
+Conversation ownership is described in [Professor-Conversation-Routing.md](Professor-Conversation-Routing.md): speech targets the active School professor; Matrix Loading Operator is its delegated world worker. The avatar renders that professor's output. This bridge is implemented in the draft checkpoint; the remaining design sections below include future work.
+
+## Next UX iteration
+
+The first user session exposed three concrete follow-ups:
+
+- [School #7](https://github.com/School-of-the-Ancients/sota-professor/issues/7): shorter, exhibit-led Socratic turns. After a verified load, invite one observation or action and wait for the student, then adapt the next hint/explanation to their answer. Example: “Look at the circle and square—what do you notice about the proportions?” Avoid long automatic lectures.
+- [Matrix #215](https://github.com/School-of-the-Ancients/matrix-loading-operator/issues/215): correct the visibly rigid arms-out pose, then add subtle idle/listening/speaking motion and explicit exhibit-directed gestures. Mouth movement working does not establish natural body animation.
+- [Matrix #214](https://github.com/School-of-the-Ancients/matrix-loading-operator/issues/214): expand the curated, licensed VRM catalog and appropriate teacher matching. Leonardo using a cat-girl body with a tail is a placeholder mismatch. Keep an explicit representation label and user override. Dynamic model creation is a later feasibility item, not a dependency for better stock avatars.
+
+Suggested order: improve the short teaching exchange, fix the resting pose, then expand the catalog and gestures. These are recorded future TODOs; this update does not change runtime prompts, models or animation.
 
 ## Outcome
 
