@@ -13,7 +13,7 @@ export class ProfessorVoice {
     this.stop();const generation=this.generation;this.active={event,capture};
     try{
       await this.unlock();if(this.context.state!=='running')throw Error('Press Replay voice to enable audio.');
-      const chunks=speechChunks(event.text);let next=this.load(chunks[0]);
+      const chunks=speechChunks(event.text);let next=this.load(chunks[0],capture);
       for(let i=0;i<chunks.length;i++){
         const data=await next;
         if(generation!==this.generation)return;
@@ -22,7 +22,7 @@ export class ProfessorVoice {
         if(generation!==this.generation)return;
         if(!isCurrent()){this.stop();return;}
         // Prefetch at most one clip while the current clip is speaking.
-        next=i+1<chunks.length?this.load(chunks[i+1]):null;
+        next=i+1<chunks.length?this.load(chunks[i+1],capture):null;
         next?.catch(()=>{});
         const source=this.context.createBufferSource();source.buffer=buffer;
         const analyser=this.context.createAnalyser();analyser.fftSize=512;

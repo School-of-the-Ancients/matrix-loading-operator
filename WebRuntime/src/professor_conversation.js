@@ -1,8 +1,9 @@
 // One recipient is captured for each utterance. Journal writes are never world actions.
 export class ProfessorConversation {
-  constructor({request,onChange=()=>{},onReply=()=>{},onCreated=()=>{},onStop=()=>{},onTasks=()=>{},isDelegatedTurn=()=>false,worldId=()=>'',worldIdentity=null}) {
+  constructor({request,onChange=()=>{},onReply=()=>{},onCreated=()=>{},onStop=()=>{},onTasks=()=>{},isDelegatedTurn=()=>false,worldId=()=>'',worldIdentity=null,voiceId=()=>null}) {
     Object.assign(this,{request,onChange,onReply,onCreated,onStop,onTasks,isDelegatedTurn,worldId});
     this.worldIdentity=worldIdentity||worldId;
+    this.voiceId=voiceId;
     this.target='professor';this.session=null;this.generation=0;this.pending=false;
     this.status='Ask a question to start a lesson.';this.draft='';this.operatorTurns=new Map();this.operatorInputs=[];
     this.queued=Promise.resolve();this.operatorSessions=new Set();
@@ -18,7 +19,7 @@ export class ProfessorConversation {
   }
   select(target){if(!['professor','operator'].includes(target))throw Error('Unknown conversation target.');
     this.target=target;this.onStop();this.status=target==='operator'?'Talking directly to Matrix Operator':this.session?`Talking to ${this.session.mentor.name}`:'Open Professor and choose a lesson.';this.onChange();}
-  capture(){return Object.freeze({target:this.target,sessionId:this.session?.id||null,generation:this.generation,worldId:this.worldId(),worldIdentity:this.worldIdentity()});}
+  capture(){return Object.freeze({target:this.target,sessionId:this.session?.id||null,generation:this.generation,worldId:this.worldId(),worldIdentity:this.worldIdentity(),teacherId:this.session?.mentor?.id||null,voiceId:this.voiceId(this.session?.mentor?.id||'default')});}
   current(capture){return capture.generation===this.generation&&capture.sessionId===(this.session?.id||null)&&capture.worldId===this.worldId()&&capture.worldIdentity===this.worldIdentity();}
   context(){const session=this.session;if(!session)return null;return {sessionId:session.id,teacherName:session.mentor.name.slice(0,100),goal:(session.goal||'').slice(0,500),
     events:(session.conversation?.events||[]).slice(-10).map(({speaker,recipient,text})=>({speaker,recipient,text:text.slice(0,600)}))};}

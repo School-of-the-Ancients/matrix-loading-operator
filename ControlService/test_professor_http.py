@@ -58,11 +58,16 @@ class ProfessorHTTPTests(unittest.TestCase):
         self.assertNotIn('sourcePath',body.decode())
 
     def test_professor_voice_keeps_auth_and_fixed_server_adapters(self):
+        self.assertEqual(self.call('/api/professor/voices',auth=False)[0],401)
+        self.assertEqual(self.call('/api/professor/voices')[0],200)
         self.assertEqual(self.call('/api/professor/speak',{'text':'hello'},auth=False)[0],401)
         self.assertEqual(self.call('/api/professor/speak',{'text':'hello','url':'http://elsewhere'})[0],400)
         with patch('server.professor_speech.synthesize',return_value=b'RIFF-test'):
             code,headers,body=self.call('/api/professor/speak',{'text':'hello'})
             self.assertEqual(code,200);self.assertEqual(body,b'RIFF-test');self.assertEqual(headers['Content-Type'],'audio/wav')
+        with patch('server.professor_speech.synthesize',return_value=b'RIFF-test') as speak:
+            self.assertEqual(self.call('/api/professor/speak',{'text':'hello','teacherId':'davinci','voiceId':'george'})[0],200)
+            speak.assert_called_once_with('hello','davinci','george')
         with patch('server.speech.decode_audio',return_value=b'audio'),patch('server.speech.transcribe',return_value='hello'):
             self.assertEqual(json.loads(self.call('/api/professor/transcribe',{'audioBase64':'test'})[2])['transcript'],'hello')
             self.assertTrue(self.state.voice_worker.acquire(blocking=False));self.state.voice_worker.release()

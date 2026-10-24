@@ -9021,6 +9021,8 @@ class Handler(BaseHTTPRequestHandler):
             self.authenticate()
             if path == "/api/professor/avatars":
                 data = professor_avatar_catalog(self.server.state.web_assets.list(), self.server.state.professor_library.avatar_metadata())
+            elif path == "/api/professor/voices":
+                data = professor_speech.public_catalog()
             elif path == "/api/professor/library":
                 query = urllib.parse.parse_qs(url.query)
                 data = self.server.state.professor_library.list(query.get('query', [''])[0], query.get('kind', ['any'])[0])
@@ -9190,8 +9192,8 @@ class Handler(BaseHTTPRequestHandler):
                 require(self.server.is_loopback and loopback(self.client_address[0]), 'Avatar jobs are PC-loopback only', 403)
                 data = state.professor_avatar_jobs.ensure(body)
             elif path == "/api/professor/speak":
-                require(set(body) == {"text"}, "Invalid Professor speech request")
-                self.send_data(200, professor_speech.synthesize(body["text"]), "audio/wav")
+                require({'text'} <= set(body) <= {'text', 'teacherId', 'voiceId'}, "Invalid Professor speech request")
+                self.send_data(200, professor_speech.synthesize(body["text"], body.get('teacherId'), body.get('voiceId')), "audio/wav")
                 return
             elif path == "/api/professor/builds":
                 require(self.server.is_loopback and loopback(self.client_address[0]), "Professor builds are PC-loopback only", 403)
