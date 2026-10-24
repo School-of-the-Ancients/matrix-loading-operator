@@ -53,4 +53,9 @@ The School result endpoint fetches the actual Matrix task record and checks its 
 
 ![Completed Operator task in the Professor conversation panel](evidence/professor-task-panel.png)
 
-This is a source checkpoint, not a release. Quest delivery/physical acceptance and native full-duplex voice remain pending. The local full School surface remains PC-loopback-only.
+The original figures above describe the initial source checkpoint. The later paired
+`v1.3.0-rc.1` package is published; see [its exact identity and package checks](V1.3-Checkpoint.md).
+Recorded Quest sessions show continued teaching during a build and part questions;
+the owner confirmed the cleaner floating transcript persists. Those observations
+do not close all device/recovery acceptance. Native full-duplex voice remains open.
+The full School surface remains PC-loopback-only, including the USB Quest route.

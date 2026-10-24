@@ -6,11 +6,11 @@ transcript event. School remains responsible for teacher identity and teaching.
 
 Appearance preparation runs independently of the introduction. It first reuses an
 exact teacher match in the local catalog, then asks for a suitable existing human
-representation. If none fits, a durable asset-only Operator job creates a VRoid model.
+representation. If none fits, a durable asset-only Operator job requests VRoid model creation.
 The temporary professor can teach while that job runs. Manual choices always take
 precedence over late automatic results.
 
-The job saves both an editable `.vroid` source and exported VRM 1.0. The VRoid MCP
+A successful job must save an editable `.vroid` source and export VRM 1.0; job submission alone does not establish that these files exist. The VRoid MCP
 needs the export patch in `Tools/vroid-export/`. The existing Matrix validator checks
 the model before library registration. A completed Operator turn without a registered
 model is a failed avatar job, not success.
@@ -50,3 +50,13 @@ server tests, 10 focused School UI tests, School typecheck and both browser buil
 Missing-model queueing, manual-pin precedence and stale-world rejection have
 automated coverage. Full unattended modeling for arbitrary people and the updated
 Quest experience still need wearer/runtime acceptance; preset quality varies.
+
+## Remaining library work
+
+This is a local reusable asset index, not a reviewed global course/content catalog.
+Matrix #211 retains independent-session cache-hit/restore evidence, explicit
+rights/review/publication state, richer compatibility checks and lineage. School
+#4 retains reviewed lesson templates and objective-driven automatic exhibit preload.
+Matrix #214 retains avatar quality and generation reliability. A teacher-keyed
+failed/cancelled avatar job currently has no retry/reset branch in `ensure`;
+that is a source-review finding, not a demonstrated recovery success.

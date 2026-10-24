@@ -8,9 +8,11 @@ suffixed version such as `v1.0.0-rehearsal` as a prerelease.
 
 GitHub's prerelease/Latest flags are set separately during publication. The
 [v1.2.0 checkpoint](https://github.com/School-of-the-Ancients/matrix-loading-operator/releases/tag/v1.2.0)
-uses that version label but is published as a GitHub prerelease, with v1.1.0
-remaining stable Latest. Its [guide](../Docs/V1.2-Checkpoint.md) records the
-frozen source, verified assets and remaining acceptance. Documentation changes
+has its own frozen source and assets. GitHub currently marks it as a regular
+release; that metadata is not physical acceptance. Its [guide](../Docs/V1.2-Checkpoint.md)
+records the frozen source, verified assets and remaining acceptance. The later
+[Professor candidate](../Docs/V1.3-Checkpoint.md) is a distinct paired package.
+Documentation changes
 on main do not change the release ZIP; never overwrite a published tag/assets
 to incorporate a later documentation or runtime change.
 The filenames and root-level bundle layout follow v0.7:

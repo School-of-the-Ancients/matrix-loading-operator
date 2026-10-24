@@ -13,6 +13,15 @@ Matrix is the shared Three.js/WebXR runtime for creating, presenting and interac
 
 Desktop, VR and AR are views of a world. Matrix executes bounded world actions; School chooses presentation intent and Civilization chooses resident intentions. Persistent residents should converge on one simulation owner. Preserve stable IDs, compatible state, approvals, validation and truthful receipts. Do not rebuild the engine, add a second authoritative world, or reset user worlds because documentation changed.
 
+## Current release and documentation
+
+The owner selected and built the paired Professor candidate `v1.3.0-rc.1`.
+Read Docs/V1.3-Checkpoint.md and ROADMAP.md for its current source/package identity
+and implementation status. Keep the single existing acceptance record; preserve
+its distinction between development-build wearer observations and an extracted
+release test. Older v1.2 selection text below retains those outstanding checks,
+not a prohibition on owner-selected Professor work.
+
 ## Frozen v1.2 work
 
 The published `v1.2.0` source is `858d486e9ee8507af36e2a05d78f1d34fc9ca2b0`. Its eight implementation PRs are merged. Preserve that tag and its assets. Current `main`, including #207, is later work; documentation on main does not change release identity. v1.1.0 at `9453ef06b1873937822c1cf985115f05f72e1e20` remains the matched-comparison baseline.

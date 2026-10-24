@@ -4,7 +4,7 @@ Implemented October 23, 2026 in the existing Matrix/School candidate. This exten
 
 ## Use it
 
-1. Start the existing candidate with `node Tools/start_professor_local.mjs`, or the supplied **Start Professor.cmd** shortcut. Keep your existing GPT-SoVITS service running on port 9880.
+1. Start the paired release with `Start-Professor.ps1`, or from source with `node Tools/start_professor_local.mjs` and the School checkout path. Install local Kokoro voices with `Tools/Setup-ProfessorVoices.ps1`. GPT-SoVITS on port 9880 is needed only when the optional Riko voice is selected.
 2. In Matrix on the PC, open **Professor**, choose or reopen a lesson, and choose/place its appearance. Close the School panel to see the body and conversation controls.
 3. **Professor** is the default target. Use **Speak to Professor** or type into the message field. Speech records until the second tap/controller release, with the existing 15-second recording limit.
 4. Select **Matrix Operator** to use the existing direct Codex world conversation. Its current permission and active-turn steering controls still apply. Select **Professor** to resume the same lesson.
@@ -28,6 +28,14 @@ The same target selector is included on the XR Operator panel. Its hardware beha
 - The authenticated `/api/professor/voices` returns public profile IDs, labels and availability. `/api/professor/speak` accepts text plus optional `teacherId` and allowlisted `voiceId`; the browser cannot choose model paths, reference files, URLs or executable code. Riko continues through the fixed loopback SoVITS service on port 9880. Audio returns only to the requesting browser.
 - Playback uses Web Audio, bounded chunks and one-clip prefetch. Audio activity and spectral shape drive smoothed VRM mouth shapes. The existing gaze, relaxed pose, blink and spring bones continue to run. This is heuristic lip-sync, not phoneme-level alignment.
 - The next microphone turn is available while a previous reply is being played; starting a new capture stops that playback. Model generation is still a serial teaching turn. Stop speech and cancel an Operator job are separate actions.
+
+## Starting a fresh demonstration
+
+Exit AR/VR and archive/start a new world through Matrix's World controls. Separately
+use **New conversation** for the idle Operator; starting a world does not clear its
+conversation. Reload the browser before the new first Professor question. Saved
+School lessons remain in History, and archived worlds retain their objects.
+`?professor=davinci` only prefers a matching avatar already in the world.
 
 ## Current limits
 
@@ -54,7 +62,7 @@ The Professor launcher now starts Operator with Full access and automatic approv
 
 To continue a saved PC lesson, open **Professor → Continue on Quest / another device → Create device code** on the PC. On Quest, open Professor, expand the same section, enter that code and select **Link this browser**. The receiving browser must have no existing lesson records. Codes expire after five minutes, work once and convey access to the same local learner archive; they do not contain Codex credentials. Reusing the same archive keeps both sides on the same conversation. Close the PC Matrix world tab before entering Quest AR so it does not hold the single active-world lease.
 
-In Quest, choose the saved lesson, select **Riko** as the appearance and press **Place professor in Matrix**. The generic stylized placeholder has no VRM facial rig. Close Professor and enter **AR**. Select **TALK: PROFESSOR** on the floating panel. Hold a controller side-grip button to record, then release to send. Alternatively, point at HOLD: PROFESSOR and hold/release the trigger; the browser's microphone permission uses the Quest microphone. The current mode remains push-to-talk, with local Whisper followed by the teacher and SoVITS. Reply audio is played on Quest and drives the active lesson's VRM mouth. Stop voice does not cancel a background Operator task.
+In Quest, choose the saved lesson, select an available human or other chosen appearance and press **Place professor in Matrix**. A first spoken question can also create a new lesson and prepare an appearance. The generic stylized placeholder has no VRM facial rig. Close Professor and enter **AR**. Select **TALK: PROFESSOR** on the floating panel. Hold a controller side-grip button to record, then release to send. Alternatively, point at HOLD: PROFESSOR and hold/release the trigger; the browser's microphone permission uses the Quest microphone. The current mode remains push-to-talk, with local Whisper followed by the teacher and the selected Kokoro or optional SoVITS voice. Reply audio is played on Quest and drives the active lesson's VRM mouth. Stop voice does not cancel a background Operator task.
 
 Ask, for example, “Ask Operator to build a small demonstration while you explain the idea to me.” The task panel tracks the separate Operator turn; continue asking the professor questions while it runs. The existing [delegation guide](Professor-Delegation.md) explains queued, completed and unconfirmed states.
 
