@@ -3984,7 +3984,7 @@ def agent_portal_action(state, path, body):
     raise APIError(404, "Not found")
 
 
-def agent_portal_turn(state, body, *, validated_concept_request=False):
+def agent_portal_turn(state, body, *, validated_concept_request=False, delegated_task=False):
     """Submit one turn while holding the session submission reservation."""
     lesson = None
     if 'lessonContext' in body:
@@ -3993,6 +3993,8 @@ def agent_portal_turn(state, body, *, validated_concept_request=False):
         body = {key:value for key,value in body.items() if key!='lessonContext'}
     portal = state.agent_portal
     fields = set(body)
+    require(not delegated_task or not validated_concept_request and fields == {"sessionId", "text"},
+            "Delegated tasks accept only a session and instruction")
     expected = {"expectedConceptId", "expectedConceptVersion"}
     require({"sessionId", "text"} <= fields <=
             {"sessionId", "text", "context", "creationMode", "captureId"} | expected and
@@ -4014,11 +4016,14 @@ def agent_portal_turn(state, body, *, validated_concept_request=False):
     if validated_concept_request:
         require(expected <= fields and body.get("creationMode") == "blender",
                 "Validated image build requires an exact Blender selection")
-    selected = (state.concepts.selected(body["sessionId"])
-                if validated_concept_request or concept_build_request(body["text"]) else None)
+    # A typed Professor task asks the Operator to execute its saved instruction.
+    # Words such as "design" or "concept" in that instruction are not an
+    # authorization to consume the session's selected concept image.
+    image_build = validated_concept_request or not delegated_task and concept_build_request(body["text"])
+    selected = state.concepts.selected(body["sessionId"]) if image_build else None
     require((expected | {"creationMode"}).isdisjoint(fields) or selected is not None,
             "Concept build options require a selected-concept build request", 409)
-    if selected is None and concept_build_request(body["text"]):
+    if selected is None and image_build:
         raise APIError(409, "Select a ready concept version before building it")
     require("captureId" not in fields or selected is None,
             "Review a camera capture separately from a selected-concept build", 409)
@@ -4397,7 +4402,7 @@ class State:
                                      lambda: self.agent_portal)
         self.clients = ClientAPI(self, plan, lambda: client_planner_modes(self))
         self.professor_tasks = ProfessorTasks(self.directory / '.agent_portal' / 'professor_tasks.json', self,
-                                              lambda body: agent_portal_turn(self, body))
+                                              lambda body: agent_portal_turn(self, body, delegated_task=True))
         self.professor_avatar_jobs = ProfessorAvatarJobs(self.directory / '.agent_portal' / 'avatar_jobs', self)
 
     @property
