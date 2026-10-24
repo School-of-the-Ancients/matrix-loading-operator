@@ -473,7 +473,7 @@ const bridge=new MatrixBridge(world,()=>$('token').value.trim(),event=>{
   }
 });
 bridge.latencyTrace=latencyTrace;
-view.onRendered=()=>latencyTrace?.rendered();
+view.onRendered=()=>{latencyTrace?.rendered();renderPartSelection();};
 bridge.prepareEnvironment=environment=>view.prepareEnvironment(environment);
 bridge.onWorldSlotCommand=async command=>{
   if(command.op==='list_world_archives')
@@ -794,7 +794,7 @@ professorVoice=new ProfessorVoice({load:async(text,capture)=>{
 }});
 professorConversation=new ProfessorConversation({request:(path,body)=>bridge.request(path,body),worldId:()=>world.scene.roomId,worldIdentity:()=>world.scene,
   voiceId:teacherId=>professorVoiceChoices[teacherId]||null,
-  pointedPart:()=>structuredClone(view.hoveredPart||selectedPart(world)),
+  pointedPart:()=>structuredClone(selectedPart(world)),
   onChange:renderProfessorConversation,onStop:()=>professorVoice.stop(),
   isDelegatedTurn:turn=>{if(/^\[School avatar:[a-f0-9-]{36}\]/.test(turn.user||''))return true;const id=/^\[School task:([a-f0-9-]{36})\]/.exec(turn.user||'')?.[1];return !!id&&(!!professorTasks?.records.has(id)||!!professorConversation.session?.operatorTasks?.some(task=>task.id===id));},
   onTasks:(tasks,capture)=>{for(const task of tasks)void professorTasks.submit(task,capture);},
@@ -848,6 +848,16 @@ $('professor-part-guides').addEventListener('change',()=>{
   view.partGuideMode=$('professor-part-guides').value;
   try{localStorage.setItem('matrix-part-guides',view.partGuideMode);}catch{}
 });
+function renderPartSelection(){
+  const selected=selectedPart(world),part=selected&&world.asset(selected.assetId)?.parts?.find(p=>p.partId===selected.partId);
+  const text=part?`Selected: ${part.label}. A/X: change part · B/Y: clear.`:'No part selected. Point at a part and press A/X. Trigger grabs; grip speaks.';
+  if($('student-part-selection').textContent!==text)$('student-part-selection').textContent=text;
+  const xrText=part?`Selected: ${part.label} · A/X: change · B/Y: clear`:'Point + A/X: select part · B/Y: clear';
+  if($('student-part-selection-xr').textContent!==xrText)$('student-part-selection-xr').textContent=xrText;
+  if($('student-part-clear').disabled===!!selected)$('student-part-clear').disabled=!selected;
+}
+$('student-part-clear').addEventListener('click',()=>{world.partSelection=null;renderPartSelection();});
+renderPartSelection();
 $('professor-voice').addEventListener('change',()=>{
   const teacherId=professorConversation.session?.mentor?.id||'default';
   try{
@@ -1886,7 +1896,7 @@ async function beginVoice(){
 async function endVoice(){
   if(voiceStarting){voiceStopRequested=true;return;}
   if(!voiceRecording)return;
-  const pointedPart=view.hoveredPart||selectedPart(world);
+  const pointedPart=selectedPart(world);
   voiceDestination=Object.freeze({...voiceDestination,partReference:structuredClone(pointedPart)});
   voiceRecording=false;voiceJob='finalizing';voiceButtons();voiceStatus('Finishing recording…');
   let voiceTranscriptStaged=false;

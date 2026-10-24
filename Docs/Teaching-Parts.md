@@ -30,15 +30,22 @@ the live model node after animation and transforms, turns the professor toward
 it, and points. Highlight, arrow and label follow the same live target for the
 spoken reply. Teaching guides can be set to both, highlight, arrow or hand only.
 
-Controller rays stop on virtual model surfaces as well as panels. Hovering shows
-the nearest eligible part; clicking/trigger selection retains its identity.
+Controller rays stop on virtual model surfaces as well as panels. Hovering only
+previews a part. Press A on the right controller or X on the left to select that
+controller's pointed part; press B or Y to clear it. The selected name stays in
+the AR controls and its highlight stays on the part as either pointer moves.
+Selection is independent of editing: trigger still grabs, grip still records
+speech, and the thumbstick button still controls the Operator panel. Selecting a
+part never moves the object or starts its animation clip. The PC controls also
+include a clear-selection button.
 Floating name labels and other presentation sprites are excluded from world
 picking. VRM avatars use a transformed body envelope for pointer hits, avoiding
 per-frame skin-triangle intersection on standalone headsets; exhibit parts still
 use their actual mesh surfaces.
-The part under the pointer (or retained selection) when a recording ends is saved
-as `partReference` with the learner's exact words. A later pointer move cannot
-rewrite that reference while transcription or teaching runs. The teacher checks
+Only the explicitly selected part when a recording ends is saved as
+`partReference` with the learner's exact words. With no selection, hover contributes
+no part reference. A later pointer move cannot rewrite that reference while
+transcription or teaching runs. The teacher checks
 it against the current part catalog before answering questions such as “Is this
 the shaft?” A missing or changed target must be clarified, not guessed.
 
