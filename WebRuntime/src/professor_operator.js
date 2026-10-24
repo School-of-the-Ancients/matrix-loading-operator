@@ -25,10 +25,10 @@ export function validProfessorBuild(value){
 }
 
 export class ProfessorOperator {
-  constructor({frame,origin,request,ensureSession,onReview=()=>{},onChange=()=>{},onSession=()=>{},onPlace=async()=>{},placements=()=>[],target=window}) {
-    Object.assign(this,{frame,origin,request,ensureSession,onReview,onChange,onSession,onPlace,placements,target});
+  constructor({frame,origin,request,ensureSession,onReview=()=>{},onChange=()=>{},onSession=()=>{},onPlace=async()=>{},placements=()=>[],activeSession=()=>null,target=window}) {
+    Object.assign(this,{frame,origin,request,ensureSession,onReview,onChange,onSession,onPlace,placements,activeSession,target});
     this.records=new Map();this.submitting=new Set();this.polling=false;this.ready=false;
-    this.reset=()=>{this.channel=crypto.randomUUID();this.ready=false;this.hello();};
+    this.reset=()=>{this.channel=crypto.randomUUID();this.ready=false;this.sessionAnnounced=false;this.hello();};
     this.listener=event=>void this.receive(event);
     target.addEventListener('message',this.listener);frame.addEventListener('load',this.reset);this.reset();
     this.timer=setInterval(()=>{if(!this.ready)this.hello();else void this.poll();},2400);
@@ -40,11 +40,16 @@ export class ProfessorOperator {
     if(event.source!==this.frame.contentWindow||event.origin!==this.origin||event.data?.channel!==this.channel)return;
     const {type,payload}=event.data;
     if(type==='school-professor-session'){
-      if(payload&&Object.keys(payload).join()==='sessionId'&&(payload.sessionId===null||/^[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}$/.test(payload.sessionId)))await this.onSession(payload.sessionId);
+      if(payload&&Object.keys(payload).join()==='sessionId'&&(payload.sessionId===null||/^[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}$/.test(payload.sessionId))){
+        const first=!this.sessionAnnounced;this.sessionAnnounced=true;
+        if(first&&payload.sessionId===null&&this.activeSession())this.send({type:'matrix-school-open',sessionId:this.activeSession()});
+        else await this.onSession(payload.sessionId);
+      }
       return;
     }
     if(type==='school-operator-ready'){
       this.ready=true;
+      if(this.activeSession())this.send({type:'matrix-school-open',sessionId:this.activeSession()});
       try{const catalog=await this.request('/api/professor/avatars');this.send({type:'matrix-professor-catalog',catalog,placements:this.placements()});}
       catch{this.send({type:'matrix-professor-catalog',catalog:{schemaVersion:1,avatars:[]}});}
       return;
