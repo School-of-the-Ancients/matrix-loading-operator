@@ -13,6 +13,19 @@ function fixture(request=async()=>result){
     data:{type,channel:bridge.channel,payload:data},...patch});
   return {bridge,messages,calls,event,frame};
 }
+
+test('opening School restores the active lesson instead of accepting its initial empty landing page',async t=>{
+  const f=fixture(async()=>({avatars:[]}));t.after(()=>f.bridge.dispose());
+  const id=payload.schoolSessionId,seen=[];
+  f.bridge.activeSession=()=>id;f.bridge.onSession=value=>seen.push(value);
+  await f.bridge.receive(f.event('school-operator-ready',{}));
+  assert(f.messages.some(item=>item.message.type==='matrix-school-open'&&item.message.sessionId===id));
+  await f.bridge.receive(f.event('school-professor-session',{sessionId:null}));
+  assert.deepEqual(seen,[]);
+  await f.bridge.receive(f.event('school-professor-session',{sessionId:id}));
+  await f.bridge.receive(f.event('school-professor-session',{sessionId:null}));
+  assert.deepEqual(seen,[id,null]); // A later explicit new-lesson action still works.
+});
 test('only expected frame, origin, channel and bounded structured requests reach the existing Operator API',async t=>{
   const f=fixture();t.after(()=>f.bridge.dispose());
   for(const patch of [{origin:'https://outside.example'},{source:{}},{data:{type:'school-operator-request',channel:'other',payload}}])

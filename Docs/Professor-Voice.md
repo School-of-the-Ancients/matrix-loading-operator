@@ -10,6 +10,8 @@ Implemented October 23, 2026 in the existing Matrix/School candidate. This exten
 4. Select **Matrix Operator** to use the existing direct Codex world conversation. Its current permission and active-turn steering controls still apply. Select **Professor** to resume the same lesson.
 5. **Replay voice** speaks the latest professor reply. **Stop voice** stops playback and discards pending clips for that playback. The shared transcript retains the reply and marks interrupted playback. Turning off **Speak replies aloud** also stops Professor speech.
 
+Reload resumes the lesson bound to the saved professor before accepting a new spoken turn. With several professors, the last selected saved avatar is remembered; if that choice is unavailable, select an avatar or saved lesson explicitly. An optional `?professor=davinci` link prefers that teacher when already present in the world. It does not create a teacher or discard other content. Opening the School panel restores the active lesson instead of clearing it with the initial landing page.
+
 The same target selector is included on the XR Operator panel. Its hardware behavior still needs a wearer check. The full School page and its APIs remain PC-loopback-only under the existing deployment policy; this change does not make the lesson UI available through a Quest LAN URL.
 
 ## What is implemented

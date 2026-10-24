@@ -45,6 +45,7 @@ import {ProfessorConversation} from './professor_conversation.js';
 import {ProfessorAppearanceClient} from './professor_appearance.js';
 import {ProfessorVoice} from './professor_voice.js';
 import {readVoiceChoices,saveVoiceChoice} from './professor_voice_profiles.js';
+import {ProfessorRecovery} from './professor_recovery.js';
 import {professorAttention} from './professor_attention.js';
 import {ProfessorTaskClient} from './professor_tasks.js';
 
@@ -85,6 +86,7 @@ const recorder=new VoiceRecorder();let voiceStarting=false,voiceRecording=false,
 let replyContext=null,replySource=null;
 let professorConversation=null,professorVoice=null,professorLink=null,voiceDestination=null,professorTasks=null;
 let professorVoiceCatalog=null,professorVoiceChoices=readVoiceChoices(localStorage);
+let professorRecovery=null;
 let agentClient=null,conceptUI=null,panoramaUI=null,agentActionBusy=false,agentVoiceStatus='',voiceSteerTurnId=null,agentAttentionKey='',reviewBusy=false;
 let operatorDraftNotice='',operatorDraftUnconfirmed=false;
 let creationMode=loadCreationMode(sessionStorage);
@@ -409,6 +411,7 @@ function persistCurrentWorld({periodic=false,quiet=false,errorPrefix='World save
   return true;
 }
 function renderScene(){
+  if(!pendingWorld)professorRecovery?.remember();
   citizensPanel?.syncFromWorld();
   view.sync();$('object-count').textContent=`${world.scene.objects.length} object${world.scene.objects.length===1?'':'s'}`;
   citizensPanel?.decorate(view);
@@ -728,6 +731,7 @@ panoramaUI.bind();
 function renderProfessorConversation(){
   if(!professorConversation)return;
   const conversation=professorConversation,session=conversation.session;
+  if(!pendingWorld)professorRecovery?.remember();
   $('talk-professor').setAttribute('aria-pressed',String(conversation.target==='professor'));
   $('talk-operator').setAttribute('aria-pressed',String(conversation.target==='operator'));
   $('conversation-target').textContent=conversation.target==='professor'?`Professor: ${session?.mentor.name||'ask a question to start'}`:'Matrix Loading Operator';
@@ -737,7 +741,7 @@ function renderProfessorConversation(){
   const voiceId=professorVoiceChoices[teacherId]||professorVoiceCatalog?.teachers?.[teacherId]||professorVoiceCatalog?.defaultVoice;
   const profile=professorVoiceCatalog?.voices.find(item=>item.id===voiceId);
   if(profile)$('professor-voice-status').textContent=`${profile.label}${profile.available?' · local speech':' · not installed'}. Voice is a portrayal, not a historical recording.`;
-  $('conversation-send').disabled=conversation.pending;
+  $('conversation-send').disabled=conversation.pending||conversation.restoring;
   $('professor-replay').disabled=conversation.target!=='professor'||!session?.conversation?.events.some(event=>event.speaker==='professor'&&event.recipient==='learner');
   $('shared-transcript').textContent=(session?.conversation?.events||[]).slice(-100).map(event=>`${event.speaker} → ${event.recipient}${event.speaker==='professor'?` [${event.delivery}]`:''}: ${event.text}`).join('\n\n')||'Ask a question to start your shared conversation.';
   professorTasks?.watch(session);
@@ -828,7 +832,8 @@ $('professor-replay').addEventListener('click',async()=>{
 });
 $('conversation-send').addEventListener('click',async()=>{
   const text=$('conversation-input').value.trim();if(!text)return;
-  try{const destination=professorConversation.capture();
+  try{if(pendingWorld)throw Error('Wait for the saved world to reopen.');await professorRecovery.restore();
+    const destination=professorConversation.capture();
     if(destination.target==='operator'){await professorConversation.recordInput(text,destination,'text');$('agent-input').value=text;sendAgent();}
     else{await professorVoice.unlock();await professorConversation.ask(text,destination);}
     if($('conversation-input').value.trim()===text)$('conversation-input').value='';
@@ -852,6 +857,7 @@ void bridge.request('/api/professor/voices').then(catalog=>{
   renderProfessorConversation();
 }).catch(()=>{$('professor-voice-status').textContent='Voice settings unavailable; retry after connecting to the PC.';});
 if(professorOverlay.route.available)professorLink=new ProfessorOperator({frame:$('professor-frame'),
+  activeSession:()=>professorConversation.session?.id||professorRecovery?.restoringId||null,
   onSession:id=>id===professorConversation.session?.id?professorConversation.refresh(true):professorConversation.activate(id),
   placements:()=>world.scene.objects.filter(object=>object.professor).map(object=>({schoolSessionId:object.professor.schoolSessionId,catalogId:object.professor.catalogId})),
   origin:new URL(professorOverlay.route.url).origin,request:(path,body)=>bridge.request(path,body),
@@ -898,6 +904,9 @@ const appearanceClient=new ProfessorAppearanceClient({
   },onError:error=>{console.warn('Professor appearance:',error.message);}
 });
 setInterval(()=>void appearanceClient.sync(),2400);
+professorRecovery=new ProfessorRecovery({storage:localStorage,conversation:professorConversation,scene:()=>world.scene,
+  preferredTeacher:new URLSearchParams(location.search).get('professor'),
+  onRestored:id=>{professorLink?.send({type:'matrix-school-open',sessionId:id});renderProfessorConversation();}});
 if(agentClient.sessionId)agentClient.restore().then(()=>conceptUI.refresh()).catch(()=>{});
 setInterval(()=>{if(agentClient.sessionId&&!agentClient.error&&!agentActionBusy)agentClient.poll().catch(()=>{});},800);
 setInterval(()=>{if(agentClient.sessionId&&!conceptUI.busy)
@@ -1065,6 +1074,7 @@ async function refreshAssets(silent=false,{strict=false}={}){
       if(restored.rejected.length)feedback('World recovery needs attention.',true);
     }
     initXRIfReady();
+    await professorRecovery.restore().catch(error=>{professorConversation.status=error.message;renderProfessorConversation();});
     if(!silent)feedback(environmentError?
       `Object catalog updated; panorama catalog unavailable: ${environmentError.message}`:
       `Catalog updated: ${world.externalAssets.length} web assets.`,!!environmentError);
@@ -1847,7 +1857,10 @@ function voiceButtons(){
 }
 async function beginVoice(){
   if(voiceStarting||voiceRecording)return;
+  if(professorRecovery?.pending||professorConversation?.restoring){voiceStatus('Wait for your saved lesson to reopen.',true);return;}
   if(voiceJob){voiceStatus('Finish the current voice request before speaking again.',true,false);return;}
+  try{if(pendingWorld)throw Error('Wait for the saved world to reopen.');await professorRecovery.restore();}
+  catch(error){voiceStatus(error.message,true);return;}
   latencyTrace?.submit();
   try{voiceDestination=professorConversation.capture();professorVoice.stop();void professorVoice.unlock().catch(()=>{});
     if(voiceDestination.target==='operator')voiceSteerTurnId=prepareAgentVoiceRecording({agentClient,showConversation:()=>{

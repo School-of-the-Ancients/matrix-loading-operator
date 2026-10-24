@@ -4,18 +4,20 @@ export class ProfessorConversation {
     Object.assign(this,{request,onChange,onReply,onCreated,onStop,onTasks,isDelegatedTurn,worldId});
     this.worldIdentity=worldIdentity||worldId;
     this.voiceId=voiceId;
-    this.target='professor';this.session=null;this.generation=0;this.pending=false;
+    this.target='professor';this.session=null;this.generation=0;this.pending=false;this.restoring=false;
     this.status='Ask a question to start a lesson.';this.draft='';this.operatorTurns=new Map();this.operatorInputs=[];
     this.queued=Promise.resolve();this.operatorSessions=new Set();
   }
   async activate(id) {
     if(id===this.session?.id){await this.refresh();return;}
-    const generation=++this.generation;this.onStop();this.session=null;this.target='professor';this.onChange();
+    const generation=++this.generation,world=this.worldIdentity();this.onStop();this.session=null;this.target='professor';
+    this.restoring=!!id;this.status=id?'Reopening your saved lesson…':'Ask a question to start a lesson.';this.onChange();
     if(!id){this.status='Ask a question to start a lesson.';this.onChange();return;}
     try{const session=await this.request(`/api/school/sessions/${id}`);
-      if(this.generation!==generation)return;
+      if(this.generation!==generation||this.worldIdentity()!==world)return;
       this.session=session;this.status=`Talking to ${session.mentor.name}`;this.onChange();
     }catch(error){if(this.generation===generation){this.status=error.message;this.onChange();}}
+    finally{if(this.generation===generation){this.restoring=false;this.onChange();}}
   }
   select(target){if(!['professor','operator'].includes(target))throw Error('Unknown conversation target.');
     this.target=target;this.onStop();this.status=target==='operator'?'Talking directly to Matrix Operator':this.session?`Talking to ${this.session.mentor.name}`:'Open Professor and choose a lesson.';this.onChange();}
@@ -46,6 +48,7 @@ export class ProfessorConversation {
     return event;
   }
   async ask(text,capture=this.capture(),inputKind='text') {
+    if(this.restoring)throw Error('Wait for your saved lesson to reopen before speaking.');
     if(this.pending)throw Error('The professor is still replying. Your draft is kept.');
     if(capture.target!=='professor')throw Error('This reply belongs to Operator.');
     this.pending=true;this.draft=text;this.draftSessionId=capture.sessionId;this.status='Saving your turn…';this.onChange();
