@@ -309,6 +309,10 @@ def register_glb(url: str, token: str, value: dict) -> dict:
     return _request_json(url[:-6] + "/register-glb", token, value)
 
 
+def annotate_asset_parts(url: str, token: str, value: dict) -> dict:
+    return _request_json(url[:-6] + '/asset-parts', token, value)
+
+
 def library_action(url: str, token: str, value: dict, register=False) -> dict:
     if not url.endswith("/scene"):
         raise ValueError("Invalid Matrix tool bridge URL")
@@ -431,7 +435,7 @@ BRIDGE_POST_PATHS = frozenset({
     "/display", "/control", "/rigid", "/inspect-entity", "/entity-action",
     "/world-archive", "/bind-animation", "/register-glb", "/publish-component",
     "/component-action", "/scale", "/physics", "/interaction", "/concept-build",
-    "/register-panorama", "/environment", "/search-library", "/register-library-asset"})
+    "/register-panorama", "/environment", "/search-library", "/register-library-asset", "/asset-parts"})
 NATIVE_IMAGE_BLOCKED_POSTS = BRIDGE_POST_PATHS - {"/inspect-entity", "/search-library"}
 
 
@@ -661,7 +665,7 @@ class _Handler(BaseHTTPRequestHandler):
             length = int(self.headers.get("Content-Length", ""))
             # Escaped Unicode in valid 500-character descriptions can exceed
             # the move endpoint's small request budget.
-            limit = 32 * 1024 if self.path == "/register-glb" else 8192 if self.path == "/publish-component" else 4096
+            limit = 64 * 1024 if self.path == '/asset-parts' else 32 * 1024 if self.path == "/register-glb" else 8192 if self.path == "/publish-component" else 4096
             if not 0 < length <= limit:
                 raise ValueError("Invalid Matrix tool request size")
             value = json.loads(self.rfile.read(length))
@@ -675,6 +679,10 @@ class _Handler(BaseHTTPRequestHandler):
                 result = self.server.state.agent_record_concept_build(value)
             elif self.path == "/register-glb":
                 result = self.server.state.agent_register_glb(value)
+            elif self.path == '/asset-parts':
+                if set(value) != {'assetId', 'expectedSha256', 'parts'}:
+                    raise ValueError('Invalid part annotation request')
+                result = self.server.state.web_assets.annotate_parts(value['assetId'], value['expectedSha256'], value['parts'])
             elif self.path == "/search-library":
                 if set(value) != {'query', 'kind'}:
                     raise ValueError('Invalid library search')

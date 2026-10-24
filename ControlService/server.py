@@ -1165,6 +1165,14 @@ def catalog(value, key, limit):
                         for name in clips) and len(set(clips)) == len(clips),
                     "Invalid animation clip catalog")
             entry["animationClips"] = clips
+        if key == 'assetId' and 'parts' in item:
+            from asset_parts import checked_parts, part_revision
+            try:
+                parts = checked_parts(item['parts'])
+                require(item.get('partsRevision') == part_revision(parts), 'Invalid part metadata revision')
+                entry['parts'], entry['partsRevision'] = parts, item['partsRevision']
+            except ValueError as error:
+                raise APIError(400, str(error)) from None
         if key == "anchorId":
             try:
                 entry.update(validate_anchor_metadata(item))
@@ -1413,6 +1421,14 @@ def snapshot(value):
     result = {"scene": scene(value.get("scene")),
               "assets": catalog(value.get("assets"), "assetId", 512),
               "anchors": catalog(value.get("anchors"), "anchorId", 128)}
+    selected = value.get('selectedPart')
+    if isinstance(selected, dict) and set(selected) == {'objectId', 'assetId', 'partId', 'partsRevision'}:
+        obj = next((o for o in result['scene']['objects'] if o['objectId'] == selected['objectId']), None)
+        asset = next((a for a in result['assets'] if a['assetId'] == selected['assetId']), None)
+        if (obj and asset and obj['assetId'] == asset['assetId'] and
+                asset.get('partsRevision') == selected['partsRevision'] and
+                any(p['partId'] == selected['partId'] for p in asset.get('parts', []))):
+            result['selectedPart'] = copy.deepcopy(selected)
     if "pointPlacement" in value:
         preference = value["pointPlacement"]
         require(type(preference) is dict and set(preference) == {"schemaVersion", "fitToRoom"} and
@@ -7653,7 +7669,7 @@ class State:
         items = self.web_assets.list()
         return {"total": len(items), "offset": offset,
                 "assets": [{key: item[key] for key in
-                            ("assetId", "displayName", "sha256", "byteLength", "geometry", "spawnScale", "localBounds")
+                            ("assetId", "displayName", "sha256", "byteLength", "geometry", "spawnScale", "localBounds", "parts", "partsRevision")
                             if key in item} for item in items[offset:offset + limit]]}
 
     def agent_list_environments(self, offset=0, limit=24):
@@ -9195,6 +9211,9 @@ class Handler(BaseHTTPRequestHandler):
                 require({'text'} <= set(body) <= {'text', 'teacherId', 'voiceId'}, "Invalid Professor speech request")
                 self.send_data(200, professor_speech.synthesize(body["text"], body.get('teacherId'), body.get('voiceId')), "audio/wav")
                 return
+            elif path == '/api/web/assets/parts':
+                require(set(body) == {'assetId', 'expectedSha256', 'parts'}, 'Invalid part annotation request')
+                data = state.web_assets.annotate_parts(body['assetId'], body['expectedSha256'], body['parts'])
             elif path == "/api/professor/builds":
                 require(self.server.is_loopback and loopback(self.client_address[0]), "Professor builds are PC-loopback only", 403)
                 data = professor_actions.build(state, body, lambda request: agent_portal_turn(state, request, validated_concept_request=True))

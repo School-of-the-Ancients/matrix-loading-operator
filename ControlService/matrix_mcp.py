@@ -18,7 +18,7 @@ from matrix_tool_bridge import (animation_status, bind_animation, bind_game,
                                 manipulation_action, manipulation_status,
                                 publish_component, read_scene, room_spatial_context,
                                 record_concept_build,
-                                register_glb, register_panorama, library_action,
+                                register_glb, register_panorama, library_action, annotate_asset_parts,
                                 environment_action, environment_status,
                                 physics_action, physics_status, scale_block, scale_status,
                                 rigid_action, rigid_status,
@@ -53,6 +53,18 @@ def matrix_register_library_asset(source_path: str, expected_sha256: str, name: 
                           {"source_path": source_path, "expected_sha256": expected_sha256, "name": name,
                            "kind": kind, "description": description, "teacher_ids": teacher_ids or [],
                            "tags": tags or [], "job_id": job_id}, register=True)
+
+
+@server.tool(annotations=ToolAnnotations(readOnlyHint=False, destructiveHint=False, idempotentHint=True))
+def matrix_annotate_asset_parts(asset_id: str, expected_sha256: str, parts: list[dict]) -> dict:
+    """Describe up to 64 parts of an existing GLB without moving scene objects.
+
+    Each part has partId, label, nodeIndex, optional primitiveIndex or localPoint
+    {x,y,z} in exported glTF node-local metres (Y-up), and description (up to 600 characters).
+    Inspect actual geometry. Descriptions are author claims, not verification.
+    """
+    return annotate_asset_parts(os.environ['MATRIX_CONTROL_URL'], os.environ['MATRIX_CONTROL_TOKEN'],
+                                {'assetId': asset_id, 'expectedSha256': expected_sha256, 'parts': parts})
 
 
 @server.tool(annotations=ToolAnnotations(readOnlyHint=True))
@@ -872,6 +884,9 @@ def matrix_register_glb(source_path: str, expected_sha256: str, name: str,
     First compute the source file SHA-256 with a PC tool, then pass the exact
     digest here. This does not spawn or change any scene object. Codex app-server
     requests native approval before the catalog write.
+    Named meshes become teaching targets automatically. For a teaching exhibit,
+    annotate useful functions/landmarks with matrix_annotate_asset_parts after
+    inspecting the exported glTF node indices; preserve separate named parts.
     """
     return register_glb(os.environ["MATRIX_CONTROL_URL"], os.environ["MATRIX_CONTROL_TOKEN"],
                         {"source_path": source_path, "expected_sha256": expected_sha256,

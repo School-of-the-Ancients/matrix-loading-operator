@@ -72,6 +72,11 @@ class ProfessorHTTPTests(unittest.TestCase):
             self.assertEqual(json.loads(self.call('/api/professor/transcribe',{'audioBase64':'test'})[2])['transcript'],'hello')
             self.assertTrue(self.state.voice_worker.acquire(blocking=False));self.state.voice_worker.release()
 
+    def test_part_annotation_endpoint_keeps_auth_origin_and_exact_target_validation(self):
+        self.assertEqual(self.call('/api/web/assets/parts',{},auth=False)[0],401)
+        self.assertEqual(self.call('/api/web/assets/parts',{},Origin='https://elsewhere.example')[0],403)
+        self.assertEqual(self.call('/api/web/assets/parts',{'url':'http://elsewhere'})[0],400)
+
     def test_mount_is_opt_in_loopback_same_origin_and_does_not_relax_matrix_policy(self):
         self.assertEqual(self.call('/professor/')[0],503)
         self.server.professor_ui=self.ui

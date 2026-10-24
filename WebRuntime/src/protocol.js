@@ -1,4 +1,5 @@
 import {validProfessorBinding} from './professor_avatar.js';
+import {validParts,selectedPart} from './asset_parts.js';
 import {validManipulation,manipulationPolicy,canDirectManipulate} from './manipulation.js';
 // This is the browser adapter for Matrix scene schema 1 and the existing
 // /api/exchange command set. Keep changes to this contract coordinated with
@@ -384,6 +385,13 @@ export class MatrixWorld {
     const snapshotSelection=selectedPoint?{anchorId:selectedPoint.anchorId,
       objectId:this.selection.objectId,position:selectedPoint.position}:this.selection;
     const snapshot={scene:clone(this.scene),assets:clone([...ASSETS,proceduralAsset,...this.externalAssets].map(({assetId,displayName,description,spawnScale,localBounds,geometry,interactions,sha256})=>({assetId,displayName,description,spawnScale,...(localBounds?{localBounds}:{}),...(interactions?{interactions}:{}),...(sha256?{sha256}:{}),...(geometry?.animationClips?{animationClips:geometry.animationClips.map(clip=>clip.name)}:{})}))),environmentSchemaVersion:1,environmentAssets:clone(this.environmentAssets),anchors:clone(anchors),selection:clone(snapshotSelection),behaviorKinds:['rotate','bob'],componentSchemaVersion:1,animationSchemaVersion:1,physicsSchemaVersion:1,interactionSchemaVersion:2,physicsStates:this.physicsStates(),rigidSchemaVersion:1,rigidGravity:clone(this.rigidGravity),rigidStates:this.rigidPhysics?.states().filter(state=>this.scene.objects.some(item=>item.objectId===state.objectId))||[],entityActionSchemaVersion:1,agentGrab:clone(this.agentGrab),controlSchemaVersion:1,controlStates:clone(this.controlStates),proceduralGenerators:listProceduralGenerators(),creatorMode:clone(this.creatorMode),game:clone(this.game),gameStatus:this.game?{phase:this.game.state.phase,score:this.game.state.score,objectiveProgress:clone(this.game.state.objectiveProgress),unlockedObjectIds:clone(this.game.state.unlockedObjectIds||[])}:null,roomContext:context,runtimeDescriptor:descriptor};
+    for(const item of snapshot.assets){
+      const asset=this.asset(item.assetId);
+      if(asset?.parts&&this.scene.objects.some(o=>o.assetId===item.assetId)){
+        item.parts=clone(asset.parts);item.partsRevision=asset.partsRevision;
+      }
+    }
+    const part=selectedPart(this);if(part)snapshot.selectedPart=clone(part);
     snapshot.pointPlacement={schemaVersion:1,fitToRoom:this.fitToRoom===true};
     if(this.spatial)snapshot.spatialObservation={schemaVersion:1,
       planeAgeMs:planeObservationAge(this.spatial.planeObservedAt),
@@ -424,6 +432,8 @@ export class MatrixWorld {
            !vec(entry.localBounds.size,.001,20)))||
          !/^[0-9a-f]{64}$/.test(entry.sha256)||entry.url!==`/api/web/assets/${entry.sha256}.glb`||
          !Number.isInteger(entry.byteLength)||entry.byteLength<20||entry.byteLength>(entry.geometry?.vrm?.specVersion==='1.0'?32:16)*1024*1024)throw Error('Invalid web asset entry');
+      if(entry.parts!==undefined&&(!validParts(entry.parts)||!/^[a-f0-9]{64}$/.test(entry.partsRevision||'')))
+        throw Error('Invalid asset part metadata');
       const clips=entry.geometry?.animationClips;
       if(clips!==undefined&&(!Array.isArray(clips)||clips.length>8||
         new Set(clips.map(clip=>clip?.name)).size!==clips.length||
