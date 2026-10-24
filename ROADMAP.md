@@ -1,6 +1,6 @@
 # Matrix roadmap
 
-**Current selection: finish and deliver the frozen v1.2 checkpoint.** Its implementation is merged. The published source is `858d486e9ee8507af36e2a05d78f1d34fc9ca2b0`; current `main` includes later work. [The checkpoint guide](Docs/V1.2-Checkpoint.md) owns release requirements, dependencies and identity. [The acceptance record](Validation/V1.2-Headset-Acceptance.md) owns H01–H10 and their evidence. [Vision](VISION.md) and [architecture](ARCHITECTURE.md) define the product and module boundaries.
+**Current selection: checkpoint and build the embodied Professor as v1.3.0-rc.1.** The owner selected this next release on October 24. [The candidate guide](Docs/V1.3-Checkpoint.md) records scope and evidence limits. The published v1.2 source remains `858d486e9ee8507af36e2a05d78f1d34fc9ca2b0`; its tag and assets stay unchanged. [The v1.2 guide](Docs/V1.2-Checkpoint.md) and [acceptance record](Validation/V1.2-Headset-Acceptance.md) retain their unresolved checks. [Vision](VISION.md) and [architecture](ARCHITECTURE.md) define the product and module boundaries.
 
 ## Current work
 
@@ -23,7 +23,7 @@ Reuse completed implementation, package checks and unaffected wearer observation
 
 ## Module backlogs
 
-The other open issues are outside the frozen v1.2 selection; most remain future work. #212 records a bounded Professor source checkpoint, not a new frozen-release requirement. No next release or implementation sequence is selected by this table. Shared labels on #22, #31 and #156 expose real integration responsibilities; other issues have one module owner.
+The other open issues remain outside the frozen v1.2 selection. The owner has now selected the implemented #212 Professor experience for a separate v1.3 release candidate; this does not add requirements to v1.2 or schedule further features. Shared labels on #22, #31 and #156 expose real integration responsibilities; other issues have one module owner.
 
 The separate Professor integration is **prototyped, not complete**, under #187/#212. Merged Matrix #213/#216 and School #6/#8 establish the earlier voice/avatar/gesture checkpoint; [#217](https://github.com/School-of-the-Ancients/matrix-loading-operator/pull/217) with School #9 adds reusable local appearances/exhibits and background avatar jobs (#214/#211), #218 adds per-teacher local voices, #219 saved-lesson recovery, and [#220](https://github.com/School-of-the-Ancients/matrix-loading-operator/pull/220) with School #10 adds named-part teaching and learner selection (#215/#31/#32). The PR record includes a bounded Quest animated-exhibit demo, distinct from reported automated, desktop and synthetic-model checks. Updated voice/reload, part interaction/readability, avatar art and performance acceptance remain open. Native export/model rendering is not proof of dependable arbitrary-figure avatar generation. The broader ControlService discovery attempt for #216 did not finish; #220 also preserves an unrelated measured-room baseline test failure, neither counted as passed. Curriculum remains a future School layer, not the sole missing acceptance gate. Preserve the October 27 rough-prototype/light-refinement direction; these increments neither expand the six frozen v1.2 owners nor pass their remaining checks.
 

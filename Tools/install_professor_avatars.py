@@ -12,6 +12,8 @@ def main():
     parser.add_argument('--catalog',type=Path,required=True)
     args=parser.parse_args()
     source=Path(__file__).resolve().parents[1]/'WebRuntime'/'art'/'professors'
+    if not source.is_dir():
+        source=Path(__file__).resolve().parents[1]/'BundledAssets'/'professors'
     catalog=WebAssetCatalog(args.catalog)
     results=[]
     for item in json.loads((source/'catalog.json').read_text(encoding='utf-8'))['avatars']:

@@ -31,6 +31,9 @@ class ReleaseBuilderTests(unittest.TestCase):
                                  "WebXR PC and Quest Browser prerelease")
 
     def test_source_allowlist_keeps_owner_and_excludes_private_state(self):
+        self.assertTrue(builder.eligible_source(PurePosixPath("WebRuntime/src/xr_transcript.js")))
+        self.assertTrue(builder.eligible_source(PurePosixPath("ControlService/professor_voice.json")))
+        self.assertFalse(builder.eligible_source(PurePosixPath("ControlService/transcript.json")))
         self.assertTrue(builder.eligible_source(
             PurePosixPath("ControlService/agent_session.py")))
         self.assertTrue(builder.eligible_source(
@@ -54,6 +57,23 @@ class ReleaseBuilderTests(unittest.TestCase):
             with self.subTest(name=name):
                 self.assertFalse(builder.eligible_source(
                     PurePosixPath("WebRuntime/art/examples") / name))
+
+    def test_voice_packaging_removes_workstation_reference(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            source, bundle = Path(temporary) / "source", Path(temporary) / "bundle"
+            for name in (*builder.ROOT_FILES, *builder.DOC_FILES, *builder.COMPAT_FILES,
+                         "ControlService/server.py", "WebRuntime/src/host_world.js",
+                         "WebRuntime/hosted.html", "WebRuntime/package-lock.json"):
+                path = source / name
+                path.parent.mkdir(parents=True, exist_ok=True)
+                path.write_text("fixture", encoding="utf-8")
+            (source / "ControlService/professor_voice.json").write_text(json.dumps({
+                "ref_audio_path": "C:/Private/voice.wav", "defaultVoice": "michael",
+                "profiles": {"michael": {"provider": "kokoro"}}}), encoding="utf-8")
+            builder.copy_release_source(source, bundle)
+            config = json.loads((bundle / "ControlService/professor_voice.json").read_text())
+            self.assertEqual(config["ref_audio_path"], "")
+            self.assertEqual(config["defaultVoice"], "michael")
 
     def test_public_copy_and_manifest_omit_plain_and_compressed_art_paths(self):
         with tempfile.TemporaryDirectory() as temporary:
