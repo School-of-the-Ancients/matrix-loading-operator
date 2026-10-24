@@ -1,0 +1,218 @@
+{
+  "schemaVersion": 1,
+  "avatars": [
+    {
+      "id": "davinci-vroid",
+      "file": "davinci.vrm",
+      "displayName": "Leonardo da Vinci - VRoid Professor",
+      "sha256": "da40f33c6d3c49f1f740b3a5ffdfa02f3caee40b0e81c0851f8982483c91b865",
+      "visualTags": [
+        "human",
+        "historically-inspired",
+        "VRoid",
+        "male"
+      ],
+      "teacherMatches": [
+        "davinci",
+        "leonardo-da-vinci"
+      ],
+      "automaticSelection": true,
+      "representation": "approximate",
+      "source": "Locally authored VRoid preset-based model with custom portrait details. See NOTICE.md and embedded VRM terms."
+    },
+    {
+      "id": "socrates-vroid",
+      "file": "socrates.vrm",
+      "displayName": "Socrates - VRoid Professor",
+      "sha256": "d7a13552126b9c0ad08431eed62c882609171e3247985cea7ada87adae1495f4",
+      "visualTags": [
+        "human",
+        "historically-inspired",
+        "VRoid",
+        "male"
+      ],
+      "teacherMatches": [
+        "socrates",
+        "socrates"
+      ],
+      "automaticSelection": true,
+      "representation": "approximate",
+      "source": "Locally authored VRoid preset-based model with custom portrait details. See NOTICE.md and embedded VRM terms."
+    },
+    {
+      "id": "ada_lovelace-vroid",
+      "file": "ada_lovelace.vrm",
+      "displayName": "Ada Lovelace - VRoid Professor",
+      "sha256": "67853df2a7eaa4c2ff835c65b8a47ab0815da454269a89a1c6da76f308632474",
+      "visualTags": [
+        "human",
+        "historically-inspired",
+        "VRoid",
+        "female"
+      ],
+      "teacherMatches": [
+        "ada_lovelace",
+        "ada-lovelace"
+      ],
+      "automaticSelection": true,
+      "representation": "approximate",
+      "source": "Locally authored VRoid preset-based model with custom portrait details. See NOTICE.md and embedded VRM terms."
+    },
+    {
+      "id": "newton-vroid",
+      "file": "newton.vrm",
+      "displayName": "Isaac Newton - VRoid Professor",
+      "sha256": "e91c0434bc5c6f12dd0aa19221ef9d7ec2def2f7a5c8fd087333a1f5e4bc0fce",
+      "visualTags": [
+        "human",
+        "historically-inspired",
+        "VRoid",
+        "male"
+      ],
+      "teacherMatches": [
+        "newton",
+        "isaac-newton"
+      ],
+      "automaticSelection": true,
+      "representation": "approximate",
+      "source": "Locally authored VRoid preset-based model with custom portrait details. See NOTICE.md and embedded VRM terms."
+    },
+    {
+      "id": "confucius-vroid",
+      "file": "confucius.vrm",
+      "displayName": "Confucius - VRoid Professor",
+      "sha256": "751b7357e91bcca66657a8ee00e2f6535fe3f8cb330f948846c24e8ff01efd2b",
+      "visualTags": [
+        "human",
+        "historically-inspired",
+        "VRoid",
+        "male"
+      ],
+      "teacherMatches": [
+        "confucius",
+        "confucius"
+      ],
+      "automaticSelection": true,
+      "representation": "approximate",
+      "source": "Locally authored VRoid preset-based model with custom portrait details. See NOTICE.md and embedded VRM terms."
+    },
+    {
+      "id": "galileo-vroid",
+      "file": "galileo.vrm",
+      "displayName": "Galileo Galilei - VRoid Professor",
+      "sha256": "73676a159eec2481765e78fb3930f2b788eeffba3f4b2c6ff6ba3d922dbb9f2c",
+      "visualTags": [
+        "human",
+        "historically-inspired",
+        "VRoid",
+        "male"
+      ],
+      "teacherMatches": [
+        "galileo",
+        "galileo-galilei"
+      ],
+      "automaticSelection": true,
+      "representation": "approximate",
+      "source": "Locally authored VRoid preset-based model with custom portrait details. See NOTICE.md and embedded VRM terms."
+    },
+    {
+      "id": "plato-vroid",
+      "file": "plato.vrm",
+      "displayName": "Plato - VRoid Professor",
+      "sha256": "4e02c65cf66b7cbd9c572eb91a27ccb934c34d0362b58e899343c4bf7d9458d1",
+      "visualTags": [
+        "human",
+        "historically-inspired",
+        "VRoid",
+        "male"
+      ],
+      "teacherMatches": [
+        "plato",
+        "plato"
+      ],
+      "automaticSelection": true,
+      "representation": "approximate",
+      "source": "Locally authored VRoid preset-based model with custom portrait details. See NOTICE.md and embedded VRM terms."
+    },
+    {
+      "id": "einstein-vroid",
+      "file": "einstein.vrm",
+      "displayName": "Albert Einstein - VRoid Professor",
+      "sha256": "3dfcccec131793a5c8f1dfd5ab455ae66bb0f706c7f27c0bfe5a3b656d5868af",
+      "visualTags": [
+        "human",
+        "historically-inspired",
+        "VRoid",
+        "male"
+      ],
+      "teacherMatches": [
+        "einstein",
+        "albert-einstein"
+      ],
+      "automaticSelection": true,
+      "representation": "approximate",
+      "source": "Locally authored VRoid preset-based model with custom portrait details. See NOTICE.md and embedded VRM terms."
+    },
+    {
+      "id": "cleopatra-vroid",
+      "file": "cleopatra.vrm",
+      "displayName": "Cleopatra VII - VRoid Professor",
+      "sha256": "da7739b80b5f5744b2d10c01c51322b3a1af8f91f3e75fb0daa5996cf6f8f6d4",
+      "visualTags": [
+        "human",
+        "historically-inspired",
+        "VRoid",
+        "female"
+      ],
+      "teacherMatches": [
+        "cleopatra",
+        "cleopatra-vii"
+      ],
+      "automaticSelection": true,
+      "representation": "approximate",
+      "source": "Locally authored VRoid preset-based model with custom portrait details. See NOTICE.md and embedded VRM terms."
+    },
+    {
+      "id": "aristotle-vroid",
+      "file": "aristotle.vrm",
+      "displayName": "Aristotle - VRoid Professor",
+      "sha256": "fa1dcac7a7d56202f1db9ad999db91941a162d6f3c2812cf833db44ee959d762",
+      "visualTags": [
+        "human",
+        "historically-inspired",
+        "VRoid",
+        "male"
+      ],
+      "teacherMatches": [
+        "aristotle",
+        "aristotle"
+      ],
+      "automaticSelection": true,
+      "representation": "approximate",
+      "source": "Locally authored VRoid preset-based model with custom portrait details. See NOTICE.md and embedded VRM terms."
+    },
+    {
+      "id": "marcus_aurelius-vroid",
+      "file": "marcus_aurelius.vrm",
+      "displayName": "Marcus Aurelius - VRoid Professor",
+      "sha256": "83418c00d7b41f04679e1d7993a74795676ba23b0391bca8e732d670eb4fbc75",
+      "visualTags": [
+        "human",
+        "historically-inspired",
+        "VRoid",
+        "male"
+      ],
+      "teacherMatches": [
+        "marcus_aurelius",
+        "marcus-aurelius"
+      ],
+      "automaticSelection": true,
+      "representation": "approximate",
+      "source": "Locally authored VRoid preset-based model with custom portrait details. See NOTICE.md and embedded VRM terms."
+    }
+  ],
+  "retiredSha256": [
+    "11e325f43318bbaaf520d2475027d433ecfb502784a40971eaf591565c9dc32e",
+    "f9461457cb0cd8f1f27f4b1876af925bcc20984dea8624b59b35d26c75b56918"
+  ]
+}

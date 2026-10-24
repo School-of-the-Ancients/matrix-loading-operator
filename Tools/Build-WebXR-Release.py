@@ -41,6 +41,9 @@ DOC_FILES = (
     "Docs/Persistent-World-Host.md", "Docs/Citizens-Shared-World.md",
     "Docs/Versions-And-Submissions.md", "Docs/Control-Page-Routes.md",
     "Docs/Matrix-Environments.md",
+    "Docs/Professor-Library.md", "Docs/Professor-Avatar-Authoring.md",
+    "Tools/vroid-export/README.md", "Tools/vroid-export/export-vrm.patch",
+    "Tools/vroid-export/LICENSE.upstream",
 )
 COMPAT_FILES = ("Examples/block_scale_client.py",
                 "Validation/client-api-v1-fixtures.json")
@@ -111,7 +114,7 @@ def committed_source(repo: Path, ref: str, destination: Path) -> str:
     commit = run("git", "rev-parse", "--verify", f"{ref}^{{commit}}", cwd=repo)
     archive = subprocess.run(
         ["git", "archive", "--format=tar", commit, "--", "ControlService",
-         "WebRuntime", "Docs", "Tools", *ROOT_FILES, *COMPAT_FILES], cwd=repo,
+         "WebRuntime", "Docs", "Tools", "BundledAssets", *ROOT_FILES, *COMPAT_FILES], cwd=repo,
         stdout=subprocess.PIPE, stderr=subprocess.PIPE, check=False)
     if archive.returncode:
         raise RuntimeError(f"git archive failed: {archive.stderr.decode(errors='replace')}")
@@ -255,8 +258,21 @@ def build_professor(repo: Path, ref: str, source: Path, bundle: Path) -> dict:
         output = bundle / name
         output.parent.mkdir(parents=True, exist_ok=True)
         shutil.copyfile(source / name, output)
-    # Only original, hash-checked scholar assets; never local imported avatars.
-    originals = source / "WebRuntime/art/professors"
+    avatar_count = bundle_professor_avatars(source, bundle)
+    (bundle / "Start-Professor.ps1").write_text(
+        "$ErrorActionPreference='Stop'\n"
+        "& node (Join-Path $PSScriptRoot 'Tools/start_professor_local.mjs') (Join-Path $PSScriptRoot 'Professor')\n"
+        "if($LASTEXITCODE -ne 0){exit $LASTEXITCODE}\n", encoding="utf-8")
+    return {"repository": "https://github.com/School-of-the-Ancients/sota-professor",
+            "source_commit": commit, "runtime": "Vite preview with locked dependencies",
+            "bundled_avatars": avatar_count}
+
+
+def bundle_professor_avatars(source: Path, bundle: Path) -> int:
+    # Explicit committed runtime assets only; never a workstation's local catalog.
+    originals = source / "BundledAssets/professors"
+    if not originals.is_dir():
+        originals = source / "WebRuntime/art/professors"
     catalog = json.loads((originals / "catalog.json").read_text(encoding="utf-8"))
     avatars = bundle / "BundledAssets/professors"
     avatars.mkdir(parents=True)
@@ -268,13 +284,9 @@ def build_professor(repo: Path, ref: str, source: Path, bundle: Path) -> dict:
             raise ValueError("Bundled avatar hash mismatch")
         shutil.copyfile(originals / name, avatars / name)
     shutil.copyfile(originals / "catalog.json", avatars / "catalog.json")
-    (bundle / "Start-Professor.ps1").write_text(
-        "$ErrorActionPreference='Stop'\n"
-        "& node (Join-Path $PSScriptRoot 'Tools/start_professor_local.mjs') (Join-Path $PSScriptRoot 'Professor')\n"
-        "if($LASTEXITCODE -ne 0){exit $LASTEXITCODE}\n", encoding="utf-8")
-    return {"repository": "https://github.com/School-of-the-Ancients/sota-professor",
-            "source_commit": commit, "runtime": "Vite preview with locked dependencies",
-            "bundled_original_avatars": len(catalog["avatars"])}
+    if (originals / "NOTICE.md").is_file():
+        shutil.copyfile(originals / "NOTICE.md", avatars / "NOTICE.md")
+    return len(catalog['avatars'])
 
 
 def reject_sensitive_keys(value: object) -> None:
@@ -598,8 +610,10 @@ def verify_extracted(archive_path: Path, hashes: dict[str, str],
                         raise RuntimeError("Extracted Professor archive is not empty")
                 installed = run(sys.executable, "Tools/install_professor_avatars.py",
                                 "--catalog", str(assets), cwd=root)
-                if len(json.loads(installed)) != 6:
-                    raise RuntimeError("Bundled original avatars failed registration")
+                expected_catalog = json.loads((root / 'BundledAssets/professors/catalog.json').read_text(encoding='utf-8'))
+                bundled_avatar_count = len(expected_catalog['avatars'])
+                if len(json.loads(installed)) != bundled_avatar_count:
+                    raise RuntimeError("Bundled Professor avatars failed registration")
                 professor_args = ["--professor-ui", str(professor_ui)]
             service = subprocess.Popen(
                 [sys.executable, "ControlService/server.py", "--host", "127.0.0.1",
@@ -629,7 +643,11 @@ def verify_extracted(archive_path: Path, hashes: dict[str, str],
                     if code != 200 or not body:
                         raise RuntimeError("Extracted Professor asset is unavailable")
                 status["professorApi"] = 200
-                status["professorAvatars"] = 6
+                code, body = fetch(base, '/api/professor/avatars', owner)
+                public_avatars = json.loads(body).get('avatars', []) if code == 200 else []
+                if not {a['sha256'] for a in expected_catalog['avatars']} <= {a['assetSha256'] for a in public_avatars}:
+                    raise RuntimeError('Bundled Professor avatars missing from public catalog')
+                status["professorAvatars"] = bundled_avatar_count
             if not referenced_assets:
                 raise RuntimeError("Extracted Web pages reference no built assets")
             for route in sorted(referenced_assets):
@@ -716,7 +734,7 @@ def build(args: argparse.Namespace) -> dict:
                     "This local launcher uses Full access, as explicitly selected by the owner. "
                     "Run `Tools/Setup-ProfessorVoices.ps1` for optional local Kokoro voices and "
                     "`Setup-LocalSpeech.ps1` for transcription. Model downloads are not included. "
-                    "Six original scholar models are bundled; personal imported models, "
+                    f"{professor['bundled_avatars']} prebuilt Professor models are bundled; personal imported models, "
                     "Riko voice samples, saved worlds and lessons are not. "
                     "For USB Quest use `adb reverse tcp:8765 tcp:8765` and open "
                     "http://127.0.0.1:8765/web/ in Quest Browser. "

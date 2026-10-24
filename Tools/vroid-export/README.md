@@ -21,3 +21,6 @@ resources, byte/vertex limits and the file hash before registration.
 Verified locally with VRoid Studio 2.14.0 / Unity 6000.0.62f1 on Windows. An actual
 export retained humanoid bones and speech/blink expressions. Other editor versions need
 a compatibility check because this plugin uses the editor's internal API.
+
+For base reuse, editor sequencing, optional Blender finishing and validation,
+follow the [Professor avatar authoring runbook](../../Docs/Professor-Avatar-Authoring.md).
