@@ -11,6 +11,7 @@ from vrm_assets import REQUIRED_BONES
 from web_assets import inspect_glb, WebAssetError
 from test_web_assets import glb
 from server import scene, APIError
+from unittest.mock import patch
 
 
 def vrm_bytes(edit=None):
@@ -39,9 +40,33 @@ class ProfessorAvatarTests(unittest.TestCase):
             assets.append(dict(assetId=entry['id'],sha256=entry['sha256'],displayName=entry['displayName'],geometry=info))
         assets.append(dict(assetId='riko',sha256='a'*64,displayName='Riko',geometry=assets[0]['geometry']))
         catalog=public_catalog(assets)['avatars']
-        self.assertEqual(sum(item['automaticSelection'] for item in catalog),7)
+        # Legacy fixture models remain valid, but the new bundled cast owns defaults.
+        self.assertEqual(sum(item['automaticSelection'] for item in catalog),1)
         self.assertFalse(catalog[-1]['automaticSelection'])
         self.assertIn('fantasy',catalog[-1]['visualTags'])
+
+    def test_prebuilt_cast_preserves_speech_rig_and_allows_runtime_distribution(self):
+        root=Path(__file__).resolve().parents[1]/'BundledAssets'/'professors'
+        entries=json.loads((root/'catalog.json').read_text())['avatars']
+        self.assertEqual(len(entries),11)
+        for entry in entries:
+            with self.subTest(avatar=entry['id']):
+                path=root/entry['file']
+                self.assertEqual(hashlib.sha256(path.read_bytes()).hexdigest(),entry['sha256'])
+                info=inspect_glb(path)
+                self.assertTrue({'aa','ih','ou','ee','oh','blink'}<=set(info['vrm']['expressions']))
+                self.assertTrue(info['vrm']['license']['allowRedistribution'])
+                self.assertEqual(info['vrm']['license']['avatarPermission'],'everyone')
+                self.assertTrue(entry['teacherMatches'])
+
+    def test_retired_avatar_is_hidden_without_deleting_the_asset(self):
+        with tempfile.TemporaryDirectory() as directory:
+            path=Path(directory)/'catalog.json'
+            path.write_text(json.dumps({'avatars':[],'retiredSha256':['a'*64]}))
+            assets=[{'assetId':'saved-old','sha256':'a'*64,'displayName':'Old avatar','geometry':{'vrm':True}}]
+            with patch('professor_avatars.bundled_catalog_path',return_value=path):
+                self.assertEqual(len(public_catalog(assets)['avatars']),1)
+            self.assertEqual(assets[0]['assetId'],'saved-old')
 
     def test_vrm_profile_requires_valid_humanoid_and_retains_license(self):
         with tempfile.TemporaryDirectory() as directory:

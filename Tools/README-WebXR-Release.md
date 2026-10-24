@@ -62,11 +62,11 @@ For an embodied School/Matrix candidate, supply both `--professor-repo PATH`
 and `--professor-commit FULL_SHA`. The builder exports that committed School
 revision in isolation, builds both UIs with no local environment files, and
 includes its locked runtime dependencies and `Start-Professor.ps1`. The manifest
-records both source commits. Six original scholar avatars are hash-checked and
+records both source commits. The committed prebuilt Professor catalog is hash-checked and
 packaged under `BundledAssets/professors`; editable art and personal imported
 avatars stay excluded. Kokoro setup is included, but voice weights and private
 SoVITS references are not. The extracted smoke checks an empty School archive,
-the mounted UI assets and installation of all six avatars without inference.
+the mounted UI assets and installation of every catalog avatar without inference.
 
 The paired launcher retains the current local prototype's ports 8765/3110,
 Codex 0.159.0 requirement and owner-selected Full access policy. An existing

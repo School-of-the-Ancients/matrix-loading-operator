@@ -24,9 +24,19 @@ Validation: all 840 WebRuntime tests and the production build pass. A separate c
 
 ## Use it
 
-The catalog includes six original human VRM models: Renaissance scholar, classical philosopher, classical woman scholar, Victorian woman scholar, natural philosopher and modern scientist. They are intentionally stylized stand-ins, not reconstructed historical likenesses. Each model is under 600 KB and supports the same voice, blink, idle and pointing controller. Source, hashes, license and reproducible generation live in [the model catalog](../WebRuntime/art/professors/README.md).
+Fresh installs use the prebuilt VRoid cast in [BundledAssets/professors](../BundledAssets/professors/catalog.json).
+These are stylized interpretations with humanoid rigs and speech/blink expressions;
+Matrix supplies the existing idle, talking and pointing controller. Model notices
+are separate from the repository's code license. Editable projects and the private
+authoring-seed index are not bundled. The earlier six procedural models remain
+historical source/test fixtures, rather than the default cast.
 
-New lessons default to **Automatic match**. Curated mappings select the Renaissance scholar for Leonardo, the Victorian scholar for Ada and the classical scholar for Hypatia. For other teachers, School asks the existing teaching model to choose one approved catalog ID, with a generic fallback when uncertain/unavailable. Manual selection pins that appearance in the saved School lesson. Riko remains available manually and is excluded from automatic historical matching.
+New lessons default to **Automatic match**. The prebuilt cast maps to the base
+School teacher IDs. For other teachers, School asks the existing teaching model to
+choose an approved catalog ID, with a generic fallback when uncertain/unavailable.
+Manual selection pins the appearance in the saved lesson. Riko remains a local,
+manual choice and is excluded from automatic historical matching. Retired model
+hashes are hidden from new choices; retained asset bytes still support saved worlds.
 
 Automatic selection prepares the choice; it does not swap an already placed professor while speaking. Press **Update professor appearance** to apply it. Replacement preserves the existing object ID, position, rotation, scale, lesson, transcript and voice and supports Undo/Redo. No world clearing or duplicate professor is needed. The launcher registers the bundled models idempotently; owner-supplied model bytes stay unchanged.
 

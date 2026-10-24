@@ -25,6 +25,13 @@ The JSON metadata index lives beside the user's existing WebAssetCatalog manifes
 Immutable model files and editable source projects stay local and outside Git.
 Matching is approximate and does not claim historical likeness or scientific validity.
 
+The [avatar authoring runbook](Professor-Avatar-Authoring.md) records the working
+VRoid/base-reuse/custom-finishing method and its failure modes. New asset jobs
+include that guide's PC-local path and, when installed, a private editable-seed
+index. The index is not part of the public avatar catalog. Recipes and sources
+remain local; their existence does not establish unattended generation or Quest
+acceptance.
+
 The WebRuntime attaches a selected ready avatar and updates the same professor object
 when a replacement becomes ready. It preserves the lesson binding and transform,
 defers replacement during speech/grabs, and rejects results from another lesson/world.

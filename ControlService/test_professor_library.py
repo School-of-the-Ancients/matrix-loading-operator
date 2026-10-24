@@ -13,7 +13,7 @@ from web_assets import WebAssetCatalog
 
 class LibraryTests(unittest.TestCase):
     def test_registered_avatar_is_reusable_after_restart_without_private_paths(self):
-        source = Path(__file__).resolve().parents[1] / 'WebRuntime/art/professors/renaissance-scholar.vrm'
+        source = Path(__file__).resolve().parents[1] / 'BundledAssets/professors/socrates.vrm'
         with tempfile.TemporaryDirectory() as directory:
             assets = WebAssetCatalog(Path(directory)/'assets')
             library = ProfessorLibrary(directory, assets)
@@ -51,13 +51,39 @@ class LibraryTests(unittest.TestCase):
             state=SimpleNamespace(web_assets=assets,professor_library=ProfessorLibrary(directory,assets),
                 professor_tasks=tasks,agent_portal=SimpleNamespace(open=lambda:{'sessionId':'a'*32}))
             jobs=ProfessorAvatarJobs(Path(directory)/'jobs',state)
+            jobs.root.mkdir(parents=True)
+            (jobs.root/'authoring-seeds.json').write_text('{"schemaVersion":1,"seeds":[]}',encoding='utf-8')
             value={'schoolSessionId':'00000000-0000-4000-8000-000000000001',
                 'teacher':{'id':'davinci','name':'Leonardo','era':'Renaissance'},'description':'A human scholar'}
             first=jobs.ensure(value);second=jobs.ensure({**value,'description':'A similar scholar'})
             self.assertEqual(first['id'],second['id']);self.assertEqual(len(tasks.calls),1)
             self.assertTrue(tasks.calls[0][1]['asset_only'])
+            instruction=tasks.calls[0][0]['instruction']
+            self.assertIn(str(Path(__file__).resolve().parents[1]/'Docs'/'Professor-Avatar-Authoring.md'),instruction)
+            import json
+            brief=json.loads(instruction.split('Brief: ',1)[1])
+            self.assertEqual(brief['seedCatalog'],str(jobs.root/'authoring-seeds.json'))
+            self.assertEqual(Path(brief['sourceProject']).parent,Path(brief['nativeVrmFile']).parent)
+            self.assertEqual(Path(brief['recipeFile']).parent,Path(brief['vrmFile']).parent)
             self.assertEqual(first['status'],'failed')
             self.assertNotIn('catalogId',first)
+            self.assertNotIn('seedCatalog',first)
+
+    def test_avatar_job_without_local_seeds_still_has_authoring_outputs(self):
+        with tempfile.TemporaryDirectory() as directory:
+            calls=[]
+            state=SimpleNamespace(web_assets=SimpleNamespace(list=lambda:[]),
+                professor_tasks=SimpleNamespace(submit=lambda value,**flags:(calls.append(value) or value),
+                    get=lambda *args:{'status':'running'}),
+                agent_portal=SimpleNamespace(open=lambda:{'sessionId':'a'*32}))
+            jobs=ProfessorAvatarJobs(Path(directory)/'jobs',state)
+            jobs.ensure({'schoolSessionId':'00000000-0000-4000-8000-000000000001',
+                'teacher':{'id':'custom','name':'Custom teacher','era':'Modern'},'description':'A teacher'})
+            import json
+            brief=json.loads(calls[0]['instruction'].split('Brief: ',1)[1])
+            self.assertNotIn('seedCatalog',brief)
+            self.assertTrue(brief['accessoryProject'].endswith('avatar.blend'))
+            self.assertTrue(brief['validationFile'].endswith('validation.json'))
 
 
 if __name__=='__main__':unittest.main()

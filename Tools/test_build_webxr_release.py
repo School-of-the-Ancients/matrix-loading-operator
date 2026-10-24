@@ -22,6 +22,23 @@ SPEC.loader.exec_module(builder)
 
 
 class ReleaseBuilderTests(unittest.TestCase):
+    def test_prebuilt_avatar_copy_is_explicit_and_hash_checked(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root=Path(temporary);source=root/'source';bundle=root/'bundle'
+            avatars=source/'BundledAssets/professors';avatars.mkdir(parents=True)
+            data=b'VRM fixture';(avatars/'teacher.vrm').write_bytes(data)
+            item={'file':'teacher.vrm','sha256':hashlib.sha256(data).hexdigest()}
+            (avatars/'catalog.json').write_text(json.dumps({'avatars':[item]}))
+            (avatars/'NOTICE.md').write_text('Runtime model terms')
+            for name in ('teacher.vroid','teacher.blend','authoring-seeds.json'):
+                (avatars/name).write_text('private authoring source')
+            self.assertEqual(builder.bundle_professor_avatars(source,bundle),1)
+            self.assertEqual({p.name for p in (bundle/'BundledAssets/professors').iterdir()},
+                             {'teacher.vrm','catalog.json','NOTICE.md'})
+            (avatars/'teacher.vrm').write_bytes(b'changed')
+            with self.assertRaisesRegex(ValueError,'hash mismatch'):
+                builder.bundle_professor_avatars(source,root/'other')
+
     def test_stable_version_is_labeled_release(self):
         self.assertEqual(builder.release_type("v1.0.0"),
                          "WebXR PC and Quest Browser release")

@@ -31,17 +31,23 @@ def validate_binding(value, asset_id):
     return copy.deepcopy(value)
 
 
+def bundled_catalog_path():
+    root = Path(__file__).resolve().parents[1]
+    current = root / 'BundledAssets' / 'professors' / 'catalog.json'
+    return current if current.is_file() else root / 'WebRuntime' / 'art' / 'professors' / 'catalog.json'
+
+
 def public_catalog(assets, local_metadata=None):
-    curated_path = Path(__file__).resolve().parents[1] / 'WebRuntime' / 'art' / 'professors' / 'catalog.json'
-    if not curated_path.is_file():
-        curated_path = Path(__file__).resolve().parents[1] / 'BundledAssets' / 'professors' / 'catalog.json'
-    curated = {item['sha256']: item for item in json.loads(curated_path.read_text(encoding='utf-8'))['avatars']} if curated_path.is_file() else {}
+    curated_path = bundled_catalog_path()
+    catalog = json.loads(curated_path.read_text(encoding='utf-8')) if curated_path.is_file() else {}
+    curated = {item['sha256']: item for item in catalog.get('avatars', [])}
+    retired = set(catalog.get('retiredSha256', []))
     curated.update(local_metadata or {})
     entries = [{"catalogId": "generic-professor", "assetId": "professor-placeholder",
                 "assetSha256": "", "displayName": "Stylized professor", "representation": "generic",
                 "visualTags": ["stylized", "robe"], "availability": "ready", "automaticSelection": True}]
     for asset in assets:
-        if not asset.get("geometry", {}).get("vrm"):
+        if not asset.get("geometry", {}).get("vrm") or asset.get('sha256') in retired:
             continue
         metadata = curated.get(asset['sha256'], {})
         entries.append({"catalogId": asset["assetId"], "assetId": asset["assetId"],

@@ -40,6 +40,12 @@ Reuse unaffected observations across resumed goals and documentation changes. In
 
 ## Creation and documentation
 
+For Professor avatar authoring, follow [Docs/Professor-Avatar-Authoring.md](Docs/Professor-Avatar-Authoring.md).
+Use the job's private editable-seed catalog when provided; verify source hashes,
+save a working copy, and keep native rig/expression validation separate from
+visual quality and Quest acceptance. Cast-specific local scripts are recorded
+examples, not a general unattended creator.
+
 Operator may use procedural generation, reusable assets/capabilities, Blender MCP with validated import, or an optional image mockup as art direction. Choose the fastest suitable existing path. An image is not a functioning world.
 
 Keep current requirements in the owning issue, operational contracts in retained runbooks, implementation/test details in the PR, and release status in the single acceptance record. Update those records instead of adding dated build/progress artifacts to the source tree. Keep executable tools and actual test fixtures distinguishable from their output.
