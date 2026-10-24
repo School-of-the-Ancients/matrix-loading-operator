@@ -1,10 +1,11 @@
 // One recipient is captured for each utterance. Journal writes are never world actions.
 export class ProfessorConversation {
-  constructor({request,onChange=()=>{},onReply=()=>{},onCreated=()=>{},onStop=()=>{},onTasks=()=>{},isDelegatedTurn=()=>false,worldId=()=>'',worldIdentity=null,voiceId=()=>null,pointedPart=()=>null}) {
+  constructor({request,onChange=()=>{},onReply=()=>{},onCreated=()=>{},onStop=()=>{},onTasks=()=>{},isDelegatedTurn=()=>false,worldId=()=>'',worldIdentity=null,voiceId=()=>null,pointedPart=()=>null,observation=()=>({})}) {
     Object.assign(this,{request,onChange,onReply,onCreated,onStop,onTasks,isDelegatedTurn,worldId});
     this.worldIdentity=worldIdentity||worldId;
     this.voiceId=voiceId;
     this.pointedPart=pointedPart;
+    this.observation=observation;
     this.target='professor';this.session=null;this.generation=0;this.pending=false;this.restoring=false;
     this.status='Ask a question to start a lesson.';this.draft='';this.operatorTurns=new Map();this.operatorInputs=[];
     this.queued=Promise.resolve();this.operatorSessions=new Set();
@@ -22,7 +23,7 @@ export class ProfessorConversation {
   }
   select(target){if(!['professor','operator'].includes(target))throw Error('Unknown conversation target.');
     this.target=target;this.onStop();this.status=target==='operator'?'Talking directly to Matrix Operator':this.session?`Talking to ${this.session.mentor.name}`:'Open Professor and choose a lesson.';this.onChange();}
-  capture(){return Object.freeze({target:this.target,sessionId:this.session?.id||null,generation:this.generation,worldId:this.worldId(),worldIdentity:this.worldIdentity(),teacherId:this.session?.mentor?.id||null,voiceId:this.voiceId(this.session?.mentor?.id||'default'),partReference:this.pointedPart()});}
+  capture(){return Object.freeze({target:this.target,sessionId:this.session?.id||null,generation:this.generation,worldId:this.worldId(),worldIdentity:this.worldIdentity(),teacherId:this.session?.mentor?.id||null,voiceId:this.voiceId(this.session?.mentor?.id||'default'),partReference:this.pointedPart(),...this.observation()});}
   current(capture){return capture.generation===this.generation&&capture.sessionId===(this.session?.id||null)&&capture.worldId===this.worldId()&&capture.worldIdentity===this.worldIdentity();}
   context(){const session=this.session;if(!session)return null;return {sessionId:session.id,teacherName:session.mentor.name.slice(0,100),goal:(session.goal||'').slice(0,500),
     events:(session.conversation?.events||[]).slice(-10).map(({speaker,recipient,text})=>({speaker,recipient,text:text.slice(0,600)}))};}
@@ -44,7 +45,7 @@ export class ProfessorConversation {
       if(this.session?.id===sessionId){this.session=session;this.onChange();}return event;});}
   async recordInput(text,capture,inputKind='voice') {
     const event={id:crypto.randomUUID(),speaker:'learner',recipient:capture.target,inputKind,text,worldId:capture.worldId,
-      ...(capture.partReference?{partReference:capture.partReference}:{})};
+      ...(capture.partReference?{partReference:capture.partReference}:{}),...(capture.surfaceReference?{surfaceReference:capture.surfaceReference}:{})};
     await this.record(capture.sessionId,event);
     if(capture.target==='operator')this.operatorInputs.push({event,sessionId:capture.sessionId});
     return event;
@@ -70,7 +71,8 @@ export class ProfessorConversation {
       if(!this.current(capture))throw Error('The lesson or world changed. Your transcript remains in its original lesson.');
       this.status='Professor is thinking…';this.onChange();
       const fresh=await this.request(`/api/school/sessions/${capture.sessionId}`);
-      const session=await this.request(`/api/school/sessions/${capture.sessionId}/spoken-message`,{eventId:event.id,revision:fresh.revision});
+      const session=await this.request(`/api/school/sessions/${capture.sessionId}/spoken-message`,{eventId:event.id,revision:fresh.revision,
+        ...(capture.visual?{visual:capture.visual}:{})});
       if(!this.current(capture))return;
       this.session=session;this.draft='';this.status='Reply saved.';this.onChange();
       const reply=session.conversation.events.find(item=>item.id===`reply:${event.id}`);

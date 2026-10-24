@@ -47,6 +47,7 @@ import {ProfessorVoice} from './professor_voice.js';
 import {readVoiceChoices,saveVoiceChoice} from './professor_voice_profiles.js';
 import {ProfessorRecovery} from './professor_recovery.js';
 import {selectedPart} from './asset_parts.js';
+import {selectedSurface} from './surface_selection.js';
 import {professorAttention} from './professor_attention.js';
 import {ProfessorTaskClient} from './professor_tasks.js';
 
@@ -795,6 +796,8 @@ professorVoice=new ProfessorVoice({load:async(text,capture)=>{
 professorConversation=new ProfessorConversation({request:(path,body)=>bridge.request(path,body),worldId:()=>world.scene.roomId,worldIdentity:()=>world.scene,
   voiceId:teacherId=>professorVoiceChoices[teacherId]||null,
   pointedPart:()=>structuredClone(selectedPart(world)),
+  observation:()=>{const surface=selectedSurface(world);return {surfaceReference:structuredClone(surface),
+    visual:surface&&$('professor-vision').checked&&view.teachingImage?.selectionId===surface.selectionId?view.teachingImage:null};},
   onChange:renderProfessorConversation,onStop:()=>professorVoice.stop(),
   isDelegatedTurn:turn=>{if(/^\[School avatar:[a-f0-9-]{36}\]/.test(turn.user||''))return true;const id=/^\[School task:([a-f0-9-]{36})\]/.exec(turn.user||'')?.[1];return !!id&&(!!professorTasks?.records.has(id)||!!professorConversation.session?.operatorTasks?.some(task=>task.id===id));},
   onTasks:(tasks,capture)=>{for(const task of tasks)void professorTasks.submit(task,capture);},
@@ -821,7 +824,7 @@ view.onProfessorAudioFrame=()=>{
     const active=professorVoice.active;
     const target=root.userData.professorSpeaking&&professorConversation.current(active.capture)
       ? professorAttention(active.event.avatarCue,{scene:world.scene,runtimeId:bridge.clientId,sessionId:id,asset:key=>world.asset(key)}) : null;
-    root.userData.professorAttention=target ? {objectId:target.objectId,partId:active.event.avatarCue.partId||null,guide:active.event.avatarCue.kind==='point',
+    root.userData.professorAttention=target ? {objectId:target.objectId,partId:active.event.avatarCue.partId||null,surfaceTarget:active.event.avatarCue.surfaceTarget,guide:active.event.avatarCue.kind==='point',
       point:active.event.avatarCue.kind==='point'&&performance.now()-active.attentionStartedAt<6000} : null;
   }
 };
@@ -849,14 +852,16 @@ $('professor-part-guides').addEventListener('change',()=>{
   try{localStorage.setItem('matrix-part-guides',view.partGuideMode);}catch{}
 });
 function renderPartSelection(){
-  const selected=selectedPart(world),part=selected&&world.asset(selected.assetId)?.parts?.find(p=>p.partId===selected.partId);
-  const text=part?`Selected: ${part.label}. A/X: change part · B/Y: clear.`:'No part selected. Point at a part and press A/X. Trigger grabs; grip speaks.';
+  const selected=selectedPart(world),surface=selectedSurface(world),part=selected&&world.asset(selected.assetId)?.parts?.find(p=>p.partId===selected.partId);
+  const name=part?.label||(surface?'surface point':null);
+  const imageStatus=surface?(view.teachingImage?.selectionId===surface.selectionId?' · selected view ready':view.teachingImageError?` · ${view.teachingImageError}`:' · capturing selected view'):'';
+  const text=name?`Selected: ${name}. A/X: change point · B/Y: clear.${imageStatus}`:'No point selected. Point at an item and press A/X. Trigger grabs; grip speaks.';
   if($('student-part-selection').textContent!==text)$('student-part-selection').textContent=text;
-  const xrText=part?`Selected: ${part.label} · A/X: change · B/Y: clear`:'Point + A/X: select part · B/Y: clear';
+  const xrText=name?`Selected: ${name} · A/X: change · B/Y: clear${imageStatus}`:'Point + A/X: select item point · B/Y: clear';
   if($('student-part-selection-xr').textContent!==xrText)$('student-part-selection-xr').textContent=xrText;
-  if($('student-part-clear').disabled===!!selected)$('student-part-clear').disabled=!selected;
+  if($('student-part-clear').disabled===!!surface)$('student-part-clear').disabled=!surface;
 }
-$('student-part-clear').addEventListener('click',()=>{world.partSelection=null;renderPartSelection();});
+$('student-part-clear').addEventListener('click',()=>{world.partSelection=null;world.surfaceSelection=null;view.teachingImage=null;renderPartSelection();});
 renderPartSelection();
 $('professor-voice').addEventListener('change',()=>{
   const teacherId=professorConversation.session?.mentor?.id||'default';
@@ -1897,7 +1902,7 @@ async function endVoice(){
   if(voiceStarting){voiceStopRequested=true;return;}
   if(!voiceRecording)return;
   const pointedPart=selectedPart(world);
-  voiceDestination=Object.freeze({...voiceDestination,partReference:structuredClone(pointedPart)});
+  voiceDestination=Object.freeze({...voiceDestination,partReference:structuredClone(pointedPart),...professorConversation.observation()});
   voiceRecording=false;voiceJob='finalizing';voiceButtons();voiceStatus('Finishing recording…');
   let voiceTranscriptStaged=false;
   const finishVoiceTrace=latencyTrace?.begin('voice.finalize-and-deliver');

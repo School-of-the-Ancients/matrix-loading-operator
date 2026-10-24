@@ -1,6 +1,7 @@
 import {loadVrmAvatar} from './vrm_avatar.js';
 import {partPosition,partNode,partForHit,selectedPart,PartMarker} from './asset_parts.js';
 import {avatarPointerCollider,pointerObjectHits} from './pointer_picking.js';
+import {surfaceFromHit,selectedSurface,surfacePosition} from './surface_selection.js';
 import {canDirectManipulate} from './manipulation.js';
 import * as THREE from 'three';
 import {adjustedARLayoutOffset,composeARLayoutPose,webFloorLayoutPivot} from './ar_layout.js';
@@ -1113,10 +1114,14 @@ export class MatrixView {
     let root=hit.object;while(root&&!root.userData.objectId)root=root.parent;
     const object=root&&this.world.scene.objects.find(o=>o.objectId===root.userData.objectId);
     const asset=object&&this.world.asset(object.assetId),part=partForHit(hit,asset);
-    if(!part)return null;
-    this.world.partSelection={objectId:object.objectId,assetId:asset.assetId,
-      partId:part.partId,partsRevision:asset.partsRevision};
-    return this.world.partSelection;
+    if(!object||object.professor)return null;
+    const surface=surfaceFromHit(hit,this.objectRoots.get(object.objectId),object);
+    if(!surface)return null;
+    this.world.surfaceSelection=surface;
+    this.world.partSelection=part?{objectId:object.objectId,assetId:asset.assetId,
+      partId:part.partId,partsRevision:asset.partsRevision}:null;
+    this.pendingTeachingCapture=surface.selectionId;
+    return surface;
   }
   updatePartSelectionButtons(){
     const sources=Array.from(this.renderer.xr.getSession?.()?.inputSources||[]);
@@ -1128,7 +1133,7 @@ export class MatrixView {
       const held=previous.get(source)||{};next.set(source,{select,clear});
       // Track the edge even while blocked so closing a panel cannot replay it.
       if(this.readOnly||this.professorOpen||this.grab||this.pointerGrab||controller.visible===false)continue;
-      if(clear&&!held.clear)this.world.partSelection=null;
+      if(clear&&!held.clear){this.world.partSelection=null;this.world.surfaceSelection=null;this.teachingImage=null;}
       else if(select&&!held.select&&!clear)this.selectTeachingPart(controller);
     }
     this.partButtonsHeld=next;
@@ -2143,7 +2148,22 @@ export class MatrixView {
         this.scene.background.isTexture?'texture':'color',
       includesOperator:review.includeOperator&&panelVisible,operatorWasVisible:panelVisible,
       includesPhysicalCamera:false,includesStereo:false};
-    return {canvas,virtual,renderedAtMs:rendered};
+    return {canvas,virtual,renderedAtMs:rendered,camera};
+  }
+  captureTeachingSurface(){
+    const surface=selectedSurface(this.world),root=surface&&this.objectRoots.get(surface.objectId);
+    const point=surface&&surfacePosition(root,surface);
+    if(!point)throw Error('Selected surface is no longer visible.');
+    const {canvas,camera}=this.renderVirtualFrame({captureId:surface.selectionId,revision:0},'',960,720);
+    const projected=point.clone().project(camera);
+    if(Math.abs(projected.x)>1||Math.abs(projected.y)>1||projected.z< -1||projected.z>1)
+      throw Error('Look at the selected point and press A/X again to share its view.');
+    const x=(projected.x+1)*canvas.width/2,y=(1-projected.y)*canvas.height/2,ctx=canvas.getContext('2d');
+    ctx.strokeStyle='#ffdf35';ctx.lineWidth=4;ctx.beginPath();ctx.arc(x,y,18,0,Math.PI*2);ctx.stroke();
+    ctx.beginPath();ctx.moveTo(x-27,y);ctx.lineTo(x+27,y);ctx.moveTo(x,y-27);ctx.lineTo(x,y+27);ctx.stroke();
+    const dataBase64=canvas.toDataURL('image/jpeg',.72).split(',')[1];
+    if(dataBase64.length>700000)throw Error('Selected view is too large.');
+    return {selectionId:surface.selectionId,mimeType:'image/jpeg',width:960,height:720,dataBase64};
   }
   captureVirtual(request,clientId){
     const {canvas,virtual,renderedAtMs}=this.renderVirtualFrame(request,clientId,960,720);
@@ -2242,7 +2262,10 @@ export class MatrixView {
           const object=this.world.scene.objects.find(item=>item.objectId===attention.objectId);
           const asset=object&&this.world.asset(object.assetId);
           const part=attention.partId&&asset?.parts?.find(item=>item.partId===attention.partId);
-          if(part){attentionTarget=partPosition(target,part,motion.gazeTarget.position);
+          if(attention.surfaceTarget){attentionTarget=surfacePosition(target,attention.surfaceTarget,motion.gazeTarget.position);
+            if(attentionTarget&&attention.guide){if(!this.partMarker){this.partMarker=new PartMarker();this.scene.add(this.partMarker.group);}
+              this.partMarker.show(attentionTarget,'Selected surface',target,{localPoint:attention.surfaceTarget.localPoint},this.partGuideMode||'both');}}
+          else if(part){attentionTarget=partPosition(target,part,motion.gazeTarget.position);
             if(attentionTarget&&attention.guide){
               if(!this.partMarker){this.partMarker=new PartMarker();this.scene.add(this.partMarker.group);}
               this.partMarker.show(attentionTarget,part.label,partNode(target,part),part,this.partGuideMode||'both');
@@ -2295,14 +2318,24 @@ export class MatrixView {
       }
     }
     this.refreshDisplays(false,time);
-    const pinnedPart=selectedPart(this.world),visiblePart=pinnedPart||this.hoveredPart;
-    if(!this.partMarker?.group.visible&&visiblePart&&this.partGuideMode!=='off'){
+    const pinnedSurface=selectedSurface(this.world),pinnedPart=selectedPart(this.world),visiblePart=pinnedPart||this.hoveredPart;
+    if(!this.partMarker?.group.visible&&pinnedSurface&&this.partGuideMode!=='off'){
+      const root=this.objectRoots.get(pinnedSurface.objectId),point=surfacePosition(root,pinnedSurface);
+      if(point){if(!this.partMarker){this.partMarker=new PartMarker();this.scene.add(this.partMarker.group);}
+        const name=pinnedPart&&this.world.asset(pinnedPart.assetId)?.parts?.find(p=>p.partId===pinnedPart.partId)?.label;
+        this.partMarker.show(point,`Selected: ${name||'surface point'}`,root,{localPoint:pinnedSurface.localPoint},'highlight');}
+    }else if(!this.partMarker?.group.visible&&visiblePart&&this.partGuideMode!=='off'){
       const selected=visiblePart,asset=this.world.asset(selected.assetId),part=asset?.parts?.find(p=>p.partId===selected.partId);
       const root=this.objectRoots.get(selected.objectId),point=part&&partPosition(root,part);
       if(point){if(!this.partMarker){this.partMarker=new PartMarker();this.scene.add(this.partMarker.group);}
         this.partMarker.show(point,`${pinnedPart?'Selected: ':'Preview: '}${part.label}`,partNode(root,part),part,'highlight');}
     }
     this.renderer.render(this.scene,this.camera);
+    if(this.pendingTeachingCapture){
+      this.pendingTeachingCapture=null;
+      try{this.teachingImage=this.captureTeachingSurface();this.teachingImageError='';}
+      catch(error){this.teachingImage=null;this.teachingImageError=error.message;}
+    }
     this.onRendered?.();
   }
 }

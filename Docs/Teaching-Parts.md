@@ -49,7 +49,37 @@ transcription or teaching runs. The teacher checks
 it against the current part catalog before answering questions such as “Is this
 the shaft?” A missing or changed target must be clarified, not guessed.
 
-This is geometry/metadata grounding, not camera vision or a scientific simulator.
+## Exact surface points and selected-view vision
+
+A/X also pins unnamed geometry, retaining the hit's node/primitive-local point.
+The marker follows that point through object transforms and node animation.
+B/Y clears both the named part and the surface point. Trigger remains grab.
+Named parts are helpful descriptions, not a prerequisite for selecting a point.
+
+Selection captures one 960×720 virtual view with a yellow crosshair at that
+point, using the existing virtual-frame renderer. The selected-view checkbox
+controls whether this image accompanies the next Professor request. The scene
+is rendered without the physical passthrough camera. If the point is outside
+the view, the UI asks the wearer to look at it and select again instead of
+silently capturing something else. Selecting a new point replaces the image;
+the recording's reference and image are frozen when recording ends.
+
+School validates the selected object, image identity, dimensions and bounded
+JPEG data. It sends the image through native Codex image input in the same
+teaching turn, with the existing tool restrictions. The temporary image is
+deleted after the process finishes; only the point reference and conversation
+remain in the learner archive. No image is sent merely by hovering or selecting.
+Images may add model latency and subscription usage. This is snapshot vision,
+not continuous live vision, camera passthrough, automatic segmentation or proof
+of hidden mechanisms. A teacher can describe visible form and explain likely
+function, while distinguishing uncertain inference from established facts.
+
+The professor can return a whole-object point cue for the selected object; its
+saved surface target then supplies the exact moving point. An explicit named
+part cue continues to target that named part. Replaced assets or missing nodes
+invalidate a target rather than moving the marker to an unrelated location.
+
+This is geometry/metadata and snapshot grounding, not a scientific simulator.
 Author descriptions remain claims; the teacher should separate intended function,
 general principles and unsupported details. The existing aerial-screw annotation
 describes its canvas, axle, handles, supports and platform and explicitly states

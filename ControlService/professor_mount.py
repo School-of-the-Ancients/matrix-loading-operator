@@ -51,7 +51,8 @@ def serve(handler, method, *, loopback):
             size = int(handler.headers.get('Content-Length', '-1'))
         except ValueError:
             raise ContentError(400, 'Invalid Professor body size') from None
-        require(0 < size <= 12000, 'Professor body is too large', 413)
+        limit = 720000 if re.fullmatch(r'/api/school/sessions/[a-f0-9-]{36}/spoken-message', path) else 12000
+        require(0 < size <= limit, 'Professor body is too large', 413)
         body = handler.rfile.read(size)
         require(len(body) == size, 'Incomplete Professor body')
     port = getattr(handler.server, 'professor_port', 3108)
