@@ -46,3 +46,16 @@ test('rebinding a teacher supports undo and redo without moving their avatar',()
   assert.equal(world.scene.objects[0].professor.teacherName,'Updated teacher');
   assert.deepEqual(world.scene.objects[0].transform.position,{x:1,y:0,z:-2});
 });
+
+test('changing appearance preserves object identity, transform and lesson through undo/redo',()=>{
+  const world=new MatrixWorld(()=> 'prof');placeProfessor(world,avatar,request,{x:1,y:0,z:-2});
+  const digest='a'.repeat(64),assetId='web:scholar:'+digest.slice(0,12);
+  world.externalAssets.push({assetId,displayName:'Scholar',url:'/scholar.glb',geometry:{vrm:{specVersion:'1.0'}},spawnScale:1});
+  const before=structuredClone(world.scene.objects[0]);
+  const next={catalogId:assetId,assetId,assetSha256:digest,availability:'ready',representation:'approximate'};
+  const result=placeProfessor(world,next,{...request,catalogId:assetId},{x:99,y:0,z:99});
+  assert.equal(result.ok,true);assert.equal(result.objectId,before.objectId);
+  assert.deepEqual(world.scene.objects[0].transform,before.transform);assert.equal(world.scene.objects[0].professor.schoolSessionId,session);
+  assert.equal(world.execute({requestId:'undo-look',op:'undo'}).ok,true);assert.equal(world.scene.objects[0].assetId,before.assetId);
+  assert.equal(world.execute({requestId:'redo-look',op:'redo'}).ok,true);assert.equal(world.scene.objects[0].assetId,assetId);
+});

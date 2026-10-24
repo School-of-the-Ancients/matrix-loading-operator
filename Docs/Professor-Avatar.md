@@ -1,4 +1,4 @@
-# Professor avatars: first implementation
+# Professor avatars
 
 Implemented October 23, 2026 in the existing Matrix and School checkouts.
 
@@ -24,9 +24,15 @@ Validation: all 840 WebRuntime tests and the production build pass. A separate c
 
 ## Use it
 
+The catalog includes six original human VRM models: Renaissance scholar, classical philosopher, classical woman scholar, Victorian woman scholar, natural philosopher and modern scientist. They are intentionally stylized stand-ins, not reconstructed historical likenesses. Each model is under 600 KB and supports the same voice, blink, idle and pointing controller. Source, hashes, license and reproducible generation live in [the model catalog](../WebRuntime/art/professors/README.md).
+
+New lessons default to **Automatic match**. Curated mappings select the Renaissance scholar for Leonardo, the Victorian scholar for Ada and the classical scholar for Hypatia. For other teachers, School asks the existing teaching model to choose one approved catalog ID, with a generic fallback when uncertain/unavailable. Manual selection pins that appearance in the saved School lesson. Riko remains available manually and is excluded from automatic historical matching.
+
+Automatic selection prepares the choice; it does not swap an already placed professor while speaking. Press **Update professor appearance** to apply it. Replacement preserves the existing object ID, position, rotation, scale, lesson, transcript and voice and supports Undo/Redo. No world clearing or duplicate professor is needed. The launcher registers the bundled models idempotently; owner-supplied model bytes stay unchanged.
+
 Start the existing PC candidate with `node Tools/start_professor_local.mjs` from the Matrix checkout. It refuses to replace services already using ports 8765 or 3110. Open `http://127.0.0.1:8765/web/`, then **Professor**. Create or reopen a lesson, choose **Professor appearance**, and press **Place professor in Matrix**.
 
-The teacher appears in front of the current view on the virtual floor. Select the body to reopen its exact saved lesson. Repeat placement for that lesson reuses the existing object without moving it. Normal Matrix selection, transforms, deletion, world checkpoints, undo and redo continue to apply. To use another appearance after placement, remove that lesson's body first, then place the new one. The teacher and conversation do not change when choosing an appearance.
+The teacher appears in front of the current view on the virtual floor. Select the body to reopen its exact saved lesson. Repeat placement or an appearance update for that lesson reuses the existing object without moving it. Normal Matrix selection, transforms, deletion, world checkpoints, undo and redo continue to apply. The teacher and conversation do not change when choosing an appearance.
 
 The bundled primitive **Stylized professor** needs no external model. Riko has been registered locally from `C:/Riko/client/characters/riko/models/Riko1.vrm` into `.utmp/professor-local/assets`. No existing catalog entry was changed. Its SHA-256 is `e46547c9f00a1faab097f7ec99c3a28f3f33d18332b3eefab0480a2037f20080`. The original file is unchanged. Model bytes are not committed or published; its embedded license does not allow redistribution or modification.
 

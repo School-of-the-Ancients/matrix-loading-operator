@@ -26,9 +26,8 @@ export function placeProfessor(world,avatar,request,position){
     assetSha256:avatar.assetSha256,representation:avatar.representation};
   if(!validProfessorBinding(binding,avatar.assetId))throw Error('Professor appearance identity is invalid.');
   const existing=world.scene.objects.find(object=>object.professor?.schoolSessionId===request.schoolSessionId);
-  if(existing&&existing.assetId!==avatar.assetId)throw Error('Remove this lesson’s existing professor before changing its appearance.');
   const receipt=world.execute(existing?{requestId:crypto.randomUUID(),op:'bind_professor',objectId:existing.objectId,
-    professor:binding,expectedTransform:structuredClone(existing.transform)}:
+    professor:binding,assetId:avatar.assetId,expectedTransform:structuredClone(existing.transform)}:
     {requestId:crypto.randomUUID(),op:'spawn',assetId:avatar.assetId,anchorId:'web-floor',professor:binding,
       transform:{position,rotation:{x:0,y:0,z:0},scale:{x:1,y:1,z:1}}});
   if(!receipt.ok)throw Error(receipt.error);
