@@ -41,7 +41,7 @@ export function partForHit(hit,asset){
   return eligible[0]||null;
 }
 export function selectedPart(world){
-  const selected=world.partSelection;if(!selected||selected.objectId!==world.selection.objectId)return null;
+  const selected=world.partSelection;if(!selected)return null;
   const object=world.scene.objects.find(o=>o.objectId===selected.objectId),asset=object&&world.asset(object.assetId);
   return asset&&asset.assetId===selected.assetId&&asset.partsRevision===selected.partsRevision&&asset.parts?.some(p=>p.partId===selected.partId)?selected:null;
 }

@@ -47,6 +47,8 @@
         <p id="professor-voice-status" class="hint" role="status">Loading local voices…</p>
         <label for="professor-part-guides">Teaching guides</label>
         <select id="professor-part-guides"><option value="both">Highlight + arrow</option><option value="highlight">Highlight only</option><option value="arrow">Arrow only</option><option value="off">Hand gesture only</option></select>
+        <p id="student-part-selection" class="hint" role="status">No part selected. Point at a part and press A/X. Trigger grabs; grip speaks.</p>
+        <button id="student-part-clear" type="button" disabled>Clear selected part (B/Y)</button>
         <details open><summary>Operator tasks · conversation stays available</summary><div id="professor-tasks"></div></details>
         <details><summary>Shared conversation transcript</summary><pre id="shared-transcript" style="white-space:pre-wrap;max-height:300px;overflow:auto"></pre></details>
       </section>
@@ -317,6 +319,7 @@
     <div id="scale-viewport-hint" class="scale-viewport-hint hidden"></div>
     <div class="xr-overlay" id="xr-overlay" style="display:none">
       <div class="xr-actions"><button id="xr-voice">Tap to speak</button><span id="xr-voice-status">Operator ready</span><button id="professor-open-xr" aria-controls="professor-browser" aria-expanded="false">Professor</button><button id="xr-exit">Exit AR</button></div>
+      <div class="xr-actions"><span id="student-part-selection-xr" role="status">Point + A/X: select part · B/Y: clear</span></div>
       <section id="professor-browser" class="professor-browser" aria-label="Full Professor browser" hidden>
         <header><strong>School of the Ancients — Professor</strong><button id="professor-close" type="button">Close / Back to Matrix</button></header>
         <p id="professor-notice"></p>

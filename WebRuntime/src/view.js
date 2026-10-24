@@ -1,5 +1,5 @@
 import {loadVrmAvatar} from './vrm_avatar.js';
-import {partPosition,partNode,partForHit,PartMarker} from './asset_parts.js';
+import {partPosition,partNode,partForHit,selectedPart,PartMarker} from './asset_parts.js';
 import {avatarPointerCollider,pointerObjectHits} from './pointer_picking.js';
 import {canDirectManipulate} from './manipulation.js';
 import * as THREE from 'three';
@@ -1103,6 +1103,36 @@ export class MatrixView {
     if(pressed&&!this.operatorThumbstickHeld&&!this.grab&&!this.professorOpen)this.toggleOperatorPanel();
     this.operatorThumbstickHeld=pressed;
   }
+  selectTeachingPart(controller){
+    if(this.readOnly||this.professorOpen||this.grab||this.pointerGrab||
+       this.world.spatial?.stale||this.world.spatial?.originUnavailable)return null;
+    const index=this.controllers.indexOf(controller);
+    const ray=this.controllerRays[index];if(!ray)return null;
+    const hit=updateControllerRayForPanel(ray,controller,this.operatorPanel,[...this.objectRoots.values()]);
+    if(!hit||hit.object===this.operatorPanel.mesh)return null;
+    let root=hit.object;while(root&&!root.userData.objectId)root=root.parent;
+    const object=root&&this.world.scene.objects.find(o=>o.objectId===root.userData.objectId);
+    const asset=object&&this.world.asset(object.assetId),part=partForHit(hit,asset);
+    if(!part)return null;
+    this.world.partSelection={objectId:object.objectId,assetId:asset.assetId,
+      partId:part.partId,partsRevision:asset.partsRevision};
+    return this.world.partSelection;
+  }
+  updatePartSelectionButtons(){
+    const sources=Array.from(this.renderer.xr.getSession?.()?.inputSources||[]);
+    const previous=this.partButtonsHeld||new Map(),next=new Map();
+    for(const controller of this.controllers||[]){
+      const source=controller.userData.inputSource;
+      if(!sources.includes(source)||source?.gamepad?.mapping!=='xr-standard')continue;
+      const select=!!source.gamepad.buttons?.[4]?.pressed,clear=!!source.gamepad.buttons?.[5]?.pressed;
+      const held=previous.get(source)||{};next.set(source,{select,clear});
+      // Track the edge even while blocked so closing a panel cannot replay it.
+      if(this.readOnly||this.professorOpen||this.grab||this.pointerGrab||controller.visible===false)continue;
+      if(clear&&!held.clear)this.world.partSelection=null;
+      else if(select&&!held.select&&!clear)this.selectTeachingPart(controller);
+    }
+    this.partButtonsHeld=next;
+  }
   clearPlanes(){for(const group of this.planeOutlines.values()){this.scene.remove(group);disposeGroup(group);}this.planeOutlines.clear();}
   anchorPose(group,anchor){const pose=anchor.roomPose;group.position.copy(v3(pose.position));group.rotation.set(...['x','y','z'].map(key=>THREE.MathUtils.degToRad(pose.rotation[key])),'XYZ');group.updateMatrixWorld(true);}
   updatePlanes(time,frame,ref){
@@ -1877,8 +1907,6 @@ export class MatrixView {
     const roots=[...this.objectRoots.values()];const hits=pointerObjectHits(this.raycaster,roots);
     if(hits.length){let node=hits[0].object;while(node&&!node.userData.objectId)node=node.parent;
       const id=node?.userData.objectId;if(id){const object=this.world.requireObject(id);
-        const asset=this.world.asset?.(object.assetId),part=partForHit(hits[0],asset);
-        this.world.partSelection=part?{objectId:id,assetId:object.assetId,partId:part.partId,partsRevision:asset.partsRevision}:null;
         this.world.setSelection(id,object.transform.position,object.anchorId);this.highlight();this.onSelection();
         if(object.animation?.selectClip&&!this.world.spatial?.stale&&!this.world.spatial?.originUnavailable)
           this.objectRoots.get(id)?.userData.selectAnimation?.();
@@ -2201,6 +2229,7 @@ export class MatrixView {
     else if(this.pointerKnown&&!this.pointerGrab&&!this.pointerLook){
       this.raycaster.setFromCamera(this.pointer,this.camera);hoverPart(pointerObjectHits(this.raycaster,[...this.objectRoots.values()])[0]);
     }
+    if(frame&&this.renderer.xr.isPresenting)this.updatePartSelectionButtons();
     if(this.partMarker)this.partMarker.group.visible=false;
     for(const root of this.objectRoots.values())root.userData.mixer?.update(delta);
     for(const root of this.objectRoots.values()){
@@ -2266,11 +2295,12 @@ export class MatrixView {
       }
     }
     this.refreshDisplays(false,time);
-    if(!this.partMarker?.group.visible&&this.hoveredPart&&this.partGuideMode!=='off'){
-      const selected=this.hoveredPart,asset=this.world.asset(selected.assetId),part=asset?.parts?.find(p=>p.partId===selected.partId);
+    const pinnedPart=selectedPart(this.world),visiblePart=pinnedPart||this.hoveredPart;
+    if(!this.partMarker?.group.visible&&visiblePart&&this.partGuideMode!=='off'){
+      const selected=visiblePart,asset=this.world.asset(selected.assetId),part=asset?.parts?.find(p=>p.partId===selected.partId);
       const root=this.objectRoots.get(selected.objectId),point=part&&partPosition(root,part);
       if(point){if(!this.partMarker){this.partMarker=new PartMarker();this.scene.add(this.partMarker.group);}
-        this.partMarker.show(point,part.label,partNode(root,part),part,'highlight');}
+        this.partMarker.show(point,`${pinnedPart?'Selected: ':'Preview: '}${part.label}`,partNode(root,part),part,'highlight');}
     }
     this.renderer.render(this.scene,this.camera);
     this.onRendered?.();
