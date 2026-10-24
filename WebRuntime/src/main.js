@@ -48,6 +48,7 @@ import {readVoiceChoices,saveVoiceChoice} from './professor_voice_profiles.js';
 import {ProfessorRecovery} from './professor_recovery.js';
 import {selectedPart} from './asset_parts.js';
 import {selectedSurface} from './surface_selection.js';
+import {XRTranscript} from './xr_transcript.js';
 import {professorAttention} from './professor_attention.js';
 import {ProfessorTaskClient} from './professor_tasks.js';
 
@@ -86,7 +87,7 @@ let persistenceWarning='',restoreWarning='';
 let cameraBusy=false;
 const recorder=new VoiceRecorder();let voiceStarting=false,voiceRecording=false,voiceStopRequested=false,voiceJob=null,voiceAgentContext=null;
 let replyContext=null,replySource=null;
-let professorConversation=null,professorVoice=null,professorLink=null,voiceDestination=null,professorTasks=null;
+let professorConversation=null,professorVoice=null,professorLink=null,voiceDestination=null,professorTasks=null,xrTranscript=null;
 let professorVoiceCatalog=null,professorVoiceChoices=readVoiceChoices(localStorage);
 let professorRecovery=null;
 let agentClient=null,conceptUI=null,panoramaUI=null,agentActionBusy=false,agentVoiceStatus='',voiceSteerTurnId=null,agentAttentionKey='',reviewBusy=false;
@@ -733,6 +734,7 @@ panoramaUI.bind();
 function renderProfessorConversation(){
   if(!professorConversation)return;
   const conversation=professorConversation,session=conversation.session;
+  xrTranscript?.render(session);
   if(!pendingWorld)professorRecovery?.remember();
   $('talk-professor').setAttribute('aria-pressed',String(conversation.target==='professor'));
   $('talk-operator').setAttribute('aria-pressed',String(conversation.target==='operator'));
@@ -844,6 +846,9 @@ $('conversation-send').addEventListener('click',async()=>{
     if($('conversation-input').value.trim()===text)$('conversation-input').value='';
   }catch(error){feedback(error.message,true);}
 });
+xrTranscript=new XRTranscript({toggle:$('xr-transcript-toggle'),panel:$('xr-transcript-panel'),close:$('xr-transcript-close'),
+  title:$('xr-transcript-title'),latest:$('xr-transcript-latest'),history:$('xr-transcript-history'),document,
+  canOpen:()=>!view.grab&&!view.pointerGrab});
 renderProfessorConversation();
 try{const mode=localStorage.getItem('matrix-part-guides');if(['both','highlight','arrow','off'].includes(mode))$('professor-part-guides').value=mode;}catch{}
 view.partGuideMode=$('professor-part-guides').value;

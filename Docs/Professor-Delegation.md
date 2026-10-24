@@ -8,6 +8,14 @@ Start the existing local candidate, then open **http://127.0.0.1:8765/web/** on 
 
 The **Operator tasks** panel shows requested, queued, running, completed, failed, cancelled or unconfirmed state. The task's result is retained with the lesson and is available to subsequent teaching turns. A requested task that could not connect can be sent/checked explicitly. Retrying the same saved task ID does not start another job. Stop voice and Cancel task are different controls; cancellation does not undo already completed world edits.
 
+In Quest AR/VR, press **Transcript** in the existing bottom controls to review
+the conversation without leaving the scene. The latest Professor reply stays
+above the scrollable recent history, including its question. Student and Operator
+messages are attributed, and interrupted speech is labeled. New messages update
+the latest reply while preserving the scroll position when reviewing older text.
+Close transcript returns to the unobstructed scene; it does not stop speech or
+send a message. The full Professor page temporarily hides this compact view.
+
 ## Architecture
 
 School's structured teaching output now advertises an app-mediated `matrix_operator` tool with bounded title, instruction and lesson objective. School validates it and saves a task with the source reply ID. It does not give the teaching process direct shell, MCP, account or filesystem tools.

@@ -43,6 +43,11 @@ header{position:absolute;top:0;left:0;right:0;height:72px;display:flex;align-ite
 .xr-actions{display:flex;align-items:center;flex-wrap:wrap;gap:10px;background:rgba(7,23,34,.94);padding:8px;border:1px solid #55d8c7;border-radius:10px;pointer-events:auto}
 .xr-overlay[data-xr-active="false"] .xr-actions,.xr-overlay[data-professor-open="true"] .xr-actions{display:none}
 .xr-overlay[data-professor-open="true"]{justify-content:center}
+.xr-transcript{pointer-events:auto;align-self:flex-start;box-sizing:border-box;width:min(720px,92vw);max-height:55vh;display:flex;flex-direction:column;gap:8px;margin-bottom:10px;padding:16px;color:#eef9fa;background:rgba(7,23,34,.96);border:1px solid #55d8c7;border-radius:12px;font-size:18px;line-height:1.5;overflow:hidden}
+.xr-transcript[hidden],.xr-overlay[data-xr-active="false"] .xr-transcript,.xr-overlay[data-professor-open="true"] .xr-transcript{display:none}
+.xr-transcript-heading{display:flex;align-items:center;justify-content:space-between;gap:12px}.xr-transcript-heading button{min-height:44px;font-size:16px}
+.xr-transcript-caption{margin:0;color:#86dacf;font-size:14px}.xr-transcript-latest{margin:0;padding:10px;background:#183c48;border-radius:6px;white-space:pre-wrap;max-height:19vh;overflow:auto;flex-shrink:0}
+.xr-transcript-history{min-height:70px;overflow:auto;overscroll-behavior:contain;touch-action:pan-y;scrollbar-color:#72cabb #0a2430}.xr-transcript-history article{padding:10px 0;border-top:1px solid #31515e}.xr-transcript-history strong{font-size:14px;color:#99c9d3}.xr-transcript-history p{margin:4px 0;white-space:pre-wrap;overflow-wrap:anywhere}
 .professor-browser{pointer-events:auto;display:flex;flex-direction:column;width:min(1100px,94vw);height:88vh;max-height:1100px;background:#101c26;border:2px solid #55d8c7;border-radius:12px;padding:12px;box-sizing:border-box;box-shadow:0 8px 36px #0008;overflow:hidden}
 .professor-browser[hidden]{display:none}
 .professor-browser header{position:static;display:flex;flex-wrap:wrap;justify-content:space-between;gap:8px;height:auto;padding:0;background:none;border:0;flex-shrink:0;pointer-events:auto}

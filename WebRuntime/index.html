@@ -319,7 +319,12 @@
     <div class="view-label" id="view-label">DESKTOP · VIRTUAL ROOM</div>
     <div id="scale-viewport-hint" class="scale-viewport-hint hidden"></div>
     <div class="xr-overlay" id="xr-overlay" style="display:none">
-      <div class="xr-actions"><button id="xr-voice">Tap to speak</button><span id="xr-voice-status">Operator ready</span><button id="professor-open-xr" aria-controls="professor-browser" aria-expanded="false">Professor</button><button id="xr-exit">Exit AR</button></div>
+      <section id="xr-transcript-panel" class="xr-transcript" aria-label="Conversation transcript" hidden>
+        <div class="xr-transcript-heading"><strong id="xr-transcript-title">Conversation</strong><button id="xr-transcript-close" type="button">Close transcript</button></div>
+        <p class="xr-transcript-caption">Latest professor reply</p><p id="xr-transcript-latest" class="xr-transcript-latest"></p>
+        <div id="xr-transcript-history" class="xr-transcript-history" role="log" aria-label="Recent conversation" tabindex="0"></div>
+      </section>
+      <div class="xr-actions"><button id="xr-voice">Tap to speak</button><span id="xr-voice-status">Operator ready</span><button id="xr-transcript-toggle" type="button" aria-controls="xr-transcript-panel" aria-expanded="false">Transcript</button><button id="professor-open-xr" aria-controls="professor-browser" aria-expanded="false">Professor</button><button id="xr-exit">Exit AR</button></div>
       <div class="xr-actions"><span id="student-part-selection-xr" role="status">Point + A/X: select part · B/Y: clear</span></div>
       <section id="professor-browser" class="professor-browser" aria-label="Full Professor browser" hidden>
         <header><strong>School of the Ancients — Professor</strong><button id="professor-close" type="button">Close / Back to Matrix</button></header>
