@@ -14,6 +14,13 @@ School's structured teaching output now advertises an app-mediated `matrix_opera
 
 Matrix submits the saved intent through the existing Agent Portal/Operator. A durable queue returns a task handle before the worker finishes. Teacher generation, audio playback and Operator execution use separate paths. The queue waits if Operator already has a turn, preserves the current permissions and checks the originating world/runtime before execution.
 
+Saved Professor tasks use an internal text-task route. Words such as “concept”
+or “design” in an invention brief do not select the current concept image or
+require one to exist. The separate image-to-Blender action still validates its
+exact selected image and version. Browser callers cannot enable the internal
+task route through JSON fields. A rejected task with no Operator turn ID did
+not start a Blender build; retain its record rather than silently replaying it.
+
 Task IDs and arguments are immutable. A persisted submission state is written before starting Operator, so a crash cannot silently replay an uncertain world action. Restarted queued/running jobs become unconfirmed for explicit review. Completed means that the correlated Operator turn completed; it does not independently prove geometry, scientific validity or physical AR fit. Existing runtime receipts remain authoritative.
 
 Adding a registered model or built-in object does not require the entire scene to remain motionless. An observed revision stays valid for an additive load while the same runtime, world and tracking origin remain active; existing object movement and new unrelated objects do not cancel it. Scene replacement, reconnect, world switching and origin changes still require a fresh observation. Edits to existing objects and measured physical-surface placement keep their own target checks.
