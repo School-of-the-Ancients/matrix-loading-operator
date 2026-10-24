@@ -1463,7 +1463,7 @@ export class MatrixView {
         try{validateRenderedFootprint(asset,loaded.measuredSize);}
         catch(error){loaded.dispose();throw error;}
         for(const child of [...visual.children]){visual.remove(child);disposeGroup(child);}
-        visual.add(loaded.model);root.userData.vrm=loaded.vrm;root.userData.disposeVrm=loaded.dispose;
+        visual.add(loaded.model);root.userData.vrm=loaded.vrm;root.userData.professorMotion=loaded.motion;root.userData.disposeVrm=loaded.dispose;
         loaded.vrm.humanoid.update();
         root.updateWorldMatrix(true,true);
         loaded.vrm.springBoneManager?.setInitState();
@@ -2176,11 +2176,11 @@ export class MatrixView {
       updateControllerRayForPanel(this.controllerRays[index],this.controllers[index],this.operatorPanel);
     for(const root of this.objectRoots.values()){
       root.userData.mixer?.update(delta);
-      root.userData.vrm?.update(delta);
-      if(root.userData.vrm?.expressionManager){
-        root.userData.avatarTime=(root.userData.avatarTime||0)+delta;
-        const blink=Math.max(0,1-Math.abs((root.userData.avatarTime%4.5)-4.25)/.08);
-        root.userData.vrm.expressionManager.setValue('blink',blink);
+      if(root.userData.vrm){
+        root.userData.professorMotion?.update(delta,{speaking:!!root.userData.professorSpeaking,
+          listening:!!root.userData.professorListening,level:root.userData.professorVoiceLevel||0});
+        if(root.userData.vrm.lookAt)root.userData.vrm.lookAt.target=this.renderer.xr.isPresenting?this.renderer.xr.getCamera():this.camera;
+        root.userData.vrm.update(delta);
       }
       const object=this.world.scene.objects.find(item=>item.objectId===root.userData.objectId);
       if(!object)continue;

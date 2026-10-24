@@ -767,6 +767,7 @@ professorVoice=new ProfessorVoice({load:async text=>{
   for(const root of view.objectRoots.values()){
     if(!root.userData.vrm)continue;
     const amount=root.userData.professor?.schoolSessionId===professorConversation?.session?.id?level:0;
+    root.userData.professorVoiceLevel=amount;
     const previous=root.userData.professorMouth||{};
     for(const name of ['aa','ee','ih','oh','ou']){
       const target=name==='aa'?amount*.7:name===shape?amount*.45:0;
@@ -793,7 +794,14 @@ professorTasks=new ProfessorTaskClient({request:(path,body)=>bridge.request(path
     if(professorConversation.session?.id===session.id&&session.revision>=professorConversation.session.revision){professorConversation.session=session;renderProfessorConversation();professorLink?.send({type:'matrix-school-refresh',sessionId:session.id});}
   }});
 setInterval(()=>void professorTasks.poll(),2400);
-view.onProfessorAudioFrame=()=>professorVoice.update();
+view.onProfessorAudioFrame=()=>{
+  professorVoice.update();
+  for(const root of view.objectRoots.values()){
+    const id=root.userData.professor?.schoolSessionId;
+    root.userData.professorSpeaking=!!id&&!!professorVoice.source&&professorVoice.active?.capture.sessionId===id;
+    root.userData.professorListening=!!id&&voiceRecording&&voiceDestination?.target==='professor'&&voiceDestination.sessionId===id;
+  }
+};
 for(const target of ['professor','operator'])$('talk-'+target).addEventListener('click',()=>professorConversation.select(target));
 $('professor-stop-voice').addEventListener('click',()=>professorVoice.stop());
 $('professor-replay').addEventListener('click',async()=>{

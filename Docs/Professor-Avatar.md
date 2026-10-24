@@ -4,6 +4,14 @@ Implemented October 23, 2026 in the existing Matrix and School checkouts.
 
 Update: Professor/Operator routing, a durable shared transcript, local speech recognition, SoVITS playback, audio-driven mouth animation and asynchronous Operator delegation are now implemented. See [Professor-Voice.md](Professor-Voice.md) and [Professor-Delegation.md](Professor-Delegation.md) for current controls and validation. The earlier first-slice limits below are historical; Quest acceptance remains pending.
 
+## Current body motion
+
+The #215 checkpoint replaces the fixed upper-arm pose with a normalized-bone motion controller. Hands rest beside the body with bent elbows from the first frame. Subtle breathing, upper-body sway, blinking and head motion run while idle; recording a Professor-directed question adds listening nods. Actual Professor audio playback drives restrained alternating arm/hand gestures, blended with the existing audio-driven mouth animation. Stop and clip completion blend the arms back to rest. The gaze target follows the active desktop or XR camera.
+
+Motion runs in the existing render loop and leaves the scene root, placement, scale and lesson binding untouched. Missing optional bones are tolerated; the browser's reduced-motion preference reduces movement. No model bytes or external animation clips are modified or added. Explicit exhibit pointing and model-specific choreography remain future work.
+
+Validation: all 840 WebRuntime tests and the production build pass. A separate check using the actual local Riko skeleton exercised idle, speaking and listening, preserving root transforms and mouth-expression values. An isolated desktop preview with the real model confirmed arms beside the body and speech/idle transitions; its speech drive was synthetic. This is not a Quest performance or wearer acceptance result. Save any current work, then reload the Quest page to receive the new browser bundle.
+
 ## Use it
 
 Start the existing PC candidate with `node Tools/start_professor_local.mjs` from the Matrix checkout. It refuses to replace services already using ports 8765 or 3110. Open `http://127.0.0.1:8765/web/`, then **Professor**. Create or reopen a lesson, choose **Professor appearance**, and press **Place professor in Matrix**.
@@ -28,7 +36,7 @@ Restart/reopen Professor to refresh its picker after an import. This profile sup
 - A normal scene object holds a versioned `professor` binding: teacher identity/name, School session ID, catalog ID, asset digest and representation type. Existing scene validation and save/restore preserve it. There is no separate world simulation or teacher database.
 - School's existing parent-window channel sends the selected catalog ID and lesson identity. Matrix validates the request, performs its normal world operation, and returns the receipt. Duplicate requests reuse the lesson's body. Failed or timed-out placement is reported, not silently called complete.
 
-## Verified and pending
+## Historical first-slice verification
 
 Automated: 827 Matrix Node tests passed; 997 ControlService tests passed during implementation, followed by all 14 focused avatar/HTTP/asset tests after final edits; 26 School frontend tests passed; School typecheck and both production builds passed. No new live model request was needed for these checks.
 

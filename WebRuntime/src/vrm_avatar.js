@@ -1,6 +1,7 @@
 import * as THREE from 'three';
 import {GLTFLoader} from 'three/addons/loaders/GLTFLoader.js';
 import {VRMLoaderPlugin,VRMUtils} from '@pixiv/three-vrm';
+import {ProfessorMotion} from './professor_motion.js';
 
 export async function loadVrmAvatar(asset,token,camera){
   const loader=new GLTFLoader();
@@ -17,12 +18,10 @@ export async function loadVrmAvatar(asset,token,camera){
     const center=bounds.getCenter(new THREE.Vector3());
     const group=new THREE.Group();group.add(vrm.scene);
     vrm.scene.position.sub(new THREE.Vector3(center.x,bounds.min.y,center.z));
-    vrm.humanoid.setNormalizedPose({
-      leftUpperArm:{rotation:new THREE.Quaternion().setFromEuler(new THREE.Euler(0,0,-1.2)).toArray()},
-      rightUpperArm:{rotation:new THREE.Quaternion().setFromEuler(new THREE.Euler(0,0,1.2)).toArray()}});
+    const motion=new ProfessorMotion(vrm,{reducedMotion:globalThis.matchMedia?.('(prefers-reduced-motion: reduce)').matches===true});
     vrm.lookAt&&(vrm.lookAt.target=camera);
     vrm.scene.traverse(node=>{if(node.isMesh){node.castShadow=true;node.receiveShadow=true;}});
-    return {model:group,vrm,measuredSize:{x:size.x,y:size.y,z:size.z},dispose:()=>{
+    return {model:group,vrm,motion,measuredSize:{x:size.x,y:size.y,z:size.z},dispose:()=>{
       VRMUtils.deepDispose(group);group.clear();
     }};
   }catch(error){VRMUtils.deepDispose(vrm.scene);throw error;}
