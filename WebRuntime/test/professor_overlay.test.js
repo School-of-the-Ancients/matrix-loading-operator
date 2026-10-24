@@ -35,6 +35,17 @@ test('actual DOM overlay state controls immersive access and desktop windows do 
   f.overlay.setSession(null);assert.equal(f.panel.hidden,true);assert.equal(f.overlay.open(),true);
 });
 
+test('avatar selection restores its exact lesson and rejects arbitrary routes',()=>{
+  const f=fixture({protocol:'http:',hostname:'localhost',port:'8765'});
+  const id='00000000-0000-4000-8000-000000000001';
+  assert.equal(f.overlay.openSession(id),true);
+  assert.equal(f.frame.src,`http://localhost:8765/professor/#session=${id}`);
+  f.overlay.close();assert.equal(f.overlay.openSession('https://elsewhere.test'),false);
+  assert.equal(f.panel.hidden,true);
+  assert.equal(f.overlay.openSession(id),true);
+  assert.equal(f.frame.src,`http://localhost:8765/professor/#session=${id}`);
+});
+
 test('remote/HTTPS routes cannot redirect to headset localhost or weaken origin guards',()=>{
   for(const location of [{protocol:'https:',hostname:'127.0.0.1'},{protocol:'http:',hostname:'192.168.1.4'},
     {protocol:'https:',hostname:'matrix.example'},{protocol:'http:',hostname:'127.0.0.1.attacker.test'}]){

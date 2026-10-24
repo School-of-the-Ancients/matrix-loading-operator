@@ -35,6 +35,13 @@ export class ProfessorOverlay {
     this.render();
   }
   supported() { return !this.session || !!this.session.domOverlayState; }
+  openSession(sessionId) {
+    if(!/^[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}$/.test(sessionId)||!this.route.available)return false;
+    if(!this.supported()||this.canOpen())return this.open();
+    const next=`${this.route.url}#session=${sessionId}`;
+    if(this.frame.src!==next){this.frame.src=next;this.loaded=true;}
+    return this.open();
+  }
   open(trigger = null) {
     if (!this.supported()) {
       const message = 'This XR session does not provide DOM overlay. The full Professor page cannot be shown here; exit XR to use the desktop Professor button.';

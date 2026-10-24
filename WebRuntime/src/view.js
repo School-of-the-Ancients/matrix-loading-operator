@@ -1,3 +1,4 @@
+import {loadVrmAvatar} from './vrm_avatar.js';
 import {canDirectManipulate} from './manipulation.js';
 import * as THREE from 'three';
 import {adjustedARLayoutOffset,composeARLayoutPose,webFloorLayoutPivot} from './ar_layout.js';
@@ -23,7 +24,14 @@ function box(group,w,h,d,x,y,z,material){const mesh=new THREE.Mesh(new THREE.Box
 function cylinder(group,r,h,x,y,z,material){const mesh=new THREE.Mesh(new THREE.CylinderGeometry(r,r,h,24),material);mesh.position.set(x,y,z);mesh.castShadow=true;mesh.receiveShadow=true;group.add(mesh);}
 function makeAsset(id){
   const group=new THREE.Group(); const w=wood(),m=metal(),s=stone();
-  if(id==='chair'){
+  if(id==='professor-placeholder'){
+    const robe=new THREE.MeshStandardMaterial({color:0x344b63,roughness:.9});
+    const skin=new THREE.MeshStandardMaterial({color:0xd0ae8a,roughness:.9});
+    cylinder(group,.23,1.1,0,.65,0,robe);
+    const head=new THREE.Mesh(new THREE.SphereGeometry(.16,16,12),skin);head.position.y=1.4;group.add(head);
+    for(const x of [-.3,.3])box(group,.1,.65,.14,x,.95,0,robe);
+    for(const x of [-.12,.12])box(group,.15,.12,.3,x,.06,.05,m);
+  } else if(id==='chair'){
     box(group,.58,.08,.58,0,.45,0,w);box(group,.58,.48,.07,0,.69,.26,w);
     for(const x of [-.23,.23])for(const z of [-.23,.23])box(group,.075,.43,.075,x,.215,z,w);
   } else if(id==='table'){
@@ -153,6 +161,7 @@ export function operatorPanel({createImage=()=>new Image()}={}){
   let creationMode='auto';
   let pinLabel='PIN TO WALL',voiceLabel='VOICE ON',originLabel='ROOM ORIGIN UNKNOWN',conversationCount=0,xrMode=null;
   let voiceInputLabel='HOLD FOR CODEX';
+  let conversationTarget='professor';
   let gameStatus='No game running.',worldInfo={objects:0,canConfirm:false,alignment:'No room scan'},worldWarning='';
   let creatorMode={mode:'creator',simulation:'paused',revision:0};
   let worldNotice={text:'',tone:'idle'};
@@ -201,6 +210,8 @@ export function operatorPanel({createImage=()=>new Image()}={}){
     ctx.fillStyle='#8bb8c2';ctx.font='bold 21px sans-serif';ctx.fillText(originLabel,55,123);
     ctx.font='19px sans-serif';ctx.fillText('STICK: RECALL',540,138);
     button('open-professor','PROFESSOR',743,110,230,44);
+    button('conversation-professor','TALK: PROFESSOR',55,139,310,38,conversationTarget==='professor');
+    button('conversation-operator','TALK: OPERATOR',375,139,310,38,conversationTarget==='operator');
     if(mode==='modes'){
       ctx.fillStyle='#dff7f8';ctx.font='bold 38px sans-serif';
       ctx.fillText(creatorMode.mode==='creator'?'Creator Mode':'Play/Test Mode',55,205);
@@ -481,6 +492,7 @@ export function operatorPanel({createImage=()=>new Image()}={}){
     if(mode==='world'||mode==='layout')paint();};
   const setVoiceLabel=next=>{voiceLabel=next;paint();};
   const setVoiceInputLabel=next=>{if(voiceInputLabel!==next){voiceInputLabel=next;paint();}};
+  const setConversationTarget=next=>{if(conversationTarget!==next){conversationTarget=next;paint();}};
   const setOriginLabel=next=>{if(originLabel!==next){originLabel=next;paint();}};
   const setConversationCount=next=>{conversationCount=next;paint();};
   const setProposal=next=>{
@@ -561,7 +573,7 @@ export function operatorPanel({createImage=()=>new Image()}={}){
   paint();
   return {group,mesh,setMessage,setPinLabel,setXRMode,setVoiceLabel,setOriginLabel,setConversationCount,
     setProposal,setWorldInfo,setWorldNotice,setGameStatus,setCreatorMode,setWarning,setCameraStatus,
-    setAgentStatus,setConceptGallery,setPanoramaGallery,setCreationMode,setVoiceInputLabel,toggleWorld,openLayout,toggleArchives,
+    setAgentStatus,setConceptGallery,setPanoramaGallery,setCreationMode,setVoiceInputLabel,setConversationTarget,toggleWorld,openLayout,toggleArchives,
     toggleModePage,toggleAgent,toggleConcepts,togglePanoramas,previousConcept,nextConcept,
     previousPanorama,nextPanorama,isAgentMode,openAgent,openProposal,hit,nextPage};
 }
@@ -1158,6 +1170,13 @@ export class MatrixView {
     const retainedProcedural=new Map();
     for(const root of this.objectRoots.values()){
       const object=currentObjects.get(root.userData.objectId);
+      if(object?.professor&&root.userData.vrm&&
+         root.userData.professorSignature===JSON.stringify([object.assetId,object.professor])){
+        root.position.copy(v3(object.transform.position));
+        root.rotation.set(...['x','y','z'].map(k=>THREE.MathUtils.degToRad(object.transform.rotation[k])),'XYZ');
+        root.scale.copy(v3(object.transform.scale));
+        retainedProcedural.set(object.objectId,root);continue;
+      }
       // An unchanged static construction owns its own buffers and materials.
       // Keep them through another object's edit; moving bodies and legacy floor
       // physics still need the regular pose/verification rebuild below.
@@ -1172,6 +1191,7 @@ export class MatrixView {
       // A routine redraw rebuilds the same content-addressed model. Keep its
       // measured navigation footprint; only physics needs a fresh instance.
       this.world.invalidatePhysicsAsset?.(root.userData.objectId);
+      root.userData.disposeVrm?.();
       stopAnimatedAsset(root.userData.mixer,root.userData.model);
       root.parent?.remove(root);disposeGroup(root);
     }
@@ -1221,6 +1241,11 @@ export class MatrixView {
             {...asset,localBounds:visual.userData.localBounds}:asset);
           root.add(board.mesh);root.userData.displayBoard=board;
         }else this.onAssetError(`Display on ${object.objectId} has an invalid definition.`);
+      }
+      if(object.professor){
+        const label=planeLabel(object.professor.teacherName);label.position.y=1.85;
+        label.scale.set(1.2,.2,1);root.add(label);
+        root.userData.professor=object.professor;
       }
       if(object.control){
         const bounds=asset?.localBounds;
@@ -1432,6 +1457,21 @@ export class MatrixView {
   }
   async loadExternal(asset,root,visual,objectId){
     try{
+      if(asset.geometry?.vrm){
+        const loaded=await loadVrmAvatar(asset,this.getToken(),this.camera);
+        if(this.objectRoots.get(objectId)!==root){loaded.dispose();return;}
+        try{validateRenderedFootprint(asset,loaded.measuredSize);}
+        catch(error){loaded.dispose();throw error;}
+        for(const child of [...visual.children]){visual.remove(child);disposeGroup(child);}
+        visual.add(loaded.model);root.userData.vrm=loaded.vrm;root.userData.disposeVrm=loaded.dispose;
+        loaded.vrm.humanoid.update();
+        root.updateWorldMatrix(true,true);
+        loaded.vrm.springBoneManager?.setInitState();
+        root.userData.professorSignature=JSON.stringify([asset.assetId,this.world.requireObject(objectId).professor]);
+        root.userData.assetLoading=false;
+        this.world.verifyPhysicsAsset?.(asset.assetId,loaded.measuredSize,objectId);
+        return;
+      }
       let pending=this.modelCache.get(asset.assetId);
       if(!pending){
         // This is a reuse cache, not a catalog limit. Older entries may be
@@ -2130,11 +2170,18 @@ export class MatrixView {
           const local=root.worldToLocal(this.reticle.position.clone());if(Math.abs(local.y)<.12&&insideBoundary(local,anchor.surface.boundary)){this.reticleAnchorId=anchor.anchorId;break;}}
       }}
     this.updateHeldGrab(frame,delta);
+    this.onProfessorAudioFrame?.();
     this.refreshSelectedPointMarker();
     if(this.renderer.xr.isPresenting)for(let index=0;index<this.controllers.length;index++)
       updateControllerRayForPanel(this.controllerRays[index],this.controllers[index],this.operatorPanel);
     for(const root of this.objectRoots.values()){
       root.userData.mixer?.update(delta);
+      root.userData.vrm?.update(delta);
+      if(root.userData.vrm?.expressionManager){
+        root.userData.avatarTime=(root.userData.avatarTime||0)+delta;
+        const blink=Math.max(0,1-Math.abs((root.userData.avatarTime%4.5)-4.25)/.08);
+        root.userData.vrm.expressionManager.setValue('blink',blink);
+      }
       const object=this.world.scene.objects.find(item=>item.objectId===root.userData.objectId);
       if(!object)continue;
       const component=object.component;

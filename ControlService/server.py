@@ -37,11 +37,15 @@ from agent_portal import AgentPortal, AgentPortalError
 from concept_store import ConceptStore
 import professor_actions
 import professor_mount
+import professor_speech
+from professor_tasks import ProfessorTasks
+from professor_context import checked_lesson_context
 from matrix_tool_bridge import MatrixToolBridge
 import speech
 import tts
 import scene_capture
 from web_assets import WebAssetCatalog, WebAssetError, MAX_BYTES as MAX_GLB_BYTES
+from professor_avatars import public_catalog as professor_avatar_catalog, validate_binding as validate_professor_binding
 from web_environments import (WebEnvironmentCatalog, WebEnvironmentError,
                               environment_asset_entry, environment_descriptor,
                               MAX_BYTES as MAX_PANORAMA_BYTES)
@@ -962,6 +966,12 @@ def scene(value):
             except ComponentError as error:
                 raise APIError(400, str(error)) from None
             normalized[-1]["component"] = copy.deepcopy(item["component"])
+        if "professor" in item:
+            try:
+                require(authored["anchorId"] == "web-floor", "Professor requires the world floor")
+                authored["professor"] = validate_professor_binding(item["professor"], authored["assetId"])
+            except ValueError as error:
+                raise APIError(400, str(error)) from None
         if "animation" in item:
             normalized[-1]["animation"] = animation_binding(item["animation"])
         if "display" in item:
@@ -3931,6 +3941,11 @@ def agent_portal_action(state, path, body):
         finally:
             state.agent_turn_submission_lock.release()
     if path == "/api/agent/steer":
+        lesson = None
+        if 'lessonContext' in body:
+            try:lesson = checked_lesson_context(body['lessonContext'])
+            except ValueError as error:raise APIError(400,str(error)) from None
+            body = {key:value for key,value in body.items() if key!='lessonContext'}
         require(set(body) in ({"sessionId", "turnId", "text"},
                               {"sessionId", "turnId", "text", "context"}),
                 "Invalid Agent instruction request")
@@ -3939,6 +3954,8 @@ def agent_portal_action(state, path, body):
             raise AgentPortalError(409, "That Agent turn can no longer accept an instruction")
         context = (agent_turn_context(state, body["context"], creation=False)
                    if "context" in body else None)
+        if lesson is not None:
+            context = {**(context or {}), 'lessonContext':lesson}
         return portal.steer_text(body["sessionId"], body["turnId"], body["text"], context)
     if path == "/api/agent/approval":
         require(set(body) == {"sessionId", "approvalId", "turnId", "approve"}, "Invalid Agent approval request")
@@ -3949,8 +3966,13 @@ def agent_portal_action(state, path, body):
     raise APIError(404, "Not found")
 
 
-def agent_portal_turn(state, body):
+def agent_portal_turn(state, body, *, validated_concept_request=False):
     """Submit one turn while holding the session submission reservation."""
+    lesson = None
+    if 'lessonContext' in body:
+        try:lesson = checked_lesson_context(body['lessonContext'])
+        except ValueError as error:raise APIError(400,str(error)) from None
+        body = {key:value for key,value in body.items() if key!='lessonContext'}
     portal = state.agent_portal
     fields = set(body)
     expected = {"expectedConceptId", "expectedConceptVersion"}
@@ -3969,8 +3991,13 @@ def agent_portal_turn(state, body):
         if (state.concept_build_guard is not None and
                 state.concept_build_guard.get("sessionId") == body["sessionId"]):
             state.concept_build_guard = None
+    # Internal Professor requests already bind their image identity in typed
+    # fields. Do not parse lesson reference text as free-form selection intent.
+    if validated_concept_request:
+        require(expected <= fields and body.get("creationMode") == "blender",
+                "Validated image build requires an exact Blender selection")
     selected = (state.concepts.selected(body["sessionId"])
-                if concept_build_request(body["text"]) else None)
+                if validated_concept_request or concept_build_request(body["text"]) else None)
     require((expected | {"creationMode"}).isdisjoint(fields) or selected is not None,
             "Concept build options require a selected-concept build request", 409)
     if selected is None and concept_build_request(body["text"]):
@@ -3991,11 +4018,13 @@ def agent_portal_turn(state, body):
             require(selected["conceptId"] == body["expectedConceptId"] and
                     selected["version"] == body["expectedConceptVersion"],
                     "Selected concept changed; review and select the intended version again", 409)
-        require(concept_reference_matches(body["text"], selected),
+        require(validated_concept_request or concept_reference_matches(body["text"], selected),
                 "Requested concept version is not selected; select it first", 409)
     context = (agent_turn_context(state, body["context"], creation=selected is not None)
                if "context" in body
                else agent_runtime_context(state, include_scene=selected is not None))
+    if lesson is not None:
+        context = {**context, 'lessonContext':lesson}
     capture_input = None
     if "captureId" in fields:
         require(type(body["captureId"]) is str and
@@ -4346,6 +4375,8 @@ class State:
                                      lambda: self.content.catalog,
                                      lambda: self.agent_portal)
         self.clients = ClientAPI(self, plan, lambda: client_planner_modes(self))
+        self.professor_tasks = ProfessorTasks(self.directory / '.agent_portal' / 'professor_tasks.json', self,
+                                              lambda body: agent_portal_turn(self, body))
 
     @property
     def citizen_construction_budget(self):
@@ -8767,6 +8798,7 @@ class Server(ThreadingHTTPServer):
         super().__init__(address, Handler)
 
     def server_close(self):
+        self.state.professor_tasks.close()
         self.state.agent_portal.close()
         if self.state.matrix_tool_bridge is not None:
             self.state.matrix_tool_bridge.close()
@@ -8965,7 +8997,14 @@ class Handler(BaseHTTPRequestHandler):
                 self.send_data(200, asset.read_bytes(), "model/gltf-binary")
                 return
             self.authenticate()
-            if path == "/api/professor/actions":
+            if path == "/api/professor/avatars":
+                data = professor_avatar_catalog(self.server.state.web_assets.list())
+            elif path == "/api/professor/task":
+                require(self.server.is_loopback and loopback(self.client_address[0]), 'Professor tasks are PC-loopback only', 403)
+                query=urllib.parse.parse_qs(url.query,keep_blank_values=True)
+                require(set(query)=={'schoolSessionId','taskId'} and all(len(v)==1 for v in query.values()),'Invalid Professor task query')
+                data=self.server.state.professor_tasks.get(query['schoolSessionId'][0],query['taskId'][0])
+            elif path == "/api/professor/actions":
                 require(self.server.is_loopback and loopback(self.client_address[0]), "Professor actions are PC-loopback only", 403)
                 query = urllib.parse.parse_qs(url.query, keep_blank_values=True)
                 require(set(query) == {"sessionId", "actionId"} and all(len(value) == 1 for value in query.values()), "Invalid Professor status query")
@@ -9100,6 +9139,30 @@ class Handler(BaseHTTPRequestHandler):
             state = self.server.state
             if client_api_path(path):
                 data = self.client_api(path, "POST", body)
+            elif path == "/api/professor/task":
+                require(self.server.is_loopback and loopback(self.client_address[0]), 'Professor tasks are PC-loopback only', 403)
+                data=state.professor_tasks.submit(body)
+            elif path == "/api/professor/task/cancel":
+                require(self.server.is_loopback and loopback(self.client_address[0]), 'Professor tasks are PC-loopback only', 403)
+                require(set(body)=={'schoolSessionId','taskId'},'Invalid Professor cancellation')
+                data=state.professor_tasks.cancel(body['schoolSessionId'],body['taskId'])
+            elif path == "/api/professor/transcribe":
+                require(set(body) == {"audioBase64"}, "Invalid Professor audio request")
+                audio = speech.decode_audio(body["audioBase64"])
+                require(state.voice_worker.acquire(blocking=False), "Speech recognition is busy; try again shortly", 409)
+                try:
+                    data = speech.transcribe(audio)
+                finally:
+                    state.voice_worker.release()
+                if isinstance(data, str):
+                    data = {"transcript": data}
+            elif path == "/api/professor/speak":
+                require(set(body) == {"text"}, "Invalid Professor speech request")
+                self.send_data(200, professor_speech.synthesize(body["text"]), "audio/wav")
+                return
+            elif path == "/api/professor/builds":
+                require(self.server.is_loopback and loopback(self.client_address[0]), "Professor builds are PC-loopback only", 403)
+                data = professor_actions.build(state, body, lambda request: agent_portal_turn(state, request, validated_concept_request=True))
             elif path == "/api/professor/actions":
                 require(self.server.is_loopback and loopback(self.client_address[0]), "Professor actions are PC-loopback only", 403)
                 data = professor_actions.submit(state, body)

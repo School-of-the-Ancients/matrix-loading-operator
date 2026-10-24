@@ -204,7 +204,7 @@ def compact_matrix_context(context: dict) -> dict:
         "hostWorldId", "runtimeDescriptor", "creatorMode", "capabilityVersions",
         "assetCatalogCount", "environmentAssetCount", "proceduralGeneratorCount",
         "environment", "gameStatus", "room", "digitalWorldVisit", "selectedObject",
-        "selectedPlacement", "worldPlacement", "fitToRoom", "pointingTarget", "viewerFrame") if key in context}
+        "selectedPlacement", "worldPlacement", "fitToRoom", "pointingTarget", "viewerFrame", "lessonContext") if key in context}
     summary = context.get("sceneSummary")
     if isinstance(summary, dict):
         # The selected object is already present above. Detailed/global queries

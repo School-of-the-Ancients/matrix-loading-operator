@@ -400,7 +400,19 @@ class ConceptStore:
                     fields["revisedPrompt"] = revised.strip()[:4096]
                 return fields, staging_path
             if status == "failed":
-                return {"status": "failed", "message": "Codex reported an image generation failure."}, staging_path
+                # Expose known actionable causes, never arbitrary backend text,
+                # local paths, tool payloads or account details.
+                reasons = {
+                    "Multiple native image results in one turn": "Codex returned multiple images for one request; request a new version with one image.",
+                    "Native image generation did not return a valid image": "Codex did not return a valid image; revise the prompt and request a new version.",
+                    "Image request was rejected by the safety system": "The image request was rejected by the safety system; revise the prompt and request a new version.",
+                    "Codex image event stream ended": "The Codex image connection ended before its result could be verified.",
+                    "Native image turn is unavailable": "The original Codex image turn is unavailable; request a new version.",
+                    "Codex turn ended without a generated image": "Codex finished without returning an image; request a new version.",
+                }
+                error = result.get("error")
+                message = reasons.get(error if type(error) is str else None, "Codex reported an image generation failure.")
+                return {"status": "failed", "message": message}, staging_path
             if status == "cancelled":
                 return {"status": "cancelled", "message": "Codex cancelled image generation."}, staging_path
             require(status in ("queued", "generating"), "Invalid native image status", 502)

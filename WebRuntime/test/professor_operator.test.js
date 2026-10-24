@@ -39,3 +39,19 @@ test('failed submission stays uncertain and never emits success; late mismatched
   assert.equal(f.messages.at(-1).message.type,'matrix-operator-error');
   assert.equal(f.messages.some(item=>item.message.type==='matrix-operator-result'),false);
 });
+
+
+test('one-click Blender request forwards exact verified identity once, never arbitrary build text',async t=>{
+  const descriptor={sessionId:result.sessionId,schoolSessionId:payload.schoolSessionId,requestId:payload.requestId,
+    requestVersion:1,actionId:result.actionId,conceptId:'c'.repeat(32),conceptVersion:2,imageSha256:'d'.repeat(64)};
+  let release;const pending=new Promise(resolve=>release=resolve),f=fixture(()=>pending);t.after(()=>f.bridge.dispose());
+  await f.bridge.receive(f.event('school-operator-build',{...descriptor,prompt:'arbitrary shell command'}));
+  await f.bridge.receive(f.event('school-operator-build',descriptor,{origin:'https://outside.example'}));
+  assert.equal(f.calls.length,0);
+  const first=f.bridge.receive(f.event('school-operator-build',descriptor));
+  await f.bridge.receive(f.event('school-operator-build',descriptor));
+  release({...result,...descriptor,image:{sha256:descriptor.imageSha256},build:{status:'requested'}});await first;
+  assert.equal(f.calls.length,1);assert.equal(f.calls[0].path,'/api/professor/builds');
+  assert.deepEqual(f.calls[0].body,descriptor);
+  assert.equal(f.messages.at(-1).message.result.build.status,'requested');
+});

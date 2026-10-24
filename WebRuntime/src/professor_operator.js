@@ -1,3 +1,4 @@
+import {validProfessorPlacement} from './professor_avatar.js';
 const kinds = new Set(['artifact','location','lab']);
 const uuid = value => typeof value === 'string' && /^[a-f0-9-]{36}$/.test(value);
 const matrixId = value => typeof value === 'string' && /^[a-f0-9]{32}$/.test(value);
@@ -14,9 +15,18 @@ export function validProfessorRequest(value) {
     && value.interaction && JSON.stringify(value.interaction).length<=1800;
 }
 
+const buildKeys=['sessionId','schoolSessionId','requestId','requestVersion','actionId','conceptId','conceptVersion','imageSha256'];
+export function validProfessorBuild(value){
+  return value&&Object.keys(value).length===buildKeys.length&&buildKeys.every(key=>Object.hasOwn(value,key))
+    &&matrixId(value.sessionId)&&uuid(value.schoolSessionId)&&uuid(value.requestId)&&sha(value.actionId)
+    &&matrixId(value.conceptId)&&sha(value.imageSha256)
+    &&Number.isSafeInteger(value.requestVersion)&&value.requestVersion>0
+    &&Number.isSafeInteger(value.conceptVersion)&&value.conceptVersion>0;
+}
+
 export class ProfessorOperator {
-  constructor({frame,origin,request,ensureSession,onReview=()=>{},onChange=()=>{},target=window}) {
-    Object.assign(this,{frame,origin,request,ensureSession,onReview,onChange,target});
+  constructor({frame,origin,request,ensureSession,onReview=()=>{},onChange=()=>{},onSession=()=>{},onPlace=async()=>{},placements=()=>[],target=window}) {
+    Object.assign(this,{frame,origin,request,ensureSession,onReview,onChange,onSession,onPlace,placements,target});
     this.records=new Map();this.submitting=new Set();this.polling=false;this.ready=false;
     this.reset=()=>{this.channel=crypto.randomUUID();this.ready=false;this.hello();};
     this.listener=event=>void this.receive(event);
@@ -29,7 +39,24 @@ export class ProfessorOperator {
   async receive(event) {
     if(event.source!==this.frame.contentWindow||event.origin!==this.origin||event.data?.channel!==this.channel)return;
     const {type,payload}=event.data;
-    if(type==='school-operator-ready'){this.ready=true;return;}
+    if(type==='school-professor-session'){
+      if(payload&&Object.keys(payload).join()==='sessionId'&&(payload.sessionId===null||/^[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}$/.test(payload.sessionId)))await this.onSession(payload.sessionId);
+      return;
+    }
+    if(type==='school-operator-ready'){
+      this.ready=true;
+      try{const catalog=await this.request('/api/professor/avatars');this.send({type:'matrix-professor-catalog',catalog,placements:this.placements()});}
+      catch{this.send({type:'matrix-professor-catalog',catalog:{schemaVersion:1,avatars:[]}});}
+      return;
+    }
+    if(type==='school-professor-place'){
+      if(!validProfessorPlacement(payload)||this.placing)return;
+      this.placing=true;
+      try{const receipt=await this.onPlace(payload);this.send({type:'matrix-professor-placed',receipt,schoolSessionId:payload.schoolSessionId});}
+      catch(error){this.send({type:'matrix-operator-error',message:String(error.message).slice(0,600)});}
+      finally{this.placing=false;}
+      return;
+    }
     if(type==='school-operator-review'){
       if(payload&&Object.keys(payload).length===1&&kinds.has(payload.kind))this.onReview(payload.kind);
       return;
@@ -40,15 +67,19 @@ export class ProfessorOperator {
       if(this.records.size>=40&&!this.records.has(payload.actionId))return;
       this.records.set(payload.actionId,{...payload,last:''});await this.poll();return;
     }
-    if(type!=='school-operator-request'||!validProfessorRequest(payload))return;
-    const identity=`${payload.schoolSessionId}:${payload.requestId}:${payload.requestVersion}`;
+    const building=type==='school-operator-build';
+    if(building?!validProfessorBuild(payload):type!=='school-operator-request'||!validProfessorRequest(payload))return;
+    const identity=`${building?"build":"image"}:${payload.schoolSessionId}:${payload.requestId}:${payload.requestVersion}`;
     if(this.submitting.has(identity))return;
     this.submitting.add(identity);
     try{
       const sessionId=await this.ensureSession();if(!matrixId(sessionId))throw Error('Connect the existing Matrix Operator session first.');
-      const result=await this.request('/api/professor/actions',{...payload,sessionId});
+      if(building&&payload.sessionId!==sessionId)throw Error('This image belongs to another Operator conversation. Reopen its original session.');
+      const result=await this.request(building?'/api/professor/builds':'/api/professor/actions',{...payload,sessionId});
       if(result?.schoolSessionId!==payload.schoolSessionId||result.requestId!==payload.requestId
         ||result.requestVersion!==payload.requestVersion||!sha(result.actionId))throw Error('Operator returned a mismatched job identity.');
+      if(building&&(result.conceptId!==payload.conceptId||result.conceptVersion!==payload.conceptVersion
+        ||result.image?.sha256!==payload.imageSha256))throw Error('Operator returned a different image. Refresh before building.');
       this.records.set(result.actionId,{schoolSessionId:payload.schoolSessionId,requestId:payload.requestId,
         requestVersion:payload.requestVersion,sessionId,actionId:result.actionId,last:JSON.stringify(result)});
       this.send({type:'matrix-operator-result',result});this.onChange();

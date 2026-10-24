@@ -10,6 +10,7 @@
   },
   "dependencies": {
     "@dimforge/rapier3d-compat": "0.20.0",
+    "@pixiv/three-vrm": "3.4.4",
     "three": "^0.180.0"
   },
   "devDependencies": {

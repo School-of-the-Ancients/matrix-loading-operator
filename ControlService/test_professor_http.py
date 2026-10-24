@@ -43,6 +43,30 @@ class ProfessorHTTPTests(unittest.TestCase):
         self.assertEqual(self.call(query,auth=False)[0],401)
         self.assertEqual(json.loads(self.call(query)[2])['conceptId'],result['conceptId'])
         self.call('/api/professor/actions',body);self.assertEqual(len(self.native.requests),1)
+    def test_build_endpoint_preserves_auth_origin_and_rejects_arbitrary_fields(self):
+        self.assertEqual(self.call('/api/professor/builds',{},auth=False)[0],401)
+        self.assertEqual(self.call('/api/professor/builds',{},Origin='https://outside.example')[0],403)
+        self.assertEqual(self.call('/api/professor/builds',{'prompt':'run anything'})[0],400)
+
+    def test_avatar_catalog_uses_existing_auth_and_contains_only_public_entries(self):
+        self.assertEqual(self.call('/api/professor/avatars',auth=False)[0],401)
+        code,_,body=self.call('/api/professor/avatars')
+        self.assertEqual(code,200)
+        catalog=json.loads(body)
+        self.assertEqual(catalog['schemaVersion'],1)
+        self.assertEqual(catalog['avatars'][0]['catalogId'],'generic-professor')
+        self.assertNotIn('sourcePath',body.decode())
+
+    def test_professor_voice_keeps_auth_and_fixed_server_adapters(self):
+        self.assertEqual(self.call('/api/professor/speak',{'text':'hello'},auth=False)[0],401)
+        self.assertEqual(self.call('/api/professor/speak',{'text':'hello','url':'http://elsewhere'})[0],400)
+        with patch('server.professor_speech.synthesize',return_value=b'RIFF-test'):
+            code,headers,body=self.call('/api/professor/speak',{'text':'hello'})
+            self.assertEqual(code,200);self.assertEqual(body,b'RIFF-test');self.assertEqual(headers['Content-Type'],'audio/wav')
+        with patch('server.speech.decode_audio',return_value=b'audio'),patch('server.speech.transcribe',return_value='hello'):
+            self.assertEqual(json.loads(self.call('/api/professor/transcribe',{'audioBase64':'test'})[2])['transcript'],'hello')
+            self.assertTrue(self.state.voice_worker.acquire(blocking=False));self.state.voice_worker.release()
+
     def test_mount_is_opt_in_loopback_same_origin_and_does_not_relax_matrix_policy(self):
         self.assertEqual(self.call('/professor/')[0],503)
         self.server.professor_ui=self.ui

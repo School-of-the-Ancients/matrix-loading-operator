@@ -34,6 +34,17 @@
         <p id="game-status" class="hint" role="status">No game running.</p>
         </div>
       </details>
+      <section class="panel-section" aria-label="Conversation target and shared transcript">
+        <div class="row"><button id="talk-professor" aria-pressed="true">Professor</button><button id="talk-operator" aria-pressed="false">Matrix Operator</button></div>
+        <strong id="conversation-target">Professor: choose a lesson</strong>
+        <button id="conversation-microphone">Speak to Professor</button>
+        <p class="hint" id="professor-conversation-status" role="status">Open Professor to choose a lesson.</p>
+        <textarea id="conversation-input" rows="2" aria-label="Message to selected conversation target" placeholder="Talk to the selected professor or Operator"></textarea>
+        <div class="row" style="flex-wrap:wrap"><button id="conversation-send">Send message</button><button id="professor-replay">Replay voice</button><button id="professor-stop-voice">Stop voice</button></div>
+        <meter id="professor-voice-level" min="0" max="1" value="0" aria-label="Professor voice level"></meter>
+        <details open><summary>Operator tasks · conversation stays available</summary><div id="professor-tasks"></div></details>
+        <details><summary>Shared conversation transcript</summary><pre id="shared-transcript" style="white-space:pre-wrap;max-height:300px;overflow:auto"></pre></details>
+      </section>
       <details id="section-agent" class="panel-section agent-panel" open>
         <summary class="panel-title"><span id="agent-heading">OPERATOR</span><span id="agent-activity">Not connected</span></summary>
         <div class="section-content">
@@ -62,7 +73,7 @@
         <div class="row"><button id="agent-send" class="primary" aria-describedby="agent-send-hint">Send to Codex</button><button id="agent-stop" disabled>Stop turn</button></div>
         <p id="agent-send-hint" class="hint">Send starts a turn in this Codex conversation.</p>
         <div class="row voice-row"><button id="voice-button" aria-describedby="voice-route-help">Speak to Codex</button><span id="voice-status" role="status">Local speech on PC</span></div>
-        <p id="voice-route-help" class="hint">Speech goes to this Codex conversation from every page. While Codex is working, speech adds an instruction to that turn.</p>
+        <p id="voice-route-help" class="hint">Choose Professor or Matrix Operator above. The target is captured when recording starts. Operator speech can add an instruction to its active turn.</p>
         <label class="check-label"><input id="speak-replies" type="checkbox" checked> Speak replies aloud</label>
         <div id="agent-approval" class="proposal hidden" role="alert">
           <div class="proposal-label">APPROVAL REQUIRED</div>

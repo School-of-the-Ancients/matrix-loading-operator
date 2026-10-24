@@ -1,6 +1,6 @@
 import {manipulationPolicy,manipulationCommand} from './manipulation.js';
 import './style.css';
-import {MatrixWorld} from './protocol.js';
+import {MatrixWorld,ASSETS} from './protocol.js';
 import {MatrixView} from './view.js';
 import {MatrixBridge} from './bridge.js';
 import {LatencyTrace} from './latency_trace.js';
@@ -39,7 +39,11 @@ import {CitizensPanel} from './citizens_panel.js';
 import {citizensFurnitureReadiness} from './citizens.js';
 import {initializePanelSections,initializePanelNavigation,revealPanelSection,revealAgentAttention} from './panel_sections.js';
 import {ProfessorOverlay} from './professor_overlay.js';
+import {placeProfessor} from './professor_avatar.js';
 import {ProfessorOperator} from './professor_operator.js';
+import {ProfessorConversation} from './professor_conversation.js';
+import {ProfessorVoice} from './professor_voice.js';
+import {ProfessorTaskClient} from './professor_tasks.js';
 
 const $=id=>document.getElementById(id);
 const latencyTrace=new URLSearchParams(location.search).get('latency')==='1'?new LatencyTrace():null;
@@ -76,6 +80,7 @@ let persistenceWarning='',restoreWarning='';
 let cameraBusy=false;
 const recorder=new VoiceRecorder();let voiceStarting=false,voiceRecording=false,voiceStopRequested=false,voiceJob=null,voiceAgentContext=null;
 let replyContext=null,replySource=null;
+let professorConversation=null,professorVoice=null,professorLink=null,voiceDestination=null,professorTasks=null;
 let agentClient=null,conceptUI=null,panoramaUI=null,agentActionBusy=false,agentVoiceStatus='',voiceSteerTurnId=null,agentAttentionKey='',reviewBusy=false;
 let operatorDraftNotice='',operatorDraftUnconfirmed=false;
 let creationMode=loadCreationMode(sessionStorage);
@@ -92,7 +97,10 @@ const feedback=(message,isError=false)=>{
   $('feedback').textContent=[message,warning].filter(Boolean).join('\n');
   $('feedback').classList.toggle('error',isError||!!warning);
 };
-const view=new MatrixView($('view'),world,()=>{discardProposal();scaleUI?.refreshTargets();citizensPanel?.render();updateWorldControls();feedback(`Selected ${world.selection.objectId||'placement point'} at ${Object.values(world.selection.position).join(', ')} m.`);},()=>$('token').value.trim(),message=>feedback(message,true),(id,position)=>{discardProposal();const delivered=deliverMovedObject(world,id);if(delivered)speakReply(delivered);renderScene();feedback(delivered||`Moved ${id.slice(0,8)} to ${Object.values(position).join(', ')} m. Undo and Save are available.`);},()=>{if(!view.isAR){cameraStream.stop();bridge.cancelCapture();}if(!view.isAR||!world.spatial?.originUnavailable){roomResetArmedUntil=0;roomRecoveryChoice='';}updateCameraControls();discardProposal();renderScene();},beginVoice,endVoice,()=>{$('speak-replies').checked=!$('speak-replies').checked;view.setVoiceOutputEnabled($('speak-replies').checked);unlockReplyAudio();},reviewView,newChat);
+const view=new MatrixView($('view'),world,()=>{discardProposal();scaleUI?.refreshTargets();citizensPanel?.render();updateWorldControls();feedback(`Selected ${world.selection.objectId||'placement point'} at ${Object.values(world.selection.position).join(', ')} m.`);
+  const professor=world.scene.objects.find(object=>object.objectId===world.selection.objectId)?.professor;
+  if(professor)professorOverlay.openSession(professor.schoolSessionId);
+},()=>$('token').value.trim(),message=>feedback(message,true),(id,position)=>{discardProposal();const delivered=deliverMovedObject(world,id);if(delivered)speakReply(delivered);renderScene();feedback(delivered||`Moved ${id.slice(0,8)} to ${Object.values(position).join(', ')} m. Undo and Save are available.`);},()=>{if(!view.isAR){cameraStream.stop();bridge.cancelCapture();}if(!view.isAR||!world.spatial?.originUnavailable){roomResetArmedUntil=0;roomRecoveryChoice='';}updateCameraControls();discardProposal();renderScene();},beginVoice,endVoice,()=>{$('speak-replies').checked=!$('speak-replies').checked;view.setVoiceOutputEnabled($('speak-replies').checked);unlockReplyAudio();},reviewView,newChat);
 view.onPanelAction=panelAction;
 const professorOverlay=new ProfessorOverlay({root:$('xr-overlay'),panel:$('professor-browser'),
   frame:$('professor-frame'),status:$('professor-status'),notice:$('professor-notice'),
@@ -547,6 +555,7 @@ function newAgentConversationBlocker(){
   return '';
 }
 function renderAgent(){
+  professorConversation?.observeOperator(agentClient?.status);
   latencyTrace?.ingestService(agentClient?.status?.latencyTrace);
   const status=agentClient?.status,turns=status?.transcript||[],pending=status?.pendingApprovals?.[0];
   const activity=agentClient?.error?'Connection needs attention':status?agentActivityLabel(status.activity):'Not connected';
@@ -627,7 +636,11 @@ function renderAgent(){
   view.setOperatorPanoramaGallery(panoramaUI?.galleryForWorld()||[]);
   panoramaUI?.render();
 }
-agentClient=new AgentClient((path,body)=>bridge.request(path,body),localStorage,renderAgent);
+agentClient=new AgentClient((path,body)=>{
+  const lessonContext=professorConversation?.context();
+  if(lessonContext&&['/api/agent/turn','/api/agent/steer'].includes(path))body={...body,lessonContext};
+  return bridge.request(path,body);
+},localStorage,renderAgent);
 conceptUI=new ConceptUI({request:(path,body)=>{
   if(body!==undefined&&['/api/agent/concepts','/api/agent/concepts/variation'].includes(path))
     agentClient.assertPermissionsApplied();
@@ -708,12 +721,115 @@ panoramaUI=new PanoramaUI({client:conceptUI.client,
   apply:(asset,yaw)=>changeWorldPanorama('set',asset,yaw),
   remove:()=>changeWorldPanorama('remove'),onChange:renderAgent});
 panoramaUI.bind();
-if(professorOverlay.route.available)new ProfessorOperator({frame:$('professor-frame'),
+function renderProfessorConversation(){
+  if(!professorConversation)return;
+  const conversation=professorConversation,session=conversation.session;
+  $('talk-professor').setAttribute('aria-pressed',String(conversation.target==='professor'));
+  $('talk-operator').setAttribute('aria-pressed',String(conversation.target==='operator'));
+  $('conversation-target').textContent=conversation.target==='professor'?`Professor: ${session?.mentor.name||'choose a lesson'}`:'Matrix Loading Operator';
+  $('professor-conversation-status').textContent=conversation.status;
+  $('conversation-send').disabled=conversation.pending;
+  $('professor-replay').disabled=conversation.target!=='professor'||!session?.conversation?.events.some(event=>event.speaker==='professor'&&event.recipient==='learner');
+  $('shared-transcript').textContent=(session?.conversation?.events||[]).slice(-100).map(event=>`${event.speaker} → ${event.recipient}${event.speaker==='professor'?` [${event.delivery}]`:''}: ${event.text}`).join('\n\n')||'Choose a lesson to start its shared conversation.';
+  professorTasks?.watch(session);
+  const taskList=$('professor-tasks');
+  const taskSignature=JSON.stringify((session?.operatorTasks||[]).map(task=>[task,professorTasks?.records.get(task.id)?.status,professorTasks?.records.get(task.id)?.error,professorTasks?.submitting.has(task.id)]));
+  if(taskList.dataset.signature!==taskSignature){taskList.dataset.signature=taskSignature;taskList.replaceChildren();
+  for(const task of session?.operatorTasks||[]){
+    const record=professorTasks?.records.get(task.id),row=document.createElement('div'),label=document.createElement('p');
+    label.textContent=`${task.title} — ${record?.status||task.status}${record?.error?': '+record.error:''}`;row.append(label);
+    if(task.execution?.result){const result=document.createElement('details'),summary=document.createElement('summary'),body=document.createElement('p');summary.textContent='Operator result';body.textContent=task.execution.result;result.append(summary,body);row.append(result);}
+    if(task.status==='requested'&&!professorTasks?.submitting.has(task.id)){
+      const run=document.createElement('button');run.textContent='Send / check task';run.onclick=()=>professorTasks.submit(task,professorConversation.capture());row.append(run);
+    }
+    if(['queued','running'].includes(record?.status||task.status)){
+      const cancel=document.createElement('button');cancel.textContent='Cancel task';cancel.onclick=()=>professorTasks.cancel(task.id).catch(error=>feedback(error.message,true));row.append(cancel);
+    }
+    taskList.append(row);
+  }
+  }
+  if(conversation.draft&&conversation.draftSessionId===session?.id&&!$('conversation-input').value)$('conversation-input').value=conversation.draft;
+  voiceButtons();
+}
+professorVoice=new ProfessorVoice({load:async text=>{
+  const headers={'Content-Type':'application/json'},token=$('token').value.trim();if(token)headers.Authorization=`Bearer ${token}`;
+  const response=await fetch('/api/professor/speak',{method:'POST',headers,body:JSON.stringify({text}),cache:'no-store'});
+  if(!response.ok){const error=await response.json().catch(()=>({}));throw Error(error.error||`Professor voice HTTP ${response.status}`);}
+  return response.arrayBuffer();
+},onState:(active,delivery,error)=>{
+  $('professor-voice-level').value=0;
+  professorConversation.status=error?error.message:delivery==='speaking'?'Professor is speaking…':delivery==='spoken'?'Professor reply spoken and saved.':delivery==='interrupted'?'Voice stopped. Reply text remains saved.':'Professor voice failed; reply text remains saved.';
+  renderProfessorConversation();
+  if(active)void professorConversation.delivery(active.event.id,delivery,active.capture.sessionId).catch(error=>{professorConversation.status=`Speech status not saved: ${error.message}`;renderProfessorConversation();});
+  if(error){professorConversation.status=error.message;renderProfessorConversation();}
+},onMouth:(level,shape='aa')=>{
+  $('professor-voice-level').value=level;
+  for(const root of view.objectRoots.values()){
+    if(!root.userData.vrm)continue;
+    const amount=root.userData.professor?.schoolSessionId===professorConversation?.session?.id?level:0;
+    const previous=root.userData.professorMouth||{};
+    for(const name of ['aa','ee','ih','oh','ou']){
+      const target=name==='aa'?amount*.7:name===shape?amount*.45:0;
+      previous[name]=amount===0?0:(previous[name]||0)+(target-(previous[name]||0))*.4;
+      root.userData.vrm?.expressionManager?.setValue(name,previous[name]);
+    }
+    root.userData.professorMouth=previous;
+  }
+}});
+professorConversation=new ProfessorConversation({request:(path,body)=>bridge.request(path,body),worldId:()=>world.scene.roomId,worldIdentity:()=>world.scene,
+  onChange:renderProfessorConversation,onStop:()=>professorVoice.stop(),
+  isDelegatedTurn:turn=>{const id=/^\[School task:([a-f0-9-]{36})\]/.exec(turn.user||'')?.[1];return !!id&&(!!professorTasks?.records.has(id)||!!professorConversation.session?.operatorTasks?.some(task=>task.id===id));},
+  onTasks:(tasks,capture)=>{for(const task of tasks)void professorTasks.submit(task,capture);},
+  onReply:async(event,capture)=>{
+    professorLink?.send({type:'matrix-school-refresh',sessionId:capture.sessionId});
+    if(!$('speak-replies').checked||professorConversation.target!=='professor')return;
+    replySource?.stop();window.speechSynthesis?.cancel();
+    await professorVoice.play(event,capture,()=>professorConversation.current(capture)&&professorConversation.target==='professor');
+  }});
+professorTasks=new ProfessorTaskClient({request:(path,body)=>bridge.request(path,body),
+  ensureSession:async()=>{if(!agentClient.status||agentClient.error)await agentClient.connect();agentClient.assertPermissionsApplied();return agentClient.sessionId;},
+  isCurrent:capture=>professorConversation.current(capture),canPoll:()=>!professorConversation.pending,
+  onChange:renderProfessorConversation,onVerified:session=>{
+    if(professorConversation.session?.id===session.id&&session.revision>=professorConversation.session.revision){professorConversation.session=session;renderProfessorConversation();professorLink?.send({type:'matrix-school-refresh',sessionId:session.id});}
+  }});
+setInterval(()=>void professorTasks.poll(),2400);
+view.onProfessorAudioFrame=()=>professorVoice.update();
+for(const target of ['professor','operator'])$('talk-'+target).addEventListener('click',()=>professorConversation.select(target));
+$('professor-stop-voice').addEventListener('click',()=>professorVoice.stop());
+$('professor-replay').addEventListener('click',async()=>{
+  try{const event=professorConversation.session?.conversation?.events.filter(event=>event.speaker==='professor'&&event.recipient==='learner').at(-1);
+    if(event){await professorVoice.unlock();await professorConversation.onReply(event,professorConversation.capture());}}
+  catch(error){feedback(error.message,true);}
+});
+$('conversation-send').addEventListener('click',async()=>{
+  const text=$('conversation-input').value.trim();if(!text)return;
+  try{const destination=professorConversation.capture();
+    if(destination.target==='operator'){await professorConversation.recordInput(text,destination,'text');$('agent-input').value=text;sendAgent();}
+    else{await professorVoice.unlock();await professorConversation.ask(text,destination);}
+    if($('conversation-input').value.trim()===text)$('conversation-input').value='';
+  }catch(error){feedback(error.message,true);}
+});
+renderProfessorConversation();
+if(professorOverlay.route.available)professorLink=new ProfessorOperator({frame:$('professor-frame'),
+  onSession:id=>id===professorConversation.session?.id?professorConversation.refresh(true):professorConversation.activate(id),
+  placements:()=>world.scene.objects.filter(object=>object.professor).map(object=>({schoolSessionId:object.professor.schoolSessionId,catalogId:object.professor.catalogId})),
   origin:new URL(professorOverlay.route.url).origin,request:(path,body)=>bridge.request(path,body),
   ensureSession:async()=>{
     agentClient.assertPermissionsApplied();
     if(!agentClient.status||agentClient.error)await agentClient.connect();
     return agentClient.sessionId;
+  },onPlace:async payload=>{
+    if(pendingWorld||pcWorldBusy||worldSwitchBusy||reviewBusy||view.grab||view.pointerGrab)throw Error('Finish world recovery or the current interaction first.');
+    const {avatars}=await bridge.request('/api/professor/avatars');
+    const avatar=avatars.find(item=>item.catalogId===payload.catalogId);
+    if(!avatar)throw Error('This avatar is no longer available.');
+    const viewer=view.viewer();
+    const frame=viewer?.frames?.find(item=>item.anchorId==='web-floor')||viewer;
+    const p=frame?.position||{x:0,y:0,z:2},f=frame?.forward||{x:0,y:0,z:-1};
+    const receipt=placeProfessor(world,avatar,payload,{x:p.x+f.x*1.5,y:0,z:p.z+f.z*1.5});
+    renderScene();await bridge.tick(true);
+    professorOverlay.close();feedback(`${payload.teacherName} placed. Select the professor to continue the lesson.`);
+    return receipt;
   },onChange:()=>void conceptUI.refresh().catch(()=>{}),onReview:kind=>{
     professorOverlay.close();
     revealPanelSection($(kind==='artifact'?'concept-panel':'panorama-panel'));
@@ -844,7 +960,7 @@ async function refreshAssets(silent=false,{strict=false}={}){
     const {data,environmentError}=await refreshAssetCatalogs(world,
       path=>bridge.request(path),changed=>view.refreshAssets(changed));
     view.syncEnvironment();
-    $('asset-count').textContent=`${7+world.externalAssets.length} objects · ${world.environmentAssets.length} panoramas`;
+    $('asset-count').textContent=`${ASSETS.length+world.externalAssets.length} objects · ${world.environmentAssets.length} panoramas`;
     if(pendingWorld){
       const restored=await restoreBestStoredWorldWithEnvironment(world,pendingWorld,
         localStorage,environment=>{
@@ -1087,6 +1203,7 @@ async function reviewView(){
 }
 const SAFE_AUTO_OPS=new Set(['spawn','duplicate','set_transform','set_behavior','remove_behavior','select']);
 async function speakReply(message){
+  if(professorVoice?.active)return;
   if(!$('speak-replies').checked)return;
   const fallback=()=>{
     if(!('speechSynthesis' in window))return;
@@ -1518,6 +1635,10 @@ function toggleSelectedManipulation(){
 }
 
 function panelAction(action){
+  if(action==='conversation-professor'||action==='conversation-operator'){
+    if(!voiceRecording&&!voiceStarting)professorConversation.select(action.endsWith('professor')?'professor':'operator');
+    return;
+  }
   if(action==='open-professor'){professorOverlay.open();return;}
   if(/^layout-(forward|back|left|right|turn-left|turn-right)$/.test(action)){
     if(pendingWorld||pcWorldBusy||worldSwitchBusy||bridge.inFlight||
@@ -1646,7 +1767,7 @@ $('rebase-room-origin').addEventListener('click',()=>recoverRoomOrigin('rebase')
 $('download-room-archives').addEventListener('click',downloadRoomArchives);
 $('clear-room-archives').addEventListener('click',clearExportedRoomArchives);
 $('new-chat').addEventListener('click',newChat);
-$('speak-replies').addEventListener('change',()=>{view.setVoiceOutputEnabled($('speak-replies').checked);unlockReplyAudio();});
+$('speak-replies').addEventListener('change',()=>{view.setVoiceOutputEnabled($('speak-replies').checked);if(!$('speak-replies').checked)professorVoice.stop();unlockReplyAudio();});
 $('prompt').addEventListener('keydown',event=>{if(event.key==='Enter'&&(event.ctrlKey||event.metaKey))propose();});
 $('discard').addEventListener('click',()=>{discardProposal();feedback('Proposal discarded.');});
 $('apply').addEventListener('click',applyProposal);
@@ -1657,15 +1778,18 @@ function voiceStatus(message,isError=false,showInAgent=true){
   if(showInAgent){agentVoiceStatus=message;renderAgent();}
 }
 function voiceButtons(){
-  for(const id of ['voice-button','xr-voice']){$(id).textContent=voiceStarting||voiceRecording?'Tap to send':'Speak to Codex';$(id).disabled=!!voiceJob;}
-  view.setOperatorVoiceInputLabel(voiceStarting?'REQUESTING MIC':voiceRecording?'RELEASE TO SEND':voiceJob?'VOICE BUSY':'HOLD FOR CODEX');
-  renderAgent();
+  const target=professorConversation?.target||'professor';
+  for(const id of ['voice-button','xr-voice','conversation-microphone']){$(id).textContent=voiceStarting||voiceRecording?'Tap to send':`Speak to ${target==='professor'?'Professor':'Operator'}`;$(id).disabled=!!voiceJob;}
+  for(const target of ['professor','operator'])$('talk-'+target).disabled=voiceStarting||voiceRecording;
+  view.operatorPanel.setConversationTarget?.(target);
+  view.setOperatorVoiceInputLabel(voiceStarting?'REQUESTING MIC':voiceRecording?'RELEASE TO SEND':voiceJob?'VOICE BUSY':target==='professor'?'HOLD: PROFESSOR':'HOLD: OPERATOR');
 }
 async function beginVoice(){
   if(voiceStarting||voiceRecording)return;
   if(voiceJob){voiceStatus('Finish the current voice request before speaking again.',true,false);return;}
   latencyTrace?.submit();
-  try{voiceSteerTurnId=prepareAgentVoiceRecording({agentClient,showConversation:()=>{
+  try{voiceDestination=professorConversation.capture();professorVoice.stop();void professorVoice.unlock().catch(()=>{});
+    if(voiceDestination.target==='operator')voiceSteerTurnId=prepareAgentVoiceRecording({agentClient,showConversation:()=>{
     view.showOperatorAgentMode();revealPanelSection($('section-agent'));
   }});}
   catch(error){voiceStatus(error.message,true);return;}
@@ -1673,7 +1797,7 @@ async function beginVoice(){
   voiceStarting=true;voiceStopRequested=false;voiceButtons();voiceStatus('Requesting microphone…');
   const finishMicTrace=latencyTrace?.begin('microphone.acquire');
   let micOutcome='failed';
-  try{await recorder.start();micOutcome='ok';voiceRecording=true;voiceStatus('Recording for Codex… release the controller or tap Send.');}
+  try{await recorder.start();micOutcome='ok';voiceRecording=true;voiceStatus(`Recording for ${voiceDestination.target}… release the controller or tap Send.`);}
   catch(error){voiceStatus(error.message,true);}
   finally{finishMicTrace?.(micOutcome);voiceStarting=false;voiceButtons();if(voiceStopRequested&&voiceRecording)endVoice();}
 }
@@ -1688,8 +1812,15 @@ async function endVoice(){
     voiceAgentContext=captureAgentContext(world,view,bridge.clientId,'voice_transcript');
     voiceStatus('Transcribing on PC…');
     voiceJob='agent-transcribe';voiceButtons();
-    const transcript=await agentClient.transcribe(audioBase64);
+    const transcript=voiceDestination.target==='professor'?(await bridge.request('/api/professor/transcribe',{audioBase64})).transcript:await agentClient.transcribe(audioBase64);
     voiceStatus(`Heard: ${transcript}`);
+    $('conversation-input').value=transcript;
+    if(voiceDestination.target==='professor'){
+      await professorConversation.ask(transcript,voiceDestination,'voice');
+      if($('conversation-input').value===transcript)$('conversation-input').value='';
+      voiceStatus('Professor reply saved.');return;
+    }
+    await professorConversation.recordInput(transcript,voiceDestination,'voice');
     voiceTranscriptStaged=true;
     const delivered=await deliverAgentVoiceTranscript({agentClient,input:$('agent-input'),
       transcript,context:voiceAgentContext,capturedTurnId:voiceSteerTurnId,
@@ -1715,12 +1846,12 @@ async function endVoice(){
     else if(delivered==='sent')voiceStatus('Sent to Codex with Matrix spatial context.');
   }
   catch(error){voiceOutcome='failed';voiceStatus(voiceTranscriptStaged?
-    `${error.message} Transcript kept in the Codex Agent input; inspect before retrying.`:
+    `${error.message} Transcript kept in its conversation draft; inspect before retrying.`:
     error.message,true);}
   finally{finishVoiceTrace?.(voiceOutcome);voiceJob=null;voiceAgentContext=null;
-    voiceSteerTurnId=null;voiceButtons();}
+    voiceSteerTurnId=null;voiceDestination=null;voiceButtons();}
 }
-for(const id of ['voice-button','xr-voice']){
+for(const id of ['voice-button','xr-voice','conversation-microphone']){
   const button=$(id);button.addEventListener('click',()=>voiceRecording||voiceStarting?endVoice():beginVoice());
   button.addEventListener('contextmenu',event=>event.preventDefault());
 }

@@ -301,6 +301,29 @@ class AppServerTransportTests(unittest.TestCase):
         self.transport.close()
         self.assertFalse(staged.exists())
 
+    def test_failed_native_attempt_allows_one_successful_retry(self):
+        encoded = base64.b64encode(b"\x89PNG\r\n\x1a\nimage").decode()
+        def receive(status, result=None, failure=None):
+            self.transport._receive({"method": "item/completed", "params": {
+                "threadId": "thread-test", "turnId": "retry-turn",
+                "item": {"type": "imageGeneration", "status": status,
+                         "result": result, "failure": failure}}})
+        receive("failed", failure={"message": "safety rejection with private details"})
+        self.assertEqual(self.transport.image_generation_result("thread-test", "retry-turn")["error"],
+                         "Image request was rejected by the safety system")
+        receive("completed", encoded)
+        ready = self.transport.image_generation_result("thread-test", "retry-turn")
+        self.assertEqual(ready["status"], "ready")
+        self.assertTrue(Path(ready["imagePath"]).is_file())
+        receive("failed")
+        self.assertEqual(self.transport.image_generation_result("thread-test", "retry-turn"), ready)
+        receive("completed", encoded)
+        self.assertEqual(self.transport.image_generation_result("thread-test", "retry-turn")["status"], "failed")
+        self.assertFalse(Path(ready["imagePath"]).exists())
+        receive("completed", encoded)
+        self.assertEqual(self.transport.image_generation_result("thread-test", "retry-turn")["error"],
+                         "Multiple native image results in one turn")
+
     def test_native_capability_requires_chatgpt_account(self):
         with patch.object(self.transport, "request", return_value={"account": {"type": "apiKey"}}):
             available, reason = self.transport.native_image_capability()
