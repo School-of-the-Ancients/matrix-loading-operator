@@ -1,105 +1,44 @@
 # Matrix Loading Operator
 
-> **A persistent Three.js/WebXR world where AI citizens can live independently and humans can enter from desktop/VR or visit through AR. Humans and authorized AI citizens can ask Operator to create and change the world. Save it and return.**
+Matrix is a shared Three.js/WebXR runtime for creating, presenting and interacting with persistent digital worlds. Start blank or load a world, ask Operator to create or change it, interact, save and return from desktop, VR or AR.
 
-Matrix is inspired by **The Matrix** and **Ready Player One**: one editable persistent digital world rather than a collection of separate prototypes. AR is a view into that same world, not a second citizen simulation.
+## v1.2 is frozen
 
-## What Matrix is
+Use the published [v1.2.0 checkpoint](https://github.com/School-of-the-Ancients/matrix-loading-operator/releases/tag/v1.2.0) at source `858d486e9ee8507af36e2a05d78f1d34fc9ca2b0`. Download its PC/WebXR ZIP, manifest and checksums, then follow the bundled `RELEASE-README.md`. Python and native Codex configuration are separate prerequisites; speech models and Blender are optional installations for their respective capabilities.
 
-```text
-Human or AI citizen
-        |
-"Operator, load/create/change XYZ"
-        |
-        v
-Creation pipeline
-  - procedural generation
-  - Blender MCP -> validated import
-  - reusable assets/capabilities
-  - optional image mockup -> selected concept -> build
-        |
-        v
-Three.js / WebXR world
-  - desktop
-  - VR
-  - AR
-  - physics and interaction
-  - save / load
-        |
-        v
-AI Citizens
-  - memory
-  - needs / schedules
-  - planning
-  - relationships
-  - world interaction
-  - eventually world building through the same bounded capabilities
-```
+The checkpoint includes compact Operator context, persisted object locks, Reviewed/Full access choices, readable XR controls, selected-point movement and one shared Codex speech destination. Ordinary AR edits use free placement. Fit to room remains deferred.
 
-The original Unity Matrix/White Room implementation is preserved in [Archive/Unity](Archive/Unity/README.md) as read-only history. **New runtime work targets Three.js/WebXR.**
-
-## Download and run
-
-[v1.2.0 is the published checkpoint](https://github.com/School-of-the-Ancients/matrix-loading-operator/releases/tag/v1.2.0).
-Download its PC/WebXR ZIP, manifest and checksums, then follow the bundled
-`RELEASE-README.md` to start the matching PC service and open `/web/` on desktop
-or Quest Browser. This is a WebXR bundle, not an APK. Python and native Codex
-sign-in are separate prerequisites; local speech models and Blender are optional
-external installations for their respective capabilities.
-
-The checkpoint includes compact Operator context, persisted object locks,
-browser Reviewed/Full access choices, readable XR controls and one shared Codex
-speech destination. **Hold for Codex** opens that conversation from every
-Operator page; **Hold to Add** and **Stop Turn** are available during a turn.
-Select an object, pin a fresh point and ask Codex to move it there. Ordinary AR
-creation and movement use free placement; **Fit to room** is deferred from
-v1.2. Free placement does not certify physical clearance.
-
-The [v1.2 checkpoint guide](Docs/V1.2-Checkpoint.md) records downloads, exact
-source/checksums, permission choices, validation and remaining acceptance.
-v1.1.0 is preserved as the earlier baseline. See [the roadmap](ROADMAP.md#current-baseline-and-acceptance-gate)
-for the recorded release-metadata discrepancy. Complete Quest and matched latency
-acceptance stays open in [#173](https://github.com/School-of-the-Ancients/matrix-loading-operator/issues/173);
-publication or a GitHub release label is not a blanket acceptance pass.
-
-## Fall 2026 coursework direction
-
-**Polished Playground -> one professor and interactive exhibit -> a small generative-agent world.**
-
-The [semester convergence plan](Docs/Semester-Convergence-2026.md) records the
-October 16 decisions: the October 27 4616 demo, shared professor foundation for
-the December 1/2 finals, an optional 4622 digital-self observation interface,
-and 3104 navigation/network-planning applications. Each course keeps a distinct
-contribution; instructor approval and actual rubrics still govern submissions.
-
-Start with the [October 27 rehearsal runbook](Docs/Matrix-Playground-Demo-2026-10-27.md)
-under [#24](https://github.com/School-of-the-Ancients/matrix-loading-operator/issues/24).
-This is a delivery plan, not implemented professor/GPS functionality or a change
-to the existing release gates. Aura, Skyrim integration, and ChatGPT account-memory
-access are not prerequisites for the class demos.
+The implementation and checkpoint packaging are complete. **Matched latency and the remaining physical acceptance are still open in [#173](https://github.com/School-of-the-Ancients/matrix-loading-operator/issues/173).** Later changes on `main`, including #207, are subsequent work and are not in the published ZIP. Keep the published source, tag and assets fixed.
 
 ## Start here
 
-- [VISION.md](VISION.md) — the product idea and boundaries.
-- [ARCHITECTURE.md](ARCHITECTURE.md) — how the pieces fit together.
-- [Modular UX and guided lessons](Docs/Matrix-Modular-UX-Plan.md) — one Operator, simpler controls, module boundaries and scoped lesson authority (target design).
-- [ROADMAP.md](ROADMAP.md) — Now / Next / Later.
-- [RESOURCES.md](RESOURCES.md) — references for creation and AI citizens.
-- [AGENTS.md](AGENTS.md) — rules for coding agents.
-- [WebRuntime/README.md](WebRuntime/README.md#quest-controls-faq) — Quest controls and Operator screen FAQ.
-- [#173 v1.2 fast simple creation](https://github.com/School-of-the-Ancients/matrix-loading-operator/issues/173) — merged checkpoint and remaining acceptance.
+| Need | Read |
+| --- | --- |
+| Run, reproduce or understand v1.2 requirements | [v1.2 checkpoint guide](Docs/V1.2-Checkpoint.md) |
+| See what remains to finish | [Current roadmap](ROADMAP.md#current-work) and [one acceptance checklist](Validation/V1.2-Headset-Acceptance.md) |
+| Understand the product and module boundaries | [Vision](VISION.md) and [architecture](ARCHITECTURE.md) |
+| Use the desktop or Quest controls | [Runtime guide](WebRuntime/README.md) |
+| Work on this repository | [Agent instructions](AGENTS.md) |
+| Browse research, papers and project references | [Research index](https://github.com/School-of-the-Ancients/matrix-loading-operator/blob/main/RESOURCES.md) |
+| Find an old plan, build log or screenshot | [Archive index](https://github.com/School-of-the-Ancients/matrix-loading-operator/blob/main/Archive/README.md) — files remain in the repository. |
 
-Detailed technical runbooks and evidence live under `Docs/` and `Validation/`.
-The ordinary `/web/` page is an interactive browser-owned world. The
-separately started PC-owned Ada/Bo fixture is observed read-only at
-`/web/hosted.html`; see [the host runbook](Docs/Persistent-World-Host.md).
-To freeze a WebXR/PC preview from an exact commit, use the
-[release builder](Tools/README-WebXR-Release.md).
+## Modules
 
-## Runtime
+| Module | Responsibility |
+| --- | --- |
+| **Matrix** | Shared world execution, Operator, creation and presentation, physics, saves and desktop/VR/room AR access. |
+| **School / Cosmos Fair** | Conversations with historical minds, mentor identity, teaching and learner records. Uses Matrix to present supported images, objects, environments and experiments. |
+| **Civilization** | AI residents and society, Boulder and geographic AR overlays. Uses bounded Matrix world actions. |
 
-- `WebRuntime/` — Three.js/WebXR Matrix client and world runtime.
-- `ControlService/` — PC-local Operator/Agent Portal, tools, validation and receipts.
-- `Archive/Unity/` — historical Unity source and release evidence.
+These boundaries organize responsibilities and issues. Current Citizens code remains nested here. A School mentor can use a generic Matrix avatar without the Citizens simulation. Future work is grouped by module in the roadmap; v1.2 acceptance and delivery are the selected work.
 
-Do not restart or rebuild the project because the documentation was simplified. Continue the existing implementation and preserve saved worlds, current contracts and merged work.
+## Runtime and operating references
+
+- `WebRuntime/` — the Three.js/WebXR world and client.
+- `ControlService/` — the PC-local Operator, tools, validation and receipts. Privileged credentials stay on the PC.
+- [Release builder](Tools/README-WebXR-Release.md) — build and verify a package from an exact committed revision.
+- [World checkpoints](ControlService/WORLD_CHECKPOINTS.md) — save and recovery contracts.
+- [Persistent host](Docs/Persistent-World-Host.md) — the separately started, PC-owned Citizens fixture and read-only viewer. The ordinary `/web/` world remains browser-owned.
+- [Unity archive](https://github.com/School-of-the-Ancients/matrix-loading-operator/blob/main/Archive/Unity/README.md) — preserved early implementation.
+
+Operator can use procedural creation, reusable assets or Blender with validated import; an image mockup can guide a build. All use the same Matrix world and executor. Preserve existing worlds and stable identities when continuing the implementation.

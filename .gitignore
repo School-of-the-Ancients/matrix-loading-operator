@@ -126,3 +126,9 @@ InitTestScene*.unity*
 /work/
 /.matrix-boulder-token
 /.matrix-boulder-fixture/
+
+# Keep validation tools and deliberate fixtures; store run output with its issue/PR.
+/Validation/*
+!/Validation/*.py
+!/Validation/client-api-v1-fixtures.json
+!/Validation/V1.2-Headset-Acceptance.md

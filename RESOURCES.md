@@ -1,127 +1,40 @@
-# Matrix resources
+# Research reference index
 
-References are inputs and examples, not automatic dependencies or new roadmap items.
+The [full research catalog](Archive/v1.2-freeze-2026-10-17/RESOURCES.md) and all seven research notes remain in the repository under `Archive/v1.2-freeze-2026-10-17/`. They preserve the collected sources and context; references do not automatically become dependencies or selected work.
 
-## World and procedural generation
+## Research notes
 
-- **Sakuragaoka Station** — procedural Three.js world construction: https://github.com/Kenton-GMI/sakuragaoka-station
-- **Three.js** — current Web runtime foundation: https://threejs.org/
-- **WebXR** — immersive browser runtime: https://immersiveweb.dev/
+| Topic | Preserved research | Module |
+| --- | --- | --- |
+| Persistent societies and public data | [Emergence World](Archive/v1.2-freeze-2026-10-17/Docs/Research/Emergence-World.md) | Civilization |
+| Simulation clocks and learned world models | [Clocks and world models](Archive/v1.2-freeze-2026-10-17/Docs/Research/Simulation-Clocks-and-World-Models.md) | Civilization / School experiments |
+| Embodied NPC conversations and actions | [Skyrim VR AI NPCs](Archive/v1.2-freeze-2026-10-17/Docs/Research/Skyrim-VR-AI-NPCs.md) | Civilization |
+| Planning and character execution | [GOAP investigation](Archive/v1.2-freeze-2026-10-17/Docs/GOAP-Next-Step.md) | Civilization / Matrix execution |
+| Composable runtime behavior | [LLMR behavior runtime](Archive/v1.2-freeze-2026-10-17/Docs/LLMR-Behavior-Runtime.md) | Matrix |
+| Local speech | [LLMR and voice review](Archive/v1.2-freeze-2026-10-17/Docs/LLMR-Voice-Review.md) | Matrix |
+| Earlier Unity, Meta and MRUK work | [Meta Building Blocks review](Archive/v1.2-freeze-2026-10-17/Docs/Meta-Building-Blocks-Review.md) | Matrix history |
 
-Use these references to improve fast, parameterized creation behind **"Operator, load/create XYZ."**
+## Boulder simulation, geospatial visualization and AR registration (October 22, 2026)
 
-## Physics and simulation
+**Research sources and layer boundaries** (not selected runtime dependencies):
 
-- **three-avbd** — Three.js/WebGPU rigid-body physics using Augmented Vertex Block Descent; supports large GPU-simulated worlds with contacts, friction, joints, raycasts and interaction: https://github.com/sbobyn/three-avbd
+- **Persistent agent society:** [Emergence World](https://github.com/EmergenceAI/Emergence-World), with [Matrix's preserved review](Archive/v1.2-freeze-2026-10-17/Docs/Research/Emergence-World.md). A 2026 multi-agent society reference, **not** a fully open-source runnable engine; released content is CC BY-NC 4.0, research/non-commercial use.
+- **Geographic source of truth:** [Overture Maps](https://docs.overturemaps.org/) and local open geographic data for independently licensed streets, footprints, path graphs and elevation as available. Simulation identity, navigation, collisions and citizen state must be maintained independently of a photorealistic basemap.
+- **Optional city visualization:** [Google Maps Photorealistic 3D Tiles](https://developers.google.com/maps/documentation/tile/3d-tiles-overview) in compatible renderers (e.g., Cesium). Keep this as an API-licensed visual layer; confirm coverage, fees, attribution, caching and restrictions. Do **not** extract, train on, or repurpose Google's visual geometry into independent simulation data.
+- **Optional simulation backend:** [NVIDIA Omniverse/OpenUSD](https://docs.omniverse.nvidia.com/) for interoperable scenes / future physics or digital-twin experiments. No replacement of the current Three.js/WebXR + Blender Matrix path is selected.
+- **Real-world AR registration:** [ARCore Geospatial API](https://developers.google.com/ar/develop/geospatial) (GPS + VPS / camera-inertial localization) as a candidate geospatial anchor layer. SDK/device support, outdoor coverage, precision, occlusion and live headset availability must be proven separately; GPS alone is not precise sidewalk alignment.
+- **Learning vs simulation:** [Hua Wei / DaRL research](https://labs.engineering.asu.edu/hw/research) connects *learning to simulate* with *sim-to-real transfer*; these do not imply AR registration already works.
 
-Use as a reference/candidate for scalable browser-native physics rather than automatically replacing the current Matrix physics path.
+**Proposed bounded research sequence:** independently map one Boulder block, persist 3–5 residents and their actions in Matrix/Citizens, inspect the same world from desktop/VR, then add one calibrated AR registered view. Treat observations with timestamps/confidence; physical obstacles remain visible despite stylized overlays.
 
-## Operator creation pipeline
+**Ownership:** Civilization geospatial research [#179](https://github.com/School-of-the-Ancients/matrix-loading-operator/issues/179), street-overlay acceptance [#180](https://github.com/School-of-the-Ancients/matrix-loading-operator/issues/180), AI Citizens [#29](https://github.com/School-of-the-Ancients/matrix-loading-operator/issues/29). **Scope:** research-only, no new sprint, no frozen v1.2 scope change, no adopted service or completed headset test.
 
-Matrix supports complementary creation paths:
+## Related proposals
 
-- procedural generation;
-- reusable validated assets/capabilities;
-- Blender MCP -> export/import;
-- optional image mockup -> revise/select -> procedural or Blender build.
+| Area | Preserved material | Current owner |
+| --- | --- | --- |
+| Creation and UI | [Modular UX inventory](Archive/v1.2-freeze-2026-10-17/Docs/Matrix-Modular-UX-Plan.md) | Matrix #9, #154, #185, #203 |
+| Historical minds and presentations | [School plan](Archive/v1.2-freeze-2026-10-17/Docs/School-Generative-Agents-Plan.md) and [reference integration](Archive/v1.2-freeze-2026-10-17/Docs/V1.3-Implementation-Plan.md) | School / Matrix #187 |
+| Boulder and geographic AR | [Boulder requirements](Archive/v1.2-freeze-2026-10-17/Docs/Matrix-Boulder-PRD.md) | Civilization #179, #180 |
 
-Image generation is art direction, not proof of geometry, interaction or physics.
-
-Existing implementation owners include:
-
-- [#122 Immersive Creator Mode](https://github.com/School-of-the-Ancients/matrix-loading-operator/issues/122)
-- [#91 concept-image iteration](https://github.com/School-of-the-Ancients/matrix-loading-operator/issues/91)
-- [#28 asset discovery/creation/delivery](https://github.com/School-of-the-Ancients/matrix-loading-operator/issues/28)
-- [#9 content-source adapters](https://github.com/School-of-the-Ancients/matrix-loading-operator/issues/9)
-
-## AI Citizens and agent societies
-
-### Core references
-
-- **Generative Agents: Interactive Simulacra of Human Behavior** — memory, reflection, retrieval, planning and believable interactions: https://arxiv.org/abs/2304.03442
-- **SwarmWorld** — societies of language-model agents, shared artifacts, stigmergic evolution and culture:
-  - paper: https://arxiv.org/abs/2608.26081
-  - code: https://github.com/lamm-mit/SwarmWorld
-  - architecture: https://github.com/lamm-mit/SwarmWorld/blob/main/docs/ARCHITECTURE.md
-- **Agent Office** — concrete multi-agent office/world example: https://github.com/AgentSystemLabs/agent-office
-- **Voyager** — open-ended embodied agent, curriculum and reusable skill ideas: https://github.com/MineDojo/Voyager
-- **MiroFish** — open-source multi-agent simulation: https://github.com/666ghj/MiroFish
-- **Social Simulacra** — large-scale social simulation reference: https://arxiv.org/abs/2208.04024
-- **Generative Agent Simulations of 1,000 People** — behavioral simulation reference: https://arxiv.org/abs/2411.10109
-
-### The Nanauts: mixed reality citizens
-
-- **[The Nanauts](https://devpost.com/software/nanauts) (James Kane)** — AI robot explorers built with the Immersive Web SDK. [Demo](https://jameskane05.github.io/nanauts/) · [Creator's case study](https://jamesckane.com/case-study/the-nanauts/).
-- **Room-aware navigation:** the Devpost write-up describes Quest scene understanding generating a dynamic navmesh for agents, with crowd/flocking behavior and navigation-driven procedural animation.
-- **Guided interaction:** voice input through Llama 3.3 supports intent/sentiment responses, while a Professor guides the experience; hand tracking and controllers provide interaction modes.
-- **Browser iteration:** the author used the Immersive Web Emulator for rapid development.
-
-Potential Matrix applications are room-aware Citizens, Operator/professor interaction and the [#186 XR review workflow](https://github.com/School-of-the-Ancients/matrix-loading-operator/issues/186). These are our research connections; the write-up does not establish autonomous XR review or Matrix/headset validation.
-
-### Emergence World: persistent societies and external data
-
-- **Emergence World (Emergence AI, 2026)** — persistent model-driven residents, needs/resources, memory, governance and trace-based comparison:
-  - repository: https://github.com/EmergenceAI/Emergence-World
-  - Season 1 paper: https://arxiv.org/abs/2606.08367
-  - Season 2 paper: https://arxiv.org/abs/2609.17320
-  - architecture: https://github.com/EmergenceAI/Emergence-World/blob/main/docs/ARCHITECTURE.md
-  - memory: https://github.com/EmergenceAI/Emergence-World/blob/main/docs/MEMORY.md
-  - replay website: https://world.emergence.ai/
-- **Release boundary, checked October 11, 2026:** profiles, world/tool descriptions, prompts and datasets are public; no runnable frontend/backend or custom agent-framework implementation was identified. Treat this as a blueprint/data reference, not a clone-and-run dependency.
-- **Data boundary:** NYC time/weather and external information ground a simplified world; they do not establish a street-accurate NYC digital twin.
-- **Reuse boundary:** upstream material is CC BY-NC 4.0 for noncommercial research/education with attribution; preserve its license/provenance before adapting it.
-
-See [the Matrix research note](Docs/Research/Emergence-World.md) for Citizens (#29), hosting (#20/#148), School experiments and public-data/geospatial research (#179/#180). These connections do not select implementation or expand the current sprint.
-
-### School professor and 3D-world authoring references
-
-- **Matt Shumer: How to Build 3D Worlds with Astra** — reference/assets/assembly/critique workflow and existing-engine authoring: https://somethingbig.ai/3d-worlds
-- **Matt Shumer: Astra review** — reported AI-resident world experiments and separate development-agent orchestration: https://somethingbig.ai/astra-review
-- **Generative Agents code** — research implementation of the paper's memory/planning ideas; not a replacement for Matrix's runtime: https://github.com/joonspk-research/generative_agents
-- **Quaternius Universal Base Characters** — candidate rigged human assets; verify the selected asset's license and Matrix GLB/animation contract before import: https://quaternius.com/packs/universalbasecharacters.html
-
-The [School professor implementation plan](Docs/School-Generative-Agents-Plan.md) selects a small proposed teaching slice. The reported nested-computer and NYC examples are inspiration with unverified implementation details; they are not current Matrix capabilities or a new city scope.
-
-### Skyrim VR: embodied AI NPCs
-
-- **Mantella** — conversation/memory plus configurable NPC actions: https://art-from-the-machine.github.io/Mantella/
-- **CHIM** — broader gameplay actions and background resident activity: https://dwemerdynamics.com/chim/index.html
-  - Background Life: https://dwemerdynamics.com/chim/background-life.html
-- **SkyrimNet** — native in-game AI plugin with semantic memory and supported actions: https://fateless.ai/
-- **Mantella movement source** — concrete model-intention → native-AI-package → observed-distance pattern:
-  - action schema: https://github.com/art-from-the-machine/Mantella/blob/main/data/actions/functions/move_npc.json
-  - executor: https://github.com/art-from-the-machine/Mantella-Spell/blob/main/Scripts/Source/MantellaAdvancedAction_MoveTo.psc
-
-See [Skyrim VR research](Docs/Research/Skyrim-VR-AI-NPCs.md) for the Creation Engine platform, XYZ/context distinction and Matrix transfer questions.
-
-### Interactive platforms, clocks and predictive-model research
-
-- **AI Town** — deployable generative-agent town: https://github.com/a16z-infra/ai-town
-- **Mindcraft / MineCollab** — Minecraft embodied-agent collaboration:
-  - platform: https://github.com/mindcraft-bots/mindcraft
-  - paper: https://arxiv.org/abs/2504.17950
-- **World Models** — learned dynamics: https://worldmodels.github.io/
-- **DreamerV3** — learning through imagined trajectories: https://danijar.com/project/dreamerv3/
-
-See [simulation clocks and world-model research](Docs/Research/Simulation-Clocks-and-World-Models.md) for human participation, simulation/replay speed and Matt's cross-simulation training idea. Emergence World's documented clock is 1:1 with no fast-forward; an accelerated interactive visitor mode is a separate proposal.
-
-### Decision/action references
-
-- **Jev / TypeSafe AI** — candidate bounded fast action selector: https://typesafe.ai/
-- **Halo AI** — authored, readable state-machine behavior baseline: https://halo.bungie.org/misc/gdc.2002.haloai/talk.html
-
-### Character/animation references
-
-- **Quaternius Universal Animation Library** — reusable animation source candidate: https://quaternius.com/packs/universalanimationlibrary.html
-
-Matrix implementation owner: [#29 AI Citizens roadmap](https://github.com/School-of-the-Ancients/matrix-loading-operator/issues/29).
-
-## Inhabited-world comparisons
-
-- **Odyssey / Agora** — learned/shared-world comparator: https://odyssey.systems/
-- **Fortnite LLM conversations** — conversational NPC product reference: https://www.fortnite.com/news/publish-islands-with-llm-conversations-starting-july-30
-- **Ubisoft NEO NPC** — generative NPC prototype reference: https://news.ubisoft.com/en-gb/article/5qXdxhshJBXoanFZApdG3L/how-ubisofts-new-generative-ai-prototype-changes-the-narrative-for-npcs
-
-## Resource rule
-
-A useful link normally belongs here first. Only turn it into an issue when there is a concrete Matrix capability to build or evaluate.
+The [roadmap](ROADMAP.md) selects work. Preserve useful research and its original context, date, sources and license; a research example does not establish an implemented Matrix capability. Keep research browsable in the repository through this index. See the [archive index](Archive/README.md) for historical plans, build evidence and the original repository snapshot.

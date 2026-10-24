@@ -1,8 +1,8 @@
 # Matrix vision
 
-> **A persistent Three.js/WebXR world where AI citizens can live independently and humans can enter from desktop/VR or visit through AR. Humans and authorized AI citizens can ask Operator to create and change the world. Save it and return.**
+> **A shared Three.js/WebXR runtime for creating, presenting and interacting with persistent digital worlds. Start blank or load a world, ask Operator to create or change it, then save and return from desktop, VR or AR.**
 
-The goal is a persistent editable digital world inspired by **The Matrix** and **Ready Player One**. The world and its citizens do not depend on a human browser being open. Desktop and VR enter that world directly; AR registers a view of the same world against the physical environment.
+The goal is a persistent editable digital world inspired by **The Matrix** and **Ready Player One**. Matrix provides the shared creation and presentation runtime for independent experiences such as School and Civilization. Desktop and VR enter a Matrix world directly; AR registers a view of that world against the physical environment.
 
 The Matrix-inspired **White Room** is the blank-canvas idea: begin with nothing and ask Operator to load or create what you want. It is not a required Unity prefab or a separate editing room.
 
@@ -22,7 +22,7 @@ The same world can be used from desktop, VR or AR.
 
 ## Operator
 
-Operator is available to authorized humans and, eventually, authorized AI citizens.
+Operator serves humans and authorized requests from experiences such as School and Civilization, within the capabilities each integration supports.
 
 A request such as **"Operator, load a spaceship"** can be fulfilled through whichever creation method fits best:
 
@@ -33,9 +33,9 @@ A request such as **"Operator, load a spaceship"** can be fulfilled through whic
 
 These are different paths into the same world, not separate products.
 
-## AI Citizens
+## Civilization / AI Citizens
 
-Some Matrix worlds contain persistent AI citizens.
+Civilization is an independent logical module for AI residents, society, Boulder and geographic AR overlays. It uses Matrix to present and run its world. Its long-term residents should continue even when no human browser is open; this remains a persistence goal rather than a property of every current Matrix world.
 
 Citizens can grow toward:
 
@@ -48,15 +48,15 @@ Citizens can grow toward:
 - persistent state;
 - world building through the same bounded creation capabilities available to humans.
 
-Useful references include Generative Agents, SwarmWorld, Agent Office, Voyager and other agent-society work collected in [RESOURCES.md](RESOURCES.md).
+Useful references include Generative Agents, SwarmWorld, Agent Office, Voyager and other agent-society work collected in [RESOURCES.md](https://github.com/School-of-the-Ancients/matrix-loading-operator/blob/main/RESOURCES.md).
 
 Citizens do not receive unrestricted Operator or PC credentials. They request world actions through explicit capabilities and world permissions.
 
-## School of the Ancients experience
+## School of the Ancients / Cosmos Fair experience
 
-An ancient professor can explain an idea, request a bounded demonstration through Operator, inspect the resulting experiment, and help the learner revise it. Teaching content and learner records remain School-owned; the professor and exhibit inhabit the ordinary Matrix world. Longer-term Citizens may use an in-world workstation to run bounded child experiments.
+School is an independent experience centered on conversations with historical minds. A figure can explain an idea and request any supported presentation material through Operator. School owns the mentor's identity, conversation, teaching and learner records; Matrix creates, presents and runs the requested material. A visible guide can use an ordinary Matrix avatar/entity without requiring a resident simulation.
 
-The [professor and generative Citizens implementation plan](Docs/School-Generative-Agents-Plan.md) starts with one text-first lesson and one editable exhibit, then adds grounded memory, a small agent society and sandboxed inner simulations. These are proposed increments, not claims of current implementation.
+The [archived reference integration proposal](https://github.com/School-of-the-Ancients/matrix-loading-operator/blob/main/Archive/v1.2-freeze-2026-10-17/Docs/V1.3-Implementation-Plan.md) uses an existing School lesson to prove that connection. School and Civilization are independent workstreams; current delivery choices belong in [ROADMAP.md](ROADMAP.md).
 
 ## Persistence
 
@@ -72,12 +72,13 @@ Matrix owns:
 - Operator creation/editing;
 - procedural creation;
 - Blender/asset import;
-- WebXR/desktop access;
+- WebXR/desktop access and generic room AR;
 - physics and interaction;
-- persistence;
-- AI Citizens.
+- world persistence.
 
-School of the Ancients can use Matrix for lessons, mentors and exhibits, but teaching/curriculum/learner records remain School concerns.
+School owns historical-figure conversations, mentor identities, teaching/curriculum and learner records. It uses Matrix as a creation and presentation tool.
+
+Civilization owns resident behavior, society and the meaning/data of Boulder and geographic AR overlays. The current Citizens implementation remains nested in this repository; logical ownership does not require a new repository or runtime.
 
 Manfred can provide human context and wearable input, but private lifelog data is not Matrix world state.
 

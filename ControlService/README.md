@@ -4,12 +4,12 @@ ControlService is the PC-side service for the current
 [Three.js/WebXR Matrix](../WebRuntime/README.md) at `/web/`. An old `/` bookmark
 now opens `/web/`; the original Unity Operator remains at the loopback-only
 `/legacy/operator` for compatibility. Unity source and build scripts are
-[read-only history](../Archive/Unity/README.md). The shared service and
+[read-only history](https://github.com/School-of-the-Ancients/matrix-loading-operator/blob/main/Archive/Unity/README.md). The shared service and
 `/api/exchange` remain in place while the Web runtime uses them. The
 [route and consumer map](../Docs/Control-Page-Routes.md) explains the other PC
 pages and preserved APIs.
 
-For a new Web checkout, use the [Matrix Web setup](../README.md#start-matrix-web),
+For a new Web checkout, use the [Matrix Web setup](../README.md#v12-is-frozen),
 then open `http://127.0.0.1:8765/web/`. For PC-local Codex sessions, approvals
 and headset Agent behavior, use the [Agent Portal guide](AGENT_PORTAL.md). For
 Web persistence, use [whole-world checkpoints](WORLD_CHECKPOINTS.md) and the
@@ -22,7 +22,7 @@ On `/web/`, **Enable environment camera for AI review** requests a separate brow
 
 The service accepts a current Matrix Web `webxr_camera_pair` only in AR and a `webxr_virtual_center_eye` as virtual-only. It checks the image against the requested mode and authoritative runtime snapshot, then binds Agent submission to the same client, room, scene revision, runtime generation and presentation. A ready capture expires after 30 seconds and can start only one Agent turn. The Agent Portal receives one validated JPEG of at most 512 KiB, stages it in a temporary local file for that turn, and clears it on completion, cancellation, error, close or restart. Image bytes are not put in saved scenes or normal Agent text turns.
 
-The mixed JPEG has two labeled panels: a separate environment-camera frame and a separate Three.js render. It contains no readable WebXR compositor passthrough pixels and makes no pixel-alignment, depth or camera calibration claim. `cameraFrameCapturedAtUtc` is the wall-clock time after JavaScript copies the current video frame to a canvas; `cameraToPairMs` is the application interval from that copy to pair assembly. Neither is sensor exposure time or end-to-end latency. If permission or device identification fails, the Web page displays the camera status and Review View uses virtual-only capture. If a mixed capture fails, the page reports it and requests a new virtual-only image; the service never silently changes a mixed request's source. The [#26 validation record](../Validation/Quest-Camera-Context-26-2026-09-28.md) lists the pending Quest wearer gates.
+The mixed JPEG has two labeled panels: a separate environment-camera frame and a separate Three.js render. It contains no readable WebXR compositor passthrough pixels and makes no pixel-alignment, depth or camera calibration claim. `cameraFrameCapturedAtUtc` is the wall-clock time after JavaScript copies the current video frame to a canvas; `cameraToPairMs` is the application interval from that copy to pair assembly. Neither is sensor exposure time or end-to-end latency. If permission or device identification fails, the Web page displays the camera status and Review View uses virtual-only capture. If a mixed capture fails, the page reports it and requests a new virtual-only image; the service never silently changes a mixed request's source. The [#26 validation record](https://github.com/School-of-the-Ancients/matrix-loading-operator/blob/main/Archive/v1.2-freeze-2026-10-17/Validation/Quest-Camera-Context-26-2026-09-28.md) lists the pending Quest wearer gates.
 
 ## Historical Unity Operator and client API
 
@@ -30,7 +30,7 @@ The remainder of this guide records the native Operator and compatible API
 behavior. Its native build and headset instructions assume the pre-archive
 root layout at [`21cc500`](https://github.com/School-of-the-Ancients/matrix-loading-operator/tree/21cc500).
 
-Rendered image feedback is documented in [Visual Feedback](../Docs/Visual-Feedback.md). The Operator's explicit capture/preview controls attach one bounded JPEG to a typed request or the next voice request. `POST /api/capture` requests it, `GET /api/capture` retrieves the authenticated preview, and `/api/plan` accepts its `captureId`. `POST /api/capture/voice` selects or clears a one-shot voice attachment. Images stay outside saved scenes and normal state polling. Codex requires an explicitly known image-capable model; compatible HTTP providers require the explicit `SANDBOX_AI_SUPPORTS_IMAGES=true` capability setting. Unsupported images produce an error, never a text-only fallback.
+Rendered image feedback is documented in [Visual Feedback](https://github.com/School-of-the-Ancients/matrix-loading-operator/blob/main/Archive/v1.2-freeze-2026-10-17/Docs/Visual-Feedback.md). The Operator's explicit capture/preview controls attach one bounded JPEG to a typed request or the next voice request. `POST /api/capture` requests it, `GET /api/capture` retrieves the authenticated preview, and `/api/plan` accepts its `captureId`. `POST /api/capture/voice` selects or clears a one-shot voice attachment. Images stay outside saved scenes and normal state polling. Codex requires an explicitly known image-capable model; compatible HTTP providers require the explicit `SANDBOX_AI_SUPPORTS_IMAGES=true` capability setting. Unsupported images produce an error, never a text-only fallback.
 
 Requires Python 3.10 or later. Uses only the standard library; no packages need installing. Run from this directory:
 
@@ -128,9 +128,9 @@ Saves default to `ControlService/scenes`, or choose `--scenes PATH`. Save names 
 
 ## Natural-language commands and optional AI
 
-Without a configured model, the panel defaults to **offline-rules**, a constrained English parser, not AI. It supports `Put a block here`, `Make it twice as big`, `Move it 20 cm left`, `Rotate it 45 degrees`, `Delete it`, `Save as Demo`, `Clear the scene`, and `Load Demo`. See [AI-Integration.md](../Docs/AI-Integration.md) for the supported vocabulary. Unknown or ambiguous requests are rejected. Directions use the selected surface axes; “it” uses the selected object ID. The native device or desktop player supplies this selection.
+Without a configured model, the panel defaults to **offline-rules**, a constrained English parser, not AI. It supports `Put a block here`, `Make it twice as big`, `Move it 20 cm left`, `Rotate it 45 degrees`, `Delete it`, `Save as Demo`, `Clear the scene`, and `Load Demo`. See [AI-Integration.md](https://github.com/School-of-the-Ancients/matrix-loading-operator/blob/main/Archive/v1.2-freeze-2026-10-17/Docs/AI-Integration.md) for the supported vocabulary. Unknown or ambiguous requests are rejected. Directions use the selected surface axes; “it” uses the selected object ID. The native device or desktop player supplies this selection.
 
-For the selected ChatGPT/Codex subscription, run `../Start-CodexControlService.ps1` instead of the ordinary server command. It checks the native CLI's saved ChatGPT login and selects `codex-cli`; use `-CodexExe` when the executable is not on PATH. The project never reads or copies authentication files. Each bounded, structured model response is validated before Apply. The complete five-request Codex loop now passed **61 checks** on the actual Quest Pro: spawn, same-ID double scale, PC save, clear and exact restore, followed by original-scene and selection recovery. The wearer also confirmed the visible changes and restoration. The first interrupted attempt is retained separately; see [the session report](../Validation/Quest-Pro-Session.md).
+For the selected ChatGPT/Codex subscription, run `../Start-CodexControlService.ps1` instead of the ordinary server command. It checks the native CLI's saved ChatGPT login and selects `codex-cli`; use `-CodexExe` when the executable is not on PATH. The project never reads or copies authentication files. Each bounded, structured model response is validated before Apply. The complete five-request Codex loop now passed **61 checks** on the actual Quest Pro: spawn, same-ID double scale, PC save, clear and exact restore, followed by original-scene and selection recovery. The wearer also confirmed the visible changes and restoration. The first interrupted attempt is retained separately; see [the session report](https://github.com/School-of-the-Ancients/matrix-loading-operator/blob/main/Archive/v1.2-freeze-2026-10-17/Validation/Quest-Pro-Session.md).
 
 Refresh a page opened before the Codex integration was installed, then confirm **Language mode → Codex (ChatGPT subscription)**. Enter a request, choose **Create proposal**, review the commands and choose **Apply reviewed proposal**. Leave controller and other browser edits idle during inference. The current scene and selection must still match when the proposal is applied.
 

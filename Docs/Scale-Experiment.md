@@ -84,7 +84,7 @@ Automated coverage is in `ControlService/test_scale_experiment.py` and `test_sca
 
 The Web adapter adds `WebRuntime/test/block_scale.test.js` for equivalent HTML/Three.js intents, a limited proposal path without Apply, confirmed-event gating, and saved-world identity checks. `ControlService/test_block_scale_math.py` checks the extracted arithmetic independently; `test_scale_agent.py` exercises the private agent bridge through owner Apply and an exact runtime receipt. These tests use synthetic scenes and do not establish headset behavior.
 
-The separate [actual Windows acceptance](Scale-Windows-Validation.md) records 36 passed checks with real Unity receipts and snapshots: uniform and chained nonuniform scaling, reviewed reset, no change before Apply, and rejection after an intervening runtime edit. It used a headless isolated player and authenticated owner API calls; no human UI click, rendering, Quest or AR validation is implied. [The sanitized record](../Validation/block-scale-windows.json) pins the tested service files and runtime assembly.
+The separate [actual Windows acceptance](../Archive/v1.2-freeze-2026-10-17/Docs/Scale-Windows-Validation.md) records 36 passed checks with real Unity receipts and snapshots: uniform and chained nonuniform scaling, reviewed reset, no change before Apply, and rejection after an intervening runtime edit. It used a headless isolated player and authenticated owner API calls; no human UI click, rendering, Quest or AR validation is implied. [The sanitized record](../Archive/v1.2-freeze-2026-10-17/Validation/block-scale-windows.json) pins the tested service files and runtime assembly.
 
 Validation on September 22, 2026:
 
