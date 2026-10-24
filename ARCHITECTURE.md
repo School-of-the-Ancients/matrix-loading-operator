@@ -77,6 +77,20 @@ Do not create a resident-only scene graph, executor, physics system or hidden se
 
 School owns historical-figure conversations, mentor identities, teaching and learner records. A figure requests supported presentation material through Operator and scoped Matrix capabilities. Its visible guide can be an ordinary Matrix avatar/entity without starting `CitizensSimulation`; School mentor identity and Matrix entity identity remain distinct. School and Civilization do not depend on each other's simulation or delivery schedule.
 
+The paired Professor adapter is implemented. School persists the lesson, attributed
+conversation and bounded presentation/task intent; Matrix owns the avatar, local
+speech capture/playback, selected point, virtual-view capture, Operator queue and
+world receipts. The teacher does not receive shell or MCP access. It can continue
+teaching while a separately authorized Operator task runs. A completed task is
+not by itself proof of a loaded object or physical simulation.
+
+Current voice is push-to-talk, recognition, teaching generation and local TTS;
+it is not native full-duplex voice. Scene annotations and an explicitly selected
+virtual-view image provide bounded context, not continuous physical-camera sight.
+The local asset library is implemented, while reviewed curriculum publication,
+generic experiment integration and broad recovery/device acceptance remain open.
+See [the current candidate](Docs/V1.3-Checkpoint.md) and [roadmap status](ROADMAP.md#reviewed-implementation-status).
+
 ## Geographic observations: research direction
 
 [Emergence World research](https://github.com/School-of-the-Ancients/matrix-loading-operator/blob/main/Archive/v1.2-freeze-2026-10-17/Docs/Research/Emergence-World.md) informs a possible Civilization public-data input to the existing world owner. Civilization owns the data's geographic and simulation meaning; Matrix receives bounded world actions. Preserve the source, geography, observation/fetch timestamps, units and freshness; distinguish the observation from a rule-derived simulated condition and a Citizen inference. Replay would need the recorded input snapshot. External information must not grant capabilities or create another simulation owner/clock. This is a proposed contract, not an implemented data adapter or NYC reconstruction; private Manfred context remains separate.
