@@ -573,6 +573,7 @@ def verify_extracted(archive_path: Path, hashes: dict[str, str],
             assets.mkdir(parents=True)
         flags = subprocess.CREATE_NO_WINDOW if os.name == "nt" else 0
         service = host = professor = None
+        startup_errors = tempfile.TemporaryFile(mode="w+", encoding="utf-8")
         try:
             professor_ui = root / "Professor/dist-matrix"
             professor_args = []
@@ -582,7 +583,7 @@ def verify_extracted(archive_path: Path, hashes: dict[str, str],
                     [tool("node"), "node_modules/vite/bin/vite.js", "preview",
                      "--host", "127.0.0.1", "--port", str(professor_port), "--strictPort"],
                     cwd=root / "Professor", env=env, stdout=subprocess.DEVNULL,
-                    stderr=subprocess.DEVNULL, creationflags=flags)
+                    stderr=startup_errors, creationflags=flags)
                 professor_base = f"http://127.0.0.1:{professor_port}"
                 wait_for_service(professor_base, professor, owner, timeout)
                 for route in ("/", "/api/school/sessions"):
@@ -601,7 +602,7 @@ def verify_extracted(archive_path: Path, hashes: dict[str, str],
                  "--port", str(port), "--scenes", str(scenes), "--web-assets", str(assets),
                  *professor_args],
                 cwd=root, env=env, stdout=subprocess.DEVNULL,
-                stderr=subprocess.DEVNULL, creationflags=flags)
+                stderr=startup_errors, creationflags=flags)
             wait_for_service(base, service, owner, timeout)
             pages = {"health": "/api/health", "web": "/web/",
                      "citizens": "/web/citizens.html",
@@ -662,10 +663,15 @@ def verify_extracted(archive_path: Path, hashes: dict[str, str],
                     "owner": "started", "clockTick":
                     observation["clockTick"], "worldId": observation["worldId"],
                     "tokenSeparation": "passed"}
+        except Exception as error:
+            startup_errors.seek(0)
+            detail = startup_errors.read()[-3000:]
+            raise RuntimeError(f"{error}\n{detail}") from error
         finally:
             stop(host)
             stop(service)
             stop(professor)
+            startup_errors.close()
 
 
 def build(args: argparse.Namespace) -> dict:
