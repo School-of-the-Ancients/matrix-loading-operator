@@ -8,11 +8,11 @@ Conversation ownership is described in [Professor-Conversation-Routing.md](Profe
 
 The first user session exposed three concrete follow-ups:
 
-- [School #7](https://github.com/School-of-the-Ancients/sota-professor/issues/7): shorter, exhibit-led Socratic turns. After a verified load, invite one observation or action and wait for the student, then adapt the next hint/explanation to their answer. Example: “Look at the circle and square—what do you notice about the proportions?” Avoid long automatic lectures.
+- [School #7](https://github.com/School-of-the-Ancients/sota-professor/issues/7): shorter, exhibit-led Socratic turns are implemented in the School draft checkpoint, pending user quality review. After a supported load result, invite one observation or action and wait for the student, then adapt the next hint/explanation to their answer. Example: “Look at the circle and square—what do you notice about the proportions?” Explicit detail requests allow more explanation.
 - [Matrix #215](https://github.com/School-of-the-Ancients/matrix-loading-operator/issues/215): correct the visibly rigid arms-out pose, then add subtle idle/listening/speaking motion and explicit exhibit-directed gestures. Mouth movement working does not establish natural body animation.
 - [Matrix #214](https://github.com/School-of-the-Ancients/matrix-loading-operator/issues/214): expand the curated, licensed VRM catalog and appropriate teacher matching. Leonardo using a cat-girl body with a tail is a placeholder mismatch. Keep an explicit representation label and user override. Dynamic model creation is a later feasibility item, not a dependency for better stock avatars.
 
-Suggested order: improve the short teaching exchange, fix the resting pose, then expand the catalog and gestures. These are recorded future TODOs; this update does not change runtime prompts, models or animation.
+The short teaching exchange is the selected implementation slice. Resting pose, avatar catalog and gestures remain recorded future TODOs; no model or animation change is included in the teaching update.
 
 ## Outcome
 
